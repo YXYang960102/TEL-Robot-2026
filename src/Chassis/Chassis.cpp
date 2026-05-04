@@ -1,27 +1,27 @@
 #include "Chassis.h"
-#include <Arduino.h>
-#include "../Constants/RobotConstants.h"
+#include "../Constants/Pins.h"
+#include "../IO/SBUS.h"
 
-void Chassis::begin(int fr_pin, int br_pin, int fl_pin, int bl_pin) {
-    using namespace RobotConfig::Chassis;
-    motor_fr.attach(fr_pin, PWM_MIN, PWM_MAX);
-    motor_br.attach(br_pin, PWM_MIN, PWM_MAX);
-    motor_fl.attach(fl_pin, PWM_MIN, PWM_MAX);
-    motor_bl.attach(bl_pin, PWM_MIN, PWM_MAX);
+Servo Chassis::fr;
+Servo Chassis::fl;
+Servo Chassis::br;
+Servo Chassis::bl;
+
+void Chassis::init() {
+    fr.attach(PIN_FR);
+    fl.attach(PIN_FL);
+    br.attach(PIN_BR);
+    bl.attach(PIN_BL);
 }
 
-void Chassis::drive(int x, int y, int rotate) {
-    int stopPoint = RobotConfig::Chassis::PWM_STOP;
-    motor_fr.write(x - y + stopPoint + rotate);
-    motor_br.write(x - y + stopPoint - rotate);
-    motor_fl.write(x + y - stopPoint - rotate);
-    motor_bl.write(x + y - stopPoint + rotate);
-}
+void Chassis::update() {
+    int FR = SBUS::ch0 - SBUS::ch1 + SBUS::ch3;
+    int BR = SBUS::ch0 - SBUS::ch1 - SBUS::ch3;
+    int FL = SBUS::ch0 + SBUS::ch1 - SBUS::ch3;
+    int BL = SBUS::ch0 + SBUS::ch1 + SBUS::ch3;
 
-void Chassis::stop() {
-    using namespace RobotConfig::Chassis;
-    motor_fr.writeMicroseconds(PWM_STOP);
-    motor_br.writeMicroseconds(PWM_STOP);
-    motor_fl.writeMicroseconds(PWM_STOP);
-    motor_bl.writeMicroseconds(PWM_STOP);
+    fr.writeMicroseconds(FR);
+    br.writeMicroseconds(BR);
+    fl.writeMicroseconds(FL);
+    bl.writeMicroseconds(BL);
 }

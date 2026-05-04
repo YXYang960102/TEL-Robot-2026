@@ -1,43 +1,40 @@
 #include "Vision.h"
-#include "../Constants/RobotConstants.h"
+#include "../Constants/VisionConstants.h"
 
-void Vision::begin(HardwareSerial &serial, long baud) {
-    _serial = &serial;
-    _serial->begin(baud);
+using namespace VisionConst;
+
+String Vision::rx = "";
+double Vision::xPred = 0;
+
+void Vision::init() {
+    Serial1.begin(115200);
 }
 
 void Vision::update() {
-    if (_serial->available()) {
-        String input = _serial->readStringUntil('\n');
-        parseXY(input);
+    while (Serial1.available()) {
+        char c = Serial1.read();
+
+        if (c == '\n') {
+            parse(rx);
+            rx = "";
+        } else {
+            rx += c;
+        }
     }
 }
 
-void Vision::parseXY(String s) {
-    int commaIndex = s.indexOf(',');
-    if (commaIndex != -1) {
-        x_error = s.substring(0, commaIndex).toFloat();
-        y_range = s.substring(commaIndex + 1).toFloat();
-        updatePrediction(x_error);
-    }
+void Vision::parse(String s) {
+    int idx = s.indexOf(',');
+    if (idx < 0) return;
+
+    double x = s.substring(0, idx).toFloat();
+    updatePrediction(x);
 }
 
-void Vision::updatePrediction(double x_meas) {
-    using namespace RobotConfig::Vision;
-    unsigned long now = millis();
-    if (firstSample) {
-        xFilt = x_meas;
-        lastTime = now;
-        firstSample = false;
-        return;
-    }
-    double dt = (now - lastTime) / 1000.0;
-    if (dt <= 0) return;
+void Vision::updatePrediction(double x) {
+    xPred = constrain(x, -X_MAX, X_MAX);
+}
 
-    xFilt = FILTER_ALPHA * xFilt + PREDICTION_WEIGHT * x_meas; 
-    vx = (xFilt - xFiltPrev) / dt;
-    xPred = xFilt + vx * PREDICTION_TD;
-    
-    xFiltPrev = xFilt;
-    lastTime = now;
+double Vision::getXPred() {
+    return xPred;
 }

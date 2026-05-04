@@ -5,12 +5,10 @@
 
 class Chassis {
 public:
-    void begin(int fr_pin, int br_pin, int fl_pin, int bl_pin);
-    void drive(int x, int y, int rotate);
-    void stop();
+    static void init();
+    static void update();
 
 private:
-    Servo motor_fr, motor_br, motor_fl, motor_bl;
+    static Servo fr, fl, br, bl;
 };
-
 #endif

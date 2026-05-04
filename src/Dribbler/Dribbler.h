@@ -1,21 +1,22 @@
 #ifndef DRIBBLER_H
 #define DRIBBLER_H
 
-#include <Servo.h>
 #include <Arduino.h>
 
 class Dribbler {
 public:
-    void begin();
-    void update(bool manualIntake, bool manualOuttake); 
-    void intake();  
-    void outtake(); 
-    void stop();    
-    bool hasBall(); 
+    static void init();
+    static void update();
+
+    static void setShootRequest(int count);
+    static int getShootRemaining();
 
 private:
-    Servo motor;
-    int sensorPin;
-};
+    static int shoot_pice;
 
+    static void run();
+    static void stop();
+
+    static bool sensorUp;
+};
 #endif

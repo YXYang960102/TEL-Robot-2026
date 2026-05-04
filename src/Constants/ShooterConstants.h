@@ -1,0 +1,20 @@
+#ifndef SHOOTER_CONSTANTS_H
+#define SHOOTER_CONSTANTS_H
+
+namespace ShooterConst {
+
+const int HORI_MIN = 90;
+const int HORI_MAX = 500;
+
+const int VER_MIN = 1200;
+const int VER_MAX = 3500;
+
+const int HALF_AUTO_VER[4][8] = {
+  {1212,1200,1212,1212,1212,1212,1212},
+  {1915,1497,1374,1625,1410,1212,1212},
+  {1957,2230,2075,2684,2326,1608,2307},
+  {2515,2635,2667,3492,2918,2380,2918}
+};
+
+}
+#endif

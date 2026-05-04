@@ -1,46 +1,44 @@
 #include "Dribbler.h"
-#include "../Constants/RobotConstants.h"
+#include "../Constants/Pins.h"
 
-void Dribbler::begin() {
-    using namespace RobotConfig::Dribbler;
-    
-    motor.attach(PIN_MOTOR);
-    sensorPin = PIN_SENSOR;
-    pinMode(sensorPin, INPUT);
-    
-    stop();
+int Dribbler::shoot_pice = 0;
+bool Dribbler::sensorUp = false;
+
+void Dribbler::init() {
+    pinMode(PIN_DRIBBLE_UP, OUTPUT);
+    pinMode(PIN_DRIBBLE_DOWN, OUTPUT);
 }
 
-void Dribbler::update(bool manualIntake, bool manualOuttake) {
-    using namespace RobotConfig::Dribbler;
+void Dribbler::setShootRequest(int count) {
+    shoot_pice = count;
+}
 
-    if (manualIntake) {
-        intake();
-    } 
-    else if (manualOuttake) {
-        outtake();
+int Dribbler::getShootRemaining() {
+    return shoot_pice;
+}
+
+void Dribbler::update() {
+
+
+    bool newBallDetected = digitalRead(PIN_DRIBBLE_DOWN) == LOW;
+
+    if (newBallDetected && shoot_pice > 0) {
+        shoot_pice--;
     }
-    else {
-        if (hasBall()) {
-            stop(); 
-        } else {
-            stop();
-        }
+
+    if (shoot_pice > 0) {
+        run();
+    } else {
+        stop();
     }
 }
 
-bool Dribbler::hasBall() {
-    return (digitalRead(sensorPin) == LOW); 
-}
-
-void Dribbler::intake() {
-    motor.writeMicroseconds(RobotConfig::Dribbler::SPEED_INTAKE);
-}
-
-void Dribbler::outtake() {
-    motor.writeMicroseconds(RobotConfig::Dribbler::SPEED_OUT);
+void Dribbler::run() {
+    digitalWrite(PIN_DRIBBLE_DOWN, HIGH);
+    analogWrite(PIN_DRIBBLE_UP, 255);
 }
 
 void Dribbler::stop() {
-    motor.writeMicroseconds(RobotConfig::Dribbler::SPEED_STOP);
+    digitalWrite(PIN_DRIBBLE_DOWN, LOW);
+    analogWrite(PIN_DRIBBLE_UP, 0);
 }
