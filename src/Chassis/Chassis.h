@@ -1,6 +1,4 @@
-#ifndef CHASSIS_H
-#define CHASSIS_H
-
+#pragma once
 #include <Servo.h>
 
 class Chassis {
@@ -11,4 +9,3 @@ public:
 private:
     static Servo fr, fl, br, bl;
 };
-#endif

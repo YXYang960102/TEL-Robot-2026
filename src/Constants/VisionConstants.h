@@ -1,5 +1,4 @@
-#ifndef VISION_CONSTANTS_H
-#define VISION_CONSTANTS_H
+#pragma once
 
 namespace VisionConst {
 
@@ -16,4 +15,3 @@ const double X_MAX = 400;
 
 }
 
-#endif 

@@ -1,5 +1,4 @@
-#ifndef VISION_H
-#define VISION_H
+#pragma once
 #include <Arduino.h>
 
 class Vision {
@@ -16,4 +15,3 @@ private:
     static String rx;
     static double xPred;
 };
-#endif // VISION_H
