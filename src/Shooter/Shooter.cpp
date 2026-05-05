@@ -35,21 +35,21 @@ void Shooter::update() {
 
     int pot = analogRead(PIN_POT);
 
-    // ===== 水平自動 =====
+    // auto aim
     inA = Vision::getXPred();
     setA = 0;
 
     pidA.Compute();
     escH.writeMicroseconds(1500 + outA);
 
-    // ===== Ready判定 =====
+    // Ready
     if (abs(setA - inA) < 10) {
         readyH = true;
     } else {
         readyH = false;
     }
 
-    // ===== 垂直 =====
+    
     inV = pot;
     setV = 2000;
 
@@ -62,7 +62,7 @@ void Shooter::update() {
         readyV = false;
     }
 
-    // ===== Shooter + Dribbler同步 =====
+    // Shooter + Dribbler
     if (readyH && readyV && Dribbler::getShootRemaining() > 0) {
         falcon.writeMicroseconds(1800); // 發射
     } else {
