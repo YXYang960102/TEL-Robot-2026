@@ -7,11 +7,20 @@ public:
     static void update();
 
     static double getXPred();
+    static double getTx();
+    static double getTy();
+    static double getDistance();
+    static int getTargetId();
+    static bool isValid();
 
 private:
     static void parse(String s);
-    static void updatePrediction(double x);
+    static void updatePrediction(double tx, double ty, double distance, int targetId, bool valid);
 
     static String rx;
-    static double xPred;
+    static double tx;
+    static double ty;
+    static double distance;
+    static int targetId;
+    static bool valid;
 };
