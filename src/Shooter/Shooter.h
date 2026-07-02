@@ -11,7 +11,7 @@ public:
     static bool isReady();
 
 private:
-    static Servo escH;
+    static Servo turretServo;
     static Servo escV;
     static Servo falcon;
 

@@ -1,11 +1,14 @@
 #include "Shooter.h"
 #include "../Constants/Pins.h"
 #include "../Constants/PIDConfig.h"
+#include "../Constants/ShooterConstants.h"
 #include "../Vision/Vision.h"
 #include "../Dribbler/Dribbler.h"
 #include <PID_v1.h>
 
-Servo Shooter::escH;
+using namespace ShooterConst;
+
+Servo Shooter::turretServo;
 Servo Shooter::escV;
 Servo Shooter::falcon;
 
@@ -22,13 +25,16 @@ PID pidV(&inV,&outV,&setV,Kp2,Ki2,Kd2,DIRECT);
 PID pidA(&inA,&outA,&setA,Kp3,Ki3,Kd3,DIRECT);
 
 void Shooter::init() {
-    escH.attach(PIN_ESC_HORI);
+    turretServo.attach(PIN_ESC_HORI);
     escV.attach(PIN_ESC_VER);
     falcon.attach(PIN_FALCON);
 
     pidH.SetMode(AUTOMATIC);
     pidV.SetMode(AUTOMATIC);
     pidA.SetMode(AUTOMATIC);
+    pidA.SetOutputLimits(-MG996_MAX_SPEED_OFFSET_US, MG996_MAX_SPEED_OFFSET_US);
+
+    turretServo.writeMicroseconds(MG996_STOP_US);
 }
 
 void Shooter::update() {
@@ -40,12 +46,15 @@ void Shooter::update() {
     setA = 0;
 
     pidA.Compute();
-    escH.writeMicroseconds(1500 + outA);
 
     // Ready
-    if (abs(setA - inA) < 10) {
+    if (abs(setA - inA) < MG996_AIM_DEADBAND) {
+        turretServo.writeMicroseconds(MG996_STOP_US);
         readyH = true;
     } else {
+        int turretPulse = MG996_STOP_US + (int)outA;
+        turretPulse = constrain(turretPulse, MG996_MIN_US, MG996_MAX_US);
+        turretServo.writeMicroseconds(turretPulse);
         readyH = false;
     }
 

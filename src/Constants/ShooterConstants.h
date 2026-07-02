@@ -3,6 +3,14 @@
 
 namespace ShooterConst {
 
+// MG996 360-degree continuous rotation servo for the shooter turret test branch.
+// 1500us is stop. Values below/above 1500us rotate in opposite directions.
+const int MG996_STOP_US = 1500;
+const int MG996_MIN_US = 1300;
+const int MG996_MAX_US = 1700;
+const int MG996_MAX_SPEED_OFFSET_US = 180;
+const int MG996_AIM_DEADBAND = 10;
+
 const int HORI_MIN = 90;
 const int HORI_MAX = 500;
 
