@@ -1,0 +1,430 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TEL Robot Dashboard</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #101316;
+      --panel: #181d22;
+      --panel-2: #20262d;
+      --text: #f2f5f7;
+      --muted: #98a4af;
+      --line: #303944;
+      --green: #36c275;
+      --yellow: #e1b84a;
+      --red: #e85b5b;
+      --cyan: #53b7e8;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      background: #14181d;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 650;
+      letter-spacing: 0;
+    }
+
+    button {
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      color: var(--text);
+      min-height: 36px;
+      padding: 0 14px;
+      border-radius: 6px;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    button:hover { border-color: var(--cyan); }
+
+    main {
+      display: grid;
+      grid-template-columns: 1.25fr 0.75fr;
+      gap: 14px;
+      padding: 14px;
+    }
+
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(120px, 1fr));
+      gap: 10px;
+      padding: 12px;
+    }
+
+    .metric {
+      min-height: 82px;
+      padding: 10px;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .value {
+      margin-top: 8px;
+      font-size: 28px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      overflow-wrap: anywhere;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 94px;
+      justify-content: center;
+      padding: 7px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--panel-2);
+      font-weight: 650;
+    }
+
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--red);
+    }
+
+    .ok .dot { background: var(--green); }
+    .warn .dot { background: var(--yellow); }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 260px;
+      background: #11161b;
+    }
+
+    .side {
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+
+    .log {
+      height: 260px;
+      overflow: auto;
+      padding: 10px 12px;
+      font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #c7d0d9;
+      white-space: pre-wrap;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-variant-numeric: tabular-nums;
+    }
+
+    td {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    td:last-child {
+      text-align: right;
+      color: var(--text);
+      font-weight: 650;
+    }
+
+    .risk {
+      padding: 12px;
+      font-size: 18px;
+      font-weight: 750;
+    }
+
+    .risk.ok { color: var(--green); }
+    .risk.warn { color: var(--yellow); }
+    .risk.bad { color: var(--red); }
+
+    @media (max-width: 980px) {
+      main { grid-template-columns: 1fr; }
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>TEL Robot Dashboard</h1>
+    <div>
+      <span id="connection" class="status"><span class="dot"></span><span>離線</span></span>
+      <button id="connect">連接 Arduino</button>
+    </div>
+  </header>
+
+  <main>
+    <div>
+      <section>
+        <div class="section-title">
+          <span>Vision</span>
+          <span id="packetAge">-- ms</span>
+        </div>
+        <div class="grid">
+          <div class="metric"><div class="label">tx</div><div class="value" id="tx">--</div></div>
+          <div class="metric"><div class="label">ty</div><div class="value" id="ty">--</div></div>
+          <div class="metric"><div class="label">distance</div><div class="value" id="distance">--</div></div>
+          <div class="metric"><div class="label">target id</div><div class="value" id="targetId">--</div></div>
+          <div class="metric"><div class="label">valid</div><div class="value" id="valid">--</div></div>
+          <div class="metric"><div class="label">shooter ready</div><div class="value" id="shooterReady">--</div></div>
+          <div class="metric"><div class="label">balls left</div><div class="value" id="shootRemaining">--</div></div>
+          <div class="metric"><div class="label">warn bits</div><div class="value" id="warnBits">--</div></div>
+        </div>
+      </section>
+
+      <section style="margin-top:14px">
+        <div class="section-title">
+          <span>Realtime Trace</span>
+          <span>tx / distance</span>
+        </div>
+        <canvas id="chart" width="900" height="260"></canvas>
+      </section>
+    </div>
+
+    <div class="side">
+      <section>
+        <div class="section-title"><span>Safety</span><span>即時判斷</span></div>
+        <div class="risk" id="risk">等待資料</div>
+      </section>
+
+      <section>
+        <div class="section-title"><span>SBUS</span><span>receiver</span></div>
+        <table>
+          <tbody>
+            <tr><td>ch0</td><td id="ch0">--</td></tr>
+            <tr><td>ch1</td><td id="ch1">--</td></tr>
+            <tr><td>ch2</td><td id="ch2">--</td></tr>
+            <tr><td>ch3</td><td id="ch3">--</td></tr>
+            <tr><td>ch8</td><td id="ch8">--</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section>
+        <div class="section-title"><span>Serial Log</span><span id="rate">0 Hz</span></div>
+        <div class="log" id="log"></div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const ids = ["tx", "ty", "distance", "targetId", "valid", "shooterReady", "shootRemaining", "warnBits", "ch0", "ch1", "ch2", "ch3", "ch8"];
+    const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
+    const connectButton = document.getElementById("connect");
+    const connection = document.getElementById("connection");
+    const packetAge = document.getElementById("packetAge");
+    const risk = document.getElementById("risk");
+    const log = document.getElementById("log");
+    const rate = document.getElementById("rate");
+    const chart = document.getElementById("chart");
+    const ctx = chart.getContext("2d");
+
+    let port;
+    let reader;
+    let lastPacketAt = 0;
+    let packetCount = 0;
+    let lastRateAt = performance.now();
+    const history = [];
+
+    function setConnection(online) {
+      connection.className = online ? "status ok" : "status";
+      connection.lastElementChild.textContent = online ? "連線" : "離線";
+    }
+
+    function parseTelemetry(line) {
+      const p = line.trim().split(",");
+      if (p[0] !== "TEL" || p.length < 15) return null;
+      return {
+        ms: Number(p[1]),
+        tx: Number(p[2]),
+        ty: Number(p[3]),
+        distance: Number(p[4]),
+        targetId: Number(p[5]),
+        valid: Number(p[6]) === 1,
+        ch0: Number(p[7]),
+        ch1: Number(p[8]),
+        ch2: Number(p[9]),
+        ch3: Number(p[10]),
+        ch8: Number(p[11]),
+        shooterReady: Number(p[12]) === 1,
+        shootRemaining: Number(p[13]),
+        warn: Number(p[14])
+      };
+    }
+
+    function updateRisk(data) {
+      risk.className = "risk ok";
+      risk.textContent = "安全";
+      if (!data.valid) {
+        risk.className = "risk warn";
+        risk.textContent = "沒有目標，禁止自動前進";
+      } else if (data.warn & 2) {
+        risk.className = "risk bad";
+        risk.textContent = "距離太近，應停止或後退";
+      } else if (data.warn & 4) {
+        risk.className = "risk warn";
+        risk.textContent = "偏差過大，只建議原地轉向";
+      }
+    }
+
+    function updateMetrics(data) {
+      el.tx.textContent = data.tx.toFixed(1);
+      el.ty.textContent = data.ty.toFixed(1);
+      el.distance.textContent = data.distance.toFixed(0);
+      el.targetId.textContent = data.targetId;
+      el.valid.textContent = data.valid ? "1" : "0";
+      el.shooterReady.textContent = data.shooterReady ? "YES" : "NO";
+      el.shootRemaining.textContent = data.shootRemaining;
+      el.warnBits.textContent = data.warn;
+      el.ch0.textContent = data.ch0;
+      el.ch1.textContent = data.ch1;
+      el.ch2.textContent = data.ch2;
+      el.ch3.textContent = data.ch3;
+      el.ch8.textContent = data.ch8;
+      updateRisk(data);
+    }
+
+    function drawChart() {
+      ctx.clearRect(0, 0, chart.width, chart.height);
+      ctx.strokeStyle = "#303944";
+      ctx.lineWidth = 1;
+      for (let y = 40; y < chart.height; y += 40) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(chart.width, y);
+        ctx.stroke();
+      }
+      drawLine("tx", "#53b7e8", -200, 200);
+      drawLine("distance", "#36c275", 0, 2500);
+    }
+
+    function drawLine(key, color, min, max) {
+      if (history.length < 2) return;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      history.forEach((item, i) => {
+        const x = (i / Math.max(history.length - 1, 1)) * chart.width;
+        const n = Math.max(0, Math.min(1, (item[key] - min) / (max - min)));
+        const y = chart.height - n * chart.height;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    }
+
+    function handleLine(line) {
+      const data = parseTelemetry(line);
+      if (!data) return;
+      lastPacketAt = performance.now();
+      packetCount += 1;
+      history.push(data);
+      if (history.length > 180) history.shift();
+      updateMetrics(data);
+      drawChart();
+      log.textContent = `${line}\n${log.textContent}`.slice(0, 5000);
+    }
+
+    async function connect() {
+      if (!("serial" in navigator)) {
+        alert("這個瀏覽器不支援 Web Serial，請用 Chrome 或 Edge。");
+        return;
+      }
+
+      port = await navigator.serial.requestPort();
+      await port.open({ baudRate: 115200 });
+      setConnection(true);
+      connectButton.disabled = true;
+
+      const decoder = new TextDecoderStream();
+      port.readable.pipeTo(decoder.writable);
+      reader = decoder.readable.getReader();
+
+      let buffer = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += value;
+        const lines = buffer.split(/\r?\n/);
+        buffer = lines.pop();
+        lines.forEach(handleLine);
+      }
+    }
+
+    connectButton.addEventListener("click", () => {
+      connect().catch((err) => {
+        console.error(err);
+        alert(err.message);
+        setConnection(false);
+        connectButton.disabled = false;
+      });
+    });
+
+    setInterval(() => {
+      const now = performance.now();
+      if (lastPacketAt > 0) {
+        packetAge.textContent = `${Math.round(now - lastPacketAt)} ms`;
+        if (now - lastPacketAt > 600) {
+          connection.className = "status warn";
+          connection.lastElementChild.textContent = "資料延遲";
+        } else {
+          setConnection(true);
+        }
+      }
+      const dt = (now - lastRateAt) / 1000;
+      rate.textContent = `${(packetCount / Math.max(dt, 0.1)).toFixed(1)} Hz`;
+      packetCount = 0;
+      lastRateAt = now;
+    }, 1000);
+  </script>
+</body>
+</html>

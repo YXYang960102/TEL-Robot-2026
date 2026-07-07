@@ -5,6 +5,7 @@
 #include "Shooter/Shooter.h"
 #include "Dribbler/Dribbler.h"
 #include "Chassis/Chassis.h"
+#include "Telemetry/Telemetry.h"
 
 void setup() {
     Serial.begin(115200);
@@ -14,6 +15,7 @@ void setup() {
     Shooter::init();
     Dribbler::init();
     Chassis::init();
+    Telemetry::init();
 
     Dribbler::setShootRequest(3); 
 }
@@ -27,6 +29,7 @@ void loop() {
     Dribbler::update();  
 
     Chassis::update();
+    Telemetry::update();
 
     delay(10);
 }
