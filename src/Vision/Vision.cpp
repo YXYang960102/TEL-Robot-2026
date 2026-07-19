@@ -9,6 +9,7 @@ double Vision::ty = 0;
 double Vision::distance = 0;
 int Vision::targetId = 0;
 bool Vision::valid = false;
+unsigned long Vision::lastPacketMs = 0;
 
 void Vision::init() {
     Serial1.begin(115200);
@@ -63,6 +64,7 @@ void Vision::parse(String s) {
 }
 
 void Vision::updatePrediction(double nextTx, double nextTy, double nextDistance, int nextTargetId, bool nextValid) {
+    lastPacketMs = millis();
     valid = nextValid;
 
     if (valid) {
@@ -99,5 +101,5 @@ int Vision::getTargetId() {
 }
 
 bool Vision::isValid() {
-    return valid;
+    return valid && millis() - lastPacketMs <= PACKET_TIMEOUT_MS;
 }

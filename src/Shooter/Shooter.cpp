@@ -36,16 +36,15 @@ void Shooter::update() {
     int pot = analogRead(PIN_POT);
 
     // auto aim
-    inA = Vision::getXPred();
-    setA = 0;
+    if (Vision::isValid()) {
+        inA = Vision::getXPred();
+        setA = 0;
 
-    pidA.Compute();
-    escH.writeMicroseconds(1500 + outA);
-
-    // Ready
-    if (abs(setA - inA) < 10) {
-        readyH = true;
+        pidA.Compute();
+        escH.writeMicroseconds(1500 + outA);
+        readyH = abs(setA - inA) < 10;
     } else {
+        escH.writeMicroseconds(1500);
         readyH = false;
     }
 
@@ -63,7 +62,7 @@ void Shooter::update() {
     }
 
     // Shooter + Dribbler
-    if (readyH && readyV && Dribbler::getShootRemaining() > 0) {
+    if (Vision::isValid() && readyH && readyV && Dribbler::getShootRemaining() > 0) {
         falcon.writeMicroseconds(1800); // 發射
     } else {
         falcon.writeMicroseconds(1500);

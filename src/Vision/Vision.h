@@ -23,4 +23,5 @@ private:
     static double distance;
     static int targetId;
     static bool valid;
+    static unsigned long lastPacketMs;
 };

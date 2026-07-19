@@ -17,7 +17,8 @@ void setup() {
     Chassis::init();
     Telemetry::init();
 
-    Dribbler::setShootRequest(3); 
+    // Shooting stays disarmed until the mode and shot-confirmation flow enables it.
+    Dribbler::setShootRequest(0);
 }
 
 void loop() {
