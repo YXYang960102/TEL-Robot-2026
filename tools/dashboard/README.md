@@ -48,11 +48,36 @@ Jetson vision data should stay on Arduino `Serial1`; this dashboard uses Arduino
 Click `編輯布局` to arrange the dashboard in the browser.
 
 - Drag a panel title bar to move it.
-- Drag the bottom-right corner of a panel to resize it.
+- Drag any panel edge or corner to resize it.
 - Click `完成布局` to lock the layout.
 - Click `重設布局` to return to the default layout.
 
 The layout is saved in browser `localStorage`, so it stays on the same computer/browser after refresh.
+
+## Vision stream
+
+The `Vision Stream / 視覺串流` panel can display an HTTP image stream from the Jetson.
+
+Recommended Jetson stream format:
+
+```text
+MJPEG over HTTP
+```
+
+Example URLs:
+
+```text
+http://JETSON_IP:5000/video_feed
+http://JETSON_IP:8080/stream.mjpg
+```
+
+Enter the URL in the stream panel and click `套用串流`. The URL is saved in browser `localStorage`.
+
+Keep telemetry and video separate:
+
+- Jetson to Arduino data: Arduino `Serial1`
+- Arduino to dashboard telemetry: Arduino USB `Serial`
+- Jetson video to dashboard: HTTP/MJPEG URL
 
 ## Phone demo
 

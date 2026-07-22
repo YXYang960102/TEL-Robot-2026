@@ -70,6 +70,20 @@
 
     button:hover { border-color: var(--cyan); }
 
+    input {
+      width: 100%;
+      min-height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #11161b;
+      color: var(--text);
+      padding: 0 10px;
+      font: inherit;
+      outline: none;
+    }
+
+    input:focus { border-color: var(--cyan); }
+
     main {
       display: grid;
       grid-template-columns: 1.25fr 0.75fr;
@@ -160,8 +174,14 @@
 
     .panel.tiny .label,
     .panel.tiny .subvalue,
-    .panel.tiny .hint-list {
+    .panel.tiny .hint-list,
+    .panel.tiny .stream-placeholder {
       font-size: 10px;
+    }
+
+    .panel.tiny .stream-controls {
+      grid-template-columns: 1fr;
+      padding: 8px;
     }
 
     .panel.tiny td {
@@ -324,6 +344,48 @@
     .metric.state-bad {
       border-color: rgba(232, 91, 91, 0.85);
       background: rgba(232, 91, 91, 0.14);
+    }
+
+    .stream-controls {
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) auto;
+      gap: 8px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #14181d;
+    }
+
+    .stream-frame {
+      position: relative;
+      display: grid;
+      place-items: center;
+      min-height: 320px;
+      background: #090d11;
+      overflow: hidden;
+    }
+
+    .stream-frame img {
+      display: none;
+      width: 100%;
+      height: 100%;
+      min-height: 320px;
+      object-fit: contain;
+      background: #090d11;
+    }
+
+    .stream-frame.connected img {
+      display: block;
+    }
+
+    .stream-placeholder {
+      padding: 18px;
+      color: var(--muted);
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    .stream-frame.connected .stream-placeholder {
+      display: none;
     }
 
     .label {
@@ -530,6 +592,24 @@
         </div>
       </section>
 
+      <section class="panel" data-panel="stream" style="margin-top:14px">
+        <div class="section-title">
+          <span>Vision Stream / 視覺串流</span>
+          <span id="streamStatus">not connected / 未連線</span>
+        </div>
+        <div class="stream-controls">
+          <input id="streamUrl" type="url" placeholder="http://jetson-ip:5000/video_feed">
+          <button id="streamApply">套用串流</button>
+        </div>
+        <div class="stream-frame" id="streamFrame">
+          <img id="streamImage" alt="Vision stream / 視覺串流">
+          <div class="stream-placeholder">
+            輸入 Jetson 的 HTTP/MJPEG 串流網址後按「套用串流」。<br>
+            例如：<span>http://192.168.20.50:5000/video_feed</span>
+          </div>
+        </div>
+      </section>
+
       <section class="panel" data-panel="trace" style="margin-top:14px">
         <div class="section-title">
           <span>Realtime Trace / 即時曲線</span>
@@ -626,6 +706,11 @@
     const ctx = chart.getContext("2d");
     const fieldCanvas = document.getElementById("fieldCanvas");
     const fieldCtx = fieldCanvas.getContext("2d");
+    const streamUrl = document.getElementById("streamUrl");
+    const streamApply = document.getElementById("streamApply");
+    const streamFrame = document.getElementById("streamFrame");
+    const streamImage = document.getElementById("streamImage");
+    const streamStatus = document.getElementById("streamStatus");
 
     let port;
     let reader;
@@ -639,6 +724,7 @@
     let activeResize;
     const history = [];
     const layoutKey = "tel-dashboard-layout-v1";
+    const streamKey = "tel-dashboard-stream-url-v1";
     const resizeDirections = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
 
     function setConnection(online) {
@@ -646,12 +732,65 @@
       connection.lastElementChild.textContent = online ? "連線" : "離線";
     }
 
+    function setStreamStatus(state, text) {
+      streamStatus.textContent = text;
+      streamFrame.classList.toggle("connected", state === "connected");
+    }
+
+    function applyStreamUrl(url) {
+      const nextUrl = url.trim();
+      if (!nextUrl) {
+        streamImage.removeAttribute("src");
+        localStorage.removeItem(streamKey);
+        setStreamStatus("idle", "not connected / 未連線");
+        return;
+      }
+
+      localStorage.setItem(streamKey, nextUrl);
+      setStreamStatus("loading", "loading / 載入中");
+      const separator = nextUrl.includes("?") ? "&" : "?";
+      streamImage.src = `${nextUrl}${separator}t=${Date.now()}`;
+    }
+
+    streamApply.addEventListener("click", () => {
+      applyStreamUrl(streamUrl.value);
+    });
+
+    streamUrl.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        applyStreamUrl(streamUrl.value);
+      }
+    });
+
+    streamImage.addEventListener("load", () => {
+      setStreamStatus("connected", "connected / 已連線");
+    });
+
+    streamImage.addEventListener("error", () => {
+      setStreamStatus("error", "stream error / 串流錯誤");
+    });
+
     function readSavedLayout() {
       try {
         return JSON.parse(localStorage.getItem(layoutKey) || "{}");
       } catch {
         return {};
       }
+    }
+
+    function getFallbackPanelLayout(layout, panel) {
+      const existing = Object.values(layout).filter(Boolean);
+      const maxBottom = existing.reduce((max, item) => Math.max(max, item.y + item.h), 0);
+      const defaultWidth = Math.min(760, Math.max(360, dashboard.clientWidth - 28));
+      const defaults = {
+        stream: { x: 0, y: maxBottom + 14, w: defaultWidth, h: 430 }
+      };
+      return defaults[panel.dataset.panel] || {
+        x: 0,
+        y: maxBottom + 14,
+        w: defaultWidth,
+        h: 320
+      };
     }
 
     function saveLayout() {
@@ -706,16 +845,19 @@
 
     function applyLayout(layout) {
       dashboard.classList.add("custom-layout");
+      const nextLayout = { ...layout };
       panels.forEach((panel) => {
-        const item = layout[panel.dataset.panel];
-        if (!item) return;
+        const key = panel.dataset.panel;
+        const item = nextLayout[key] || getFallbackPanelLayout(nextLayout, panel);
+        nextLayout[key] = item;
         panel.style.left = `${item.x}px`;
         panel.style.top = `${item.y}px`;
         panel.style.width = `${item.w}px`;
         panel.style.height = `${item.h}px`;
         panel.style.marginTop = "0";
       });
-      updateDashboardHeight(layout);
+      localStorage.setItem(layoutKey, JSON.stringify(nextLayout));
+      updateDashboardHeight(nextLayout);
       updatePanelDensity();
       drawChart();
       drawField(latestData || {});
@@ -904,6 +1046,12 @@
     const savedLayout = readSavedLayout();
     if (Object.keys(savedLayout).length > 0) {
       applyLayout(savedLayout);
+    }
+
+    const savedStreamUrl = localStorage.getItem(streamKey) || "";
+    if (savedStreamUrl) {
+      streamUrl.value = savedStreamUrl;
+      applyStreamUrl(savedStreamUrl);
     }
 
     function parseTelemetry(line) {
