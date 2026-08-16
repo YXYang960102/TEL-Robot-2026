@@ -1,5 +1,4 @@
-#ifndef SHOOTER_SHOOTER_H
-#define SHOOTER_SHOOTER_H
+#pragma once
 
 #include <Servo.h>
 
@@ -19,4 +18,3 @@ private:
     static bool readyV;
 };
 
-#endif

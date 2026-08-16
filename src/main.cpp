@@ -5,6 +5,7 @@
 #include "Shooter/Shooter.h"
 #include "Dribbler/Dribbler.h"
 #include "Chassis/Chassis.h"
+#include "Telemetry/Telemetry.h"
 
 void setup() {
     Serial.begin(115200);
@@ -14,8 +15,10 @@ void setup() {
     Shooter::init();
     Dribbler::init();
     Chassis::init();
+    Telemetry::init();
 
-    Dribbler::setShootRequest(3); 
+    // Shooting stays disarmed until the mode and shot-confirmation flow enables it.
+    Dribbler::setShootRequest(0);
 }
 
 void loop() {
@@ -27,6 +30,7 @@ void loop() {
     Dribbler::update();  
 
     Chassis::update();
+    Telemetry::update();
 
     delay(10);
 }

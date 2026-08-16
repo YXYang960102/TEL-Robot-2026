@@ -1,5 +1,4 @@
-#ifndef SBUS_H
-#define SBUS_H
+#pragma once
 #include <sbus.h>
 
 
@@ -15,5 +14,3 @@ private:
     static bfs::SbusRx sbus;
     static bfs::SbusData data;
 };
-
-#endif

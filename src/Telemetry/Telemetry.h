@@ -1,11 +1,10 @@
 #pragma once
-#include <Servo.h>
 
-class Chassis {
+class Telemetry {
 public:
     static void init();
     static void update();
 
 private:
-    static Servo fr, fl, br, bl;
+    static unsigned long lastSendMs;
 };
