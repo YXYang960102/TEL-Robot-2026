@@ -15,13 +15,23 @@ void Chassis::init() {
 }
 
 void Chassis::update() {
-    int FR = SBUS::ch0 - SBUS::ch1 + SBUS::ch3;
-    int BR = SBUS::ch0 - SBUS::ch1 - SBUS::ch3;
-    int FL = SBUS::ch0 + SBUS::ch1 - SBUS::ch3;
-    int BL = SBUS::ch0 + SBUS::ch1 + SBUS::ch3;
+    double vx = (SBUS::ch0 - 1500) / 500.0;
+    double vy = (SBUS::ch1 - 1500) / 500.0;
+    double w  = (SBUS::ch3 - 1500) / 500.0;
 
-    fr.writeMicroseconds(FR);
-    br.writeMicroseconds(BR);
-    fl.writeMicroseconds(FL);
-    bl.writeMicroseconds(BL);
+    double FR = vx - vy - w;
+    double FL = vx + vy + w;
+    double BR = vx + vy - w;
+    double BL = vx - vy + w;
+
+    double maxVal = max(max(abs(FR),abs(FL)),max(abs(BR),abs(BL)));
+
+    if(maxVal > 1){
+        FR/=maxVal; FL/=maxVal; BR/=maxVal; BL/=maxVal;
+    }
+
+    fr.writeMicroseconds(1500 + FR*500);
+    fl.writeMicroseconds(1500 + FL*500);
+    br.writeMicroseconds(1500 + BR*500);
+    bl.writeMicroseconds(1500 + BL*500);
 }

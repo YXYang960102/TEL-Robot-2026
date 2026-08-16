@@ -1,5 +1,4 @@
-#ifndef VISION_CONSTANTS_H
-#define VISION_CONSTANTS_H
+#pragma once
 
 namespace VisionConst {
 
@@ -13,7 +12,6 @@ const double Td = 0.08;
 const double tau = 0.10;
 const double VX_MAX = 800;
 const double X_MAX = 400;
+const unsigned long PACKET_TIMEOUT_MS = 300;
 
 }
-
-#endif 

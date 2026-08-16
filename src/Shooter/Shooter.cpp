@@ -42,19 +42,24 @@ void Shooter::update() {
     int pot = analogRead(PIN_POT);
 
     // auto aim
-    inA = Vision::getXPred();
-    setA = 0;
+    if (Vision::isValid()) {
+        inA = Vision::getXPred();
+        setA = 0;
 
-    pidA.Compute();
+        pidA.Compute();
 
-    // Ready
-    if (abs(setA - inA) < MG996_AIM_DEADBAND) {
-        turretServo.writeMicroseconds(MG996_STOP_US);
-        readyH = true;
+        // Ready
+        if (abs(setA - inA) < MG996_AIM_DEADBAND) {
+            turretServo.writeMicroseconds(MG996_STOP_US);
+            readyH = true;
+        } else {
+            int turretPulse = MG996_STOP_US + (int)outA;
+            turretPulse = constrain(turretPulse, MG996_MIN_US, MG996_MAX_US);
+            turretServo.writeMicroseconds(turretPulse);
+            readyH = false;
+        }
     } else {
-        int turretPulse = MG996_STOP_US + (int)outA;
-        turretPulse = constrain(turretPulse, MG996_MIN_US, MG996_MAX_US);
-        turretServo.writeMicroseconds(turretPulse);
+        turretServo.writeMicroseconds(MG996_STOP_US);
         readyH = false;
     }
 
@@ -72,7 +77,7 @@ void Shooter::update() {
     }
 
     // Shooter + Dribbler
-    if (readyH && readyV && Dribbler::getShootRemaining() > 0) {
+    if (Vision::isValid() && readyH && readyV && Dribbler::getShootRemaining() > 0) {
         falcon.writeMicroseconds(1800); // 發射
     } else {
         falcon.writeMicroseconds(1500);

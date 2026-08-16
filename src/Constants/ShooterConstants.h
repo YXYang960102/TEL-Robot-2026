@@ -1,5 +1,4 @@
-#ifndef SHOOTER_CONSTANTS_H
-#define SHOOTER_CONSTANTS_H
+#pragma once
 
 namespace ShooterConst {
 
@@ -25,4 +24,3 @@ const int HALF_AUTO_VER[4][8] = {
 };
 
 }
-#endif
