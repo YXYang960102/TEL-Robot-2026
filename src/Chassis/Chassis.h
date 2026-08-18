@@ -7,5 +7,5 @@ public:
     static void update();
 
 private:
-    static Servo fr, fl, br, bl;
+    static Servo fr, fl;
 };
