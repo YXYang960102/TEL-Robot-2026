@@ -156,3 +156,71 @@ ESCs powered but wheels off the ground / robot on blocks: (1) stick neutral -> b
 sit at 1500us (stopped), (2) forward-only input -> both wheels spin the same direction at matching
 speed, (3) yaw-only input -> wheels spin opposite directions at equal speed (in-place rotation).
 Only move to a free-rolling test after those three hold.
+
+---
+
+## 2026-08-20 — Claude Code
+
+**User Request:** Codex asked (via the shared inbox,
+`/Users/jeremy/Documents/AI Agent/inbox/claude-codex-message.md`, "2026-08-20 - Jeremy Branch
+Ownership and Shooter Clarification Request") for any confirmed elevation-mechanism information
+beyond what this file's 2026-08-17 entry records, specifically: (1) whether the two elevation
+sides are mechanically rigidly coupled, (2) one or two AS5600 sensors in the final mechanism,
+(3) whether the second servo is an inverted open-loop follower or an independent closed-loop axis,
+(4) confirmed servo neutral pulse, safe pulse range, encoder direction, homing method, and
+limit-switch arrangement.
+
+**Discussion Result:** Jeremy confirmed items 1-3 directly in a Claude Code session on 2026-08-19
+(not from inspecting new files — this is a verbal/chat confirmation, recorded here as instructed):
+
+1. **Not rigidly coupled as a single shared axis.** The mechanism is two separate AS5600+servo
+   channels, one per side.
+2. **Two AS5600 sensors**, confirmed — one per side, each independently reads its own angle.
+3. **Independent closed-loop axis on both sides** (two separate PID loops), not one-authoritative
+   encoder plus an open-loop follower. This resolves the "undecided" architecture question from the
+   2026-08-17 entry in favor of that entry's option 1. Jeremy separately said one side's rotation
+   output is expected to be mechanically mirrored/inverted relative to the other (inferred from the
+   CAD photo showing the two motors' mirrored mounting) — this is a sign-convention detail within
+   each side's own PID (inverted `outputSign`/encoder-delta direction), not a change to the
+   independent-independent control topology.
+
+**Item 4 remains unconfirmed — do not treat any of the following as settled:**
+
+- No confirmed servo neutral pulse or safe pulse range exists for the real mechanism. The only
+  numbers on record are bench-test tuning values in `src/Constants/As5600ServoTestConstants.h`
+  (`STOP_US=1500`, `MIN_US=1000`, `MAX_US=2000`, `CLOCKWISE_US=1600`,
+  `COUNTER_CLOCKWISE_US=1400`), which were chosen to validate the MG996+AS5600 control loop on an
+  isolated UNO bench rig — they have not been measured or confirmed against the actual shooter hood
+  mechanism's real range of motion and should not be assumed safe for the final build.
+- Encoder direction (which physical rotation direction increases the count on each side) has not
+  been measured on the real mechanism — only the general mirrored-mounting expectation above.
+- Homing method is still unresolved. `AS5600Encoder::zero()` currently captures whatever position
+  the shaft is in at power-on as the zero reference (fine for the bench PID test, not suitable for a
+  repeatable real elevation angle reference). Whether the final mechanism will use a mechanical
+  hardstop, a limit switch, or some other calibrated zero has not been decided.
+- Limit-switch arrangement for the new AS5600 dual-servo elevation has not been discussed by Jeremy
+  at all — unknown/TBD. (Codex's separate 2026-08-20 legacy-parity review noted the *old*
+  potentiometer-based shooter had limit switches; whether that carries over to the new mechanism is
+  an open question, not an assumption to make either way.)
+
+**Why:** Codex is deliberately keeping the `ShooterMG996` bench architecture to one-encoder/one-servo
+until this is clarified, to avoid inferring a dual-PID design from an incomplete record. This entry
+exists so the next reader (human or assistant) has the accurate confirmed/unconfirmed boundary in
+one place instead of re-deriving it from chat history.
+
+**Changed / Added:** Documentation only — this entry. No code changed.
+
+**Impact:** None on running code. Sets expectations for whoever designs the dual-elevation
+architecture next (Codex owns that per the 2026-08-20 ownership split, also logged in the shared
+inbox): items 1-3 can be designed against now, item 4 cannot.
+
+**Evidence:** Source is Jeremy's direct chat statement in a Claude Code session on 2026-08-19, not a
+new file or measurement. No bench or hardware verification of items 1-3 has been performed either —
+"confirmed" here means "Jeremy stated it," not "measured on the real mechanism."
+
+**Next Test:** Before finalizing dual-elevation control code, item 4 needs an actual bench
+measurement pass on the real mechanism (or an explicit decision from Jeremy if hardware isn't ready
+yet): measure each side's safe pulse range and neutral point on the real servo/gear train (not just
+reuse the bench-rig MG996 numbers), measure each side's encoder direction with the real mechanism
+moving through its intended range, and decide + implement a real homing method before trusting
+`AS5600Encoder::getRelativeCounts()` as an absolute elevation angle.
