@@ -1,13 +1,46 @@
-#ifndef SHOOTER_CONSTANTS_H
-#define SHOOTER_CONSTANTS_H
+#pragma once
 
 namespace ShooterConst {
 
-const int HORI_MIN = 90;
-const int HORI_MAX = 500;
+namespace Encoder {
+constexpr int COUNTS_PER_REV = 4096;
+constexpr int HALF_COUNTS_PER_REV = COUNTS_PER_REV / 2;
+constexpr double COUNTS_TO_DEGREES = 360.0 / COUNTS_PER_REV;
+constexpr int MAX_ACCEPTED_DELTA_COUNTS = 180;
+constexpr unsigned long SAMPLE_TIMEOUT_MS = 100;
+}
 
-const int VER_MIN = 1200;
-const int VER_MAX = 3500;
+namespace Elevation {
+constexpr int LEFT_STOP_US = 1500;
+constexpr int RIGHT_STOP_US = 1500;
+constexpr int SERVO_ATTACH_MIN_US = 1000;
+constexpr int SERVO_ATTACH_MAX_US = 2000;
+constexpr int MAX_OUTPUT_OFFSET_US = 80;
+constexpr int LEFT_OUTPUT_SIGN = 1;
+constexpr int RIGHT_OUTPUT_SIGN = -1;
+constexpr long MIN_TARGET_COUNTS = 0;
+constexpr long MAX_TARGET_COUNTS = 1024;
+constexpr long READY_TOLERANCE_COUNTS = 4;
+constexpr double KP = 0.18;
+constexpr double KI = 0.0;
+constexpr double KD = 0.02;
+constexpr int PID_SAMPLE_TIME_MS = 20;
+}
+
+namespace Turret {
+constexpr int STOP_US = 1500;
+constexpr int ATTACH_MIN_US = 1000;
+constexpr int ATTACH_MAX_US = 2000;
+constexpr int MAX_MANUAL_OFFSET_US = 120;
+constexpr int OUTPUT_SIGN = 1;
+}
+
+namespace Flywheel {
+constexpr int STOP_US = 1500;
+constexpr int ATTACH_MIN_US = 1000;
+constexpr int ATTACH_MAX_US = 2000;
+constexpr int MAX_OPEN_LOOP_US = 2000;
+}
 
 const int HALF_AUTO_VER[4][8] = {
   {1212,1200,1212,1212,1212,1212,1212},
@@ -17,4 +50,3 @@ const int HALF_AUTO_VER[4][8] = {
 };
 
 }
-#endif
