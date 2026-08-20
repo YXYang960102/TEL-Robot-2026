@@ -10,13 +10,23 @@ public:
 
     static void setShootRequest(int count);
     static int getShootRemaining();
-
-private:
-    static int shoot_pice;
-
-    static void run();
+    static unsigned long getCompletedShotCount();
+    static bool isExitSensorBlocked();
+    static bool isFeeding();
     static void stop();
 
-    static bool sensorUp;
+private:
+    static int shootRemaining;
+    static unsigned long completedShotCount;
+    static bool feeding;
+
+    static void runFeed();
+    static void updateExitSensor();
+    static bool readExitSensorBlocked();
+
+    static bool rawSensorBlocked;
+    static bool stableSensorBlocked;
+    static bool ballSeenDuringRequest;
+    static unsigned long rawSensorChangedMs;
 };
 #endif

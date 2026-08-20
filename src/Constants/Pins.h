@@ -9,6 +9,7 @@
 // Dribbler
 #define PIN_DRIBBLE_UP 2
 #define PIN_DRIBBLE_DOWN 51
+#define PIN_DRIBBLE_EXIT_SENSOR 45
 
 // Chassis
 #define PIN_FR 39
@@ -20,4 +21,4 @@
 #define PIN_SAFE 28
 #define PIN_POT A3
 
-#endif 
+#endif
