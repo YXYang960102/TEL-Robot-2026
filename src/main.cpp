@@ -26,7 +26,13 @@ void loop() {
     SBUS::update();
     Vision::update();
 
-    Shooter::update();   
+    if (SBUS::isHealthy()) {
+        Chassis::setDriveCommand(SBUS::getDriveForward(), SBUS::getDriveTurn());
+    } else {
+        Chassis::stop();
+    }
+
+    Shooter::update();
     Dribbler::update();  
 
     Chassis::update();

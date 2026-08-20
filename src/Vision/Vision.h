@@ -12,10 +12,13 @@ public:
     static double getDistance();
     static int getTargetId();
     static bool isValid();
+    static bool isConnected();
+    static unsigned long getPacketAgeMs();
 
 private:
-    static void parse(String s);
+    static bool parse(const String& s);
     static void updatePrediction(double tx, double ty, double distance, int targetId, bool valid);
+    static void invalidateTarget();
 
     static String rx;
     static double tx;
@@ -24,4 +27,5 @@ private:
     static int targetId;
     static bool valid;
     static unsigned long lastPacketMs;
+    static bool hasPacket;
 };
