@@ -13,6 +13,7 @@ int Vision::targetId = 0;
 bool Vision::valid = false;
 unsigned long Vision::lastPacketMs = 0;
 bool Vision::hasPacket = false;
+bool Vision::sentReady = false;
 unsigned long Vision::lastHeartbeatMs = 0;
 Vision::OrinState Vision::orinState = Vision::OrinState::UNKNOWN;
 unsigned long Vision::lastOrinStateMs = 0;
@@ -29,7 +30,7 @@ void Vision::update() {
         char c = Serial1.read();
 
         if (c == '\n') {
-            if (rx.startsWith("ORIN,")) {
+            if (rx.startsWith("VISION_")) {
                 parseOrinControl(rx);
             } else if (!parse(rx)) {
                 invalidateTarget();
@@ -56,12 +57,22 @@ void Vision::update() {
 
 void Vision::sendHeartbeat() {
     const unsigned long now = millis();
+
+    if (!sentReady) {
+        Serial1.print("MEGA_READY,");
+        Serial1.print(PROTOCOL_VERSION);
+        Serial1.print('\n');
+        sentReady = true;
+        lastHeartbeatMs = now;
+        return;
+    }
+
     if (now - lastHeartbeatMs < HEARTBEAT_INTERVAL_MS) {
         return;
     }
     lastHeartbeatMs = now;
 
-    Serial1.print("MEGA,READY,");
+    Serial1.print("MEGA_HEARTBEAT,");
     Serial1.print(PROTOCOL_VERSION);
     Serial1.print('\n');
 }
@@ -70,19 +81,22 @@ bool Vision::parseOrinControl(const String& input) {
     String s = input;
     s.trim();
 
-    if (s == "ORIN,STARTING") {
-        orinState = OrinState::STARTING;
-        lastOrinStateMs = millis();
-        return true;
+    OrinState next;
+    if (s.startsWith("VISION_STANDBY,")) {
+        next = OrinState::STANDBY;
+    } else if (s.startsWith("VISION_STARTING,")) {
+        next = OrinState::STARTING;
+    } else if (s.startsWith("VISION_READY,")) {
+        next = OrinState::READY;
+    } else if (s.startsWith("VISION_ERROR,")) {
+        next = OrinState::ERROR;
+    } else {
+        return false;
     }
 
-    if (s == "ORIN,READY") {
-        orinState = OrinState::READY;
-        lastOrinStateMs = millis();
-        return true;
-    }
-
-    return false;
+    orinState = next;
+    lastOrinStateMs = millis();
+    return true;
 }
 
 bool Vision::parse(const String& input) {
@@ -201,4 +215,8 @@ unsigned long Vision::getPacketAgeMs() {
 
 Vision::OrinState Vision::getOrinState() {
     return orinState;
+}
+
+bool Vision::isVisionReady() {
+    return orinState == OrinState::READY && millis() - lastOrinStateMs <= PACKET_TIMEOUT_MS;
 }

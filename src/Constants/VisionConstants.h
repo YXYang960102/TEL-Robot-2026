@@ -20,10 +20,13 @@ const unsigned long SERIAL_BAUD = 115200;
 const unsigned long PACKET_TIMEOUT_MS = 300;
 const size_t PACKET_MAX_CHARS = 80;
 
-// Mega -> Orin readiness heartbeat, and Orin -> Mega boot-state control lines.
-// Proposed contract; pending Codex confirmation on the Orin/YOLO_Detect_single
-// side. See the shared inbox entry posted alongside this change.
-const unsigned long HEARTBEAT_INTERVAL_MS = 250;
+// Mega -> Orin readiness heartbeat, and Orin -> Mega lifecycle control lines.
+// Matches the exact UART contract Codex implemented and tested on the Orin
+// side (YOLO_Detect_single, shared inbox 2026-08-22 "Orin UART Power Gate
+// Implemented"): "MEGA_READY,1" once, then "MEGA_HEARTBEAT,1" repeated;
+// Orin's own status/heartbeat cadence is 100ms and its incoming-Mega timeout
+// is 1000ms, so this must stay comfortably under 1000ms.
+const unsigned long HEARTBEAT_INTERVAL_MS = 100;
 const int PROTOCOL_VERSION = 1;
 
 }

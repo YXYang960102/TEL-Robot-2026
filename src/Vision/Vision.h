@@ -3,7 +3,10 @@
 
 class Vision {
 public:
-    enum class OrinState { UNKNOWN, STARTING, READY };
+    // Mirrors Codex's Orin-side lifecycle states exactly (VISION_STANDBY /
+    // VISION_STARTING / VISION_READY / VISION_ERROR). UNKNOWN means "nothing
+    // heard yet, or the last state line went stale."
+    enum class OrinState { UNKNOWN, STANDBY, STARTING, READY, ERROR };
 
     static void init();
     static void update();
@@ -17,6 +20,7 @@ public:
     static bool isConnected();
     static unsigned long getPacketAgeMs();
     static OrinState getOrinState();
+    static bool isVisionReady();
 
 private:
     static bool parse(const String& s);
@@ -33,6 +37,7 @@ private:
     static bool valid;
     static unsigned long lastPacketMs;
     static bool hasPacket;
+    static bool sentReady;
     static unsigned long lastHeartbeatMs;
     static OrinState orinState;
     static unsigned long lastOrinStateMs;
