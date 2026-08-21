@@ -13,6 +13,9 @@ int Vision::targetId = 0;
 bool Vision::valid = false;
 unsigned long Vision::lastPacketMs = 0;
 bool Vision::hasPacket = false;
+unsigned long Vision::lastHeartbeatMs = 0;
+Vision::OrinState Vision::orinState = Vision::OrinState::UNKNOWN;
+unsigned long Vision::lastOrinStateMs = 0;
 
 void Vision::init() {
     Serial1.begin(SERIAL_BAUD);
@@ -20,11 +23,15 @@ void Vision::init() {
 }
 
 void Vision::update() {
+    sendHeartbeat();
+
     while (Serial1.available()) {
         char c = Serial1.read();
 
         if (c == '\n') {
-            if (!parse(rx)) {
+            if (rx.startsWith("ORIN,")) {
+                parseOrinControl(rx);
+            } else if (!parse(rx)) {
                 invalidateTarget();
             }
             rx = "";
@@ -41,6 +48,41 @@ void Vision::update() {
     if (hasPacket && millis() - lastPacketMs > PACKET_TIMEOUT_MS) {
         invalidateTarget();
     }
+
+    if (orinState != OrinState::UNKNOWN && millis() - lastOrinStateMs > PACKET_TIMEOUT_MS) {
+        orinState = OrinState::UNKNOWN;
+    }
+}
+
+void Vision::sendHeartbeat() {
+    const unsigned long now = millis();
+    if (now - lastHeartbeatMs < HEARTBEAT_INTERVAL_MS) {
+        return;
+    }
+    lastHeartbeatMs = now;
+
+    Serial1.print("MEGA,READY,");
+    Serial1.print(PROTOCOL_VERSION);
+    Serial1.print('\n');
+}
+
+bool Vision::parseOrinControl(const String& input) {
+    String s = input;
+    s.trim();
+
+    if (s == "ORIN,STARTING") {
+        orinState = OrinState::STARTING;
+        lastOrinStateMs = millis();
+        return true;
+    }
+
+    if (s == "ORIN,READY") {
+        orinState = OrinState::READY;
+        lastOrinStateMs = millis();
+        return true;
+    }
+
+    return false;
 }
 
 bool Vision::parse(const String& input) {
@@ -155,4 +197,8 @@ bool Vision::isConnected() {
 
 unsigned long Vision::getPacketAgeMs() {
     return hasPacket ? millis() - lastPacketMs : 0xFFFFFFFFUL;
+}
+
+Vision::OrinState Vision::getOrinState() {
+    return orinState;
 }

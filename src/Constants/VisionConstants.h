@@ -20,4 +20,10 @@ const unsigned long SERIAL_BAUD = 115200;
 const unsigned long PACKET_TIMEOUT_MS = 300;
 const size_t PACKET_MAX_CHARS = 80;
 
+// Mega -> Orin readiness heartbeat, and Orin -> Mega boot-state control lines.
+// Proposed contract; pending Codex confirmation on the Orin/YOLO_Detect_single
+// side. See the shared inbox entry posted alongside this change.
+const unsigned long HEARTBEAT_INTERVAL_MS = 250;
+const int PROTOCOL_VERSION = 1;
+
 }
