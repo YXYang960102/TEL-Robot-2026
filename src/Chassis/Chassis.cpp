@@ -1,27 +1,58 @@
 #include "Chassis.h"
 #include "../Constants/Pins.h"
-#include "../IO/SBUS.h"
+#include "../Constants/ChassisConstants.h"
+
+#include <Arduino.h>
 
 Servo Chassis::fr;
 Servo Chassis::fl;
-Servo Chassis::br;
-Servo Chassis::bl;
+double Chassis::forwardCommand = 0.0;
+double Chassis::turnCommand = 0.0;
 
 void Chassis::init() {
     fr.attach(PIN_FR);
     fl.attach(PIN_FL);
-    br.attach(PIN_BR);
-    bl.attach(PIN_BL);
+    stop();
 }
 
 void Chassis::update() {
-    int FR = SBUS::ch0 - SBUS::ch1 + SBUS::ch3;
-    int BR = SBUS::ch0 - SBUS::ch1 - SBUS::ch3;
-    int FL = SBUS::ch0 + SBUS::ch1 - SBUS::ch3;
-    int BL = SBUS::ch0 + SBUS::ch1 + SBUS::ch3;
+    double FR = forwardCommand - turnCommand;
+    double FL = forwardCommand + turnCommand;
 
-    fr.writeMicroseconds(FR);
-    br.writeMicroseconds(BR);
-    fl.writeMicroseconds(FL);
-    bl.writeMicroseconds(BL);
+    double maxVal = max(abs(FR), abs(FL));
+
+    if(maxVal > 1){
+        FR/=maxVal; FL/=maxVal;
+    }
+
+    fr.writeMicroseconds(constrain(
+        ChassisConst::ESC_STOP_US + static_cast<int>(FR * ChassisConst::ESC_RANGE_US),
+        ChassisConst::ESC_MIN_US, ChassisConst::ESC_MAX_US));
+    fl.writeMicroseconds(constrain(
+        ChassisConst::ESC_STOP_US + static_cast<int>(FL * ChassisConst::ESC_RANGE_US),
+        ChassisConst::ESC_MIN_US, ChassisConst::ESC_MAX_US));
+}
+
+void Chassis::setDriveCommand(double forward, double turn) {
+    forwardCommand = constrain(forward, -1.0, 1.0);
+    turnCommand = constrain(turn, -1.0, 1.0);
+
+    if (abs(forwardCommand) < ChassisConst::COMMAND_DEADBAND) {
+        forwardCommand = 0.0;
+    }
+    if (abs(turnCommand) < ChassisConst::COMMAND_DEADBAND) {
+        turnCommand = 0.0;
+    }
+}
+
+void Chassis::stop() {
+    forwardCommand = 0.0;
+    turnCommand = 0.0;
+
+    if (fr.attached()) {
+        fr.writeMicroseconds(ChassisConst::ESC_STOP_US);
+    }
+    if (fl.attached()) {
+        fl.writeMicroseconds(ChassisConst::ESC_STOP_US);
+    }
 }
