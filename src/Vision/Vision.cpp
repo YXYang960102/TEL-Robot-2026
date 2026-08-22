@@ -2,6 +2,7 @@
 #include "../Constants/VisionConstants.h"
 
 #include <stdlib.h>
+#include <string.h>
 
 using namespace VisionConst;
 
@@ -77,26 +78,49 @@ void Vision::sendHeartbeat() {
     Serial1.print('\n');
 }
 
+namespace {
+
+struct OrinLifecycleToken {
+    const char* prefix;
+    Vision::OrinState state;
+};
+
+const OrinLifecycleToken kOrinLifecycleTokens[] = {
+    {"VISION_STANDBY,", Vision::OrinState::STANDBY},
+    {"VISION_STARTING,", Vision::OrinState::STARTING},
+    {"VISION_READY,", Vision::OrinState::READY},
+    {"VISION_ERROR,", Vision::OrinState::ERROR},
+};
+
+}  // namespace
+
 bool Vision::parseOrinControl(const String& input) {
     String s = input;
     s.trim();
 
-    OrinState next;
-    if (s.startsWith("VISION_STANDBY,")) {
-        next = OrinState::STANDBY;
-    } else if (s.startsWith("VISION_STARTING,")) {
-        next = OrinState::STARTING;
-    } else if (s.startsWith("VISION_READY,")) {
-        next = OrinState::READY;
-    } else if (s.startsWith("VISION_ERROR,")) {
-        next = OrinState::ERROR;
-    } else {
-        return false;
+    for (const OrinLifecycleToken& token : kOrinLifecycleTokens) {
+        if (!s.startsWith(token.prefix)) {
+            continue;
+        }
+
+        const int prefixLen = strlen(token.prefix);
+        const int versionEnd = s.indexOf(',', prefixLen);
+        const String versionField = versionEnd < 0
+            ? s.substring(prefixLen)
+            : s.substring(prefixLen, versionEnd);
+
+        char* end = nullptr;
+        const long version = strtol(versionField.c_str(), &end, 10);
+        if (end == versionField.c_str() || *end != '\0' || version != PROTOCOL_VERSION) {
+            return false;
+        }
+
+        orinState = token.state;
+        lastOrinStateMs = millis();
+        return true;
     }
 
-    orinState = next;
-    lastOrinStateMs = millis();
-    return true;
+    return false;
 }
 
 bool Vision::parse(const String& input) {
