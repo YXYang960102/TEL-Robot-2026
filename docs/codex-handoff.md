@@ -47,3 +47,64 @@ motor power, or real-ball test was performed.
 and clearing the sensor and confirm exactly one count per passage. Then power
 the feed mechanism with an immediate stop path and tune `FEED_PWM` from a low
 safe value while confirming pin 51 polarity before moving a real ball.
+
+---
+
+## 2026-08-22 — Claude Code
+
+**User Request:** Jeremy approved Codex's Orin/Mega power-gated startup
+proposal (shared inbox) and said implement it; Claude owns the Mega side.
+While grounding that work, found and fixed (with Jeremy's authorization) two
+issues Codex's later mutual review also independently confirmed.
+
+**Discussion Result / Changed:**
+1. `7895f50`: this branch's `Chassis`/`SBUS`/`Vision` were the pre-fix
+   versions (unclamped 4-wheel PWM math, no SBUS failsafe) and `main.cpp`
+   unconditionally called `Dribbler::setShootRequest(3)` on every boot before
+   any RC link existed. Ported `Chassis` branch's already-fixed versions
+   verbatim; changed boot to `setShootRequest(0)` and gated chassis commands
+   on `SBUS::isHealthy()`.
+2. `9cfa016`: ported `Chassis`'s completed Mega<->Orin handshake
+   (`MEGA_READY,1` once then `MEGA_HEARTBEAT,1` every 100ms;
+   `VISION_STANDBY/STARTING/READY/ERROR,<version>` parsing with strict
+   version-field validation, not just prefix match) and a Shooter safety
+   fix: `Shooter::update()`'s vertical PID ran unconditionally every loop
+   with `setV` hardcoded to `2000` (unreachable by the 0-1023 ADC `pot`
+   input), `Kp2=0.45`, and no `SetOutputLimits()` anywhere in the repo -
+   proportional term alone (`0.45 * (2000-1023) = 439.65`) exceeds PID_v1's
+   default 255 output ceiling, so `escV` saturated to `1755us` from the
+   first `loop()` iteration regardless of SBUS/vision state. This branch's
+   own `Shooter.cpp` was actually an older variant that didn't even gate
+   horizontal aim on `Vision::isValid()` - both axes are now held at
+   neutral (1500us) and `falcon` stopped until `Vision::isVisionReady()`
+   is true.
+
+**Why:** Codex's mutual-review pass (`進行審核`, 2026-08-22) read the actual
+branch objects independently and caught: (a) this branch had no handshake
+code at all - if flashed standalone with Orin's `--wait-for-mega`, Orin would
+sit in `WAIT_MEGA` forever; (b) the Shooter saturation hazard, with exact
+math; (c) a bug in Claude's own `parseOrinControl()` that checked only the
+lifecycle prefix and never validated the version field (fixed on `Chassis` at
+`fcc6ca5` before this port, so it's included here too).
+
+**Calculation:** See above - `2000 - 1023 = 977` worst-case error,
+`0.45 * 977 = 439.65 > 255` (PID_v1 default output ceiling), so `outV`
+clamps to `255`, `escV.writeMicroseconds(1500 + 255) = 1755`.
+
+**Impact:** `Shooter`, `Vision`, `Chassis`/`SBUS` (from `7895f50`) all
+changed. `Dribbler.cpp`'s own ball-feed/counting logic (Codex's `a4f1bbb`
+work, entry above) was not touched by either port.
+
+**Evidence:** `avr-g++ -fsyntax-only` against every `.cpp` under `src/`
+(excluding `Bench/Sensors/Actuators`, matching `build_src_filter`), using the
+exact flags/includes from this machine's cached
+`.pio/build/megaatmega2560/idedata.json` - all compile clean on both passes.
+No `pio` link, no firmware upload, no hardware test.
+
+**Next Test:** Same as `Chassis` branch's equivalent entries: bench-verify
+with actuators unpowered/wheels off ground, simulate the Orin heartbeat/
+lifecycle lines over a USB-serial adapter into `Serial1` before trusting this
+on real hardware. Additionally for this fix specifically: confirm on the
+bench that `escH`/`escV`/`falcon` all read exactly `1500us` (measure with a
+servo tester or oscilloscope, not just code review) while Orin is not yet
+sending `VISION_READY`, before ever connecting the real shooter mechanism.
