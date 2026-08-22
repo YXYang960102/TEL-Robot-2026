@@ -51,3 +51,77 @@ neutral SBUS produces 1500 us on both drive outputs, forward commands equal
 wheel direction, turn commands opposite wheel direction, and disconnecting the
 receiver stops both outputs within 100 ms. Separately send valid, invalid,
 malformed, and paused YOLO packets with actuators disabled and inspect telemetry.
+
+---
+
+## 2026-08-22 — Claude Code
+
+**User Request:** Jeremy approved Codex's Orin/Mega power-gated startup
+proposal (shared inbox) and said implement it; Claude owns the Mega side.
+Then, after Codex's read-only mutual review (`進行審核`), Jeremy authorized
+fixing every finding.
+
+**Discussion Result / Changed, in commit order:**
+1. `4920882`: added the Mega->Orin heartbeat and Orin lifecycle-line parsing
+   to `Vision`, against a self-proposed wire format that turned out to be
+   wrong.
+2. `b440f24`: corrected that format to match Codex's already-implemented and
+   unit-tested Orin side exactly - `MEGA_READY,1` once then
+   `MEGA_HEARTBEAT,1` every 100ms; `VISION_STANDBY/STARTING/READY/ERROR,1`
+   parsed via a `VISION_` prefix check; added `Vision::isVisionReady()`.
+3. `fcc6ca5`: Codex's review found `parseOrinControl()` checked only the
+   prefix and never validated the version field, so `VISION_READY,999` or
+   even `VISION_READY,` (empty) would both be accepted as a fresh READY.
+   Fixed to parse and require the version field equal `PROTOCOL_VERSION`,
+   still tolerating extra trailing fields after a valid version (matching
+   Orin's own tolerance).
+4. `b8c39d9`: Codex's review found `Shooter::update()`'s vertical PID ran
+   unconditionally every loop regardless of any readiness state - `setV` is
+   hardcoded to `2000`, unreachable by the `analogRead(PIN_POT)` 0-1023
+   range, `Kp2=0.45` (`src/Constants/PIDConfig.h`), and no
+   `SetOutputLimits()` call exists anywhere in this repo (grepped to
+   confirm), so PID_v1's default 0-255 output ceiling saturates
+   immediately: `0.45 * (2000-1023) = 439.65 > 255`, so `escV` gets
+   `1500 + 255 = 1755us` from the very first `loop()` iteration after boot,
+   independent of SBUS health or vision validity. Gated the whole function
+   on `Vision::isVisionReady()`: neutral (1500us) on `escH`/`escV`/`falcon`
+   and `readyH`/`readyV=false` until a fresh `VISION_READY` is seen.
+
+**Why:** The heartbeat/lifecycle work is the Claude-owned half of the
+approved Orin power-gate proposal (Codex: Orin/YOLO_Detect_single side;
+Claude: TEL/Mega side). The two fixes in items 3-4 came directly out of
+Codex's independent read-only review of the actual branch objects, not
+self-review - re-verified both findings against source (`PIDConfig.h`,
+`grep -rn SetOutputLimits`) before fixing rather than taking the review at
+face value.
+
+**Calculation:** See item 4 above for the exact saturation math. Heartbeat
+timing: Orin's incoming-Mega timeout is 1000ms and its own status/heartbeat
+cadence is 100ms; Mega's `HEARTBEAT_INTERVAL_MS=100` matches that cadence,
+giving roughly 10 heartbeat slots inside Orin's timeout window as margin.
+Vision-state staleness reuses the existing `PACKET_TIMEOUT_MS=300` (already
+used for numeric-target staleness) for lifecycle-line staleness too.
+
+**Impact:** `Vision` and `Shooter` changed. Numeric target parsing (5-field,
+range-checked, `PACKET_TIMEOUT_MS`), `Chassis`/`SBUS` failsafe behavior, and
+`Dribbler` are unaffected by this entry's changes (Dribbler's own port of
+this same work is a separate commit sequence on the `Dribbler` branch, see
+that branch's own handoff entry).
+
+**Evidence:** `avr-g++ -fsyntax-only` against every `.cpp` under `src/`
+(excluding `Bench/Sensors/Actuators`), using the exact flags/include paths
+from this machine's cached `.pio/build/megaatmega2560/idedata.json` - all
+compile clean after every commit in this sequence, re-run after each fix, not
+just once at the end. No `pio` link, no firmware upload, no hardware test of
+any kind - the Shooter fix in particular has never been bench-verified with
+a multimeter or servo tester, only reasoned about from source.
+
+**Next Test:** Before connecting the real shooter mechanism, bench-verify
+with the ESC/servo signal wires disconnected from any load: power the Mega
+alone and confirm (with a servo tester or oscilloscope on `escH`/`escV`/
+`falcon`) that all three sit at exactly 1500us while no `VISION_READY` line
+is being sent, then feed a simulated `VISION_READY,1` over `Serial1` (e.g.
+from a USB-serial adapter) and confirm the vertical PID only then starts
+moving `escV` away from neutral. Only after that holds, proceed to the
+existing Chassis/SBUS bench test sequence above and eventually a real
+Orin<->Mega link test.
