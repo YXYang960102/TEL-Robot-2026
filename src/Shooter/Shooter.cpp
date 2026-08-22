@@ -32,20 +32,32 @@ void Shooter::init() {
 }
 
 void Shooter::update() {
+    // Boot-safe gate: without a fresh Orin VISION_READY, hold every output
+    // neutral instead of running the PID loops. The vertical PID's fixed
+    // setV=2000 target is unreachable by the 0-1023 ADC input, so left
+    // unconditional it saturates its output (and moves escV) from the very
+    // first loop() iteration, independent of SBUS/vision validity.
+    if (!Vision::isVisionReady()) {
+        escH.writeMicroseconds(1500);
+        escV.writeMicroseconds(1500);
+        falcon.writeMicroseconds(1500);
+        readyH = false;
+        readyV = false;
+        return;
+    }
 
     int pot = analogRead(PIN_POT);
 
     // auto aim
-    inA = Vision::getXPred();
-    setA = 0;
+    if (Vision::isValid()) {
+        inA = Vision::getXPred();
+        setA = 0;
 
-    pidA.Compute();
-    escH.writeMicroseconds(1500 + outA);
-
-    // Ready
-    if (abs(setA - inA) < 10) {
-        readyH = true;
+        pidA.Compute();
+        escH.writeMicroseconds(1500 + outA);
+        readyH = abs(setA - inA) < 10;
     } else {
+        escH.writeMicroseconds(1500);
         readyH = false;
     }
 
@@ -63,7 +75,7 @@ void Shooter::update() {
     }
 
     // Shooter + Dribbler
-    if (readyH && readyV && Dribbler::getShootRemaining() > 0) {
+    if (Vision::isValid() && readyH && readyV && Dribbler::getShootRemaining() > 0) {
         falcon.writeMicroseconds(1800); // 發射
     } else {
         falcon.writeMicroseconds(1500);
