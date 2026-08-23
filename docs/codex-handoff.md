@@ -247,3 +247,58 @@ remains open-loop even though PIDF constants are reserved for future feedback.
 `megaatmega2560` release build succeeds: RAM `1183/8192` bytes (14.4%), Flash
 `13940/253952` bytes (5.5%). No upload, PWM measurement, Talon FX calibration,
 motor direction test, or powered flywheel test was performed.
+
+---
+
+## 2026-08-23 - Codex: Shooter Constants and subsystem API refactor
+
+**User Request:** Synchronize the formal branches and then refactor one owning
+branch at a time. Start with the formal `Shooter` branch and make its Constants
+and subsystem API as readable as the referenced Team8169 FRC structure. Keep
+the normal single-worktree workflow.
+
+**Branch State:** Before this refactor, the verified Shooter baseline was
+committed as `d829bd0` and pushed to `origin/Shooter`. `Chassis`, `Dribbler`,
+`ShooterMG996`, `dev`, and `main` were fetched and already matched their remote
+tracking refs. No subsystem branch was merged into another branch.
+
+**Architecture:** `ShooterConstants.h` is now grouped by mechanism as
+`Angle`, `Rotate`, `Flywheel`, and visibly isolated `Legacy` calibration data.
+Each mechanism owns its signal pin, PWM range, inversion, typed manual action,
+and reserved PIDF configuration. Angle additionally owns AS5600 conversion,
+sample validation, position limits, controller timing, readiness, and
+closed-loop output limits. Shared `ServoMotorConfig` and
+`PositionLimitConfig` value types moved to `src/Control/ActuatorConfig.h`.
+Duplicate Shooter pin macros were removed from `Pins.h` after all Shooter
+references moved to `ShooterConstants.h`.
+
+**Public API:** `Shooter.h` now presents capabilities in six visible groups:
+lifecycle/safety, manual open-loop control, angle closed-loop/homing, status,
+and telemetry, with implementation details private. Names consistently use
+`Angle`, `Rotate`, and `Flywheel`. Manual methods are
+`setAngleAction/setAngleOpenLoop`, `setRotateAction/setRotateOpenLoop`, and
+`setFlywheelAction/setFlywheelOpenLoop`. The flywheel type still permits only
+STOP/FORWARD. Closed-loop methods are limited to the sensor-backed angle axis.
+
+**Sensor Boundary:** `AS5600Encoder` no longer imports Shooter Constants.
+It receives an immutable `AS5600EncoderConfig` at construction and only owns
+I2C acquisition, magnet validity, wrap-aware signed delta, multi-turn relative
+counts, rejected-sample counting, and stale-sample validity. Shooter owns the
+actual 4096-count, 180-count maximum-delta, and 100 ms timeout values.
+
+**Preserved Behavior:** Outputs remain disabled by default. Stop is 1500 us.
+The paired angle servos remain mirrored by inversion, angle software limits
+remain inactive until homed with a valid encoder, PIDF state still resets when
+a limit blocks motion, and all PIDF gains remain `0.0`. Rotate and Flywheel
+remain open-loop. `Shooter::isReady()` intentionally remains false until
+horizontal angle and flywheel-speed feedback exist.
+
+**Evidence:** `git diff --check` passes. Native PIDF tests pass. PlatformIO
+`megaatmega2560` release build succeeds: RAM `1203/8192` bytes (14.7%), Flash
+`14006/253952` bytes (5.5%). The only warnings are in the vendored Seeed AS5600
+library. No firmware upload, PWM measurement, sensor movement, homing, or
+powered mechanism test was performed.
+
+**Next:** Commit and push this refactor separately on `Shooter`, request Claude
+review, then switch the normal working tree to the next owning branch. Do not
+merge to `dev` until each subsystem's behavior has independent evidence.

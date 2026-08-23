@@ -1,10 +1,9 @@
 #include "AS5600Encoder.h"
 
-#include "../Constants/ShooterConstants.h"
-
 #include <Wire.h>
 
-using namespace ShooterConst;
+AS5600Encoder::AS5600Encoder(const AS5600EncoderConfig& configValue)
+    : config(configValue) {}
 
 void AS5600Encoder::begin() {
     Wire.begin();
@@ -33,7 +32,7 @@ bool AS5600Encoder::update() {
     }
 
     const int nextDeltaCounts = shortestDelta(previousRawCounts, nextRawCounts);
-    if (abs(nextDeltaCounts) > Encoder::MAX_ACCEPTED_DELTA_COUNTS) {
+    if (abs(nextDeltaCounts) > config.maximumAcceptedDeltaCounts) {
         lastDeltaCounts = 0;
         rejectedSampleCount++;
         return false;
@@ -61,7 +60,7 @@ void AS5600Encoder::zero() {
 
 bool AS5600Encoder::isValid() const {
     return initialized && magnetDetected &&
-           millis() - lastValidSampleMs <= Encoder::SAMPLE_TIMEOUT_MS;
+           millis() - lastValidSampleMs <= config.sampleTimeoutMs;
 }
 
 bool AS5600Encoder::isMagnetDetected() {
@@ -88,15 +87,16 @@ unsigned long AS5600Encoder::getRejectedSampleCount() const {
     return rejectedSampleCount;
 }
 
-int AS5600Encoder::shortestDelta(uint16_t previousRaw, uint16_t currentRaw) {
+int AS5600Encoder::shortestDelta(
+    uint16_t previousRaw,
+    uint16_t currentRaw) const {
     int delta = static_cast<int>(currentRaw) - static_cast<int>(previousRaw);
 
-    if (delta > Encoder::HALF_COUNTS_PER_REV) {
-        delta -= Encoder::COUNTS_PER_REV;
-    } else if (delta < -Encoder::HALF_COUNTS_PER_REV) {
-        delta += Encoder::COUNTS_PER_REV;
+    if (delta > config.halfCountsPerRevolution) {
+        delta -= config.countsPerRevolution;
+    } else if (delta < -config.halfCountsPerRevolution) {
+        delta += config.countsPerRevolution;
     }
 
     return delta;
 }
-

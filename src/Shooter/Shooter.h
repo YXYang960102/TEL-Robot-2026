@@ -3,56 +3,57 @@
 #include <Arduino.h>
 #include <Servo.h>
 
+#include "../Constants/ShooterConstants.h"
 #include "../Control/PidfController.h"
 #include "../Sensors/AS5600Encoder.h"
 
-enum class ElevationControlMode {
+enum class AngleControlMode {
     DISABLED,
     MANUAL_OPEN_LOOP,
     CLOSED_LOOP
 };
 
-enum class OpenLoopAction : int8_t {
-    REVERSE = -1,
-    STOP = 0,
-    FORWARD = 1
-};
-
-enum class FlywheelAction : uint8_t {
-    STOP = 0,
-    FORWARD = 1
-};
-
 class Shooter {
 public:
+    using AngleAction = ShooterConstants::Angle::Action;
+    using RotateAction = ShooterConstants::Rotate::Action;
+    using FlywheelAction = ShooterConstants::Flywheel::Action;
+
+    // Lifecycle and safety
     static void init();
     static void update();
-    static void stop();
-
+    static void stopAll();
     static void setOutputsEnabled(bool enabled);
     static bool areOutputsEnabled();
-    static void setElevationManual(double command);
-    static void setAngleSpeed(OpenLoopAction action);
-    static bool setElevationTargetCounts(long targetCounts);
-    static void zeroElevationAtCurrentPosition();
-    static void disableElevation();
-    static void setTurretManual(double command);
-    static void setRotateSpeed(OpenLoopAction action);
-    static void setFlywheelOpenLoop(double command);
-    static void setFlywheelSpeed(FlywheelAction action);
 
-    static bool isEncoderValid();
-    static bool isElevationHomed();
-    static bool isElevationReady();
-    static bool areElevationSoftLimitsActive();
+    // Manual open-loop control
+    static void setAngleAction(AngleAction action);
+    static void setAngleOpenLoop(double command);
+    static void setRotateAction(RotateAction action);
+    static void setRotateOpenLoop(double command);
+    static void setFlywheelAction(FlywheelAction action);
+    static void setFlywheelOpenLoop(double command);
+
+    // Angle closed-loop control and homing
+    static bool setAngleTargetCounts(long targetCounts);
+    static void zeroAngleAtCurrentPosition();
+    static void disableAngle();
+
+    // Status
+    static bool isAngleEncoderValid();
+    static bool isAngleHomed();
+    static bool isAngleReady();
+    static bool areAngleSoftLimitsActive();
     static bool isReady();
-    static long getElevationCounts();
-    static long getElevationTargetCounts();
-    static double getElevationDegrees();
-    static int getElevationErrorCounts();
-    static int getLeftElevationPulseUs();
-    static int getRightElevationPulseUs();
-    static int getTurretPulseUs();
+
+    // Telemetry
+    static long getAngleCounts();
+    static long getAngleTargetCounts();
+    static double getAngleDegrees();
+    static int getAngleErrorCounts();
+    static int getLeftAnglePulseUs();
+    static int getRightAnglePulseUs();
+    static int getRotatePulseUs();
     static int getFlywheelPulseUs();
     static double getAngleControllerOutput();
     static double getAngleVelocityCountsPerSecond();
@@ -63,34 +64,33 @@ public:
     static bool isAngleControllerSaturated();
 
 private:
-    static void updateElevation();
-    static void writeElevationManualCommand(double command);
-    static void writeElevationOffset(int offsetUs);
-    static void writeTurretCommand(double command);
+    static void updateAngle();
+    static void writeAngleManualCommand(double command);
+    static void writeAngleOffset(int offsetUs);
+    static void writeRotateCommand(double command);
     static void writeFlywheelCommand(double command);
-    static void resetElevationController();
-    static double actionToCommand(OpenLoopAction action);
-    static double limitElevationCommand(double command);
+    static void resetAngleController();
+    static double limitAngleCommand(double command);
 
-    static Servo elevationLeftServo;
-    static Servo elevationRightServo;
-    static Servo turretServo;
+    static Servo angleLeftServo;
+    static Servo angleRightServo;
+    static Servo rotateServo;
     static Servo flywheelOutput;
-    static AS5600Encoder elevationEncoder;
-    static ElevationControlMode elevationMode;
+    static AS5600Encoder angleEncoder;
+    static AngleControlMode angleMode;
     static bool outputsEnabled;
-    static bool elevationHomed;
-    static bool elevationReady;
-    static double elevationManualCommand;
-    static double turretManualCommand;
+    static bool angleHomed;
+    static bool angleReady;
+    static double angleManualCommand;
+    static double rotateManualCommand;
     static double flywheelOpenLoopCommand;
-    static double elevationSetpoint;
+    static double angleSetpoint;
     static PidfController angleController;
     static double angleControllerOutput;
     static unsigned long lastAngleControlMs;
     static unsigned long angleReadySinceMs;
-    static int leftElevationPulseUs;
-    static int rightElevationPulseUs;
-    static int turretPulseUs;
+    static int leftAnglePulseUs;
+    static int rightAnglePulseUs;
+    static int rotatePulseUs;
     static int flywheelPulseUs;
 };

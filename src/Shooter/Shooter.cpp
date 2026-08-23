@@ -1,9 +1,6 @@
 #include "Shooter.h"
 
-#include "../Constants/Pins.h"
-#include "../Constants/ShooterConstants.h"
-
-using namespace ShooterConst;
+using namespace ShooterConstants;
 
 namespace {
 
@@ -24,8 +21,8 @@ int commandToPulseUs(double command, const ServoMotorConfig& config) {
     }
 
     const double pulseUs = command >= 0.0
-        ? config.neutralUs + command * (config.forwardUs - config.neutralUs)
-        : config.neutralUs + (-command) * (config.reverseUs - config.neutralUs);
+        ? config.neutralUs + command * (config.maximumUs - config.neutralUs)
+        : config.neutralUs + (-command) * (config.minimumUs - config.neutralUs);
     return static_cast<int>(pulseUs + (pulseUs >= 0.0 ? 0.5 : -0.5));
 }
 
@@ -33,91 +30,91 @@ int offsetToPulseUs(int offsetUs, const ServoMotorConfig& config) {
     const int appliedOffset = config.inverted ? -offsetUs : offsetUs;
     return constrain(
         config.neutralUs + appliedOffset,
-        config.reverseUs,
-        config.forwardUs);
+        config.minimumUs,
+        config.maximumUs);
 }
 
 }
 
-Servo Shooter::elevationLeftServo;
-Servo Shooter::elevationRightServo;
-Servo Shooter::turretServo;
+Servo Shooter::angleLeftServo;
+Servo Shooter::angleRightServo;
+Servo Shooter::rotateServo;
 Servo Shooter::flywheelOutput;
-AS5600Encoder Shooter::elevationEncoder;
-ElevationControlMode Shooter::elevationMode = ElevationControlMode::DISABLED;
+AS5600Encoder Shooter::angleEncoder(Angle::ENCODER);
+AngleControlMode Shooter::angleMode = AngleControlMode::DISABLED;
 bool Shooter::outputsEnabled = false;
-bool Shooter::elevationHomed = false;
-bool Shooter::elevationReady = false;
-double Shooter::elevationManualCommand = 0.0;
-double Shooter::turretManualCommand = 0.0;
+bool Shooter::angleHomed = false;
+bool Shooter::angleReady = false;
+double Shooter::angleManualCommand = 0.0;
+double Shooter::rotateManualCommand = 0.0;
 double Shooter::flywheelOpenLoopCommand = 0.0;
-double Shooter::elevationSetpoint = 0.0;
-PidfController Shooter::angleController(kAnglePidfConfig);
+double Shooter::angleSetpoint = 0.0;
+PidfController Shooter::angleController(Angle::PIDF);
 double Shooter::angleControllerOutput = 0.0;
 unsigned long Shooter::lastAngleControlMs = 0;
 unsigned long Shooter::angleReadySinceMs = 0;
-int Shooter::leftElevationPulseUs = Elevation::LEFT_MOTOR_CONFIG.neutralUs;
-int Shooter::rightElevationPulseUs = Elevation::RIGHT_MOTOR_CONFIG.neutralUs;
-int Shooter::turretPulseUs = Turret::MOTOR_CONFIG.neutralUs;
-int Shooter::flywheelPulseUs = Flywheel::MOTOR_CONFIG.neutralUs;
+int Shooter::leftAnglePulseUs = Angle::LEFT_MOTOR.neutralUs;
+int Shooter::rightAnglePulseUs = Angle::RIGHT_MOTOR.neutralUs;
+int Shooter::rotatePulseUs = Rotate::MOTOR.neutralUs;
+int Shooter::flywheelPulseUs = Flywheel::MOTOR.neutralUs;
 
 void Shooter::init() {
-    elevationLeftServo.attach(
-        PIN_SHOOTER_ELEVATION_LEFT,
-        Elevation::SERVO_ATTACH_MIN_US,
-        Elevation::SERVO_ATTACH_MAX_US);
-    elevationRightServo.attach(
-        PIN_SHOOTER_ELEVATION_RIGHT,
-        Elevation::SERVO_ATTACH_MIN_US,
-        Elevation::SERVO_ATTACH_MAX_US);
-    turretServo.attach(
-        PIN_SHOOTER_TURRET,
-        Turret::ATTACH_MIN_US,
-        Turret::ATTACH_MAX_US);
+    angleLeftServo.attach(
+        Angle::LEFT_SIGNAL_PIN,
+        Angle::MIN_PULSE_US,
+        Angle::MAX_PULSE_US);
+    angleRightServo.attach(
+        Angle::RIGHT_SIGNAL_PIN,
+        Angle::MIN_PULSE_US,
+        Angle::MAX_PULSE_US);
+    rotateServo.attach(
+        Rotate::SIGNAL_PIN,
+        Rotate::MIN_PULSE_US,
+        Rotate::MAX_PULSE_US);
     flywheelOutput.attach(
-        PIN_SHOOTER_FLYWHEEL,
-        Flywheel::ATTACH_MIN_US,
-        Flywheel::ATTACH_MAX_US);
+        Flywheel::SIGNAL_PIN,
+        Flywheel::MIN_PULSE_US,
+        Flywheel::MAX_PULSE_US);
 
-    elevationEncoder.begin();
+    angleEncoder.begin();
     angleController.setOutputLimits(
-        Elevation::MIN_NORMALIZED_OUTPUT,
-        Elevation::MAX_NORMALIZED_OUTPUT);
+        Angle::MIN_NORMALIZED_OUTPUT,
+        Angle::MAX_NORMALIZED_OUTPUT);
     angleController.setIntegralOutputLimits(
-        Elevation::MIN_INTEGRAL_OUTPUT,
-        Elevation::MAX_INTEGRAL_OUTPUT);
-    stop();
+        Angle::MIN_INTEGRAL_OUTPUT,
+        Angle::MAX_INTEGRAL_OUTPUT);
+    stopAll();
 }
 
 void Shooter::update() {
-    elevationEncoder.update();
+    angleEncoder.update();
 
     if (!outputsEnabled) {
-        stop();
+        stopAll();
         return;
     }
 
-    updateElevation();
-    writeTurretCommand(turretManualCommand);
+    updateAngle();
+    writeRotateCommand(rotateManualCommand);
     writeFlywheelCommand(flywheelOpenLoopCommand);
 }
 
-void Shooter::stop() {
-    elevationMode = ElevationControlMode::DISABLED;
-    elevationManualCommand = 0.0;
-    turretManualCommand = 0.0;
+void Shooter::stopAll() {
+    angleMode = AngleControlMode::DISABLED;
+    angleManualCommand = 0.0;
+    rotateManualCommand = 0.0;
     flywheelOpenLoopCommand = 0.0;
-    elevationReady = false;
-    resetElevationController();
-    writeElevationOffset(0);
-    writeTurretCommand(0.0);
+    angleReady = false;
+    resetAngleController();
+    writeAngleOffset(0);
+    writeRotateCommand(0.0);
     writeFlywheelCommand(0.0);
 }
 
 void Shooter::setOutputsEnabled(bool enabled) {
     outputsEnabled = enabled;
     if (!outputsEnabled) {
-        stop();
+        stopAll();
     }
 }
 
@@ -125,125 +122,125 @@ bool Shooter::areOutputsEnabled() {
     return outputsEnabled;
 }
 
-void Shooter::setElevationManual(double command) {
-    elevationManualCommand = constrain(command, -1.0, 1.0);
-    elevationMode = ElevationControlMode::MANUAL_OPEN_LOOP;
-    elevationReady = false;
-    resetElevationController();
+void Shooter::setAngleOpenLoop(double command) {
+    angleManualCommand = constrain(command, -1.0, 1.0);
+    angleMode = AngleControlMode::MANUAL_OPEN_LOOP;
+    angleReady = false;
+    resetAngleController();
 }
 
-void Shooter::setAngleSpeed(OpenLoopAction action) {
-    setElevationManual(actionToCommand(action));
+void Shooter::setAngleAction(AngleAction action) {
+    setAngleOpenLoop(static_cast<int8_t>(action));
 }
 
-bool Shooter::setElevationTargetCounts(long targetCounts) {
-    if (!elevationHomed || !elevationEncoder.isValid()) {
-        disableElevation();
+bool Shooter::setAngleTargetCounts(long targetCounts) {
+    if (!angleHomed || !angleEncoder.isValid()) {
+        disableAngle();
         return false;
     }
 
     const double nextSetpoint = constrain(
         targetCounts,
-        Elevation::MIN_TARGET_COUNTS,
-        Elevation::MAX_TARGET_COUNTS);
+        Angle::MIN_POSITION_COUNTS,
+        Angle::MAX_POSITION_COUNTS);
     const bool targetJumped =
-        elevationMode != ElevationControlMode::CLOSED_LOOP ||
-        fabs(nextSetpoint - elevationSetpoint) >=
-            Elevation::SETPOINT_RESET_THRESHOLD_COUNTS;
-    elevationSetpoint = nextSetpoint;
+        angleMode != AngleControlMode::CLOSED_LOOP ||
+        fabs(nextSetpoint - angleSetpoint) >=
+            Angle::SETPOINT_RESET_THRESHOLD_COUNTS;
+    angleSetpoint = nextSetpoint;
     if (targetJumped) {
-        resetElevationController();
+        resetAngleController();
     }
-    elevationMode = ElevationControlMode::CLOSED_LOOP;
-    elevationReady = false;
+    angleMode = AngleControlMode::CLOSED_LOOP;
+    angleReady = false;
     angleReadySinceMs = 0;
     return true;
 }
 
-void Shooter::zeroElevationAtCurrentPosition() {
-    if (!elevationEncoder.isValid()) {
-        elevationHomed = false;
-        disableElevation();
+void Shooter::zeroAngleAtCurrentPosition() {
+    if (!angleEncoder.isValid()) {
+        angleHomed = false;
+        disableAngle();
         return;
     }
 
-    elevationEncoder.zero();
-    elevationHomed = true;
-    elevationSetpoint = 0.0;
-    disableElevation();
+    angleEncoder.zero();
+    angleHomed = true;
+    angleSetpoint = 0.0;
+    disableAngle();
 }
 
-void Shooter::disableElevation() {
-    elevationMode = ElevationControlMode::DISABLED;
-    elevationManualCommand = 0.0;
-    elevationReady = false;
-    resetElevationController();
-    writeElevationOffset(0);
+void Shooter::disableAngle() {
+    angleMode = AngleControlMode::DISABLED;
+    angleManualCommand = 0.0;
+    angleReady = false;
+    resetAngleController();
+    writeAngleOffset(0);
 }
 
-void Shooter::setTurretManual(double command) {
-    turretManualCommand = constrain(command, -1.0, 1.0);
+void Shooter::setRotateOpenLoop(double command) {
+    rotateManualCommand = constrain(command, -1.0, 1.0);
 }
 
-void Shooter::setRotateSpeed(OpenLoopAction action) {
-    setTurretManual(actionToCommand(action));
+void Shooter::setRotateAction(RotateAction action) {
+    setRotateOpenLoop(static_cast<int8_t>(action));
 }
 
 void Shooter::setFlywheelOpenLoop(double command) {
     flywheelOpenLoopCommand = constrain(command, 0.0, 1.0);
 }
 
-void Shooter::setFlywheelSpeed(FlywheelAction action) {
+void Shooter::setFlywheelAction(FlywheelAction action) {
     setFlywheelOpenLoop(static_cast<uint8_t>(action));
 }
 
-bool Shooter::isEncoderValid() {
-    return elevationEncoder.isValid();
+bool Shooter::isAngleEncoderValid() {
+    return angleEncoder.isValid();
 }
 
-bool Shooter::isElevationHomed() {
-    return elevationHomed;
+bool Shooter::isAngleHomed() {
+    return angleHomed;
 }
 
-bool Shooter::isElevationReady() {
-    return elevationReady;
+bool Shooter::isAngleReady() {
+    return angleReady;
 }
 
-bool Shooter::areElevationSoftLimitsActive() {
-    return elevationHomed && elevationEncoder.isValid();
+bool Shooter::areAngleSoftLimitsActive() {
+    return angleHomed && angleEncoder.isValid();
 }
 
 bool Shooter::isReady() {
-    // Overall readiness also needs turret-angle and flywheel-speed feedback.
+    // Overall readiness also needs rotate-angle and flywheel-speed feedback.
     return false;
 }
 
-long Shooter::getElevationCounts() {
-    return elevationEncoder.getRelativeCounts();
+long Shooter::getAngleCounts() {
+    return angleEncoder.getRelativeCounts();
 }
 
-long Shooter::getElevationTargetCounts() {
-    return static_cast<long>(elevationSetpoint);
+long Shooter::getAngleTargetCounts() {
+    return static_cast<long>(angleSetpoint);
 }
 
-double Shooter::getElevationDegrees() {
-    return getElevationCounts() * Encoder::COUNTS_TO_DEGREES;
+double Shooter::getAngleDegrees() {
+    return getAngleCounts() * Angle::COUNTS_TO_DEGREES;
 }
 
-int Shooter::getElevationErrorCounts() {
-    return static_cast<int>(elevationSetpoint - elevationEncoder.getRelativeCounts());
+int Shooter::getAngleErrorCounts() {
+    return static_cast<int>(angleSetpoint - angleEncoder.getRelativeCounts());
 }
 
-int Shooter::getLeftElevationPulseUs() {
-    return leftElevationPulseUs;
+int Shooter::getLeftAnglePulseUs() {
+    return leftAnglePulseUs;
 }
 
-int Shooter::getRightElevationPulseUs() {
-    return rightElevationPulseUs;
+int Shooter::getRightAnglePulseUs() {
+    return rightAnglePulseUs;
 }
 
-int Shooter::getTurretPulseUs() {
-    return turretPulseUs;
+int Shooter::getRotatePulseUs() {
+    return rotatePulseUs;
 }
 
 int Shooter::getFlywheelPulseUs() {
@@ -278,153 +275,149 @@ bool Shooter::isAngleControllerSaturated() {
     return angleController.isSaturated();
 }
 
-void Shooter::updateElevation() {
-    if (elevationMode == ElevationControlMode::DISABLED) {
-        writeElevationOffset(0);
+void Shooter::updateAngle() {
+    if (angleMode == AngleControlMode::DISABLED) {
+        writeAngleOffset(0);
         return;
     }
 
-    if (elevationMode == ElevationControlMode::MANUAL_OPEN_LOOP) {
-        writeElevationManualCommand(
-            limitElevationCommand(elevationManualCommand));
-        elevationReady = false;
+    if (angleMode == AngleControlMode::MANUAL_OPEN_LOOP) {
+        writeAngleManualCommand(
+            limitAngleCommand(angleManualCommand));
+        angleReady = false;
         return;
     }
 
-    if (!elevationHomed || !elevationEncoder.isValid()) {
-        disableElevation();
+    if (!angleHomed || !angleEncoder.isValid()) {
+        disableAngle();
         return;
     }
 
     const unsigned long nowMs = millis();
     const unsigned long elapsedMs = nowMs - lastAngleControlMs;
-    if (elapsedMs < Elevation::CONTROL_PERIOD_MS) {
+    if (elapsedMs < Angle::CONTROL_PERIOD_MS) {
         return;
     }
 
-    const double measurement = elevationEncoder.getRelativeCounts();
+    const double measurement = angleEncoder.getRelativeCounts();
     if (lastAngleControlMs == 0 ||
-        elapsedMs > Elevation::MAX_CONTROL_GAP_MS) {
+        elapsedMs > Angle::MAX_CONTROL_GAP_MS) {
         angleController.reset(measurement);
         angleControllerOutput = 0.0;
         lastAngleControlMs = nowMs;
         angleReadySinceMs = 0;
-        elevationReady = false;
-        writeElevationOffset(0);
+        angleReady = false;
+        writeAngleOffset(0);
         return;
     }
 
     const double dtSeconds = elapsedMs / 1000.0;
     angleControllerOutput = angleController.calculate(
-        elevationSetpoint,
+        angleSetpoint,
         measurement,
         dtSeconds,
-        Elevation::FEEDFORWARD_REFERENCE);
+        Angle::FEEDFORWARD_REFERENCE);
     lastAngleControlMs = nowMs;
 
     const double limitedControllerOutput =
-        limitElevationCommand(angleControllerOutput);
+        limitAngleCommand(angleControllerOutput);
     if (limitedControllerOutput != angleControllerOutput) {
         angleController.reset(measurement);
         angleControllerOutput = 0.0;
         angleReadySinceMs = 0;
-        elevationReady = false;
-        writeElevationOffset(0);
+        angleReady = false;
+        writeAngleOffset(0);
         return;
     }
 
     const bool positionReady =
         fabs(angleController.getError()) <=
-        Elevation::READY_TOLERANCE_COUNTS;
+        Angle::READY_TOLERANCE_COUNTS;
     const bool velocityReady =
         fabs(angleController.getMeasurementRate()) <=
-        Elevation::READY_VELOCITY_TOLERANCE_COUNTS_PER_SECOND;
+        Angle::READY_VELOCITY_TOLERANCE_COUNTS_PER_SECOND;
 
     if (positionReady && velocityReady) {
         angleControllerOutput = 0.0;
-        writeElevationOffset(0);
+        writeAngleOffset(0);
         if (angleReadySinceMs == 0) {
             angleReadySinceMs = nowMs;
         }
-        elevationReady =
+        angleReady =
             nowMs - angleReadySinceMs >=
-            Elevation::READY_SETTLE_TIME_MS;
+            Angle::READY_SETTLE_TIME_MS;
         return;
     }
 
     angleReadySinceMs = 0;
-    elevationReady = false;
+    angleReady = false;
     const double scaledOffset =
-        angleControllerOutput * Elevation::MAX_CLOSED_LOOP_OFFSET_US;
+        angleControllerOutput * Angle::MAX_CLOSED_LOOP_OFFSET_US;
     const int offsetUs = static_cast<int>(
         scaledOffset + (scaledOffset >= 0.0 ? 0.5 : -0.5));
-    writeElevationOffset(offsetUs);
+    writeAngleOffset(offsetUs);
 }
 
-void Shooter::writeElevationManualCommand(double command) {
-    leftElevationPulseUs = commandToPulseUs(
+void Shooter::writeAngleManualCommand(double command) {
+    leftAnglePulseUs = commandToPulseUs(
         command,
-        Elevation::LEFT_MOTOR_CONFIG);
-    rightElevationPulseUs = commandToPulseUs(
+        Angle::LEFT_MOTOR);
+    rightAnglePulseUs = commandToPulseUs(
         command,
-        Elevation::RIGHT_MOTOR_CONFIG);
-    elevationLeftServo.writeMicroseconds(leftElevationPulseUs);
-    elevationRightServo.writeMicroseconds(rightElevationPulseUs);
+        Angle::RIGHT_MOTOR);
+    angleLeftServo.writeMicroseconds(leftAnglePulseUs);
+    angleRightServo.writeMicroseconds(rightAnglePulseUs);
 }
 
-void Shooter::writeElevationOffset(int offsetUs) {
+void Shooter::writeAngleOffset(int offsetUs) {
     offsetUs = constrain(
         offsetUs,
-        -Elevation::MAX_CLOSED_LOOP_OFFSET_US,
-        Elevation::MAX_CLOSED_LOOP_OFFSET_US);
+        -Angle::MAX_CLOSED_LOOP_OFFSET_US,
+        Angle::MAX_CLOSED_LOOP_OFFSET_US);
 
-    leftElevationPulseUs = offsetToPulseUs(
+    leftAnglePulseUs = offsetToPulseUs(
         offsetUs,
-        Elevation::LEFT_MOTOR_CONFIG);
-    rightElevationPulseUs = offsetToPulseUs(
+        Angle::LEFT_MOTOR);
+    rightAnglePulseUs = offsetToPulseUs(
         offsetUs,
-        Elevation::RIGHT_MOTOR_CONFIG);
-    elevationLeftServo.writeMicroseconds(leftElevationPulseUs);
-    elevationRightServo.writeMicroseconds(rightElevationPulseUs);
+        Angle::RIGHT_MOTOR);
+    angleLeftServo.writeMicroseconds(leftAnglePulseUs);
+    angleRightServo.writeMicroseconds(rightAnglePulseUs);
 }
 
-void Shooter::writeTurretCommand(double command) {
-    turretPulseUs = commandToPulseUs(command, Turret::MOTOR_CONFIG);
-    turretServo.writeMicroseconds(turretPulseUs);
+void Shooter::writeRotateCommand(double command) {
+    rotatePulseUs = commandToPulseUs(command, Rotate::MOTOR);
+    rotateServo.writeMicroseconds(rotatePulseUs);
 }
 
 void Shooter::writeFlywheelCommand(double command) {
-    flywheelPulseUs = commandToPulseUs(command, Flywheel::MOTOR_CONFIG);
+    flywheelPulseUs = commandToPulseUs(command, Flywheel::MOTOR);
     flywheelOutput.writeMicroseconds(flywheelPulseUs);
 }
 
-void Shooter::resetElevationController() {
-    const double measurement = elevationEncoder.getRelativeCounts();
+void Shooter::resetAngleController() {
+    const double measurement = angleEncoder.getRelativeCounts();
     angleController.reset(measurement);
     angleControllerOutput = 0.0;
     lastAngleControlMs = millis();
     angleReadySinceMs = 0;
 }
 
-double Shooter::actionToCommand(OpenLoopAction action) {
-    return static_cast<int8_t>(action);
-}
-
-double Shooter::limitElevationCommand(double command) {
+double Shooter::limitAngleCommand(double command) {
     command = constrain(command, -1.0, 1.0);
-    if (!areElevationSoftLimitsActive()) {
+    if (!areAngleSoftLimitsActive()) {
         return command;
     }
 
-    const long counts = elevationEncoder.getRelativeCounts();
+    const long counts = angleEncoder.getRelativeCounts();
     if (command > 0.0 &&
-        Elevation::SOFT_LIMIT_CONFIG.forwardEnabled &&
-        counts >= Elevation::SOFT_LIMIT_CONFIG.forwardLimitCounts) {
+        Angle::SOFT_LIMIT.forwardEnabled &&
+        counts >= Angle::SOFT_LIMIT.forwardLimit) {
         return 0.0;
     }
     if (command < 0.0 &&
-        Elevation::SOFT_LIMIT_CONFIG.reverseEnabled &&
-        counts <= Elevation::SOFT_LIMIT_CONFIG.reverseLimitCounts) {
+        Angle::SOFT_LIMIT.reverseEnabled &&
+        counts <= Angle::SOFT_LIMIT.reverseLimit) {
         return 0.0;
     }
     return command;
