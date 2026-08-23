@@ -1,27 +1,29 @@
 #include "SBUS.h"
-#include "../Constants/SBUSConstants.h"
+
+#include "../Constants/IOConstants.h"
 
 #include <Arduino.h>
 
-bfs::SbusRx SBUS::sbus(&Serial2);
-bfs::SbusData SBUS::data;
+using namespace IOConstants;
 
-int SBUS::ch0 = 1500;
-int SBUS::ch1 = 1500;
-int SBUS::ch2 = 1500;
-int SBUS::ch3 = 1500;
-int SBUS::ch8 = 1500;
+bfs::SbusRx SBUS::receiver(&Serial2);
+bfs::SbusData SBUS::data;
+int SBUS::driveForwardPulseUs = Sbus::PULSE_NEUTRAL_US;
+int SBUS::auxiliaryPulseUs = Sbus::PULSE_NEUTRAL_US;
+int SBUS::mechanismPulseUs = Sbus::PULSE_NEUTRAL_US;
+int SBUS::driveTurnPulseUs = Sbus::PULSE_NEUTRAL_US;
+int SBUS::modePulseUs = Sbus::PULSE_NEUTRAL_US;
 unsigned long SBUS::lastValidFrameMs = 0;
 bool SBUS::hasValidFrame = false;
 
 void SBUS::init() {
-    sbus.Begin();
+    receiver.Begin();
     setNeutral();
 }
 
 void SBUS::update() {
-    if (sbus.Read()) {
-        data = sbus.data();
+    if (receiver.Read()) {
+        data = receiver.data();
 
         if (data.failsafe || data.lost_frame) {
             hasValidFrame = false;
@@ -29,15 +31,36 @@ void SBUS::update() {
             return;
         }
 
-        ch0 = map(data.ch[0], SBUSConst::RAW_MIN, SBUSConst::RAW_MAX,
-                  SBUSConst::PULSE_MIN_US, SBUSConst::PULSE_MAX_US);
-        ch1 = map(data.ch[3], SBUSConst::RAW_MIN, SBUSConst::RAW_MAX, 1200, 1800);
-        ch2 = map(data.ch[2], SBUSConst::RAW_MIN, SBUSConst::RAW_MAX,
-                  SBUSConst::PULSE_MIN_US, SBUSConst::PULSE_MAX_US);
-        ch3 = map(data.ch[1], SBUSConst::RAW_MIN, SBUSConst::RAW_MAX,
-                  SBUSConst::PULSE_MAX_US, SBUSConst::PULSE_MIN_US);
-        ch8 = map(data.ch[8], SBUSConst::RAW_MIN, SBUSConst::RAW_MAX,
-                  SBUSConst::PULSE_NEUTRAL_US, SBUSConst::PULSE_MAX_US);
+        driveForwardPulseUs = map(
+            data.ch[Sbus::DRIVE_FORWARD_CHANNEL],
+            Sbus::RAW_MIN,
+            Sbus::RAW_MAX,
+            Sbus::PULSE_MIN_US,
+            Sbus::PULSE_MAX_US);
+        auxiliaryPulseUs = map(
+            data.ch[Sbus::AUXILIARY_CHANNEL],
+            Sbus::RAW_MIN,
+            Sbus::RAW_MAX,
+            Sbus::AUXILIARY_MIN_US,
+            Sbus::AUXILIARY_MAX_US);
+        mechanismPulseUs = map(
+            data.ch[Sbus::MECHANISM_CHANNEL],
+            Sbus::RAW_MIN,
+            Sbus::RAW_MAX,
+            Sbus::PULSE_MIN_US,
+            Sbus::PULSE_MAX_US);
+        driveTurnPulseUs = map(
+            data.ch[Sbus::DRIVE_TURN_CHANNEL],
+            Sbus::RAW_MIN,
+            Sbus::RAW_MAX,
+            Sbus::PULSE_MAX_US,
+            Sbus::PULSE_MIN_US);
+        modePulseUs = map(
+            data.ch[Sbus::MODE_CHANNEL],
+            Sbus::RAW_MIN,
+            Sbus::RAW_MAX,
+            Sbus::PULSE_NEUTRAL_US,
+            Sbus::PULSE_MAX_US);
 
         lastValidFrameMs = millis();
         hasValidFrame = true;
@@ -49,7 +72,8 @@ void SBUS::update() {
 }
 
 bool SBUS::isHealthy() {
-    return hasValidFrame && millis() - lastValidFrameMs <= SBUSConst::FRAME_TIMEOUT_MS;
+    return hasValidFrame &&
+           millis() - lastValidFrameMs <= Sbus::FRAME_TIMEOUT_MS;
 }
 
 unsigned long SBUS::getFrameAgeMs() {
@@ -57,24 +81,46 @@ unsigned long SBUS::getFrameAgeMs() {
 }
 
 double SBUS::getDriveForward() {
-    return isHealthy() ? normalizedPulse(ch0) : 0.0;
+    return isHealthy() ? normalizedPulse(driveForwardPulseUs) : 0.0;
 }
 
 double SBUS::getDriveTurn() {
-    return isHealthy() ? normalizedPulse(ch3) : 0.0;
+    return isHealthy() ? normalizedPulse(driveTurnPulseUs) : 0.0;
+}
+
+int SBUS::getDriveForwardPulseUs() {
+    return driveForwardPulseUs;
+}
+
+int SBUS::getAuxiliaryPulseUs() {
+    return auxiliaryPulseUs;
+}
+
+int SBUS::getMechanismPulseUs() {
+    return mechanismPulseUs;
+}
+
+int SBUS::getDriveTurnPulseUs() {
+    return driveTurnPulseUs;
+}
+
+int SBUS::getModePulseUs() {
+    return modePulseUs;
 }
 
 void SBUS::setNeutral() {
-    ch0 = SBUSConst::PULSE_NEUTRAL_US;
-    ch1 = SBUSConst::PULSE_NEUTRAL_US;
-    ch2 = SBUSConst::PULSE_NEUTRAL_US;
-    ch3 = SBUSConst::PULSE_NEUTRAL_US;
-    ch8 = SBUSConst::PULSE_NEUTRAL_US;
+    driveForwardPulseUs = Sbus::PULSE_NEUTRAL_US;
+    auxiliaryPulseUs = Sbus::PULSE_NEUTRAL_US;
+    mechanismPulseUs = Sbus::PULSE_NEUTRAL_US;
+    driveTurnPulseUs = Sbus::PULSE_NEUTRAL_US;
+    modePulseUs = Sbus::PULSE_NEUTRAL_US;
 }
 
 double SBUS::normalizedPulse(int pulseUs) {
     const int constrainedPulse = constrain(
-        pulseUs, SBUSConst::PULSE_MIN_US, SBUSConst::PULSE_MAX_US);
-    return (constrainedPulse - SBUSConst::PULSE_NEUTRAL_US) /
-           static_cast<double>(SBUSConst::PULSE_MAX_US - SBUSConst::PULSE_NEUTRAL_US);
+        pulseUs,
+        Sbus::PULSE_MIN_US,
+        Sbus::PULSE_MAX_US);
+    return (constrainedPulse - Sbus::PULSE_NEUTRAL_US) /
+           static_cast<double>(Sbus::PULSE_MAX_US - Sbus::PULSE_NEUTRAL_US);
 }

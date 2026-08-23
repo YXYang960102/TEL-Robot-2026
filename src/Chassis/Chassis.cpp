@@ -1,58 +1,89 @@
 #include "Chassis.h"
-#include "../Constants/Pins.h"
+
 #include "../Constants/ChassisConstants.h"
 
 #include <Arduino.h>
 
-Servo Chassis::fr;
-Servo Chassis::fl;
+using namespace ChassisConstants;
+
+Servo Chassis::rightDrive;
+Servo Chassis::leftDrive;
 double Chassis::forwardCommand = 0.0;
 double Chassis::turnCommand = 0.0;
+int Chassis::rightPulseUs = Output::NEUTRAL_US;
+int Chassis::leftPulseUs = Output::NEUTRAL_US;
 
 void Chassis::init() {
-    fr.attach(PIN_FR);
-    fl.attach(PIN_FL);
+    rightDrive.attach(RightDrive::SIGNAL_PIN);
+    leftDrive.attach(LeftDrive::SIGNAL_PIN);
     stop();
 }
 
 void Chassis::update() {
-    double FR = forwardCommand - turnCommand;
-    double FL = forwardCommand + turnCommand;
+    double rightCommand = forwardCommand - turnCommand;
+    double leftCommand = forwardCommand + turnCommand;
 
-    double maxVal = max(abs(FR), abs(FL));
-
-    if(maxVal > 1){
-        FR/=maxVal; FL/=maxVal;
+    const double maximumMagnitude = max(abs(rightCommand), abs(leftCommand));
+    if (maximumMagnitude > 1.0) {
+        rightCommand /= maximumMagnitude;
+        leftCommand /= maximumMagnitude;
     }
 
-    fr.writeMicroseconds(constrain(
-        ChassisConst::ESC_STOP_US + static_cast<int>(FR * ChassisConst::ESC_RANGE_US),
-        ChassisConst::ESC_MIN_US, ChassisConst::ESC_MAX_US));
-    fl.writeMicroseconds(constrain(
-        ChassisConst::ESC_STOP_US + static_cast<int>(FL * ChassisConst::ESC_RANGE_US),
-        ChassisConst::ESC_MIN_US, ChassisConst::ESC_MAX_US));
+    rightPulseUs = commandToPulseUs(rightCommand, RightDrive::INVERTED);
+    leftPulseUs = commandToPulseUs(leftCommand, LeftDrive::INVERTED);
+    rightDrive.writeMicroseconds(rightPulseUs);
+    leftDrive.writeMicroseconds(leftPulseUs);
 }
 
-void Chassis::setDriveCommand(double forward, double turn) {
-    forwardCommand = constrain(forward, -1.0, 1.0);
-    turnCommand = constrain(turn, -1.0, 1.0);
-
-    if (abs(forwardCommand) < ChassisConst::COMMAND_DEADBAND) {
-        forwardCommand = 0.0;
-    }
-    if (abs(turnCommand) < ChassisConst::COMMAND_DEADBAND) {
-        turnCommand = 0.0;
-    }
+void Chassis::setOpenLoop(double forward, double turn) {
+    forwardCommand = applyDeadband(constrain(
+        forward,
+        Manual::MIN_COMMAND,
+        Manual::MAX_COMMAND));
+    turnCommand = applyDeadband(constrain(
+        turn,
+        Manual::MIN_COMMAND,
+        Manual::MAX_COMMAND));
 }
 
 void Chassis::stop() {
     forwardCommand = 0.0;
     turnCommand = 0.0;
+    rightPulseUs = Output::NEUTRAL_US;
+    leftPulseUs = Output::NEUTRAL_US;
 
-    if (fr.attached()) {
-        fr.writeMicroseconds(ChassisConst::ESC_STOP_US);
+    if (rightDrive.attached()) {
+        rightDrive.writeMicroseconds(rightPulseUs);
     }
-    if (fl.attached()) {
-        fl.writeMicroseconds(ChassisConst::ESC_STOP_US);
+    if (leftDrive.attached()) {
+        leftDrive.writeMicroseconds(leftPulseUs);
     }
+}
+
+double Chassis::getForwardCommand() {
+    return forwardCommand;
+}
+
+double Chassis::getTurnCommand() {
+    return turnCommand;
+}
+
+int Chassis::getRightPulseUs() {
+    return rightPulseUs;
+}
+
+int Chassis::getLeftPulseUs() {
+    return leftPulseUs;
+}
+
+double Chassis::applyDeadband(double command) {
+    return abs(command) < Manual::COMMAND_DEADBAND ? 0.0 : command;
+}
+
+int Chassis::commandToPulseUs(double command, bool inverted) {
+    const double appliedCommand = inverted ? -command : command;
+    return constrain(
+        Output::NEUTRAL_US + static_cast<int>(appliedCommand * Output::RANGE_US),
+        Output::MIN_PULSE_US,
+        Output::MAX_PULSE_US);
 }

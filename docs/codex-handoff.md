@@ -125,3 +125,49 @@ from a USB-serial adapter) and confirm the vertical PID only then starts
 moving `escV` away from neutral. Only after that holds, proceed to the
 existing Chassis/SBUS bench test sequence above and eventually a real
 Orin<->Mega link test.
+
+---
+
+## 2026-08-24 - Codex: Chassis, Vision, and IO readability refactor
+
+**User Request:** After synchronizing formal branches, refactor one owning
+branch at a time using mechanism-owned Constants and visible subsystem APIs.
+This entry covers only the formal `Chassis` branch and preserves the existing
+two powered front wheels plus passive rear caster architecture.
+
+**Constants:** `ChassisConstants.h` now groups right/left signal pins and
+inversion, output PWM, and manual command bounds/deadband. The old
+`SBUSConstants.h` became `IOConstants.h`, which owns receiver channel indices,
+raw ranges, mapped pulse ranges, auxiliary range, and frame timeout.
+`VisionConstants.h` now groups `Transport`, `Validation`, and visibly isolated
+`Legacy` prediction values. Duplicate Chassis pin macros were removed from
+`Pins.h` after migration.
+
+**Chassis API:** `Chassis.h` visibly separates lifecycle, manual open-loop, and
+telemetry. `setDriveCommand()` was renamed `setOpenLoop(forward, turn)` and
+`main.cpp` was updated. Tank mixing remains `right=forward-turn` and
+`left=forward+turn`, followed by common normalization. New getters expose
+bounded commands and actual PWM values without exposing Servo objects.
+
+**IO API:** SBUS channel storage is private. Callers now use named command and
+telemetry getters instead of public `ch0/ch1/ch2/ch3/ch8` globals. The current
+firmware mapping remains exact: receiver channel 0 drives forward, channel 1
+is inverted for turn, channel 2 is the mechanism input, channel 3 is the
+auxiliary input, and channel 8 is mode. The `TEL` telemetry packet retains the
+same five values in the same order, so the Dashboard wire schema is unchanged.
+Failsafe, lost-frame, and 100 ms stale-frame neutralization are unchanged.
+
+**Vision API:** Public methods are grouped as lifecycle, YOLO target facts,
+and transport/Orin status. `getXPred()` remains as a documented compatibility
+alias for `tx`. The exact five-field packet, numeric/range validation,
+`MEGA_READY,1`, 100 ms `MEGA_HEARTBEAT,1`, strict lifecycle version checking,
+300 ms staleness, and invalid-target clearing are unchanged.
+
+**Evidence:** `git diff --check` passes. PlatformIO `megaatmega2560` release
+build succeeds: RAM `1205/8192` bytes (14.7%), Flash `17960/253952` bytes
+(7.1%). No firmware upload, UART loopback, receiver test, PWM measurement, or
+powered chassis test was performed.
+
+**Next:** Commit and push this refactor separately on `Chassis`, request Claude
+review, then switch the normal working tree to `Dribbler`. Do not merge into
+`dev` before subsystem verification.

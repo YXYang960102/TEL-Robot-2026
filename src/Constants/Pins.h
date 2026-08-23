@@ -9,13 +9,6 @@
 #define PIN_DRIBBLE_UP 2
 #define PIN_DRIBBLE_DOWN 51
 
-// Chassis
-#define PIN_FR 39
-#define PIN_FL 38
-#define PIN_BR 40
-#define PIN_BL 41
-
 // Sensors
 #define PIN_SAFE 28
 #define PIN_POT A3
-

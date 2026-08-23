@@ -27,7 +27,7 @@ void loop() {
     Vision::update();
 
     if (SBUS::isHealthy()) {
-        Chassis::setDriveCommand(SBUS::getDriveForward(), SBUS::getDriveTurn());
+        Chassis::setOpenLoop(SBUS::getDriveForward(), SBUS::getDriveTurn());
     } else {
         Chassis::stop();
     }
