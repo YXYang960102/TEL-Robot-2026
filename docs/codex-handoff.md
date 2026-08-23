@@ -108,3 +108,45 @@ on real hardware. Additionally for this fix specifically: confirm on the
 bench that `escH`/`escV`/`falcon` all read exactly `1500us` (measure with a
 servo tester or oscilloscope, not just code review) while Orin is not yet
 sending `VISION_READY`, before ever connecting the real shooter mechanism.
+
+---
+
+## 2026-08-24 - Codex: Dribbler Constants, modes, and manual API refactor
+
+**User Request:** Refactor the formal `Dribbler` owning branch after Chassis,
+keep fixed-speed counted feeding and beam-break counting, and ensure every
+motor subsystem has a usable manual open-loop path before closed-loop/automatic
+integration.
+
+**Constants:** `DribblerConstants.h` now groups `Feeder`, `ExitSensor`, and
+`Request`. It owns PWM pin 2, enable pin 51, enable polarity, PWM bounds,
+default feed PWM 180, normalized default command, exit-sensor pin 45 and
+polarity, 8 ms debounce, and request bounds 0..12. Duplicate Dribbler macros
+were removed from `Pins.h` after migration.
+
+**Control Modes:** Added explicit `DISABLED`, `MANUAL_OPEN_LOOP`, and
+`COUNTED_FEED` states. `setFeedAction(STOP/FEED)` provides the fixed-speed
+manual action, while `setFeedOpenLoop(0..1)` supports a bounded manual bench
+command. `setShootRequest(count)` selects counted mode and always uses the
+existing fixed PWM 180. `stop()` now truthfully cancels any outstanding
+request and commands both PWM and enable to the inactive state.
+
+**Sensor/Counting:** The beam-break algorithm remains blocked-active-low,
+debounced, and edge-sequenced: a ball must first block and then clear the exit
+sensor before one requested shot is completed. Sensor updates run in every
+mode, but shot counts decrement only in `COUNTED_FEED`; manual testing cannot
+silently consume the automatic request count. The final ball changes mode to
+disabled and is stopped in the same update cycle.
+
+**Visible API:** `Dribbler.h` is grouped as lifecycle, manual open-loop,
+counted feeding, and status/telemetry. New getters expose control mode,
+normalized feed command, and actual PWM alongside existing remaining/completed
+counts, sensor state, and feeding state.
+
+**Evidence:** `git diff --check` and stale-symbol scans pass. PlatformIO
+`megaatmega2560` release build succeeds: RAM `1180/8192` bytes (14.4%), Flash
+`17396/253952` bytes (6.9%). No firmware upload, PWM/gate measurement,
+beam-break test, motor test, or ball-feed test was performed.
+
+**Next:** Commit and push this refactor separately on `Dribbler`, request
+Claude review, and leave `dev` unmerged until bench evidence exists.
