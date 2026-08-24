@@ -45,8 +45,10 @@ public:
     static bool isAngleReady();
     static bool areAngleSoftLimitsActive();
     static bool isReady();
+    static AngleControlMode getAngleControlMode();
 
     // Telemetry
+    static uint16_t getAngleRawCounts();
     static long getAngleCounts();
     static long getAngleTargetCounts();
     static double getAngleDegrees();
@@ -62,6 +64,7 @@ public:
     static double getAngleDerivativeTerm();
     static double getAngleFeedforwardTerm();
     static bool isAngleControllerSaturated();
+    static unsigned long getAngleRejectedSampleCount();
 
 private:
     static void updateAngle();

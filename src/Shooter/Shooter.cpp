@@ -215,6 +215,14 @@ bool Shooter::isReady() {
     return false;
 }
 
+AngleControlMode Shooter::getAngleControlMode() {
+    return angleMode;
+}
+
+uint16_t Shooter::getAngleRawCounts() {
+    return angleEncoder.getRawCounts();
+}
+
 long Shooter::getAngleCounts() {
     return angleEncoder.getRelativeCounts();
 }
@@ -273,6 +281,10 @@ double Shooter::getAngleFeedforwardTerm() {
 
 bool Shooter::isAngleControllerSaturated() {
     return angleController.isSaturated();
+}
+
+unsigned long Shooter::getAngleRejectedSampleCount() {
+    return angleEncoder.getRejectedSampleCount();
 }
 
 void Shooter::updateAngle() {

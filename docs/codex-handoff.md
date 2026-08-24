@@ -302,3 +302,109 @@ powered mechanism test was performed.
 **Next:** Commit and push this refactor separately on `Shooter`, request Claude
 review, then switch the normal working tree to the next owning branch. Do not
 merge to `dev` until each subsystem's behavior has independent evidence.
+
+---
+
+## 2026-08-24 - Codex: isolated Mac keyboard Shooter bench control
+
+**User Request:** Use a MacBook keyboard as the temporary real-time operator
+interface while testing the formal `Shooter` branch through Arduino USB. Arrow
+up/down manually jog the paired elevation servos, arrow left/right manually jog
+the horizontal continuous servo, `1/2/3` select elevation zero/setpoint 1/upper
+target, and `5/6/7/8/9` are reserved for horizontal position targets.
+
+**Discussion Result:** Added a dedicated Mega bench firmware environment and a
+standalone localhost Web Serial page. The existing Dashboard layout and normal
+robot `main.cpp` are unchanged. The page sends complete manual axis state on
+key press/release and a heartbeat while armed. Firmware starts disabled and
+disables all outputs if commands stop for more than 250 ms. Horizontal numeric
+targets are deliberately rejected because the Rotate axis has no position
+sensor; pretending timed motion is an angle was rejected as unsafe.
+
+**Why:** VS Code's line-oriented Serial Monitor cannot reliably represent key
+release. A focused browser page provides both keydown and keyup events, while
+the firmware watchdog remains the final safety boundary if the browser, USB,
+or Mac stops sending. The bench build includes only Bench, Shooter, Sensors,
+and Control sources, preventing Chassis, Dribbler, Vision, SBUS, and the stale
+normal main from starting during this test.
+
+**Changed:** `platformio.ini` now excludes `src/Bench/` from the normal Mega
+environment and adds `mega_shooter_keyboard_test`, whose source filter includes
+only the bench entrypoint and Shooter dependencies. `Shooter.h/.cpp` expose
+read-only control-mode, AS5600 raw-count, and rejected-sample telemetry needed
+by the bench display. No existing actuator command behavior was changed.
+
+**Added:** `ShooterBenchConstants.h` owns serial rate, watchdog and telemetry
+periods, limited manual authority, and provisional elevation targets.
+`ShooterKeyboardTest.cpp` owns the USB command parser, enable/disable gate,
+watchdog, numeric actions, and `$TEL`/`$EVENT` output. The separate
+`tools/shooter_keyboard_test/index.html` page owns keyboard state, Web Serial,
+telemetry display, focus-loss disable, and disconnect cleanup; its README owns
+the operator procedure.
+
+**Flow:** Chrome key state -> USB Serial at 115200 baud -> newline command ->
+bench parser -> public `Shooter` API -> Servo PWM. `M,angle,rotate` carries each
+manual direction as `-1`, `0`, or `1`. `E` neutralizes then enables outputs;
+`X` neutralizes and disables; `K` refreshes the armed heartbeat. Space, page
+blur, hidden page, disconnect, write failure, or a 250 ms firmware timeout all
+lead to disabled outputs. `1` zeros the valid AS5600 at the current physical
+reference. `2` requests 512 relative counts and `3` requests 1024 counts, but
+only after homing and while outputs are enabled. `5..9` stop Rotate and emit
+`ROTATE_POSITION_UNAVAILABLE_NO_SENSOR`.
+
+**Calculation:** Initial manual commands are limited to `+/-0.10`. With the
+current 1000/1500/2000 us motor endpoints, a non-inverted command `+0.10`
+produces `1500 + 0.10 * (2000 - 1500) = 1550 us`; `-0.10` produces
+`1500 + 0.10 * (1000 - 1500) = 1450 us`. The right elevation motor is inverted,
+so it receives the opposite pulse for the same axis command. AS5600 conversion
+is `degrees = relativeCounts * 360 / 4096`; setpoint 1 at 512 counts is 45 deg
+and the provisional maximum at 1024 counts is 90 deg. These positions and
+motor signs remain unverified mechanical values. PIDF gains remain all zero,
+so numeric targets intentionally produce neutral closed-loop output until a
+small P-only hardware test is explicitly configured.
+
+**Impact:** The existing Dashboard, Chassis, Dribbler, Vision, Auto, SBUS,
+ShooterMG996, and normal runtime orchestration are intentionally unchanged.
+The normal Mega build remains 1203/8192 RAM and 14006/253952 flash. The isolated
+bench build uses 1132/8192 RAM and 15696/253952 flash. Horizontal absolute
+zero, limits, and setpoints still require a rotate encoder or homing switch.
+
+**Evidence:** Native `PidfController` tests pass. JavaScript syntax check and
+`git diff --check` pass. Both `megaatmega2560` and
+`mega_shooter_keyboard_test` PlatformIO builds pass. The local page was rendered
+and inspected with no browser console errors. Only pre-existing warnings in the
+vendored Seeed AS5600 library remain. No firmware upload, serial permission,
+electrical PWM measurement, encoder movement, or powered actuator test was
+performed.
+
+**Next Test:** Upload only `mega_shooter_keyboard_test`. Initially leave motor
+power disconnected, connect Chrome, verify disabled telemetry and 1500 us on
+all three displayed servo paths, then verify AS5600 raw/relative direction by
+hand. With the mechanism unloaded, external rated servo power, shared ground,
+and an immediate physical power cut, enable and tap each arrow briefly to
+confirm direction at the limited 1450/1550 us commands. Physically place the
+elevation at its known lower reference before pressing `1`. Tune P-only only
+after this open-loop and sensor evidence; do not use `2/3` for motion while all
+PIDF gains are zero, and do not enable `5..9` until Rotate feedback exists.
+
+---
+
+## 2026-08-24 - Codex: Shooter bench keyboard hint bar
+
+**User Request:** Add an on-page keyboard guide to the standalone Shooter test
+page without changing its existing telemetry layout.
+
+**Changed:** Added a responsive keycap-style hint bar above the status strip in
+`tools/shooter_keyboard_test/index.html`. It lists the manual elevation arrows,
+manual rotation arrows, elevation keys `1..3`, output enable, emergency stop,
+and disconnect controls. Horizontal position keys `5..9` are visibly marked as
+waiting for a position sensor so the page does not imply that unimplemented
+closed-loop behavior is available.
+
+**Impact:** This is presentation-only. Serial commands, firmware, test logic,
+telemetry cards, Dashboard layout, and all robot subsystems are unchanged.
+
+**Evidence:** Extracted JavaScript passes `node --check`; `git diff --check`
+passes. The page was served locally and visually inspected with all hints
+visible, normal wrapping, no overlap, and no browser warning/error logs. The
+Arduino connection button was not pressed and no hardware action was taken.
