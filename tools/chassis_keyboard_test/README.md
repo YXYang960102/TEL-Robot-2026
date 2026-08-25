@@ -15,7 +15,10 @@ modify or use the robot Dashboard and requires the
 - Escape mirrors the emergency disconnect as a backup.
 - Outputs are enabled only with the on-screen `Enable / 啟用` button.
 
-The test command is limited to `10%` in `ChassisBenchConstants.h`. Firmware
+The test command is limited to `MANUAL_COMMAND` in `ChassisBenchConstants.h`
+(currently `50%` — check the constant directly rather than trusting this
+number, and keep the webpage's `capValue` text in sync when it changes).
+Firmware
 boots disabled and independently disables outputs if no command or heartbeat
 arrives for more than `250 ms`. Releasing a movement key updates both track
 commands immediately. Changing modes first sends neutral.
