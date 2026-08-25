@@ -1269,23 +1269,23 @@
         const py = oy + (fieldH - y - rh) * scale;
         fieldCtx.fillStyle = color;
         fieldCtx.fillRect(px, py, rw * scale, rh * scale);
-        fieldCtx.strokeStyle = "rgba(255, 59, 78, 0.22)";
+        fieldCtx.strokeStyle = "#20262d";
         fieldCtx.strokeRect(px, py, rw * scale, rh * scale);
-        fieldCtx.fillStyle = "#e8d3d5";
+        fieldCtx.fillStyle = "#f2f5f7";
         fieldCtx.font = "13px system-ui";
         fieldCtx.textAlign = "center";
         fieldCtx.fillText(label, px + rw * scale / 2, py + rh * scale / 2);
       }
 
-      rectCm(0, 0, 400, 300, "#1c1315", "Prep / 準備區");
-      rectCm(0, 300, 400, 300, "#241416", "Human / 人員作業區");
-      rectCm(0, 600, 400, 500, "#2c1518", "Robot / 機器人作業區");
-      rectCm(0, 1100, 400, 600, "#190f10", "Scoring / 得分區");
+      rectCm(0, 0, 400, 300, "#426f55", "Prep / 準備區");
+      rectCm(0, 300, 400, 300, "#6fb983", "Human / 人員作業區");
+      rectCm(0, 600, 400, 500, "#efd5df", "Robot / 機器人作業區");
+      rectCm(0, 1100, 400, 600, "#f0f1ea", "Scoring / 得分區");
 
-      rectCm(0, 600, 70, 120, "rgba(255,45,66,0.30)", "Start");
-      rectCm(330, 600, 70, 120, "rgba(255,45,66,0.30)", "Start");
+      rectCm(0, 600, 70, 120, "rgba(232,91,91,0.38)", "Start");
+      rectCm(330, 600, 70, 120, "rgba(232,91,91,0.38)", "Start");
 
-      fieldCtx.strokeStyle = "rgba(255, 59, 78, 0.4)";
+      fieldCtx.strokeStyle = "#11161b";
       fieldCtx.lineWidth = 3;
       fieldCtx.beginPath();
       fieldCtx.moveTo(ox, oy + (fieldH - 600) * scale);
