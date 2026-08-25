@@ -171,3 +171,62 @@ powered chassis test was performed.
 **Next:** Commit and push this refactor separately on `Chassis`, request Claude
 review, then switch the normal working tree to `Dribbler`. Do not merge into
 `dev` before subsystem verification.
+
+---
+
+## 2026-08-25 - Codex: Chassis keyboard bench control
+
+**User Request:** Add an isolated Mac keyboard test for the two-track chassis.
+Mode 2 is the default arcade mapping (`W/S` forward/reverse, `A/D` left/right
+turn). Mode 1 is direct tank control (`Q/A` left forward/reverse, `E/D` right
+forward/reverse). The page must show all key hints and remain separate from the
+existing robot dashboard.
+
+**Architecture:** `Chassis` now exposes an output-enable gate, direct left/right
+open-loop control, and left/right command telemetry. Arcade mixing is isolated
+in `DifferentialDriveMixer.h`, which normalizes `left=forward+turn` and
+`right=forward-turn`. The formal `main.cpp` explicitly enables chassis outputs
+only while SBUS is healthy and disables them on receiver failure, preserving the
+existing formal behavior while making the safety state visible.
+
+**Bench Build:** Added PlatformIO environment `mega_chassis_keyboard_test`. It
+builds only `Bench/ChassisKeyboardTest.cpp` and `Chassis/`; the normal
+`megaatmega2560` environment excludes all `Bench/` sources. Bench constants cap
+manual output at 10%, send telemetry every 100 ms, and disable outputs if no
+valid command or heartbeat arrives for 250 ms. Boot, malformed/unknown/oversize
+commands, explicit stop, and timeout all leave outputs disabled at 1500 us.
+
+**Test Page:** `tools/chassis_keyboard_test/index.html` uses Web Serial at
+115200 baud. It provides connect, enable, stop, mode buttons, bilingual key
+hints, command/PWM telemetry, and serial events. `Enter` disables while keeping
+the connection; Space and Escape disable then disconnect. It sends neutral on
+focus loss and page hide.
+The existing dashboard layout and files were not changed.
+
+**Evidence:** `git diff --check`, native differential mixer tests, and dashboard
+JavaScript syntax validation pass. PlatformIO release builds pass for both
+`mega_chassis_keyboard_test` (RAM 567/8192, Flash 9312/253952) and formal
+`megaatmega2560` (RAM 1206/8192, Flash 17968/253952). Browser DOM/screenshot
+inspection at desktop size showed all controls and telemetry with no console
+warnings/errors. No firmware upload, PWM measurement, track-off-ground test, or
+powered chassis test was performed.
+
+**Next Test:** Upload `mega_chassis_keyboard_test` over USB first. Keep tracks
+off the floor, disconnect drivetrain power while confirming 1500 us neutral,
+then power the motor controllers and test one direction at a time at the fixed
+10% command. Wireless control can reuse the line protocol only when the adapter
+is exposed to the Mac/browser as a serial port and is wired to the UART used by
+the bench firmware; wireless firmware upload additionally requires a compatible
+bootloader reset/DTR path. USB remains the recommended upload and first-test
+transport.
+
+### 2026-08-25 keyboard safety convention update
+
+Jeremy standardized the keyboard safety behavior for current and future bench
+pages. `Enter` now sends neutral plus disable while preserving the serial
+connection. Space sends the same fail-safe disable before closing the serial
+connection; Escape mirrors that emergency disconnect as a backup. Re-enabling
+is intentionally available only through the visible `Enable / 啟用` button.
+Window blur and page hiding continue to disable outputs without disconnecting.
+This update changes only the Chassis test page and documentation; the firmware
+protocol and Chassis control code are unchanged.

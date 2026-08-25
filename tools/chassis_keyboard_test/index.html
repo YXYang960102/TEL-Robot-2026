@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TEL Chassis Bench / 底盤測試</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+      background: #0b0f12;
+      color: #e8edf1;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #0b0f12; }
+    button { font: inherit; }
+    .topbar {
+      min-height: 68px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 20px;
+      border-bottom: 1px solid #28323a;
+      background: #11171c;
+    }
+    h1 { margin: 0; font-size: 18px; letter-spacing: 0; }
+    .actions, .modes, .key-hints { display: flex; gap: 8px; flex-wrap: wrap; }
+    .button {
+      min-height: 38px;
+      padding: 8px 13px;
+      border: 1px solid #39464f;
+      border-radius: 6px;
+      background: #1a2329;
+      color: #e8edf1;
+      cursor: pointer;
+    }
+    .button:disabled { cursor: default; opacity: 0.45; }
+    .button.active, .button.enable { border-color: #3f8fd6; background: #18344b; }
+    .button.stop { border-color: #b84c4c; background: #3a1d20; }
+    main { display: grid; gap: 12px; padding: 14px; }
+    .control-band {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 1px solid #2d3840;
+      background: #12191e;
+    }
+    .key-hints { padding: 10px 12px; border: 1px solid #2d3840; background: #12191e; }
+    .key-hint { display: inline-flex; align-items: center; gap: 6px; color: #b8c3ca; font-size: 13px; }
+    kbd {
+      min-width: 29px;
+      height: 27px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 7px;
+      border: 1px solid #53616b;
+      border-bottom-width: 2px;
+      border-radius: 4px;
+      background: #222c33;
+      color: #f4f7f9;
+      font: 700 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .status-strip, .grid { display: grid; gap: 10px; }
+    .status-strip { grid-template-columns: repeat(4, minmax(130px, 1fr)); }
+    .grid { grid-template-columns: repeat(3, minmax(150px, 1fr)); }
+    .status-cell, .metric {
+      min-height: 82px;
+      padding: 13px;
+      border: 1px solid #2d3840;
+      border-radius: 6px;
+      background: #151d22;
+    }
+    .label { color: #9ba8b1; font-size: 12px; }
+    .value { margin-top: 8px; font-size: 22px; font-variant-numeric: tabular-nums; }
+    .log {
+      height: 220px;
+      overflow: auto;
+      padding: 12px;
+      border: 1px solid #2d3840;
+      background: #080c0f;
+      font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+      white-space: pre-wrap;
+    }
+    .ok { color: #67d69a; }
+    .warn { color: #ffca68; }
+    .bad { color: #ff7a7a; }
+    @media (max-width: 720px) {
+      .topbar, .control-band { align-items: flex-start; flex-direction: column; }
+      .status-strip, .grid { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <h1>TEL Chassis Bench / 底盤鍵盤測試</h1>
+    <div class="actions">
+      <button id="connect" class="button">Connect / 連接</button>
+      <button id="enable" class="button enable" disabled>Enable / 啟用</button>
+      <button id="stop" class="button stop" disabled>Disable / 停止</button>
+    </div>
+  </header>
+  <main>
+    <section class="control-band">
+      <div class="modes" aria-label="Drive mode / 駕駛模式">
+        <button id="tankMode" class="button" disabled><kbd>1</kbd> Tank / 坦克</button>
+        <button id="arcadeMode" class="button active" disabled><kbd>2</kbd> Arcade / 預設</button>
+      </div>
+      <div class="label">Bench output limit / 測試輸出上限：10%</div>
+    </section>
+
+    <section class="key-hints" aria-label="Keyboard controls / 鍵盤控制">
+      <span class="key-hint"><kbd>2</kbd><kbd>W</kbd><kbd>S</kbd>前進 / 後退</span>
+      <span class="key-hint"><kbd>2</kbd><kbd>A</kbd><kbd>D</kbd>左轉 / 右轉</span>
+      <span class="key-hint"><kbd>1</kbd><kbd>Q</kbd><kbd>A</kbd>左側前進 / 後退</span>
+      <span class="key-hint"><kbd>1</kbd><kbd>E</kbd><kbd>D</kbd>右側前進 / 後退</span>
+      <span class="key-hint"><kbd>Enter</kbd>停止並停用</span>
+      <span class="key-hint"><kbd>Space</kbd>緊急停止並斷線</span>
+      <span class="key-hint"><kbd>Esc</kbd>停止並斷線</span>
+    </section>
+
+    <section class="status-strip">
+      <div class="status-cell"><div class="label">Serial / 序列</div><div id="serialState" class="value bad">Disconnected</div></div>
+      <div class="status-cell"><div class="label">Outputs / 輸出</div><div id="outputs" class="value">Disabled</div></div>
+      <div class="status-cell"><div class="label">Drive mode / 駕駛模式</div><div id="mode" class="value">Arcade</div></div>
+      <div class="status-cell"><div class="label">Watchdog / 通訊保護</div><div id="watchdog" class="value ok">Normal</div></div>
+    </section>
+
+    <section class="grid">
+      <div class="metric"><div class="label">Forward / 前後命令</div><div id="forward" class="value">0.000</div></div>
+      <div class="metric"><div class="label">Turn / 旋轉命令</div><div id="turn" class="value">0.000</div></div>
+      <div class="metric"><div class="label">Left / Right / 左右履帶</div><div id="tank" class="value">0.000 / 0.000</div></div>
+      <div class="metric"><div class="label">Left PWM / 左側 PWM</div><div id="leftPwm" class="value">1500 us</div></div>
+      <div class="metric"><div class="label">Right PWM / 右側 PWM</div><div id="rightPwm" class="value">1500 us</div></div>
+      <div class="metric"><div class="label">Connection / 連接方式</div><div class="value">USB / Wireless Serial</div></div>
+    </section>
+
+    <section id="log" class="log" aria-label="Serial log"></section>
+  </main>
+
+  <script>
+    const BAUD_RATE = 115200;
+    const HEARTBEAT_MS = 75;
+    const TELEMETRY_FIELDS = 10;
+    const movementKeys = new Set();
+    const encoder = new TextEncoder();
+    const decoder = new TextDecoder();
+    let port = null;
+    let reader = null;
+    let writer = null;
+    let connected = false;
+    let armed = false;
+    let driveMode = 2;
+    let receiveBuffer = "";
+
+    const $ = (id) => document.getElementById(id);
+
+    function appendLog(message) {
+      const log = $("log");
+      log.textContent += `${new Date().toLocaleTimeString()} ${message}\n`;
+      const lines = log.textContent.split("\n");
+      if (lines.length > 160) log.textContent = lines.slice(-160).join("\n");
+      log.scrollTop = log.scrollHeight;
+    }
+
+    async function send(command) {
+      if (!writer) return;
+      try {
+        await writer.write(encoder.encode(`${command}\n`));
+      } catch (error) {
+        appendLog(`WRITE_ERROR ${error.message}`);
+        await disconnect(false);
+      }
+    }
+
+    function opposingDirection(positiveKey, negativeKey) {
+      const positive = movementKeys.has(positiveKey);
+      const negative = movementKeys.has(negativeKey);
+      return positive === negative ? 0 : positive ? 1 : -1;
+    }
+
+    function manualCommand() {
+      if (driveMode === 1) {
+        return `M,${opposingDirection("q", "a")},${opposingDirection("e", "d")}`;
+      }
+      const forward = opposingDirection("w", "s");
+      const turn = opposingDirection("d", "a");
+      return `M,${forward},${turn}`;
+    }
+
+    function activeMovementKeys() {
+      return driveMode === 1
+        ? new Set(["q", "a", "e", "d"])
+        : new Set(["w", "s", "a", "d"]);
+    }
+
+    async function sendNeutral() {
+      movementKeys.clear();
+      await send("M,0,0");
+    }
+
+    function renderMode() {
+      $("mode").textContent = driveMode === 1 ? "Tank" : "Arcade";
+      $("tankMode").classList.toggle("active", driveMode === 1);
+      $("arcadeMode").classList.toggle("active", driveMode === 2);
+    }
+
+    function setConnectionState(isConnected) {
+      connected = isConnected;
+      $("serialState").textContent = isConnected ? "Connected" : "Disconnected";
+      $("serialState").className = `value ${isConnected ? "ok" : "bad"}`;
+      $("connect").textContent = isConnected ? "Disconnect / 斷線" : "Connect / 連接";
+      ["enable", "stop", "tankMode", "arcadeMode"].forEach((id) => {
+        $(id).disabled = !isConnected;
+      });
+      if (!isConnected) armed = false;
+    }
+
+    function handleLine(line) {
+      if (line.startsWith("$EVENT,")) {
+        const event = line.slice(7);
+        appendLog(event);
+        if (event === "OUTPUTS_ENABLED") armed = true;
+        if (["OUTPUTS_DISABLED", "COMMAND_TIMEOUT"].includes(event)) armed = false;
+        if (event === "TANK_MODE") driveMode = 1;
+        if (event === "ARCADE_MODE") driveMode = 2;
+        renderMode();
+        return;
+      }
+      if (!line.startsWith("$TEL,")) return;
+      const fields = line.slice(5).split(",");
+      if (fields.length !== TELEMETRY_FIELDS) {
+        appendLog(`BAD_TELEMETRY_FIELDS ${fields.length}`);
+        return;
+      }
+      const [ms, enabled, timedOut, mode, forward, turn,
+        left, right, leftUs, rightUs] = fields;
+      armed = enabled === "1";
+      driveMode = Number(mode) === 1 ? 1 : 2;
+      $("outputs").textContent = armed ? "Enabled" : "Disabled";
+      $("outputs").className = `value ${armed ? "warn" : ""}`;
+      $("watchdog").textContent = timedOut === "1" ? "Timed out" : "Normal";
+      $("watchdog").className = `value ${timedOut === "1" ? "bad" : "ok"}`;
+      $("forward").textContent = forward;
+      $("turn").textContent = turn;
+      $("tank").textContent = `${left} / ${right}`;
+      $("leftPwm").textContent = `${leftUs} us`;
+      $("rightPwm").textContent = `${rightUs} us`;
+      renderMode();
+    }
+
+    async function readSerial() {
+      while (port?.readable && connected) {
+        reader = port.readable.getReader();
+        try {
+          while (connected) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            receiveBuffer += decoder.decode(value, { stream: true });
+            const lines = receiveBuffer.split(/\r?\n/);
+            receiveBuffer = lines.pop() ?? "";
+            lines.forEach(handleLine);
+          }
+        } catch (error) {
+          if (connected) appendLog(`READ_ERROR ${error.message}`);
+        } finally {
+          reader.releaseLock();
+          reader = null;
+        }
+      }
+    }
+
+    async function connect() {
+      if (!("serial" in navigator)) {
+        appendLog("WEB_SERIAL_UNAVAILABLE");
+        return;
+      }
+      try {
+        port = await navigator.serial.requestPort();
+        await port.open({ baudRate: BAUD_RATE });
+        writer = port.writable.getWriter();
+        setConnectionState(true);
+        appendLog("SERIAL_CONNECTED");
+        readSerial();
+      } catch (error) {
+        appendLog(`CONNECT_ERROR ${error.message}`);
+      }
+    }
+
+    async function disconnect(sendStop = true) {
+      if (!port) return;
+      const closingPort = port;
+      const closingReader = reader;
+      const closingWriter = writer;
+      connected = false;
+      armed = false;
+      movementKeys.clear();
+      try {
+        if (sendStop && closingWriter) {
+          await closingWriter.write(encoder.encode("X\n"));
+        }
+      } catch (error) {
+        appendLog(`STOP_WRITE_ERROR ${error.message}`);
+      }
+      try { await closingReader?.cancel(); } catch (error) {
+        appendLog(`READER_CANCEL_ERROR ${error.message}`);
+      }
+      try { await closingWriter?.close(); } catch (error) {
+        appendLog(`WRITER_CLOSE_ERROR ${error.message}`);
+      }
+      closingWriter?.releaseLock();
+      writer = null;
+      try { await closingPort.close(); } catch (error) {
+        appendLog(`PORT_CLOSE_ERROR ${error.message}`);
+      }
+      port = null;
+      setConnectionState(false);
+    }
+
+    async function emergencyStop() {
+      if (!connected) return;
+      armed = false;
+      await sendNeutral();
+      await send("X");
+    }
+
+    async function emergencyDisconnect() {
+      if (!connected) return;
+      await disconnect(true);
+    }
+
+    async function selectMode(mode) {
+      if (!connected || driveMode === mode) return;
+      await sendNeutral();
+      driveMode = mode;
+      renderMode();
+      await send(String(mode));
+    }
+
+    $("connect").addEventListener("click", () => connected ? disconnect() : connect());
+    $("enable").addEventListener("click", async () => {
+      await sendNeutral();
+      await send("E");
+    });
+    $("stop").addEventListener("click", emergencyStop);
+    $("tankMode").addEventListener("click", () => selectMode(1));
+    $("arcadeMode").addEventListener("click", () => selectMode(2));
+
+    window.addEventListener("keydown", async (event) => {
+      const key = event.key.toLowerCase();
+      if (["w", "s", "a", "d", "q", "e", "1", "2", "enter", " ", "escape"].includes(key)) {
+        event.preventDefault();
+      }
+      if (key === "1" || key === "2") {
+        if (!event.repeat) await selectMode(Number(key));
+        return;
+      }
+      if (key === "enter") {
+        if (!event.repeat) await emergencyStop();
+        return;
+      }
+      if (key === " ") {
+        if (!event.repeat) await emergencyDisconnect();
+        return;
+      }
+      if (key === "escape") {
+        if (!event.repeat) await emergencyDisconnect();
+        return;
+      }
+      if (!armed || !activeMovementKeys().has(key)) return;
+      movementKeys.add(key);
+      await send(manualCommand());
+    });
+
+    window.addEventListener("keyup", async (event) => {
+      const key = event.key.toLowerCase();
+      if (!movementKeys.has(key)) return;
+      movementKeys.delete(key);
+      await send(manualCommand());
+    });
+
+    window.addEventListener("blur", emergencyStop);
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) emergencyStop();
+    });
+    navigator.serial?.addEventListener("disconnect", () => disconnect(false));
+
+    setInterval(() => {
+      if (!connected || !armed) return;
+      send(movementKeys.size > 0 ? manualCommand() : "K");
+    }, HEARTBEAT_MS);
+
+    renderMode();
+  </script>
+</body>
+</html>
