@@ -7,26 +7,67 @@
   <style>
     :root {
       color-scheme: dark;
-      --bg: #101316;
-      --panel: #181d22;
-      --panel-2: #20262d;
-      --text: #f2f5f7;
-      --muted: #98a4af;
-      --line: #303944;
-      --green: #36c275;
-      --yellow: #e1b84a;
-      --red: #e85b5b;
-      --cyan: #53b7e8;
+      --bg: #0a0708;
+      --bg-2: #120a0b;
+      --panel: #170e0f;
+      --panel-2: #221315;
+      --panel-3: #2c1719;
+      --text: #f6eeee;
+      --muted: #a8898c;
+      --muted-2: #7a6265;
+      --line: #3a1e21;
+      --line-soft: #2a1518;
+      --green: #35d998;
+      --yellow: #f5b448;
+      --red: #ff3b4e;
+      --red-dim: #b5303f;
+      --accent: #ff2d42;
+      --accent-2: #ff6b4a;
+      --accent-glow: rgba(255, 45, 66, 0.55);
+      --cyan: #33e6c8;
     }
 
     * { box-sizing: border-box; }
 
+    @keyframes bgDrift {
+      0% { background-position: 0 0, 0 0; }
+      100% { background-position: 120px 120px, -120px 80px; }
+    }
+
+    @keyframes pulseDot {
+      0%, 100% { box-shadow: 0 0 0 0 var(--accent-glow); }
+      50% { box-shadow: 0 0 0 6px rgba(255, 45, 66, 0); }
+    }
+
+    @keyframes pulseDotOk {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(53, 217, 152, 0.55); }
+      50% { box-shadow: 0 0 0 6px rgba(53, 217, 152, 0); }
+    }
+
+    @keyframes pulseBorder {
+      0%, 100% { border-color: rgba(255, 59, 78, 0.55); box-shadow: 0 0 0 0 rgba(255, 59, 78, 0.25); }
+      50% { border-color: rgba(255, 59, 78, 0.95); box-shadow: 0 0 18px 1px rgba(255, 59, 78, 0.32); }
+    }
+
+    @keyframes sweep {
+      0% { transform: translateX(-40%); opacity: 0; }
+      10% { opacity: 1; }
+      90% { opacity: 1; }
+      100% { transform: translateX(140%); opacity: 0; }
+    }
+
     body {
       margin: 0;
       min-height: 100vh;
-      background: var(--bg);
+      background:
+        radial-gradient(900px 480px at 84% -8%, rgba(255, 45, 66, 0.10), transparent 60%),
+        radial-gradient(700px 420px at -6% 108%, rgba(255, 45, 66, 0.06), transparent 60%),
+        linear-gradient(rgba(255, 45, 66, 0.028) 1px, transparent 1px) 0 0 / 42px 42px,
+        linear-gradient(90deg, rgba(255, 45, 66, 0.028) 1px, transparent 1px) 0 0 / 42px 42px,
+        var(--bg);
+      animation: bgDrift 40s linear infinite;
       color: var(--text);
-      font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang TC", "Noto Sans TC", system-ui, sans-serif;
     }
 
     header {
@@ -36,10 +77,22 @@
       gap: 16px;
       padding: 14px 18px;
       border-bottom: 1px solid var(--line);
-      background: #14181d;
+      background: linear-gradient(180deg, #17090a, #120809);
       position: sticky;
       top: 0;
       z-index: 2;
+      overflow: hidden;
+    }
+
+    header::after {
+      content: "";
+      position: absolute;
+      left: 0; right: 0; bottom: -1px;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      width: 45%;
+      animation: sweep 5.5s ease-in-out infinite;
+      pointer-events: none;
     }
 
     header > div {
@@ -54,10 +107,12 @@
       margin: 0;
       font-size: 18px;
       font-weight: 650;
-      letter-spacing: 0;
+      letter-spacing: 0.01em;
+      text-shadow: 0 0 20px rgba(255, 45, 66, 0.28);
     }
 
     button {
+      position: relative;
       border: 1px solid var(--line);
       background: var(--panel-2);
       color: var(--text);
@@ -65,24 +120,29 @@
       padding: 0 14px;
       border-radius: 6px;
       font: inherit;
+      font-weight: 500;
       cursor: pointer;
+      transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.05s;
     }
 
-    button:hover { border-color: var(--cyan); }
+    button:hover { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(255, 45, 66, 0.18), 0 0 16px rgba(255, 45, 66, 0.16); }
+    button:active { transform: scale(0.97); }
+    button:disabled { cursor: not-allowed; opacity: 0.4; }
 
     input {
       width: 100%;
       min-height: 34px;
       border: 1px solid var(--line);
       border-radius: 6px;
-      background: #11161b;
+      background: #0f0708;
       color: var(--text);
       padding: 0 10px;
       font: inherit;
       outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
 
-    input:focus { border-color: var(--cyan); }
+    input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(255, 45, 66, 0.15); }
 
     main {
       display: grid;
@@ -93,11 +153,28 @@
     }
 
     section {
-      background: var(--panel);
+      position: relative;
+      background: linear-gradient(165deg, var(--panel), var(--bg-2));
       border: 1px solid var(--line);
       border-radius: 8px;
       overflow: hidden;
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.02) inset, 0 10px 24px rgba(0, 0, 0, 0.28);
     }
+
+    section::before,
+    section::after {
+      content: "";
+      position: absolute;
+      width: 14px;
+      height: 14px;
+      border: 1px solid rgba(255, 59, 78, 0.5);
+      pointer-events: none;
+      opacity: 0.85;
+      z-index: 1;
+    }
+
+    section::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+    section::after { top: -1px; right: -1px; border-left: 0; border-bottom: 0; }
 
     main.custom-layout {
       display: block;
@@ -106,8 +183,8 @@
 
     main.editing {
       background-image:
-        linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+        linear-gradient(rgba(255,59,78,0.09) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,59,78,0.09) 1px, transparent 1px);
       background-size: 24px 24px;
     }
 
@@ -209,7 +286,8 @@
     }
 
     main.editing .panel.active-panel {
-      outline: 2px solid var(--cyan);
+      outline: 2px solid var(--accent);
+      box-shadow: 0 0 22px rgba(255, 45, 66, 0.35);
       z-index: 50;
     }
 
@@ -282,7 +360,7 @@
       position: absolute;
       inset: 3px;
       border-radius: 999px;
-      background: rgba(83, 183, 232, 0.72);
+      background: rgba(255, 45, 66, 0.72);
       opacity: 0;
       transition: opacity 120ms ease;
     }
@@ -293,13 +371,17 @@
     }
 
     .section-title {
+      position: relative;
       display: flex;
       align-items: center;
       justify-content: space-between;
       padding: 10px 12px;
       border-bottom: 1px solid var(--line);
+      background: rgba(255, 45, 66, 0.05);
       color: var(--muted);
       font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
       text-transform: uppercase;
     }
 
@@ -334,16 +416,18 @@
       background: var(--panel-2);
       border: 1px solid var(--line);
       border-radius: 8px;
+      transition: border-color 0.2s, background 0.2s;
     }
 
     .metric.state-ok {
-      border-color: rgba(54, 194, 117, 0.85);
-      background: rgba(54, 194, 117, 0.15);
+      border-color: rgba(53, 217, 152, 0.85);
+      background: rgba(53, 217, 152, 0.13);
     }
 
     .metric.state-bad {
-      border-color: rgba(232, 91, 91, 0.85);
-      background: rgba(232, 91, 91, 0.14);
+      border-color: rgba(255, 59, 78, 0.9);
+      background: rgba(255, 59, 78, 0.14);
+      animation: pulseBorder 1.6s ease-in-out infinite;
     }
 
     .stream-controls {
@@ -352,7 +436,7 @@
       gap: 8px;
       padding: 10px 12px;
       border-bottom: 1px solid var(--line);
-      background: #14181d;
+      background: #150a0b;
     }
 
     .stream-frame {
@@ -360,8 +444,19 @@
       display: grid;
       place-items: center;
       min-height: 320px;
-      background: #090d11;
+      background: #060304;
       overflow: hidden;
+    }
+
+    .stream-frame::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(rgba(255, 45, 66, 0.05) 1px, transparent 1px) 0 0 / 100% 26px,
+        linear-gradient(90deg, rgba(255, 45, 66, 0.05) 1px, transparent 1px) 0 0 / 26px 100%;
+      opacity: 0.5;
+      pointer-events: none;
     }
 
     .stream-frame img {
@@ -370,7 +465,9 @@
       height: 100%;
       min-height: 320px;
       object-fit: contain;
-      background: #090d11;
+      background: #060304;
+      position: relative;
+      z-index: 1;
     }
 
     .stream-frame.connected img {
@@ -399,6 +496,7 @@
       font-weight: 700;
       font-variant-numeric: tabular-nums;
       overflow-wrap: anywhere;
+      text-shadow: 0 0 14px rgba(255, 255, 255, 0.04);
     }
 
     .subvalue {
@@ -418,7 +516,11 @@
       border: 1px solid var(--line);
       background: var(--panel-2);
       font-weight: 650;
+      transition: border-color 0.2s, background 0.2s;
     }
+
+    .status.ok { border-color: rgba(53, 217, 152, 0.55); background: rgba(53, 217, 152, 0.1); }
+    .status.warn { border-color: rgba(245, 180, 72, 0.55); background: rgba(245, 180, 72, 0.1); }
 
     .dot {
       width: 10px;
@@ -427,19 +529,19 @@
       background: var(--red);
     }
 
-    .ok .dot { background: var(--green); }
+    .ok .dot { background: var(--green); animation: pulseDotOk 2s ease-in-out infinite; }
     .warn .dot { background: var(--yellow); }
 
     canvas {
       display: block;
       width: 100%;
       height: 260px;
-      background: #11161b;
+      background: #0d0607;
     }
 
     #fieldCanvas {
       height: 520px;
-      background: #11161b;
+      background: #0d0607;
     }
 
     .side {
@@ -478,10 +580,11 @@
     .log {
       height: 320px;
       overflow: auto;
-      padding: 0;
-      font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      color: #c7d0d9;
+      padding: 10px 12px;
+      font: 12px/1.6 "SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #d9c3c5;
       white-space: pre-wrap;
+      background: #080505;
     }
 
     table {
@@ -492,13 +595,15 @@
 
     td {
       padding: 8px 12px;
-      border-bottom: 1px solid var(--line);
+      border-bottom: 1px solid var(--line-soft);
+      color: var(--muted);
     }
 
     td:last-child {
       text-align: right;
       color: var(--text);
       font-weight: 650;
+      font-family: "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
     }
 
     .risk {
@@ -509,7 +614,7 @@
 
     .risk.ok { color: var(--green); }
     .risk.warn { color: var(--yellow); }
-    .risk.bad { color: var(--red); }
+    .risk.bad { color: var(--red); text-shadow: 0 0 16px rgba(255, 59, 78, 0.5); }
 
     .risk-card {
       display: grid;
@@ -518,6 +623,11 @@
       border: 1px solid var(--line);
       border-radius: 8px;
       background: var(--panel-2);
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .risk-card:has(.risk.bad) {
+      animation: pulseBorder 1.6s ease-in-out infinite;
     }
 
     .hint-list {
@@ -532,6 +642,7 @@
       border: 1px solid var(--line);
       border-radius: 6px;
       background: var(--panel-2);
+      border-left: 2px solid var(--red-dim);
     }
 
     .layout-help {
@@ -1129,7 +1240,7 @@
 
     function drawChart() {
       ctx.clearRect(0, 0, chart.width, chart.height);
-      ctx.strokeStyle = "#303944";
+      ctx.strokeStyle = "rgba(255, 59, 78, 0.14)";
       ctx.lineWidth = 1;
       for (let y = 40; y < chart.height; y += 40) {
         ctx.beginPath();
@@ -1137,8 +1248,8 @@
         ctx.lineTo(chart.width, y);
         ctx.stroke();
       }
-      drawLine("tx", "#53b7e8", -200, 200);
-      drawLine("distance", "#36c275", 0, 2500);
+      drawLine("tx", "#ff3b4e", -200, 200);
+      drawLine("distance", "#33e6c8", 0, 2500);
     }
 
     function drawField(data = {}) {
@@ -1158,30 +1269,30 @@
         const py = oy + (fieldH - y - rh) * scale;
         fieldCtx.fillStyle = color;
         fieldCtx.fillRect(px, py, rw * scale, rh * scale);
-        fieldCtx.strokeStyle = "#20262d";
+        fieldCtx.strokeStyle = "rgba(255, 59, 78, 0.22)";
         fieldCtx.strokeRect(px, py, rw * scale, rh * scale);
-        fieldCtx.fillStyle = "#f2f5f7";
+        fieldCtx.fillStyle = "#e8d3d5";
         fieldCtx.font = "13px system-ui";
         fieldCtx.textAlign = "center";
         fieldCtx.fillText(label, px + rw * scale / 2, py + rh * scale / 2);
       }
 
-      rectCm(0, 0, 400, 300, "#426f55", "Prep / 準備區");
-      rectCm(0, 300, 400, 300, "#6fb983", "Human / 人員作業區");
-      rectCm(0, 600, 400, 500, "#efd5df", "Robot / 機器人作業區");
-      rectCm(0, 1100, 400, 600, "#f0f1ea", "Scoring / 得分區");
+      rectCm(0, 0, 400, 300, "#1c1315", "Prep / 準備區");
+      rectCm(0, 300, 400, 300, "#241416", "Human / 人員作業區");
+      rectCm(0, 600, 400, 500, "#2c1518", "Robot / 機器人作業區");
+      rectCm(0, 1100, 400, 600, "#190f10", "Scoring / 得分區");
 
-      rectCm(0, 600, 70, 120, "rgba(232,91,91,0.38)", "Start");
-      rectCm(330, 600, 70, 120, "rgba(232,91,91,0.38)", "Start");
+      rectCm(0, 600, 70, 120, "rgba(255,45,66,0.30)", "Start");
+      rectCm(330, 600, 70, 120, "rgba(255,45,66,0.30)", "Start");
 
-      fieldCtx.strokeStyle = "#11161b";
+      fieldCtx.strokeStyle = "rgba(255, 59, 78, 0.4)";
       fieldCtx.lineWidth = 3;
       fieldCtx.beginPath();
       fieldCtx.moveTo(ox, oy + (fieldH - 600) * scale);
       fieldCtx.lineTo(ox + fieldW * scale, oy + (fieldH - 600) * scale);
       fieldCtx.stroke();
 
-      fieldCtx.strokeStyle = "#e1b84a";
+      fieldCtx.strokeStyle = "#f5b448";
       fieldCtx.lineWidth = 2;
       fieldCtx.beginPath();
       fieldCtx.moveTo(ox + 200 * scale, oy + fieldH * scale);
@@ -1199,24 +1310,29 @@
       if (Number.isFinite(data.heading)) {
         fieldCtx.rotate((data.heading - 90) * Math.PI / 180);
       }
-      fieldCtx.fillStyle = hasPose ? "#53b7e8" : "rgba(83,183,232,0.42)";
-      fieldCtx.strokeStyle = "#ffffff";
+      fieldCtx.fillStyle = hasPose ? "#ff2d42" : "rgba(255,45,66,0.35)";
+      fieldCtx.strokeStyle = "#ffe4e6";
       fieldCtx.lineWidth = 2;
+      if (hasPose) {
+        fieldCtx.shadowColor = "#ff2d42";
+        fieldCtx.shadowBlur = 16;
+      }
       fieldCtx.beginPath();
       fieldCtx.rect(-18, -14, 36, 28);
       fieldCtx.fill();
       fieldCtx.stroke();
+      fieldCtx.shadowBlur = 0;
       fieldCtx.beginPath();
       fieldCtx.moveTo(0, -22);
       fieldCtx.lineTo(8, -10);
       fieldCtx.lineTo(-8, -10);
       fieldCtx.closePath();
-      fieldCtx.fillStyle = "#ffffff";
+      fieldCtx.fillStyle = "#ffe4e6";
       fieldCtx.fill();
       fieldCtx.restore();
 
       if (!hasPose) {
-        fieldCtx.fillStyle = "#98a4af";
+        fieldCtx.fillStyle = "#a8898c";
         fieldCtx.font = "12px system-ui";
         fieldCtx.textAlign = "center";
         fieldCtx.fillText("No odometry yet / 尚無定位資料", w / 2, h - 14);
@@ -1225,8 +1341,11 @@
 
     function drawLine(key, color, min, max) {
       if (history.length < 2) return;
+      ctx.save();
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;
+      ctx.shadowColor = color;
+      ctx.shadowBlur = 8;
       ctx.beginPath();
       history.forEach((item, i) => {
         const x = (i / Math.max(history.length - 1, 1)) * chart.width;
@@ -1236,6 +1355,7 @@
         else ctx.lineTo(x, y);
       });
       ctx.stroke();
+      ctx.restore();
     }
 
     function handleLine(line) {
