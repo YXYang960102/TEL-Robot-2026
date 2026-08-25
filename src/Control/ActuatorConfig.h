@@ -33,3 +33,20 @@ struct PositionLimitConfig {
     long forwardLimit;
     long reverseLimit;
 };
+
+struct DigitalLimitSwitchConfig {
+    constexpr DigitalLimitSwitchConfig(
+        unsigned char signalPinValue,
+        bool triggeredHighValue,
+        bool useInternalPullupValue,
+        unsigned long debounceMsValue)
+        : signalPin(signalPinValue),
+          triggeredHigh(triggeredHighValue),
+          useInternalPullup(useInternalPullupValue),
+          debounceMs(debounceMsValue) {}
+
+    unsigned char signalPin;
+    bool triggeredHigh;
+    bool useInternalPullup;
+    unsigned long debounceMs;
+};

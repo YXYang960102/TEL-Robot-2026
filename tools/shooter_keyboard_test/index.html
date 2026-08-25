@@ -49,7 +49,6 @@
       background: #12191e;
     }
     .key-hint { display: inline-flex; align-items: center; gap: 7px; color: #b8c3ca; font-size: 13px; }
-    .key-hint.unavailable { color: #d8ad61; }
     kbd {
       min-width: 27px;
       height: 25px;
@@ -68,7 +67,7 @@
     }
     .status-strip {
       display: grid;
-      grid-template-columns: repeat(5, minmax(110px, 1fr));
+      grid-template-columns: repeat(7, minmax(110px, 1fr));
       border: 1px solid #2d3840;
       background: #12191e;
     }
@@ -121,9 +120,10 @@
       <span class="key-hint"><kbd>↑</kbd><kbd>↓</kbd>仰角手動</span>
       <span class="key-hint"><kbd>←</kbd><kbd>→</kbd>水平手動</span>
       <span class="key-hint"><kbd>1</kbd>仰角歸零</span>
-      <span class="key-hint"><kbd>2</kbd>仰角 Setpoint 1</span>
-      <span class="key-hint"><kbd>3</kbd>仰角最高點</span>
-      <span class="key-hint unavailable"><kbd>5–9</kbd>水平位置（等待感測器）</span>
+      <span class="key-hint"><kbd>2</kbd><kbd>3</kbd><kbd>4</kbd>仰角未校正停用</span>
+      <span class="key-hint"><kbd>5</kbd><kbd>6</kbd><kbd>7</kbd><kbd>8</kbd><kbd>9</kbd>水平未校正停用</span>
+      <span class="key-hint"><kbd>P</kbd>80/20 定位</span>
+      <span class="key-hint"><kbd>C</kbd>PID 定位</span>
       <span class="key-hint"><kbd>E</kbd>啟用</span>
       <span class="key-hint"><kbd>Space</kbd>急停</span>
       <span class="key-hint"><kbd>Q</kbd>斷線</span>
@@ -134,6 +134,8 @@
       <div class="status-cell"><div class="label">Angle mode / 仰角模式</div><div id="mode" class="value">--</div></div>
       <div class="status-cell"><div class="label">Encoder / 編碼器</div><div id="encoder" class="value">--</div></div>
       <div class="status-cell"><div class="label">Homed / 已歸零</div><div id="homed" class="value">No</div></div>
+      <div class="status-cell"><div class="label">Rotate mode / 水平模式</div><div id="rotateMode" class="value">--</div></div>
+      <div class="status-cell"><div class="label">Potentiometer / 可變電阻</div><div id="rotateSensor" class="value">--</div></div>
     </section>
 
     <section class="grid">
@@ -149,6 +151,16 @@
       <div class="metric"><div class="label">Soft limits / 軟極限</div><div id="softLimits" class="value">Inactive</div></div>
       <div class="metric"><div class="label">Rejected samples / 拒絕樣本</div><div id="rejected" class="value">--</div></div>
       <div class="metric"><div class="label">Watchdog / 通訊保護</div><div id="watchdog" class="value">Normal</div></div>
+      <div class="metric"><div class="label">Angle hard limits / 仰角硬極限</div><div id="angleLimits" class="value">Up -- / Down --</div></div>
+      <div class="metric"><div class="label">Rotate hard limits / 水平硬極限</div><div id="rotateLimits" class="value">Left -- / Right --</div></div>
+      <div class="metric"><div class="label">Rotate raw / filtered / 水平原始與濾波</div><div id="rotatePosition" class="value">-- / --</div></div>
+      <div class="metric"><div class="label">Rotate angle / 水平角度</div><div id="rotateDegrees" class="value">-- deg</div></div>
+      <div class="metric"><div class="label">Rotate target / error / 水平目標與誤差</div><div id="rotateTargetError" class="value">-- / --</div></div>
+      <div class="metric"><div class="label">Move progress / 移動進度</div><div id="rotateProgress" class="value">-- %</div></div>
+      <div class="metric"><div class="label">80/20 envelope / 減速上限</div><div id="rotateEnvelope" class="value">--</div></div>
+      <div class="metric"><div class="label">Rotate output / 水平輸出</div><div id="rotateOutput" class="value">--</div></div>
+      <div class="metric"><div class="label">Rotate P / I / D / FF</div><div id="rotateTerms" class="value">--</div></div>
+      <div class="metric"><div class="label">Rotate ready / soft limit / 水平就緒與軟極限</div><div id="rotateReady" class="value">No / Inactive</div></div>
     </section>
 
     <section id="log" class="log" aria-label="Serial log"></section>
@@ -157,7 +169,7 @@
   <script>
     const BAUD_RATE = 115200;
     const HEARTBEAT_MS = 75;
-    const TELEMETRY_FIELDS = 22;
+    const TELEMETRY_FIELDS = 43;
     const movementKeys = new Set();
     const encoder = new TextEncoder();
     const decoder = new TextDecoder();
@@ -248,7 +260,12 @@
       }
       const [ms, enabled, timedOut, mode, valid, isHomed, raw, counts, degrees,
         target, error, leftUs, rightUs, rotateUs, output, p, i, d, ff,
-        ready, softLimits, rejected] = fields;
+        ready, softLimits, rejected, angleUp, angleDown,
+        rotateLeft, rotateRight, rotateMode, rotateValid, rotateRaw,
+        rotateFiltered, rotateDegrees, rotateTarget, rotateTargetDegrees,
+        rotateError, rotateProgress, rotateEnvelope, rotateOutput,
+        rotateP, rotateI, rotateD, rotateFf, rotateReady,
+        rotateSoftLimits] = fields;
       armed = enabled === "1";
       $("outputs").textContent = armed ? "Enabled" : "Disabled";
       $("outputs").className = `value ${armed ? "warn" : ""}`;
@@ -269,6 +286,31 @@
       $("rejected").textContent = rejected;
       $("watchdog").textContent = timedOut === "1" ? "Timed out" : "Normal";
       $("watchdog").className = `value ${timedOut === "1" ? "bad" : "ok"}`;
+      const angleLimitTriggered = angleUp === "1" || angleDown === "1";
+      $("angleLimits").textContent =
+        `Up ${angleUp === "1" ? "BLOCKED" : "clear"} / Down ${angleDown === "1" ? "BLOCKED" : "clear"}`;
+      $("angleLimits").className = `value ${angleLimitTriggered ? "bad" : "ok"}`;
+      const rotateLimitTriggered = rotateLeft === "1" || rotateRight === "1";
+      $("rotateLimits").textContent =
+        `Left ${rotateLeft === "1" ? "BLOCKED" : "clear"} / Right ${rotateRight === "1" ? "BLOCKED" : "clear"}`;
+      $("rotateLimits").className = `value ${rotateLimitTriggered ? "bad" : "ok"}`;
+      $("rotateMode").textContent = rotateMode;
+      $("rotateSensor").textContent = rotateValid === "1" ? "Valid" : "Invalid";
+      $("rotateSensor").className = `value ${rotateValid === "1" ? "ok" : "bad"}`;
+      $("rotatePosition").textContent = `${rotateRaw} / ${rotateFiltered}`;
+      $("rotateDegrees").textContent = `${rotateDegrees} deg`;
+      $("rotateTargetError").textContent =
+        `${rotateTarget} (${rotateTargetDegrees} deg) / ${rotateError}`;
+      $("rotateProgress").textContent =
+        `${(Number(rotateProgress) * 100).toFixed(1)} %`;
+      $("rotateEnvelope").textContent = rotateEnvelope;
+      $("rotateOutput").textContent = rotateOutput;
+      $("rotateTerms").textContent =
+        `${rotateP} / ${rotateI} / ${rotateD} / ${rotateFf}`;
+      $("rotateReady").textContent =
+        `${rotateReady === "1" ? "Yes" : "No"} / ${rotateSoftLimits === "1" ? "Active" : "Inactive"}`;
+      $("rotateReady").className =
+        `value ${rotateReady === "1" ? "ok" : ""}`;
     }
 
     async function connect() {
@@ -352,7 +394,9 @@
         await send("E");
       } else if (event.key.toLowerCase() === "q") {
         await disconnect();
-      } else if (["1", "2", "3", "5", "6", "7", "8", "9"].includes(event.key)) {
+      } else if (["p", "c"].includes(event.key.toLowerCase())) {
+        await send(event.key.toUpperCase());
+      } else if (["1", "2", "3", "4", "5", "6", "7", "8", "9"].includes(event.key)) {
         await send(event.key);
       }
     });

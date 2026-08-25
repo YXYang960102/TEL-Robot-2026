@@ -408,3 +408,206 @@ telemetry cards, Dashboard layout, and all robot subsystems are unchanged.
 passes. The page was served locally and visually inspected with all hints
 visible, normal wrapping, no overlap, and no browser warning/error logs. The
 Arduino connection button was not pressed and no hardware action was taken.
+
+---
+
+## 2026-08-24 - Codex: Direction-aware Shooter hard limits
+
+**User Request:** Preserve and implement the proposed second safety layer for
+the Shooter. Elevation and horizontal rotation each have two infrared
+break-beam limit inputs. A triggered limit must block motion farther into that
+end while still allowing the mechanism to move away from it.
+
+**Legacy Source:** The supplied 1201-line
+`/Users/jeremy/Downloads/all_robot_017/src/main.cpp` used Mega D52/D53 for
+vertical up/down and D43/D42 for horizontal left/right. It treated a HIGH input
+as triggered, but its hard-switch checks stopped both directions whenever
+either switch on an axis was active. The new implementation retains those pins
+and electrical assumption while replacing the full-axis lockout with
+direction-aware escape behavior.
+
+**Architecture:** `ShooterConstants.h` owns all four pin assignments, active
+polarity, internal-pullup selection, and the 8 ms debounce period.
+`DigitalLimitSwitchConfig` is the reusable hardware configuration value.
+`Shooter` owns pin initialization, debounced states, telemetry accessors, and
+the application of the safety state to actuator commands. The pure
+`DirectionalLimit` control helper owns the rule: a reverse limit blocks only a
+negative command and a forward limit blocks only a positive command.
+
+**Direction Mapping:** Elevation up is the positive mechanism command and is
+blocked by D52; elevation down is negative and is blocked by D53. Horizontal
+right is positive and is blocked by D42; horizontal left is negative and is
+blocked by D43. The paired elevation servo inversion remains inside each motor
+configuration, after the mechanism-level safety decision. If both switches on
+one axis are active, both nonzero directions are blocked; zero remains zero.
+
+**Control Flow:** Each `Shooter::update()` refreshes the AS5600 and all four
+debounced switches before checking the output-enable gate. Manual elevation and
+closed-loop elevation both pass through the same hard-limit and AS5600
+soft-limit path. If a closed-loop output points into a triggered limit, the
+controller is reset and both elevation PWM outputs return to neutral, avoiding
+continued integral accumulation. Horizontal manual output is limited before
+PWM conversion. Reverse escape remains available on either axis.
+
+**Bench Telemetry:** The isolated Shooter firmware `$TEL` packet now appends
+four flags in this order: angle up, angle down, rotate left, rotate right. The
+standalone keyboard page expects 26 fields and displays two hard-limit cards,
+showing `clear` or `BLOCKED`. Its README documents the pin mapping, polarity,
+debounce, floating-input warning, and directional behavior. The normal robot
+Dashboard layout was not changed.
+
+**Evidence:** The standalone native `DirectionalLimit` test passes all clear,
+single-limit, both-limit, reverse-escape, and zero-command cases.
+`git diff --check` passes. PlatformIO builds pass for both `megaatmega2560`
+(1255/8192 bytes RAM, 14714/253952 bytes flash) and
+`mega_shooter_keyboard_test` (1184/8192 bytes RAM, 16512/253952 bytes flash).
+Only pre-existing warnings inside the vendored Seeed AS5600 library remain.
+The bench page was rendered at the default desktop viewport and at 390 px
+mobile width with no horizontal overflow, clipped metric text, or browser
+warning/error logs. No firmware upload or powered hardware test was performed.
+
+**Required Bench Verification:** Before actuator power, confirm every
+untriggered input reads `clear` and every blocked beam reads `BLOCKED`. These
+inputs use `INPUT`, not `INPUT_PULLUP`, so they must not float. Confirm sensor
+output voltage is Mega-safe and change only the Constants polarity/pullup
+settings if the actual module differs. With low manual authority and an
+immediate physical power cut available, trigger one limit at a time: the key
+toward that end must produce neutral PWM while the opposite key must still
+move away. Repeat for all four switches, then test both switches on an axis.
+
+---
+
+## 2026-08-25 - Codex: Horizontal potentiometer and 80/20 position profile
+
+**User Request:** Replace the Shooter horizontal full-turn encoder assumption
+with a potentiometer because the mechanism is expected to move only about
+`-90..+90 deg`. Preserve true manual open-loop control, add target-based motion
+that runs at cruise speed for the first 80% and gradually slows over the final
+20%, and make the same deceleration envelope available to PID control.
+
+**Architecture:** `AnalogPositionSensor` owns periodic A3 sampling, broad
+electrical-range validity, timeout, and exponential filtering. `ShooterConstants`
+owns the signal pin, provisional three-point calibration, soft limits, filter,
+PIDF values, ready criteria, and 80/20 profile values. The pure
+`PositionDecelerationProfile` helper owns the testable envelope calculation.
+`Shooter` owns mode selection, target state, controller state, hard/soft safety,
+angle conversion, PWM output, and telemetry. The standalone bench firmware and
+page own only operator commands and presentation.
+
+**Calibration:** Legacy `all_robot_017` evidence used A3 and observed raw values
+near `55..535`. This implementation intentionally starts with provisional raw
+points `90 / 295 / 500` mapped to `-90 / 0 / +90 deg`. These are not accepted
+mechanical calibration values. Measure left, center, and right with actuator
+power off and replace the Constants before any target-position motion. A3 is
+also named `PIN_POT` in the legacy pin header; no other active source claims A3.
+
+**Modes:** `MANUAL_OPEN_LOOP` keeps the arrow-key command direct and therefore
+has no target or percentage-of-travel profile. `PROFILED_POSITION` uses
+potentiometer feedback but no PID gains: it directly commands the sign of the
+position error under the 80/20 envelope. `CLOSED_LOOP` calculates PIDF and then
+clamps its magnitude to the same envelope. PIDF defaults remain `0.0`, so PID
+mode intentionally stays neutral until hardware tuning. Profiled position is
+feedback-based even though it does not use PID; it must not be described as
+true open-loop control.
+
+**80/20 Calculation:** At target selection, the subsystem captures the initial
+absolute error. While `abs(currentError) / initialError >= 0.20`, the envelope
+is the configured cruise command. Inside the final 20%, it is
+`cruise * remainingRatio / 0.20`, with a configurable minimum approach ratio.
+The normal cruise constant is `1.0`; the isolated bench passes a `0.10` maximum,
+so its envelope ranges from 10% down to 1%. Within two raw counts the output is
+neutral; after 100 ms continuously in tolerance, Rotate reports ready.
+
+**Safety:** Every horizontal command still passes through D43/D42 direction-
+specific hard limits. When A3 is valid, raw 90/500 are additional soft limits
+that block only motion farther outward. Position modes fail neutral when the
+sensor is invalid. Manual mode remains available under hard limits, but A3
+soft limits are applied when its reading is valid. The broad `5..1018`
+electrical validity range cannot guarantee detection of every floating or
+miswired analog input, so hard switches and pre-power telemetry checks remain
+required.
+
+**Bench Controls and Telemetry:** `P` selects profiled position (default), `C`
+selects PID, and `5/6/7/8/9` request center, left limit, left intermediate,
+right intermediate, and right limit. Numeric target commands are capped at
+10%. The `$TEL` packet grows from 26 to 43 fields and appends Rotate mode,
+sensor validity, raw and filtered readings, degrees, target raw/degrees, error,
+progress, profile envelope, output, PIDF terms, ready, and soft-limit status.
+The standalone page displays these values without changing the robot Dashboard.
+
+**Evidence:** Native PIDF, DirectionalLimit, and PositionDecelerationProfile
+tests pass. JavaScript syntax and `git diff --check` pass. PlatformIO builds
+pass for `megaatmega2560` (1412/8192 RAM, 17698/253952 flash) and
+`mega_shooter_keyboard_test` (1564/8192 RAM, 20746/253952 flash). The bench page
+was inspected at desktop and 390 px mobile widths with no horizontal overflow
+or browser warning/error logs. Only pre-existing warnings in the vendored
+Seeed AS5600 library remain. No firmware upload or powered hardware test was
+performed.
+
+**Required Bench Verification:** First upload the isolated test environment and
+leave actuator power disconnected. Confirm A3 raw/filtered values move smoothly
+and monotonically by hand, identify the actual left/center/right values, update
+Constants, then verify all four hard-limit flags. With the mechanism unloaded,
+external rated servo power, shared ground, and a physical power cut ready, use
+arrows first to validate signs. Select `P`, test only the center and nearby
+intermediate target at the 10% cap, and confirm progress/envelope/output fall in
+the final 20%. Tune P-only later with `C`; keep I, D, IZone, and FF at zero until
+P-only direction, response, soft limits, and stop tolerance are proven.
+
+---
+
+## 2026-08-25 - Codex: Elevation numeric key remap
+
+**User Request:** Change the isolated Shooter keyboard mapping to `1` elevation
+zero, `2` elevation minimum, `3` elevation setpoint 1, and `4` elevation
+maximum.
+
+**Implementation:** The bench command parser keeps `1` as the current-position
+AS5600 zero operation. Key `2` now requests `ANGLE_INITIAL_COUNTS`, key `3`
+requests `ANGLE_SETPOINT_1_COUNTS`, and the previous maximum command moves to
+key `4`. All three target keys retain the existing output-enabled and
+angle-homed/encoder-valid gates in `Shooter::setAngleTargetCounts()`. The
+standalone page key hints, accepted key list, and README were updated to match.
+
+**Scope:** No Shooter mechanism calculations, Constants values, horizontal
+controls, serial telemetry format, normal robot Dashboard, or other subsystem
+were changed. The `mega_shooter_keyboard_test` build passes at 1578/8192 RAM
+and 20794/253952 flash; page JavaScript syntax and `git diff --check` pass. No
+upload or powered mechanism test was performed.
+## 2026-08-25 - Codex: Uncalibrated Shooter position limits reset to zero
+
+Jeremy confirmed that all provisional Shooter position-limit/calibration
+values should be zero until hardware measurement; existing motor and limit
+switch pins must remain unchanged.
+
+- Angle `MIN_POSITION_COUNTS`, `MAX_POSITION_COUNTS`, and bench targets are now
+  zero. `POSITION_LIMITS_CALIBRATED=false` disables both software limits and
+  rejects closed-loop angle targets. AS5600 zeroing and low-authority manual
+  open-loop control remain available.
+- Rotate left/center/right raw and degree calibration values are now zero.
+  `POSITION_CALIBRATED=false` disables software limits, rejects profiled/PID
+  position targets, and makes degree telemetry return zero without dividing by
+  an uncalibrated zero-width range.
+- Physical direction-specific limit switches remain active on D52/D53 and
+  D43/D42. Motor/sensor signal pins, PWM values, inversion, and PIDF gains were
+  not changed.
+- Keyboard commands 2-9 now fail safely through the subsystem target guards;
+  manual arrow control and command watchdog behavior are unchanged.
+
+Verification: `git diff --check` and all three native tests passed. PlatformIO
+was not rerun by Codex because `pio` is unavailable in its shell. Jeremy had
+already reported a successful compile before this latest constants change, so
+this revision still needs a fresh PlatformIO compile and has not been uploaded
+or hardware-tested.
+## 2026-08-25 - Codex: Independent Shooter soft-limit enable flags
+
+Jeremy approved FRC-style explicit soft-limit enable settings. Angle and Rotate
+now each expose `FORWARD_SOFT_LIMIT_ENABLED` and
+`REVERSE_SOFT_LIMIT_ENABLED` in `ShooterConstants.h`; all four default to
+`false`. The separate calibration flags remain false, and all position values
+remain zero. A software limit reports active only when calibration is valid,
+at least one direction is enabled, and the required feedback/homing state is
+valid. Compile-time assertions reject enabling a soft limit before calibration
+or with a reversed/equal range. Physical limit inputs and every pin remain
+unchanged. Native control tests and `git diff --check` pass; PlatformIO was not
+available in Codex's shell, so Jeremy must recompile before upload.

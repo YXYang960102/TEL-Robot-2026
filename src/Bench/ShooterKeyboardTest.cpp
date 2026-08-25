@@ -15,6 +15,14 @@ unsigned long lastCommandMs = 0;
 unsigned long lastTelemetryMs = 0;
 bool commandTimedOut = false;
 
+enum class RotateTargetController {
+    PROFILED,
+    PID
+};
+
+RotateTargetController rotateTargetController =
+    RotateTargetController::PROFILED;
+
 const char* angleModeName() {
     switch (Shooter::getAngleControlMode()) {
         case AngleControlMode::MANUAL_OPEN_LOOP:
@@ -22,6 +30,20 @@ const char* angleModeName() {
         case AngleControlMode::CLOSED_LOOP:
             return "closed";
         case AngleControlMode::DISABLED:
+        default:
+            return "disabled";
+    }
+}
+
+const char* rotateModeName() {
+    switch (Shooter::getRotateControlMode()) {
+        case RotateControlMode::MANUAL_OPEN_LOOP:
+            return "manual";
+        case RotateControlMode::PROFILED_POSITION:
+            return "profiled";
+        case RotateControlMode::CLOSED_LOOP:
+            return "closed";
+        case RotateControlMode::DISABLED:
         default:
             return "disabled";
     }
@@ -57,6 +79,23 @@ void applyManualState(int angleDirection, int rotateDirection) {
         angleDirection * ANGLE_MANUAL_COMMAND);
     Shooter::setRotateOpenLoop(
         rotateDirection * ROTATE_MANUAL_COMMAND);
+}
+
+void requestRotateTarget(int targetRaw, const char* event) {
+    if (!Shooter::areOutputsEnabled()) {
+        sendEvent("ROTATE_TARGET_REJECTED_OUTPUTS_DISABLED");
+        return;
+    }
+
+    const bool accepted =
+        rotateTargetController == RotateTargetController::PROFILED
+        ? Shooter::setRotateProfiledTargetRaw(
+              targetRaw,
+              ROTATE_POSITION_TEST_MAX_COMMAND)
+        : Shooter::setRotateTargetRaw(
+              targetRaw,
+              ROTATE_POSITION_TEST_MAX_COMMAND);
+    sendEvent(accepted ? event : "ROTATE_TARGET_REJECTED_SENSOR_INVALID");
 }
 
 void processManualCommand(char* command) {
@@ -126,11 +165,21 @@ void processCommand(char* command) {
                 sendEvent("ANGLE_TARGET_REJECTED_OUTPUTS_DISABLED");
                 break;
             }
+            sendEvent(Shooter::setAngleTargetCounts(ANGLE_INITIAL_COUNTS)
+                ? "ANGLE_MINIMUM"
+                : "ANGLE_TARGET_REJECTED");
+            break;
+        case '3':
+            refreshCommandWatchdog();
+            if (!Shooter::areOutputsEnabled()) {
+                sendEvent("ANGLE_TARGET_REJECTED_OUTPUTS_DISABLED");
+                break;
+            }
             sendEvent(Shooter::setAngleTargetCounts(ANGLE_SETPOINT_1_COUNTS)
                 ? "ANGLE_SETPOINT_1"
                 : "ANGLE_TARGET_REJECTED");
             break;
-        case '3':
+        case '4':
             refreshCommandWatchdog();
             if (!Shooter::areOutputsEnabled()) {
                 sendEvent("ANGLE_TARGET_REJECTED_OUTPUTS_DISABLED");
@@ -140,14 +189,43 @@ void processCommand(char* command) {
                 ? "ANGLE_MAXIMUM"
                 : "ANGLE_TARGET_REJECTED");
             break;
+        case 'P':
+        case 'p':
+            refreshCommandWatchdog();
+            Shooter::disableRotate();
+            rotateTargetController = RotateTargetController::PROFILED;
+            sendEvent("ROTATE_PROFILED_MODE_SELECTED");
+            break;
+        case 'C':
+        case 'c':
+            refreshCommandWatchdog();
+            Shooter::disableRotate();
+            rotateTargetController = RotateTargetController::PID;
+            sendEvent("ROTATE_PID_MODE_SELECTED");
+            break;
         case '5':
+            refreshCommandWatchdog();
+            requestRotateTarget(ROTATE_CENTER_RAW, "ROTATE_CENTER");
+            break;
         case '6':
+            refreshCommandWatchdog();
+            requestRotateTarget(ROTATE_LEFT_LIMIT_RAW, "ROTATE_LEFT_LIMIT");
+            break;
         case '7':
+            refreshCommandWatchdog();
+            requestRotateTarget(
+                ROTATE_LEFT_SETPOINT_RAW,
+                "ROTATE_LEFT_SETPOINT");
+            break;
         case '8':
+            refreshCommandWatchdog();
+            requestRotateTarget(
+                ROTATE_RIGHT_SETPOINT_RAW,
+                "ROTATE_RIGHT_SETPOINT");
+            break;
         case '9':
             refreshCommandWatchdog();
-            Shooter::setRotateOpenLoop(0.0);
-            sendEvent("ROTATE_POSITION_UNAVAILABLE_NO_SENSOR");
+            requestRotateTarget(ROTATE_RIGHT_LIMIT_RAW, "ROTATE_RIGHT_LIMIT");
             break;
         default:
             sendEvent("UNKNOWN_COMMAND");
@@ -239,6 +317,48 @@ void sendTelemetry() {
     Serial.print(Shooter::areAngleSoftLimitsActive() ? 1 : 0);
     Serial.print(',');
     Serial.print(Shooter::getAngleRejectedSampleCount());
+    Serial.print(',');
+    Serial.print(Shooter::isAngleUpLimitTriggered() ? 1 : 0);
+    Serial.print(',');
+    Serial.print(Shooter::isAngleDownLimitTriggered() ? 1 : 0);
+    Serial.print(',');
+    Serial.print(Shooter::isRotateLeftLimitTriggered() ? 1 : 0);
+    Serial.print(',');
+    Serial.print(Shooter::isRotateRightLimitTriggered() ? 1 : 0);
+    Serial.print(',');
+    Serial.print(rotateModeName());
+    Serial.print(',');
+    Serial.print(Shooter::isRotatePositionSensorValid() ? 1 : 0);
+    Serial.print(',');
+    Serial.print(Shooter::getRotatePositionRaw());
+    Serial.print(',');
+    Serial.print(Shooter::getRotatePositionFilteredRaw(), 2);
+    Serial.print(',');
+    Serial.print(Shooter::getRotateDegrees(), 2);
+    Serial.print(',');
+    Serial.print(Shooter::getRotateTargetRaw());
+    Serial.print(',');
+    Serial.print(Shooter::getRotateTargetDegrees(), 2);
+    Serial.print(',');
+    Serial.print(Shooter::getRotateErrorRaw());
+    Serial.print(',');
+    Serial.print(Shooter::getRotateMoveProgress(), 3);
+    Serial.print(',');
+    Serial.print(Shooter::getRotateProfileEnvelope(), 4);
+    Serial.print(',');
+    Serial.print(Shooter::getRotateControllerOutput(), 4);
+    Serial.print(',');
+    Serial.print(Shooter::getRotateProportionalTerm(), 4);
+    Serial.print(',');
+    Serial.print(Shooter::getRotateIntegralTerm(), 4);
+    Serial.print(',');
+    Serial.print(Shooter::getRotateDerivativeTerm(), 4);
+    Serial.print(',');
+    Serial.print(Shooter::getRotateFeedforwardTerm(), 4);
+    Serial.print(',');
+    Serial.print(Shooter::isRotateReady() ? 1 : 0);
+    Serial.print(',');
+    Serial.print(Shooter::areRotateSoftLimitsActive() ? 1 : 0);
     Serial.println();
 }
 
