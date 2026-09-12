@@ -1,0 +1,25 @@
+{
+  "compiler": "arm-none-eabi-gcc (xPack GNU Arm Embedded GCC arm64) 12.3.1 20230626",
+  "application_base": "0x08004000",
+  "reserved_bootloader_bytes": 16384,
+  "application_limit_bytes": 245760,
+  "ram_limit_bytes": 65536,
+  "initial_stack": "0x20010000",
+  "reset_vector": "0x8004199",
+  "usart1_irq_vector": "0x8004205",
+  "usart2_irq_vector": "0x8004259",
+  "systick_vector": "0x80041f5",
+  "binary_bytes": 2384,
+  "sha256": "0b3c43a945cafafc32df46589bd8774b0aa08d42983b27d71c243427d7a67ac6",
+  "checks": [
+    "host CRSF protocol unit test",
+    "vector VMA/LMA",
+    "Thumb handler pointers",
+    "SysTick/USART1/USART2 vectors wired",
+    "stack bounds",
+    "image size",
+    "no undefined symbols"
+  ],
+  "hardware_tested": false,
+  "flashed": false
+}
