@@ -1,0 +1,100 @@
+
+Discarded input sections
+
+ .text          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmz4jbx.o
+ .data          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmz4jbx.o
+ .bss           0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmz4jbx.o
+ .text          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccAC0NCr.o
+ .data          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccAC0NCr.o
+ .bss           0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccAC0NCr.o
+ .comment       0x00000000       0x39 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccAC0NCr.o
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+FLASH            0x08004000         0x0003c000         xr
+RAM              0x20000000         0x00010000         xrw
+*default*        0x00000000         0xffffffff
+
+Linker script and memory map
+
+LOAD /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmz4jbx.o
+LOAD /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccAC0NCr.o
+                0x20010000                        _stack_top = (ORIGIN (RAM) + LENGTH (RAM))
+
+.isr_vector     0x08004000      0x198
+ *(.isr_vector)
+ .isr_vector    0x08004000      0x198 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmz4jbx.o
+                0x08004000                vectors
+
+.text           0x08004198      0x210
+ *(.text*)
+ .text.Reset_Handler
+                0x08004198       0x58 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmz4jbx.o
+                0x08004198                Reset_Handler
+ .text.Default_Handler
+                0x080041f0        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmz4jbx.o
+                0x080041f0                Default_Handler
+ .text.delay_ms
+                0x080041f4       0x16 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccAC0NCr.o
+ *fill*         0x0800420a        0x2 
+ .text.startup.main
+                0x0800420c      0x19c /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccAC0NCr.o
+                0x0800420c                main
+ *(.rodata*)
+                0x080043a8                        . = ALIGN (0x4)
+
+.glue_7         0x080043a8        0x0
+ .glue_7        0x080043a8        0x0 linker stubs
+
+.glue_7t        0x080043a8        0x0
+ .glue_7t       0x080043a8        0x0 linker stubs
+
+.vfp11_veneer   0x080043a8        0x0
+ .vfp11_veneer  0x080043a8        0x0 linker stubs
+
+.v4_bx          0x080043a8        0x0
+ .v4_bx         0x080043a8        0x0 linker stubs
+
+.iplt           0x080043a8        0x0
+ .iplt          0x080043a8        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmz4jbx.o
+
+.rel.dyn        0x080043a8        0x0
+ .rel.iplt      0x080043a8        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmz4jbx.o
+
+.ARM.exidx
+ *(.ARM.exidx*)
+
+.data           0x20000000        0x0 load address 0x080043a8
+                0x20000000                        . = ALIGN (0x4)
+                0x20000000                        _sdata = .
+ *(.data*)
+                0x20000000                        . = ALIGN (0x4)
+                0x20000000                        _edata = .
+                0x080043a8                        _sidata = LOADADDR (.data)
+
+.igot.plt       0x20000000        0x0 load address 0x080043a8
+ .igot.plt      0x20000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmz4jbx.o
+
+.bss            0x20000000        0x0 load address 0x080043a8
+                0x20000000                        . = ALIGN (0x4)
+                0x20000000                        _sbss = .
+ *(.bss*)
+ *(COMMON)
+                0x20000000                        . = ALIGN (0x4)
+                0x20000000                        _ebss = .
+
+/DISCARD/
+ *(.comment)
+ *(.note*)
+                0x00000001                        ASSERT ((ADDR (.isr_vector) == 0x8004000), Wrong application base)
+                0x00000001                        ASSERT ((_ebss <= (_stack_top - 0x1000)), Insufficient stack reserve)
+OUTPUT(/Users/jeremy/Desktop/FRC8169/TEL_Robot_2026/tools/stm32_hid_led_test/dist/stm32f401cc_hid_led.elf elf32-littlearm)
+LOAD linker stubs
+
+.ARM.attributes
+                0x00000000       0x2f
+ .ARM.attributes
+                0x00000000       0x21 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmz4jbx.o
+ .ARM.attributes
+                0x00000021       0x2e /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccAC0NCr.o

@@ -1,0 +1,15 @@
+
+/Users/jeremy/Desktop/FRC8169/TEL_Robot_2026/tools/stm32_hid_led_test/dist/stm32f401cc_hid_led.elf:     file format elf32-littlearm
+
+Sections:
+Idx Name          Size      VMA       LMA       File off  Algn
+  0 .isr_vector   00000198  08004000  08004000  00001000  2**0
+                  CONTENTS, ALLOC, LOAD, READONLY, DATA
+  1 .text         00000210  08004198  08004198  00001198  2**2
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  2 .data         00000000  20000000  20000000  000013a8  2**0
+                  CONTENTS, ALLOC, LOAD, DATA
+  3 .bss          00000000  20000000  20000000  00000000  2**0
+                  ALLOC
+  4 .ARM.attributes 0000002f  00000000  00000000  000013a8  2**0
+                  CONTENTS, READONLY
