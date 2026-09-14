@@ -92,15 +92,6 @@ static volatile uint32_t last_rc_rx_ms = 0;
    USART1_IRQHandler() and update_status_led(). */
 static volatile uint32_t last_valid_battery_frame_ms = 0;
 
-/* TEMPORARY bring-up diagnostic, added 2026-09-14 to distinguish "USART1
-   has never received anything typed as a Battery Sensor frame at all"
-   from "it received one but the frame failed length/voltage validation".
-   Latches permanently once true (until power-cycle) so a single occurrence
-   is not missed. Remove once the real backlink path is confirmed working
-   and this question is answered - it is not part of the intended
-   three-state LED design. See update_status_led(). */
-static volatile bool battery_type_ever_seen = false;
-
 /* Evidence counters. Not currently readable from a running board (no host
    link beyond this USB-HID bootloader/flash path), but kept cheap and
    correct so a future SWD peek or added UART can report real counts rather
@@ -277,16 +268,10 @@ static void update_demo_channels(void) {
 /* Status LED: reflects CURRENT link health, not "ever confirmed". If  */
 /* backlink drops while downlink keeps working, the LED must fall back */
 /* from solid to fast blink; if downlink also drops, to slow blink;    */
-/* recovery must bring it back up the same way. Nothing here latches,  */
-/* EXCEPT the TEMPORARY diagnostic long-pulse state below.             */
+/* recovery must bring it back up the same way. Nothing here latches.  */
 /* slow blink = downlink not currently fresh.                          */
-/* fast blink = downlink fresh, backlink not currently fresh, and      */
-/*              USART1 has never seen a Battery-typed frame at all.    */
-/* long pulse = downlink/backlink not both fresh, but USART1 HAS seen  */
-/*              at least one Battery-typed frame (length/content may   */
-/*              still be failing validation) - TEMPORARY, see          */
-/*              battery_type_ever_seen.                                */
-/* solid on   = both currently fresh (the real target state).          */
+/* fast blink = downlink fresh, backlink not currently fresh.          */
+/* solid on   = both currently fresh.                                  */
 /* ------------------------------------------------------------------ */
 
 static void led_on(void)  { GPIOC_BSRR = 1u << (LED_PIN + 16u); }
@@ -299,15 +284,6 @@ static void update_status_led(void) {
 
   if (downlink_now && backlink_now) {
     led_on();
-    return;
-  }
-
-  if (battery_type_ever_seen) {
-    /* TEMPORARY diagnostic pattern: 1000ms on, 500ms off, repeat - clearly
-       different from both the 500/500 slow blink and the 100/100 fast
-       blink below. */
-    uint32_t phase = now % 1500u;
-    if (phase < 1000u) led_on(); else led_off();
     return;
   }
 
@@ -336,9 +312,6 @@ void USART1_IRQHandler(void) {
          our Battery Sensor payload counts as backlink evidence; anything
          else parsing cleanly is deliberately ignored here rather than
          treated as "the backlink is alive". */
-      if (frame.type == CRSF_FRAME_BATTERY) {
-        battery_type_ever_seen = true; /* TEMPORARY diagnostic, see declaration */
-      }
       if (frame.type == CRSF_FRAME_BATTERY && frame.payload_len == 8) {
         uint16_t voltage_01v = (uint16_t)((frame.payload[0] << 8) | frame.payload[1]);
         if (voltage_01v >= BATTERY_VOLTAGE_MIN_01V &&
