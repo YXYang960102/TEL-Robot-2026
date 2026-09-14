@@ -482,3 +482,71 @@ staying solid; restore and confirm it returns to solid. Then disturb both
 recovery back to solid. Report exact observed transitions back here so
 Codex's review can check them against the stated acceptance criteria before
 this is treated as hardware-verified.
+
+## 2026-09-14 — Claude: Item 4 hardware-confirmed — backlink reaches solid
+
+**User Request:** Jeremy flashed commit `fb29827`'s binary
+(`stm32f401cc_elrs_bidir_test.bin`, SHA256
+`5faf0e8f0314e58fb4a63999d7efcee9f76e7f896aa17e2e4237e0469ee0336f`) on real
+hardware (external power to ES900TX, ES900RX wired to STM32 A2/A3 per the
+2026-09-14 inbox entry) and reported the LED "有頻率的閃兩下、停頓" — a
+repeating pattern not matching any of the three designed states.
+
+**Discussion Result / Why:** Asked clarifying questions rather than guess.
+Confirmed: pattern repeats roughly every ~1-2s, occasionally bursts into
+~5 fast flashes, never reaches solid, and pulling PA9 (breaks the USART1
+half-duplex line to ES900TX entirely) correctly drops it straight to slow
+blink — that last part alone confirms downlink freshness genuinely tracks
+the physical link, not a stuck value. Reinterpreted the described pattern
+as: mostly slow blink (~1Hz, roughly matching the "1-2s heartbeat"
+description) with occasional ~1s bursts of fast blink (5Hz ≈ 5 flashes) —
+i.e. downlink matches intermittently, backlink had never yet passed the
+new type+length+voltage validation. Could not tell from the LED alone
+whether USART1 had received zero Battery-typed frames or some that failed
+length/content validation — different next steps depending on which.
+
+Added a **temporary** 4th diagnostic LED state (commit `9b7e3a8`,
+`battery_type_ever_seen`, latched, 1000ms-on/500ms-off long pulse) that
+fires whenever USART1 sees any frame with `type==CRSF_FRAME_BATTERY`
+regardless of length/voltage validity — explicitly marked in code comments
+as not part of the intended design, to be removed once it answered its own
+question.
+
+**Result:** Jeremy re-flashed and reported: LED reaches **solid**, with
+occasional drops to the long-pulse diagnostic state. Solid only fires when
+`downlink_now && backlink_now` are simultaneously true, which requires a
+Battery frame to have passed the full type+length+voltage-range check
+within the last 1500ms — so this is hardware confirmation that **the
+backlink path works**: ES900RX is relaying our injected USART2 telemetry
+over RF to ES900TX, which outputs it back over the USART1 half-duplex line
+in a form that parses as a valid, correctly-shaped Battery Sensor frame.
+The occasional long-pulse drops mean backlink freshness has real
+intermittent gaps (>1500ms between valid frames) — plausible/expected for
+a first real-RF bench run, not investigated further this pass.
+
+Diagnostic question answered, so reverted it (commit `8bb57df`): removed
+`battery_type_ever_seen` and the long-pulse branch entirely, back to the
+plain three-state `update_status_led()`/`USART1_IRQHandler()` matching
+Codex's review criteria (no extra states). Rebuilt binary is
+**byte-identical** to `fb29827`'s (`python3 build.py` → SHA256
+`5faf0e8f0314e58fb4a63999d7efcee9f76e7f896aa17e2e4237e0469ee0336f`),
+confirming the revert introduced no drift — the code Codex is reviewing at
+`fb29827` is exactly what's on the board's binary content again.
+
+**Evidence:** Host CRSF unit tests + all static build checks passed at
+every step (`9b7e3a8` diagnostic build, then `8bb57df` revert build). Real
+hardware evidence is Jeremy's direct visual observation (solid + occasional
+long-pulse on the diagnostic build), not a count/log — the evidence
+counters added in `fb29827` are still not readable from a running board,
+unchanged limitation.
+
+**Not yet done:** The specific deliberate test Codex's review item 4 asks
+for (disturb backlink only and confirm solid→fast blink→solid, then
+disturb both and confirm →slow blink→solid) has not been run as a
+controlled test — what happened was organic observation during normal
+operation plus the earlier PA9-pull test (which disturbs both downlink and
+backlink at once, since they share the same wire, not backlink alone).
+Next: Jeremy to run the controlled backlink-only disturbance (e.g.
+power-cycle or move only ES900RX, leaving the USART1/PA9 link to ES900TX
+untouched) on the current reverted binary and confirm solid→fast-blink→
+solid, to close out that specific checklist item.
