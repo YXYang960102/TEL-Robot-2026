@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "ELRS 雙向測試：一顆 STM32，兩條無線資料路徑",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    {
+      "id": "rcgen",
+      "type": "backend",
+      "label": "STM32：模擬遙控器",
+      "sublabel": "main → RC frame",
+      "pos": [
+        40,
+        90
+      ],
+      "size": [
+        220,
+        90
+      ]
+    },
+    {
+      "id": "txrf",
+      "type": "external",
+      "label": "ES900TX",
+      "sublabel": "PA9 單線半雙工",
+      "pos": [
+        380,
+        90
+      ],
+      "size": [
+        220,
+        90
+      ]
+    },
+    {
+      "id": "rxrf",
+      "type": "external",
+      "label": "ES900RX",
+      "sublabel": "無線接收並輸出 CRSF",
+      "pos": [
+        720,
+        90
+      ],
+      "size": [
+        220,
+        90
+      ]
+    },
+    {
+      "id": "rccheck",
+      "type": "backend",
+      "label": "STM32：下行比對",
+      "sublabel": "USART2_IRQHandler",
+      "pos": [
+        1060,
+        90
+      ],
+      "size": [
+        220,
+        90
+      ]
+    },
+    {
+      "id": "battery",
+      "type": "backend",
+      "label": "STM32：假電池",
+      "sublabel": "main → Battery frame",
+      "pos": [
+        40,
+        350
+      ],
+      "size": [
+        220,
+        90
+      ]
+    },
+    {
+      "id": "rxtlm",
+      "type": "external",
+      "label": "ES900RX",
+      "sublabel": "PA2 輸入 telemetry",
+      "pos": [
+        380,
+        350
+      ],
+      "size": [
+        220,
+        90
+      ]
+    },
+    {
+      "id": "txtlm",
+      "type": "external",
+      "label": "ES900TX",
+      "sublabel": "無線回傳至 JR Data",
+      "pos": [
+        720,
+        350
+      ],
+      "size": [
+        220,
+        90
+      ]
+    },
+    {
+      "id": "tlmcheck",
+      "type": "backend",
+      "label": "STM32：回傳觀察",
+      "sublabel": "USART1_IRQHandler",
+      "pos": [
+        1060,
+        350
+      ],
+      "size": [
+        220,
+        90
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "rcgen",
+      "to": "txrf",
+      "label": "400000 baud"
+    },
+    {
+      "from": "txrf",
+      "to": "rxrf",
+      "label": "ELRS RF 下行"
+    },
+    {
+      "from": "rxrf",
+      "to": "rccheck",
+      "label": "PA3 / 420000"
+    },
+    {
+      "from": "battery",
+      "to": "rxtlm",
+      "label": "PA2 / 420000"
+    },
+    {
+      "from": "rxtlm",
+      "to": "txtlm",
+      "label": "ELRS telemetry"
+    },
+    {
+      "from": "txtlm",
+      "to": "tlmcheck",
+      "label": "PA9 / 400000"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "上排：RC 下行",
+      "items": [
+        "STM32 產生 16 通道；每 10 ms 送出",
+        "回到同一 STM32 的 USART2，比對前 8 通道"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "下排：電池回傳",
+      "items": [
+        "STM32 產生假電池資料；每 1000 ms 送出",
+        "USART1 收到 Battery 類型就累加計數"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "證據界線",
+      "items": [
+        "兩排 STM32 節點是同一顆板子的不同職責",
+        "PC13 判定不含逐包內容、序號或延遲驗證"
+      ]
+    }
+  ]
+}
