@@ -37,20 +37,44 @@ USART2：全雙工、420000 baud、8N1。
   Fire/Arm/Emergency 這幾個通道恆為關閉）。
 - 持續從 ES900RX 讀回 RC frame，比對前 8 個通道是否與送出值一致
   （容許 ±20us）。
-- 每 1 秒送一包假電池 telemetry（CRSF Battery Sensor）給 ES900RX，
-  若 ES900TX 端的 JR Signal/Data 線後續回傳同一種 frame，代表
-  telemetry 回傳鏈路成功。
+- 每 100 ms（10Hz）送一包假電池 telemetry（CRSF Battery Sensor）給
+  ES900RX，這是應用層排程頻率，不是對實際空中 ELRS telemetry 比例
+  的宣稱；跟 RC 送出排程各自獨立計時，不共用阻塞延遲，其中一個變慢
+  不會拖到另一個。若 ES900TX 端的 JR Signal/Data 線後續回傳同一種
+  frame，代表 telemetry 回傳鏈路成功。
 
 ## PC13 LED 狀態燈
 
 | 狀態 | 燈號 |
 |---|---|
-| 還沒確認「傳過去」（下行） | 慢閃，約 1Hz |
-| 「傳過去」確認成功，「傳回來」（回傳）還沒確認 | 快閃，約 5Hz |
-| 「傳過去」與「傳回來」都確認成功 | 恆亮 |
+| 下行目前不新鮮 | 慢閃，約 1Hz |
+| 下行目前新鮮，回傳目前不新鮮 | 快閃，約 5Hz |
+| 下行與回傳都目前新鮮 | 恆亮 |
 
-判讀基準：下行狀態超過 500ms 沒收到新的匹配 frame 視為過期；
-回傳狀態超過 1500ms 沒收到新的 Battery frame 視為過期。
+**這是即時狀態指示，不是「曾經成功過」的鎖定指示**：回傳一旦中斷，
+燈號會從恆亮退回快閃；下行也斷的話會再退回慢閃；恢復後會照樣正確
+回到對應狀態。判讀基準：下行超過 500ms 沒收到新的匹配 frame 視為
+不新鮮；回傳超過 1500ms 沒收到「型別、長度、電壓內容都通過驗證」
+的 Battery frame 視為不新鮮。
+
+回傳新鮮度**只採用驗證過的 Battery frame 時間戳**（`USART1_IRQHandler()`
+裡的 `last_valid_battery_frame_ms`），刻意不使用「USART1 上收到任何
+合法 CRSF frame」的時間戳——TX 模組本身也會在同一條線上送自己的
+link-statistics 之類的 frame，如果拿那個當回傳新鮮度依據，只要
+曾經收過一次電池 frame，之後 TX 模組隨便送什麼其他合法 frame 都會
+被誤判成「回傳還活著」，導致燈號騙人恆亮。這是 code review 抓到的
+根因，修正方式是把時間戳來源限定成 type==BATTERY、payload_len==8、
+電壓落在 `BATTERY_VOLTAGE_MIN_01V..MAX_01V`（合理範圍檢查，對應
+generator 本身 12.0–12.6V 的範圍）三個條件都通過才更新。
+
+計數器（`rc_sent_count`、`rc_downlink_match_count`、
+`battery_sent_count`、`battery_valid_backlink_count`、
+`battery_rejected_count`）已經加在韌體裡，作為未來佐證用；目前這個
+專案沒有任何從執行中的板子讀出資料的管道（USB 只有 bootloader 的
+HID，App 本身沒有 USB），所以這些計數目前只能透過 SWD 之類的除錯
+介面才讀得到，還不能算是「已驗證的硬體證據」，只是把佐證用的欄位
+準備好。
+
 這顆燈是唯一的視覺化輸出（未使用第三顆 UART、USB-TTL 轉接器或網頁）。
 
 ## 記憶體與啟動
@@ -106,7 +130,11 @@ SysTick/USART1/USART2 handler 是否正確掛上、映像大小、MSP、
 `python3 build.py` 已跑過：host 端 CRSF 單元測試（打包/解拆
 round-trip、frame CRC 建構與驗證、串流解析器對亂碼前綴的重新同步、
 壞 CRC 的拒收）全數通過；交叉編譯映像的靜態位址/向量/大小檢查全數
-通過。尚未燒錄、尚未在實體 ES900TX/ES900RX 上觀察 PC13 狀態燈行為。
+通過。這個修正版本（10Hz telemetry、Battery-only 回傳新鮮度判斷、
+評估用計數器）**尚未燒錄到硬體**，前一個版本（1Hz telemetry、舊的
+「任意合法 frame 刷新」邏輯）已經實際燒錄並在有 ES900TX/ES900RX 的
+板子上觀察到 PC13 恆亮中偶爾快速閃一下——這個現象正是本次要修的
+bug 的症狀（回傳短暫過期又被其他合法 frame 誤救回來）。
 
 來源：
 - 協議層移植自使用者提供的參考專案 `elrs_f401ccu6_platformio`

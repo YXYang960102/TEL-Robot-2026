@@ -384,3 +384,101 @@ Executed read inside and outside sandbox (approved USB access); both returned de
 Jeremy explicitly authorized folder AI Agent/專案系統架構設計 with per-project/per-Git-branch sections followed by dev integration and main; main-only projects skip fictitious stages. Created TEL_Robot_2026 dossiers for Chassis, Dribbler, Shooter, ShooterMG996, STM32-ELRS, dev, main, with SHA-pinned source snapshots, actual main entry, header API index, diff/history and ancestry counts. Existing ELRS guide copied and source links adjusted. Root/project HTML indexes and MD rules included; AI Agent README/memory/Claude inbox appended. Verified every dossier and listed source file exists. Other branch dossiers are inventory/entry/API level, not yet exhaustive function audits; explicitly labeled.
 
 No fetch/checkout/merge performed. dev0d0d8aa merges earlier Chassis231485d, not latest functional tips; main5c3c760 lacks dev's8 commits. Documented startup shoot request3 in Shooter/main vs0 in dev and Chassis API integration mismatch. No code/hardware behavior changed.
+
+## 2026-09-14 — Claude: Item 4 — 100ms application telemetry + fix backlink-freshness bug
+
+**User Request:** Jeremy relayed Codex's item-4 assignment via the shared
+inbox (`AI Agent/inbox/claude-codex-message.md`, 2026-09-14 entry "Jeremy
+更新：1/3已解決"): Claude implements, Codex reviews, do not edit the same
+firmware in parallel. Requirements: keep RC uplink at 10ms/100Hz on its own
+schedule; add independent 100ms/10Hz application telemetry, not blocking the
+RC schedule; fix backlink freshness to use a legitimately-validated Battery
+frame's own timestamp (type + length + content), not "any valid CRSF frame
+on USART1"; make PC13 correctly show backlink-lost-while-downlink-ok,
+full-loss, and recovery — i.e. no permanent latch.
+
+**Discussion Result / Why:** This branch's own most recent flashed firmware
+(commit b72d92c, first fully successful native-Mac Download+reboot this
+session) showed PC13 mostly solid with an occasional brief blink. Codex's
+independent architecture-review pass (docs/elrs-architecture, same finding
+recorded above in the 2026-09-13 entry) identified the exact cause: `USART1_
+IRQHandler()` refreshed `last_txmodule_frame_ms` on *any* frame that parsed
+cleanly off USART1, not specifically a Battery Sensor frame — since the TX
+module also emits its own frames (e.g. link statistics) on that same wire,
+once `battery_backlink_count>0` ever became true, any later non-battery
+frame could keep `backlink_now` artificially fresh, producing exactly the
+observed "solid with a brief interruption" flicker instead of an honest
+signal. Earlier the same session Claude had proposed the opposite fix
+(latch "ever confirmed" permanently to solid-on) at Jeremy's own request for
+"a clear signal" — superseded here because Codex's review criteria (relayed
+by Jeremy) explicitly require live-correct behavior across backlink-loss/
+full-loss/recovery, which a permanent latch cannot satisfy honestly.
+
+**Changed:** `tools/stm32_elrs_bidirectional_test/src/main.c`:
+`USART1_IRQHandler()` now only updates backlink freshness
+(`last_valid_battery_frame_ms`) when a parsed frame is
+`type==CRSF_FRAME_BATTERY && payload_len==8` *and* the decoded voltage field
+falls in `BATTERY_VOLTAGE_MIN_01V..BATTERY_VOLTAGE_MAX_01V` (content
+plausibility check, not just type+length); anything else increments
+`battery_rejected_count` instead of touching the freshness timestamp.
+`update_status_led()` now reads `last_valid_battery_frame_ms` directly (no
+more OR-ed `battery_backlink_count>0` latch condition) — the LED again
+reports current link health only, matching the original three-state design,
+with the freshness *source* corrected rather than the state model changed.
+`send_battery_to_receiver()` calls moved from a 1000ms schedule to
+`BATTERY_SEND_PERIOD_MS=100` (10Hz); still a separate `g_millis`-gated
+non-blocking check in the same `for(;;)` loop as the 10ms RC schedule, so
+neither can stall the other.
+
+**Added:** Five evidence counters (`rc_sent_count`,
+`rc_downlink_match_count`, `battery_sent_count`,
+`battery_valid_backlink_count`, `battery_rejected_count`) responding to
+Codex's review item 6 (count/interval evidence). Honestly scoped in the
+README: this firmware has no live readback path (App has no USB; bootloader
+HID disappears once App runs), so these are not yet observable from a
+running board — they exist for a future SWD peek or added UART, not as
+already-delivered hardware evidence.
+
+**Calculation:** Battery Sensor payload layout unchanged from
+`crsf_build_battery_frame()`: `payload[0..1]` = voltage in 0.1V units,
+big-endian. `send_battery_to_receiver()`'s own generator ranges 12.0–12.6V
+(`fake_voltage_01v` 120→126 wrapping), so
+`BATTERY_VOLTAGE_MIN_01V=100`/`MAX_01V=150` (10.0–15.0V) is a generous but
+real plausibility bound around that, not a tautological pass-everything
+range.
+
+**Impact:** Only this bench project changed; no other TEL_Robot_2026
+subsystem, branch, or file touched. `Chassis` branch unaffected (this work
+lives entirely on `STM32-ELRS`, split out from `Chassis` earlier this
+session precisely so it wouldn't be).
+
+**Evidence:** `python3 build.py` — host CRSF unit test (6 groups: tick
+round-trip, channel pack/unpack round-trip, RC frame parse-back, battery
+frame parse-back, bad-CRC rejection, resync after garbage prefix) passed;
+cross-compiled image passed all static checks (vector VMA/LMA, SysTick/
+USART1/USART2 vectors wired to real handlers not `Default_Handler`, Thumb
+handler pointers, stack bounds, image size, no undefined symbols). New
+binary: `tools/stm32_elrs_bidirectional_test/dist/stm32f401cc_elrs_bidir_
+test.bin`, 2432 bytes, SHA256
+`5faf0e8f0314e58fb4a63999d7efcee9f76e7f896aa17e2e4237e0469ee0336f`. This is
+build/static evidence only — **not yet flashed**, so no hardware
+confirmation of the corrected LED behavior (backlink-loss/full-loss/
+recovery transitions) exists yet. The previously flashed binary (SHA256
+`0b3c43a945cafafc32df46589bd8774b0aa08d42983b27d71c243427d7a67ac6`, commit
+b72d92c, 1000ms telemetry + the buggy freshness logic) is the one Jeremy
+actually observed on real ES900TX/ES900RX hardware with external power —
+that observation (mostly-solid-with-a-blink) is the field evidence that
+motivated this fix, but it was evidence of the *old* binary's bug, not of
+this new binary's corrected behavior.
+
+**Next Test:** Flash this new binary the same way as before (native
+`WeAct_HID_Flash-CLI-getservice-fix ... .bin reboot`, external power to
+ES900TX, USB-only to STM32, TX power minimum, antenna spacing 30cm-1m, one
+Download attempt). Then deliberately disturb backlink only (e.g. briefly
+power down or move the RX module out of range) while leaving RC uplink
+running, and confirm PC13 drops from solid to fast blink rather than
+staying solid; restore and confirm it returns to solid. Then disturb both
+(remove ES900TX power/antenna) and confirm slow blink; restore and confirm
+recovery back to solid. Report exact observed transitions back here so
+Codex's review can check them against the stated acceptance criteria before
+this is treated as hardware-verified.

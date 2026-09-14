@@ -16,13 +16,22 @@
    Actual baud = 16000000/(16*2.375) = 421052.6 Hz, +0.25% vs nominal. */
 #define USART2_BRR_VALUE 0x26u
 
-#define RC_SEND_PERIOD_MS 10u
+#define RC_SEND_PERIOD_MS 10u        /* 100 Hz RC uplink, independent schedule */
 #define DEMO_CH1_PERIOD_MS 2000u
-#define BATTERY_SEND_PERIOD_MS 1000u
+#define BATTERY_SEND_PERIOD_MS 100u  /* 10 Hz application telemetry, independent
+                                        schedule; not a claim about the actual
+                                        over-the-air ELRS telemetry ratio */
 
 #define DOWNLINK_STALE_MS 500u
 #define BACKLINK_STALE_MS 1500u
 #define CHANNEL_MATCH_TOLERANCE_US 20
+
+/* Plausibility bounds for a received battery frame's voltage field, used as
+   a light content check (not just type+length) before treating a frame as
+   backlink evidence. Matches send_battery_to_receiver()'s own 12.0-12.6V
+   generator range with margin. */
+#define BATTERY_VOLTAGE_MIN_01V 100u
+#define BATTERY_VOLTAGE_MAX_01V 150u
 
 /* LED status: slow blink = downlink not confirmed, fast blink = downlink
    confirmed but backlink not, solid on = both confirmed. */

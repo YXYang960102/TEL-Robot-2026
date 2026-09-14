@@ -82,8 +82,25 @@ static CrsfParser parser_receiver;  /* bytes arriving on USART2 from ES900RX */
 
 static volatile bool downlink_ok = false;
 static volatile uint32_t last_rc_rx_ms = 0;
-static volatile uint32_t last_txmodule_frame_ms = 0;
-static volatile uint32_t battery_backlink_count = 0;
+
+/* Backlink freshness must come from a frame that is actually a validated
+   Battery Sensor payload (correct type, correct length, plausible voltage),
+   not from "any valid CRSF frame arrived on USART1" - the TX module also
+   emits its own link-statistics/telemetry frames on that same wire, and
+   using their arrival to keep backlink_now true would let the LED report
+   a stale/fake "still receiving battery echoes" state. See
+   USART1_IRQHandler() and update_status_led(). */
+static volatile uint32_t last_valid_battery_frame_ms = 0;
+
+/* Evidence counters. Not currently readable from a running board (no host
+   link beyond this USB-HID bootloader/flash path), but kept cheap and
+   correct so a future SWD peek or added UART can report real counts rather
+   than only "it compiled". */
+static volatile uint32_t rc_sent_count = 0;
+static volatile uint32_t rc_downlink_match_count = 0;
+static volatile uint32_t battery_sent_count = 0;
+static volatile uint32_t battery_valid_backlink_count = 0;
+static volatile uint32_t battery_rejected_count = 0; /* wrong type/length/range */
 
 /* ------------------------------------------------------------------ */
 /* Hardware bring-up                                                   */
@@ -204,6 +221,7 @@ static void send_rc_to_tx_module(void) {
   }
   while (!(USART1_SR & USART_SR_TC)) {}
   usart1_switch_to_rx();
+  rc_sent_count++;
 }
 
 static void send_battery_to_receiver(void) {
@@ -217,6 +235,7 @@ static void send_battery_to_receiver(void) {
     while (!(USART2_SR & USART_SR_TXE)) {}
     USART2_DR = frame[i];
   }
+  battery_sent_count++;
 }
 
 static bool channels_match_sent(const int rx_us[16], const int sent_us[16]) {
@@ -246,8 +265,13 @@ static void update_demo_channels(void) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Status LED: slow blink = no downlink yet, fast blink = downlink ok  */
-/* but no backlink yet, solid on = both confirmed.                     */
+/* Status LED: reflects CURRENT link health, not "ever confirmed". If  */
+/* backlink drops while downlink keeps working, the LED must fall back */
+/* from solid to fast blink; if downlink also drops, to slow blink;    */
+/* recovery must bring it back up the same way. Nothing here latches.  */
+/* slow blink = downlink not currently fresh.                          */
+/* fast blink = downlink fresh, backlink not currently fresh.          */
+/* solid on   = both currently fresh.                                  */
 /* ------------------------------------------------------------------ */
 
 static void led_on(void)  { GPIOC_BSRR = 1u << (LED_PIN + 16u); }
@@ -256,8 +280,7 @@ static void led_off(void) { GPIOC_BSRR = 1u << LED_PIN; }
 static void update_status_led(void) {
   uint32_t now = g_millis;
   bool downlink_now = (now - last_rc_rx_ms) < DOWNLINK_STALE_MS && downlink_ok;
-  bool backlink_now = (now - last_txmodule_frame_ms) < BACKLINK_STALE_MS &&
-                       battery_backlink_count > 0;
+  bool backlink_now = (now - last_valid_battery_frame_ms) < BACKLINK_STALE_MS;
 
   if (downlink_now && backlink_now) {
     led_on();
@@ -283,9 +306,23 @@ void USART1_IRQHandler(void) {
     uint8_t b = (uint8_t)USART1_DR;
     CrsfFrame frame;
     if (crsf_parser_push(&parser_tx_module, b, &frame)) {
-      last_txmodule_frame_ms = g_millis;
-      if (frame.type == CRSF_FRAME_BATTERY) {
-        battery_backlink_count++;
+      /* The TX module also emits its own frames on this wire (e.g. link
+         statistics) that are NOT our injected battery telemetry echoing
+         back. Only a frame that is actually type+length+content-valid as
+         our Battery Sensor payload counts as backlink evidence; anything
+         else parsing cleanly is deliberately ignored here rather than
+         treated as "the backlink is alive". */
+      if (frame.type == CRSF_FRAME_BATTERY && frame.payload_len == 8) {
+        uint16_t voltage_01v = (uint16_t)((frame.payload[0] << 8) | frame.payload[1]);
+        if (voltage_01v >= BATTERY_VOLTAGE_MIN_01V &&
+            voltage_01v <= BATTERY_VOLTAGE_MAX_01V) {
+          last_valid_battery_frame_ms = g_millis;
+          battery_valid_backlink_count++;
+        } else {
+          battery_rejected_count++;
+        }
+      } else if (frame.type == CRSF_FRAME_BATTERY) {
+        battery_rejected_count++; /* wrong length for a battery payload */
       }
     }
   } else if (sr & USART_SR_ORE) {
@@ -306,6 +343,7 @@ void USART2_IRQHandler(void) {
           last_rx_ch_us[i] = crsf_tick_to_us(last_rx_ch_tick[i]);
         }
         downlink_ok = channels_match_sent(last_rx_ch_us, tx_ch_us);
+        if (downlink_ok) rc_downlink_match_count++;
         last_rc_rx_ms = g_millis;
       }
     }
