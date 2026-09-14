@@ -7,10 +7,10 @@
   "initial_stack": "0x20010000",
   "reset_vector": "0x8004199",
   "usart1_irq_vector": "0x8004205",
-  "usart2_irq_vector": "0x8004279",
+  "usart2_irq_vector": "0x8004281",
   "systick_vector": "0x80041f5",
-  "binary_bytes": 2432,
-  "sha256": "5faf0e8f0314e58fb4a63999d7efcee9f76e7f896aa17e2e4237e0469ee0336f",
+  "binary_bytes": 2488,
+  "sha256": "a01c4f72afa716a0b63dafa5fa68d7fd5a7d295495cc00be4d03ac2d75c7ffd4",
   "checks": [
     "host CRSF protocol unit test",
     "vector VMA/LMA",
