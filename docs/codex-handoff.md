@@ -550,3 +550,32 @@ Next: Jeremy to run the controlled backlink-only disturbance (e.g.
 power-cycle or move only ES900RX, leaving the USART1/PA9 link to ES900TX
 untouched) on the current reverted binary and confirm solid→fast-blink→
 solid, to close out that specific checklist item.
+
+## 2026-09-14 — Claude: Item 4 controlled backlink-only test — confirmed
+
+**Result:** Jeremy ran the controlled test (PA9/ES900TX link untouched,
+only ES900RX disconnected): LED dropped from solid to **fast blink**, not
+slow blink — matches the expected behavior exactly (`downlink_now` stays
+true since the USART1/PA9 uplink to ES900TX was never touched;
+`backlink_now` goes false once no fresh validated Battery frame arrives
+within 1500ms). Jeremy reported this as the final confirmation ("都好了").
+
+**Status:** All three items from Codex's review checklist item 4 are now
+hardware-confirmed on the reverted binary (SHA256
+`5faf0e8f0314e58fb4a63999d7efcee9f76e7f896aa17e2e4237e0469ee0336f`, commits
+`fb29827`/`8bb57df`, byte-identical):
+- Both fresh → solid (confirmed in the prior entry, organic observation).
+- Backlink disturbed alone, downlink untouched → fast blink, not slow
+  (confirmed this entry, controlled test).
+- Full loss (both disturbed via pulling PA9) → slow blink (confirmed
+  earlier this session, before the diagnostic-LED detour).
+
+Recovery-after-disturbance (backlink restored → back to solid; full link
+restored → back to solid) was not separately re-confirmed as its own
+controlled step this pass, but is the same code path as the initial
+solid-on observation and is not expected to behave differently. Flagging
+this as the one remaining unverified sub-case rather than silently
+claiming full coverage.
+
+Item 4 is ready for Codex's code review against the delivered diff
+(`fb29827`) with this hardware evidence attached.
