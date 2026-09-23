@@ -611,3 +611,659 @@ valid. Compile-time assertions reject enabling a soft limit before calibration
 or with a reversed/equal range. Physical limit inputs and every pin remain
 unchanged. Native control tests and `git diff --check` pass; PlatformIO was not
 available in Codex's shell, so Jeremy must recompile before upload.
+
+## 2026-09-19 — Codex: isolated A2 horizontal manual bench
+
+**User Request / Discussion Result:** Jeremy wants manual keyboard testing of
+the camera-carrying horizontal turntable first, then camera-only following
+without AS5600. He confirmed a continuous-rotation servo and explicitly
+approved implementation. Photo IMG_1026 shows 35Kg HV / 360 degrees / XT;
+it does not verify neutral pulse, voltage, speed, or exact vendor specification.
+
+**Why:** Existing Shooter init attaches multiple actuators and initializes
+feedback. Added an isolated environment rather than changing production D29
+or energizing unrelated outputs. This follows the manual-first subsystem skill.
+
+**Changed / Added:** platformio.ini adds mega_rotate_only_test; only
+Bench/RotateOnlyTest.cpp is built. RotateBenchConstants.h owns A2 (Mega D56),
+limits D43/D42, neutral1500us, +/-50us jog, timeout250ms and jog cap400ms.
+RotateBenchState.h is a pure tested command/watchdog state machine.
+tools/shooter_keyboard_test/rotate.html is a horizontal-only Web Serial page;
+README provides the procedure. Existing full-Shooter UI and runtime unchanged.
+
+**Flow / Contract:** Chrome -> USB115200 newline E (neutral+enable), X
+(stop+disable), M,0,-1/0/1 (left/stop/right) -> state machine -> only A2 Servo.
+No K heartbeat: browser repeats complete manual state every50ms. Firmware emits
+$ROTATE,1,enabled,pulse_us,left_blocked,right_blocked at100ms. Page refuses to
+enable without this signature. Numeric angle commands and malformed commands
+fail disabled; overflow discards the entire line. Bounded32-byte parser work
+prevents watchdog starvation. Enter stops/disables; Space stops/disconnects;
+enable requires the visible UI button. Blur/hidden/telemetry loss stop browser
+commands. Write-generation invalidation cancels queued pre-stop commands.
+
+**Calculation:** pulse=1500+direction*50us, direction=-1/0/+1; hence
+1450/1500/1550us (inversion false). 50/500=10% of historical half-span,
+not measured RPM or degrees. Unsigned now-lastCommand>250ms disables;
+same-direction jog>=400ms disables despite heartbeat, requiring re-enable.
+No position feedback means no absolute angle or software travel limit.
+
+**Safety / Impact:** D43/D42 retain active-high direction-specific protection,
+with pull-ups so disconnected inputs block; immediate stop+disable on a limit.
+After re-enable the opposite direction can escape. Actual switches/wiring not
+confirmed; if absent, test is blocked pending explicit constrained alternative,
+not bypassed. Neutral is provisional and is not electrical power removal.
+No AS5600/A3 initialization, no elevation/flywheel/vision/chassis activation.
+YOLO target validity/UART contract and eventual camera-follow control untouched.
+
+**Evidence:** Native C++ state tests passed (neutral, +/- pulses, release,
+timeout, no rearm by manual state, jog cap despite heartbeat, bad command,
+disable and millis rollover). Node mock UI tests passed (button-only enable,
+arrow/release, Enter, blur, wrong firmware rejection, stale queued-write
+cancellation). All three PlatformIO environments compile/link: normal1412 RAM/
+17542 flash; old bench1522/19242; new rotate-only395/5350 bytes. Existing normal
+and old bench warn about zero calibration division in Shooter.cpp and vendored
+AS5600; no warning in new isolated build. git diff --check passed. No real
+browser render/USB/servo measurement, upload, actuation, commit or push.
+User's .vscode/extensions.json change preserved.
+
+**Next Test:** Confirm limit wiring before powering motor; upload ONLY new
+environment manually, signal-only inspect A2/disabled state and stop paths.
+Then unloaded calibrate actual neutral, short jog signs, 400ms cutoff, limits,
+USB loss, physical power cut and camera cable clearance. Claude please review
+the isolated test and protocol before camera-follow integration. Pure image
+tracking must not weaken the existing RGB-D valid flag; separate future contract.
+
+## 2026-09-19 — Codex: approved no-limits A2 bench option
+
+Jeremy confirmed only camera and continuous servo are installed, no D43/D42
+switches, and approved a clearly acknowledged no-limits manual option. Added
+checkbox + E_NO_LIMITS command, not a permanent bypass. E retains protected
+mode. stop(), bad commands, timeout and jog cap clear noLimits. Firmware limit
+application uses this state; UI displays actual bypass from protocol-v2 telemetry
+($ROTATE,2,enabled,pulse,leftHigh,rightHigh,noLimits), rejects v1 and clears the
+checkbox on stop/firmware disable. Changing checkbox while armed stops outputs.
+Why: permit the explicitly approved bench setup without fake pin jumpers or
+silently disabling production limits. Only dedicated A2 firmware/page/tests/docs
+changed; production Shooter, old multi-axis UI and YOLO remain unchanged.
+Pulse formula remains1500+direction*50us: -1=>1450,0=>1500,+1=>1550.
+250ms command timeout and400ms same-direction cap remain; neither guarantees
+angle or prevents accumulated rotation/cable entanglement. No encoder feedback.
+Native C++ and Node mock tests pass, including bypass with both limits high,
+normal-mode blocking, bypass revocation by X/timeout/cap, checkbox command,
+uncheck stop and old-protocol rejection. No upload/physical motion performed.
+Next: update dedicated firmware and page together; motor power off verify A2
+and mode/stop reporting, then unloaded neutral/direction and physical cutoff test.
+
+## 2026-09-19 — Codex: enable race correction, explicitly approved
+
+Jeremy reported immediate disable and no movement despite no-limits checkbox.
+Read-only mock reproduced old disabled telemetry cancelling the queued enable
+write (zero serial writes). Jeremy approved fixing this software defect; it is
+not proof that this alone caused the hardware symptom. Added pendingEnable:
+old disabled telemetry cannot clear the pending write; only matching enabled
+mode telemetry after write completion arms arrows. Waiting sends neutral only,
+never repeats E, expires at1000ms; 350ms telemetry timeout still applies.
+Stop/blur/mode-change cancels pending; no async completion can rearm after stop.
+UI now labels focus loss, hidden page, telemetry/enable timeout and manual stops.
+Dedicated firmware adds an optional final v2 stop reason for250ms TIMEOUT,
+400ms JOG_CAP, LIMIT, BAD_COMMAND, OPERATOR and BOOT. Old v2 is accepted but
+its firmware reason is explicitly unknown. Output mapping remains1500+dir*50us
+(+1=>1550,-1=>1450), no timeout/output increase or production/YOLO change.
+Node mock regression including exact race, no motion before confirmation,
+matching-mode arm, jog-cap reason and enable timeout passes; native state tests
+and isolated PlatformIO build pass. No upload, motor action or live-browser
+hardware verification. Next: reload page with motor power off, verify pending
+then confirmed state, short key pulse and stop; upload rebuilt dedicated firmware
+only to add exact stop reasons. Full physical neutral/direction tests remain.
+
+## 2026-09-19 — Claude Code: JOG_OFFSET_US raised 50us -> 250us
+
+Jeremy uploaded the mega_rotate_only_test firmware from the entry above and
+reported holding an arrow key produced no visible motion, then an apparent
+disable right around release. Before changing anything, asked which exact
+stopReason the page showed at disable, since the firmware already
+distinguishes TIMEOUT/JOG_CAP/LIMIT/BAD_COMMAND — a real bug (e.g. a stale
+disabled telemetry line, or a mode mismatch) would look different from the
+already-documented MAX_JOG_MS=400 safety cap simply firing before a 10%-
+authority (50us) jog produced any perceptible rotation against real mechanism
+friction. Jeremy did not report back which reason string appeared and instead
+asked directly to raise the authority to half of the historical 500us
+half-span. Changed `RotateBenchConstants::JOG_OFFSET_US` from 50 to 250 (still
+below `NEUTRAL_US=1500`'s midpoint distance to either 1000/2000 rail), updated
+its `static_assert` ceiling from 50 to 250 to keep it a real gate rather than
+silently widening scope, and updated the adjacent comment with the date/who/why.
+
+This does not by itself prove which of the two hypotheses (JOG_CAP firing as
+designed vs. a real disable-path defect) explains what Jeremy saw — increasing
+authority only helps if the true cause was insufficient torque against
+friction. If the same hold-then-disable pattern recurs at 250us, the next
+diagnostic step is still to read the exact stopReason on screen before
+changing any more constants.
+
+**Changed:** `src/Constants/RotateBenchConstants.h` only (`JOG_OFFSET_US`
+50->250, its `static_assert` ceiling 50->250, comment updated).
+
+**Impact:** Output pulse mapping is now `1500 + direction*250us`
+(+1=>1750us, -1=>1250us; previously 1550/1450). No other constant
+(NEUTRAL_US, COMMAND_TIMEOUT_MS=250, MAX_JOG_MS=400, TELEMETRY_MS=100,
+INVERTED, pins) changed. Production Shooter branch, dev, main, and the
+YOLO/Orin side are untouched.
+
+**Evidence:** Updated the two hardcoded pulse assertions in
+`test/rotate_bench_state_test.cpp` (1550->1750, 1450->1250) that were tied to
+the old offset — re-ran it natively, passes. Re-ran `test/rotate_page_test.cjs`
+(unaffected, doesn't assert pulse magnitude), passes. Re-compiled
+`src/Bench/RotateOnlyTest.cpp` with `avr-g++ -fsyntax-only` against this
+machine's AVR toolchain/Mega2560 core, clean (only a pre-existing, unrelated
+`<util/delay.h>` optimization-flag warning from the manual syntax-only
+invocation, not from `pio`'s real build flags). No `pio` build/upload, no
+motor power, no live hardware test performed by Claude.
+
+**Next Test:** Jeremy re-uploads `mega_rotate_only_test` and re-tests a short
+key press with motor power confirmed safe (belt/coupling checked per the
+page's own warning banner). If it still doesn't move or still disables
+immediately, read the exact `stopReason` text shown on the page at that
+moment and report it verbatim before any further constant change — that
+string is the actual discriminator between "safety cap firing as designed"
+and "a real defect," and guessing a bigger number again without it risks
+masking a real bug instead of fixing it.
+
+## 2026-09-19 — Claude Code: removed MAX_JOG_MS (400ms hold cap) at Jeremy's request
+
+Jeremy did not report the `stopReason` string from the entry above and
+instead said the release-then-disable pattern was this feature and asked to
+remove it, stating the current setup is motor + camera only, operator
+present, doing manual testing. This still doesn't establish whether the
+original symptom was JOG_CAP firing as designed or something else — Jeremy
+chose to remove the cap rather than diagnose further, which is his call to
+make for a supervised bench test.
+
+**Changed:**
+- `src/Control/RotateBenchState.h`: removed the `jogStarted` member and the
+  `else if (... direction!=0 && now-jogStarted>=MAX_JOG_MS) stop("JOG_CAP")`
+  branch from `tick()`; removed the now-dead `jogStarted = now` write in
+  `command()`. `COMMAND_TIMEOUT_MS` (250ms loss-of-link watchdog) is
+  untouched and still the only auto-stop condition in `tick()` — deliberately
+  kept, since it protects against a stale/missing-command condition (USB
+  drop, page crash) that is unrelated to "held a key too long while
+  watching," which is what Jeremy asked to remove.
+- `src/Constants/RotateBenchConstants.h`: removed the now-unused
+  `MAX_JOG_MS` constant (grepped the tree first; nothing else referenced it).
+- `tools/shooter_keyboard_test/rotate.html`: updated the warning banner and
+  the keyboard-help paragraph, which both explicitly described the 400ms cap
+  to the operator — left stale UI copy would have misdescribed current
+  firmware behavior. Left the `JOG_CAP` entry in the client-side `reasons`
+  lookup table as-is (harmless defensive mapping if an unflashed older
+  firmware image ever sends that reason; does not assume it will).
+
+**Why:** Requested explicitly. `COMMAND_TIMEOUT_MS` stays because it guards a
+different, still-relevant failure mode (control link lost while a nonzero
+command was last in effect) that has nothing to do with intentional
+sustained holding during supervised testing.
+
+**Impact:** With outputs enabled, holding a direction key now drives the
+motor continuously until released (or until 250ms passes with no command,
+or a limit/disconnect/blur/hidden-page stop fires) instead of forcibly
+stopping and requiring re-enable every 400ms.
+
+**Evidence:** Updated `test/rotate_bench_state_test.cpp`'s two blocks that
+asserted JOG_CAP firing after a sustained multi-heartbeat hold (both the
+normal and no-limits-mode cases) to instead assert the mechanism stays
+enabled through that same window — re-ran natively, passes. Re-ran
+`test/rotate_page_test.cjs` (unaffected), passes. Re-compiled
+`src/Bench/RotateOnlyTest.cpp` with `avr-g++ -fsyntax-only`, clean. No `pio`
+build/upload, no motor power, no live hardware test performed by Claude.
+
+**Next Test:** Jeremy re-uploads and re-tests. Since the original symptom's
+root cause was never confirmed via `stopReason`, if holding-then-releasing
+still shows unexpected disable behavior after this change, that is now good
+evidence it was never JOG_CAP alone — check for TIMEOUT (missed heartbeats,
+e.g. a slow/blocked serial write) or a genuine firmware/hardware issue next,
+rather than assuming another constant needs tuning.
+
+## 2026-09-19 — Claude Code: JOG_OFFSET_US raised to 500 (full historical authority)
+
+Jeremy confirmed the previous 250us (50%) change worked ("好，可以了"),
+asked to speed up further with no target number, and separately confirmed
+the Mega<->Orin Nano UART wiring (pins 6/8/10) is handled. He then
+explicitly authorized full speed: "速度可以調整為全速，線我已確認."
+
+**Changed:**
+- `src/Constants/RotateBenchConstants.h`: `JOG_OFFSET_US` raised from `250`
+  to `500` — 100% of the historical 500us half-span, i.e. the servo's full
+  attached range (1500 +- 500 = 1000-2000us, matching the `.attach(SIGNAL_PIN,
+  1000, 2000)` call in `RotateOnlyTest.cpp`). Updated the `static_assert`
+  ceiling from `<= 250` to `<= 500` in lockstep so it remains a real bench-
+  authority gate rather than a stale/no-op check.
+- `test/rotate_bench_state_test.cpp`: updated the three pulse-value
+  assertions tied to the offset (`1750`->`2000` twice, `1250`->`1000`) to
+  match.
+- No change to `tools/shooter_keyboard_test/rotate.html` — it doesn't
+  hardcode the offset, it only displays whatever pulse value telemetry
+  reports.
+
+**Why:** Explicitly requested. Jeremy stated the wiring/voltage question
+(Mega TX 5V -> Orin RX 3.3V direction) is handled on his side before asking
+for full speed, so this change assumes that is resolved outside this repo.
+
+**Impact:** With outputs enabled, a held direction key now commands
+1000us/2000us (previously 1250us/1750us) — the servo's full attached rail
+in each direction. No other behavior changed (COMMAND_TIMEOUT_MS, limit
+handling, JOG_CAP removal from the prior entry all unaffected).
+
+**Evidence:** Re-ran `test/rotate_bench_state_test.cpp` natively (g++
+-std=c++17), passes. Re-ran `test/rotate_page_test.cjs`, passes.
+Re-compiled `src/Bench/RotateOnlyTest.cpp` with `avr-g++ -fsyntax-only`
+against the cached AVR toolchain/core/variant, clean. No `pio` build/upload,
+no motor power, no live hardware test performed by Claude.
+
+**Next Test:** Jeremy re-uploads `mega_rotate_only_test` and re-verifies at
+full authority before trusting it unattended: confirm direction (left/right
+keys drive the correct physical direction), confirm both physical stops are
+reached without the servo audibly straining past them, and confirm the
+limit switches (or no-limits mode, if still unwired) still behave correctly
+at the higher speed — a mechanism that looked fine at 50% authority can
+still overshoot or hit a limit harder at 100%.
+
+## 2026-09-21 — Claude Code: new isolated bench, `mega_vision_rotate_test` (A2 driven by Orin vision instead of the keyboard)
+
+Jeremy is about to wire the Mega to the Orin Nano for the first time (Orin
+40-pin pins 6/8/10 = GND/TX/RX -> Mega Serial1; Orin on its stock 19V
+supply, Mega on Mac USB) and wants to test "pure horizontal camera-follow":
+one 360 continuous servo (the same A2 as `mega_rotate_only_test`), no AS5600
+yet (backup only, not installed). Checked the actual Orin-side protocol in
+`YOLO_Detect_single/serial_tx.py` + `config.py` rather than trusting the
+`orin_mega_power_gated_handshake` memory note, which turned out stale for
+this branch: the `MEGA_READY`/`MEGA_HEARTBEAT` handshake exists in the
+`Chassis`/`Dribbler`/`STM32-ELRS` branches' `Vision.cpp` but not in
+`Shooter`/`dev`/`main`, and none of them parse the real 5-field
+`tx,ty,distance,target_id,valid` CSV (current `Shooter` `Vision.cpp` only
+reads the first field). This bench does not touch any of that production
+code — it is a third, fully isolated environment, parallel to
+`mega_rotate_only_test`, built from scratch against the protocol actually
+observed in `serial_tx.py`.
+
+**Added (all new files, nothing existing modified except `platformio.ini`):**
+- `src/Constants/VisionRotateBenchConstants.h` — reuses the already-tuned
+  mechanism constants from `RotateBenchConstants.h` (pin, neutral, limits,
+  `COMMAND_TIMEOUT_MS`, USB baud) via `using` declarations instead of
+  duplicating them, and adds: `PROTOCOL_VERSION=1` (must match Orin's
+  `CONTROLLER_PROTOCOL_VERSION`), `VISION_BAUD=115200` (Serial1, matches
+  Orin `SERIAL_BAUD`), `DEADBAND_PX=25` (provisional), `FOLLOW_JOG_OFFSET_US
+  =150` (deliberately far below the 500us manual-jog ceiling — first time
+  this servo is ever driven by vision data instead of a human),
+  `VISION_TIMEOUT_MS=500`, `MEGA_HEARTBEAT_INTERVAL_MS=200` (well under
+  Orin's 1.0s `MEGA_HEARTBEAT_TIMEOUT_SECONDS`).
+- `src/Control/VisionRotateBenchState.h` — new pure state machine (host
+  testable, mirrors `RotateBenchState.h`'s style). Direction comes only from
+  `onVision(tx, valid, now)`: `valid=0` forces direction to 0 immediately
+  (never coasts on a lost target), otherwise a deadbanded sign of `tx`. The
+  browser only arms/disarms (`E`/`E_NO_LIMITS`/`X`) and proves its tab is
+  alive via a new `P` ping (no direction keys are sent — direction is 100%
+  firmware-computed from vision). Two independent watchdogs in `tick()`:
+  `COMMAND_TIMEOUT_MS` on the USB `P` pings (browser tab/USB link) and
+  `VISION_TIMEOUT_MS` on Serial1 vision lines (Orin link) — either lapsing
+  stops the motor with a distinct `stopReason` (`TIMEOUT` vs
+  `VISION_TIMEOUT`).
+- `src/Bench/VisionRotateTest.cpp` — firmware entry. Sends `MEGA_READY` on
+  Serial1 immediately in `setup()`, independent of the motion-armed gate,
+  so Orin can start streaming before the operator even opens the browser
+  page; sends `MEGA_HEARTBEAT` every `MEGA_HEARTBEAT_INTERVAL_MS`. Parses
+  the Orin's 5-field CSV off Serial1 with a small bounded hand-rolled
+  `strtol`-based parser (malformed lines are dropped silently — only
+  silence trips `VISION_TIMEOUT`, a bad line isn't treated as an operator
+  error). USB telemetry line (`$VROTATE,3,...`) always includes the decoded
+  vision fields (`tx,ty,distance,target_id,valid,msSinceVision`) regardless
+  of armed state, so Jeremy can watch real vision data on the page before
+  ever enabling the motor.
+- `platformio.ini`: new `[env:mega_vision_rotate_test]`, extends
+  `env:mega_shooter_keyboard_test` the same way `mega_rotate_only_test`
+  does (inherits its `build_flags`/`lib_deps`, only swaps
+  `build_src_filter`).
+- `tools/shooter_keyboard_test/vision_rotate.html` — new Web Serial page,
+  same safety scaffold as `rotate.html` (`pendingEnable`/`enableWritten`/
+  `ENABLE_TIMEOUT_MS` race guard, blur/hidden/pagehide/disconnect all stop,
+  `noLimits` requires an explicit checkbox). No arrow-key handling — while
+  armed it sends `P` every 50ms instead. Adds a live "鏡頭資料" panel
+  (tx/ty/distance/target_id/valid/msSinceVision) so Jeremy can validate the
+  Orin link before pressing enable. Warning banner states plainly that the
+  tx-sign-to-rotation-direction mapping has never been verified.
+- `test/vision_rotate_bench_state_test.cpp`, `test/vision_rotate_page_test.cjs`
+  — new native/host tests mirroring the existing rotate-bench test style:
+  deadband edges (25px boundary, both signs), `valid=0` override,
+  `VISION_TIMEOUT` firing while USB pings stay healthy, `TIMEOUT` firing
+  while vision stays healthy (proves the two watchdogs are independent),
+  limit/no-limits behavior, explicit `X`, `BAD_COMMAND`, `P` while disabled
+  is a no-op not an error, 32-bit `millis()` rollover, plus page-side
+  protocol/vision-panel/race-guard checks.
+
+**Why:** First-ever Orin<->Mega wiring and first-ever vision-driven motor
+motion on this project. Kept a manual browser-page enable gate (Jeremy's
+explicit choice) rather than "moves automatically the instant a target is
+valid," and kept the follow speed far below the already-authorized manual
+jog ceiling, because none of direction sign, link stability, or mechanical
+behavior under vision control have ever been observed on real hardware.
+
+**Impact:** Fully additive — `megaatmega2560` (production), `src/Vision/*`,
+`main.cpp`, and `mega_rotate_only_test` are untouched. Jeremy separately
+said (2026-09-21) that if horizontal camera-follow checks out, this should
+eventually be merged into `dev` and become the real Shooter-rotate path,
+noting the motor signal pin will likely change from the bench's A2 later —
+noted for a future task, no merge or production wiring done yet. He then
+specified the target packet format for that merge: match the `Chassis`
+branch's `Vision.cpp`/`Vision.h`/`VisionConstants.h` (checked via `git show
+Chassis:...`, not from memory), which is materially more complete than this
+bench's parser or the current `Shooter` `Vision.cpp`:
+- Class-based `Vision` tracking `tx/ty/distance/targetId/valid` plus link
+  health (`hasPacket`, `lastPacketMs`, `PACKET_TIMEOUT_MS=300`) **and**
+  Orin's own lifecycle (`OrinState::STANDBY/STARTING/READY/ERROR`, parsed
+  from inbound `VISION_STANDBY,<ver>` / `VISION_STARTING,<ver>` /
+  `VISION_READY,<ver>` / `VISION_ERROR,<ver>` lines that Orin's
+  `send_status()` sends) — this bench's `VisionRotateTest.cpp` only sends
+  `MEGA_READY`/`MEGA_HEARTBEAT` outbound and never parses those inbound
+  Orin-state lines, which is a real gap versus what Jeremy wants merged.
+- Strict field parsing (`strtod`/`strtol` with `*end=='\0'` checks, exact
+  comma-count check) and range validation
+  (`MAX_ABS_TX=400`/`MAX_ABS_TY=1000`/`MAX_DISTANCE_MM=20000`/target-id
+  range) that rejects and invalidates on any out-of-range or malformed
+  packet, versus this bench's looser hand-rolled parser.
+- `PACKET_MAX_CHARS=80` (vs. this bench's 32-char line buffer),
+  `HEARTBEAT_INTERVAL_MS=100` (vs. this bench's 200ms).
+Not applied to the bench now — Jeremy said this is for "合併時"
+(merge time), and no hardware test has happened yet. Recorded here so the
+eventual merge/rewrite has the exact reference instead of a vague pointer.
+
+**Evidence:** `g++ -std=c++17` on `vision_rotate_bench_state_test.cpp`,
+passes. `node test/vision_rotate_page_test.cjs`, passes. `avr-g++
+-fsyntax-only` on `VisionRotateTest.cpp` against the cached AVR
+toolchain/core/variant, clean (only the pre-existing harmless
+`util/delay.h` optimization warning also seen on every other bench file).
+No `pio` build/upload, no motor power, no Orin connected, no live hardware
+test performed by Claude.
+
+**Next Test:** Jeremy wires Orin<->Mega, uploads `mega_vision_rotate_test`,
+opens `vision_rotate.html`, and — **without pressing enable** — first
+confirms the "鏡頭資料" panel updates sanely (tx/ty/distance/valid change as
+a target moves in frame, `msSinceVision` stays small and doesn't grow,
+Orin's own console shows `MEGA_READY received` so the handshake is
+confirmed both directions). Only after that, press enable and watch the
+very first movement closely: confirm the physical rotation direction
+matches the sign convention (`tx>0` = target right of center should
+rotate the camera to bring it back toward center), confirm it actually
+approaches and settles near center instead of diverging, and keep a hand on
+power the whole time since neither the direction sign nor the mechanical
+behavior under vision control has been observed before.
+
+
+## 2026-09-23 — Codex: approved bench signal A2 → A5; UART echo unresolved
+
+Jeremy moved the physical servo signal to A5 and approved updating both manual
+and vision bench environments, keeping production Shooter unchanged. Changed
+shared RotateBenchConstants SIGNAL_PIN from56 to59 (Mega core PIN_A5=59), both
+bench static_asserts, page titles/telemetry labels, README and platformio comments.
+Vision bench inherits the shared pin. No UART pins, baud, protocol, debug output,
+speed or safety changes. Manual remains1500±500us; vision remains1500±150us
+(1350/1500/1650), not measured RPM. Production Rotate staysD29.
+Evidence: both native state tests and both Node UI mock tests pass; both PlatformIO
+builds pass (manual450 RAM/5408 flash; vision654/7332). No upload or powered test.
+Existing platformio.ini line29 whitespace warning and unrelated dirty files retained.
+Jeremy's new screenshot showed RX1 VISION_STANDBY,1 plus MEGA_HEARTBEAT,1 and
+0xFF. After stopping Orin Python he reports only MEGA_HEARTBEAT,1 remains.
+This supports a return path for Mega TX1 to RX1, not proof of a particular short
+or of successful Mega→Orin reception. He has no meter. Next diagnostic: power
+everything off before isolating the external D19 RX1 connection, then observe
+USB debug with motor power off; never enable follow until valid UART verified.
+Claude: pin migration supersedes previous A2 bench descriptions; follow runtime
+and Orin WAIT_MEGA remain unchanged. Reload pages and upload intended bench
+only after review; Codex has not flashed either device.
+
+
+## 2026-09-23 — Codex: approved isolated bare-Mega UART diagnostic
+
+Jeremy reports bare Mega, no expansion board and NO D18/D19 jumper. Screenshot shows intermittent RX1 zero/corrupt bytes and fragments M/E/G, not a clean repeated heartbeat. Earlier intentional D18/D19 loopback successfully received MEGA_HEARTBEAT,1; that result is NOT evidence of an unintended short. Floating RX/coupling remains a hypothesis, not a diagnosis. Jeremy has no multimeter.
+
+Jeremy approved an isolated diagnostic. Added TEL src/Bench/UartBareTest.cpp, src/Constants/UartBareBenchConstants.h, env mega_uart_bare_test in platformio.ini, and tools/shooter_keyboard_test/UART_BARE_TEST.md. No production or YOLO runtime changes. No Servo or actuator initialization. Serial1 RX1 D19 INPUT_PULLUP; 10 seconds QUIET (no TX) then 10 seconds TX (MEGA_HEARTBEAT,1 every 200 ms), then stop TX. USB reports aggregate counts, first 16 bytes in hex, and instantaneous RX pin level. Send R after DONE to repeat. Acquisition loops are bounded. No RX buffer flush at phase transition; driver-delivered bytes only, not framing-error/electrical measurements.
+
+IMPORTANT: test USB-only bare Mega, no shield, no jumper, no Orin, no motor. Disconnect power before changing connections. Internal RX pullup is toward Mega 5V and this test must not be used connected to Orin. Restore the appropriate normal bench firmware before reconnecting the system.
+
+Verification: pio run -e mega_uart_bare_test passed; RAM 416/8192 bytes, flash 4206/253952 bytes. Source inspected for isolated build and absence of actuator initialization. NOT flashed, NOT hardware-tested. Existing A5 benches and temporary RX1 per-byte logging untouched.
+
+Next evidence requested: RESULT,QUIET and RESULT,TX lines at 115200 baud after 20 seconds. Both rx_bytes=0 supports floating-input hypothesis but does not prove all wiring/hardware healthy. RX only during TX suggests coupling/leakage/return path; cannot alone establish a hard short. RX during QUIET warrants further investigation. Claude: do not repeat the already-completed intentional loopback or treat it as unjumpered evidence; keep motor follow disabled until UART path is understood.
+
+## 2026-09-25 — Claude Code: Orin<->Mega UART bring-up, full diagnostic log (link still not proven; no root cause confirmed yet)
+
+Checkpoint of the entire Orin<->Mega UART debugging session so far (2026-09-21
+through today), since it has spanned many small steps across both Claude and
+Codex and needs a single place to catch up from. No code changes in this
+entry — this is a record of what has actually been tested and what each
+result does/doesn't prove. Motor follow has never been enabled; no upload of
+`mega_vision_rotate_test` has been attempted since the `A2`->`A5` pin
+migration Codex made (see Codex's own entries above for that change).
+
+**Orin-side software (fixed, not the current blocker):**
+- `/dev/ttyTHS1` initially failed with `Permission denied` — user `jeremy` was
+  not in the `dialout` group. Fixed with `sudo usermod -aG dialout jeremy` +
+  re-login. Port now opens successfully every time.
+- Confirmed `vision_main.py`'s `--wait-for-mega` design is already correct
+  (stays in lightweight standby, sending `VISION_STANDBY,1`, and does not
+  import Ultralytics/open the camera until a versioned `MEGA_READY`/
+  `MEGA_HEARTBEAT` line is seen) — no code change needed there.
+- Confirmed via `deploy/README.md` that the boot-time systemd service
+  (`yolo-vision.service.example`) is documented but was never installed on
+  this Orin — manual `source venv/bin/activate && python3 test_coordinate.py
+  --source realsense --serial --serial-port /dev/ttyTHS1 --wait-for-mega` is
+  what Jeremy has been running by hand for every test so far.
+
+**Root symptom (still unresolved):** Orin stays at `WAIT_MEGA: waiting for
+MEGA_READY / MEGA_HEARTBEAT` indefinitely. Mega's bench firmware reports
+`VISION_TIMEOUT` (no Serial1 data ever arrives). Raw-byte tests
+(`stty -F /dev/ttyTHS1 115200 raw -echo && cat /dev/ttyTHS1`, and the same on
+`/dev/ttyTHS2`, the only two `ttyTHS*` nodes that exist on this Orin) show
+**zero bytes received, repeatedly, across many retests** — including after
+reseating the physical header connector. This is the one fact everything
+else has to be consistent with.
+
+**What has been eliminated as the cause, with direct evidence (not just code
+review):**
+1. *Orin-side Python bugs* — `cat`/`stty` bypass Python and `serial_tx.py`
+   entirely and read the OS UART driver's raw bytes directly. Zero bytes at
+   that level cannot be explained by any Python logic error; it is
+   necessarily upstream of the app. Full review of `serial_tx.py`/
+   `vision_main.py`/TEL's bench receive path found nothing that would cause
+   total silence (see the 2026-09-24 review entry in the shared inbox for
+   the itemized findings — a few real-but-unrelated hardening items were
+   found in `VisionRotateTest.cpp`'s `parseVisionLine`, none of which can
+   cause zero bytes).
+2. *Wrong `/dev/ttyTHS*` device node* — `sudo /opt/nvidia/jetson-io/jetson-io.py`
+   confirms the 40-pin header pins 8/10 are configured as `uarta` (not
+   `unused`). `sudo dmesg | grep -iE "tty|uart"` shows `ttyTHS1` probed at
+   MMIO `0x3100000`, which is UARTA's address on this SoC — so `/dev/ttyTHS1`
+   is confirmed to be the physically correct node for pins 8/10.
+   `/dev/ttyTHS2` (MMIO `0x3140000`) is a different, unrelated controller.
+3. *40-pin header UART not enabled in the pinmux* — ruled out by the same
+   `jetson-io.py` output (already `uarta`, not `unused`).
+4. *Mega's own Serial1 hardware* — an informal D18(TX1)<->D19(RX1) jumper
+   loopback cleanly received Mega's own `MEGA_HEARTBEAT,1` character-by-
+   character. Codex correctly flagged that this alone doesn't rule out an
+   unintended permanent short (the test wasn't done in isolation). Codex
+   then built `src/Bench/UartBareTest.cpp` (env `mega_uart_bare_test`) — a
+   fully bare Mega (no shield, no jumper, no Orin, no Servo/actuator init)
+   that runs 10s QUIET + 10s TX and reports aggregate `rx_bytes`/`tx_frames`/
+   instantaneous RX pin level over USB. Jeremy ran it: `RESULT,QUIET,
+   rx_bytes=0,...` and `RESULT,TX,rx_bytes=0,tx_frames=49,...` — clean in
+   both phases. This is evidence *against* a hard TX1/RX1 short on the Mega
+   board (a real short would show up here too), so Claude's earlier "Mega
+   board is shorted" conclusion is retracted.
+5. *Level-shifter HV/LV supply pins* — initially looked like the strongest
+   lead (Jeremy confirmed to Codex that the module's dedicated `HV`/`LV`
+   supply pins, distinct from the HV1-4/LV1-4 signal channels, are not
+   wired, only GND is shared). This was retracted after Jeremy confirmed the
+   exact same physical module, in the exact same unconnected-HV/LV
+   configuration, was used successfully last year — so this specific board
+   evidently does not require those pins to function, and it is not new to
+   this setup.
+
+**What is confirmed different from "last year, worked":** the Mega board is
+the same physical unit as last year; the level-shifter module is the same
+physical unit, moved over as-is; pins used (6/8/10) are unchanged. **The
+Jetson Orin Nano itself is a new/different physical board** (not the unit
+used last year) — this is the one confirmed-changed variable, though the
+mechanism by which a new-but-same-model Orin would fail here is not yet
+identified (pinmux and device node both check out correct on this board).
+
+**In progress, no multimeter available (Jeremy doesn't have one):**
+Physical reseating of the Orin-side header connector at pins 6/8/10 was done
+and visually inspected (no bent/damaged pins) — retested `cat
+/dev/ttyTHS1` afterward, still 0 bytes. Since electrical measurement isn't
+possible, next steps are substitution-based (no special tools needed):
+swap the three jumper wires between the Orin header and the level shifter
+for unused spares (rule out an internally-broken wire, which is a common
+dupont-wire failure mode invisible to inspection), then if still silent, try
+different unused channels on the level shifter itself (rule out one dead
+MOSFET channel on that specific board). Neither has been done yet as of this
+entry.
+
+**Evidence discipline maintained throughout:** no `pio` build/upload beyond
+what Codex already verified (native/Node tests + `pio run` build, not
+flashed by Claude), no motor power, no follow enabled, only Jeremy has
+touched real hardware. All diagnostic firmware (`mega_uart_bare_test`) is
+explicitly documented as USB-only / not for use connected to Orin (its RX
+pull-up is to Mega's 5V).
+
+## 2026-09-25 — Claude Code: Orin<->Mega UART link CONFIRMED WORKING — root cause was a JetPack 6.2.2 DMA driver bug, not hardware
+
+**Resolution of the entire debugging thread above.** Root cause found and fixed;
+no hardware was ever at fault. Physical wiring, the level-shifter module, the
+Mega board, GND, pinmux, and the `/dev/ttyTHS1` device node were all correct
+the whole time — the only actual variable was the new Orin Nano's JetPack
+6.2.2 (L4T R36.x) UART DMA driver.
+
+**Root cause:** confirmed via web search against multiple independent NVIDIA
+Developer Forum threads (see Sources below) plus a maintained community fix
+repo (`jetsonhacks/jetson-orin-uart`): on JetPack 6.2.2, UEFI injects `dmas`/
+`dma-names` properties into the `serial@3100000` (`ttyTHS1`, 40-pin header
+UART1, pins 8/10) device tree node at boot, enabling DMA mode. The
+`serial-tegra` driver has a bug in DMA mode that zeroes most of each received
+transfer's bytes to `0x00`. This explains every earlier "zero bytes" result:
+`cat`/`stty` were in fact receiving data the whole time, but `0x00` bytes are
+invisible in a terminal, so a stream of near-total-NUL garbage looked
+identical to true silence. The one clue that should have caught this earlier:
+switching from `cat` to `xxd`/hexdump revealed a clean, regular `0d 0a`
+(`\r\n`) pattern every ~17-18 bytes — exactly matching Mega's
+`MEGA_HEARTBEAT,1\r\n` cadence — proving frames were arriving on schedule,
+just with their content zeroed.
+
+**Fix applied:** `jetsonhacks/jetson-orin-uart` — a device tree overlay that
+removes the `dmas`/`dma-names` properties from the `serial@3100000` node,
+forcing the driver into PIO (interrupt-driven) mode, which is unaffected by
+this bug. Installed with:
+```
+sudo apt install device-tree-compiler python3
+git clone https://github.com/jetsonhacks/jetson-orin-uart.git
+cd jetson-orin-uart && sudo bash install.sh && sudo reboot
+```
+The installer compiled the overlay, auto-detected this board's FDT
+(`kernel_tegra234-p3768-0000+p3767-0005-nv-super.dtb`, confirming it is an
+Orin Nano Super Dev Kit), backed up `extlinux.conf` before changing it, and
+added a new `UARTFix` boot entry as default (previous entry kept as a
+fallback in the boot menu — reversible without needing recovery mode).
+
+**Verified on real hardware (by Jeremy, not Claude):**
+- `sudo dmesg | grep -i '3100000\|pio\|dma'` after reboot shows
+  `serial-tegra 3100000.serial: RX in PIO mode` and `... TX in PIO mode`.
+- `stty -F /dev/ttyTHS1 115200 raw -echo && timeout 5 xxd /dev/ttyTHS1` now
+  shows a perfectly clean, repeating `MEGA_HEARTBEAT,1\r\n` — confirmed on
+  real hardware, this is the actual first successful byte-for-byte UART
+  reception between this Mega and this Orin.
+
+**Caveat for later:** the fix's own README warns that re-running
+`jetson-io.py` will overwrite the `OVERLAYS` boot line and silently undo this
+fix (falling back to broken DMA mode) — re-run `sudo bash install.sh` if that
+ever happens again.
+
+**Everything from the earlier entries in this debugging thread (missing
+HV/LV supply, possible TX1/RX1 short, wrong device node, wiring reseat, etc.)
+turned out to be dead ends** — worth keeping in the log as a record of what
+was checked and ruled out, but none of it should be treated as a real
+finding about this hardware going forward.
+
+**Next Test:** with raw UART now proven, re-run the actual application layer:
+`python3 test_coordinate.py --source realsense --serial --serial-port
+/dev/ttyTHS1 --wait-for-mega` on the Orin (Mega still needs to be running
+`mega_vision_rotate_test` — note Codex's pin migration from A2 to A5 means
+this must be re-uploaded/re-verified since the UART bring-up). Expect Orin to
+print `MEGA_READY received` immediately instead of hanging at `WAIT_MEGA`, and
+`vision_rotate.html`'s "鏡頭資料" panel to start showing live tx/ty/distance/
+valid data. Only after confirming that — and before ever pressing enable —
+sanity-check the tx sign convention as previously planned; nothing about
+direction/follow behavior has been tested yet.
+
+Sources:
+- [GitHub - jetsonhacks/jetson-orin-uart](https://github.com/jetsonhacks/jetson-orin-uart)
+- [Solved: UART/Serial Port not working after upgradint to Jetpack 6.2.2 (Orin Nano/NX) - NVIDIA Developer Forums](https://forums.developer.nvidia.com/t/solved-uart-serial-port-not-working-after-upgradint-to-jetpack-6-2-2-orin-nano-nx/363837)
+- [DMA on /dev/ttyTHS1 corrupts receiving data - NVIDIA Developer Forums](https://forums.developer.nvidia.com/t/dma-on-dev-ttyths1-corrupts-receiving-data/369191)
+
+## 2026-09-25 — Claude Code: vision-follow direction was inverted, flipped independently of the manual bench
+
+**First real vision-follow test result** (with UART now working): Orin
+correctly locks a target and streams `tx/ty/distance/target_id/valid` to
+Mega, `mega_vision_rotate_test` correctly reports enabled + those values live
+in `vision_rotate.html`. Jeremy pressed enable and observed on real hardware:
+target on the right (`tx>0`) rotates the servo *away* from center instead of
+toward it — the sign convention assumed when this bench was built was wrong.
+
+**Fix:** `VisionRotateBenchConstants.h` no longer inherits
+`RotateBenchConstants::INVERTED` (the manual-jog bench's own, separately-
+verified-correct setting) — it now declares its own `INVERTED = true`,
+independent of the manual bench. This only affects `VisionRotateBenchState::
+pulse()`'s sign; `onVision()`'s deadband/direction-sign logic is unchanged.
+`FOLLOW_JOG_OFFSET_US` (150us) and `DEADBAND_PX` (25px) are unchanged.
+
+**Evidence:** native `g++` state test updated (three hardcoded pulse
+assertions flipped: 1650<->1350 at the two deadband-exceeded cases and the
+no-limits case) and passes; `node vision_rotate_page_test.cjs` passes
+unaffected (it doesn't depend on `INVERTED`); `avr-g++ -fsyntax-only` on
+`VisionRotateTest.cpp` clean. **Not yet re-uploaded or re-tested on real
+hardware** — Jeremy needs to re-flash `mega_vision_rotate_test` and confirm
+the servo now turns toward the target instead of away from it before trusting
+this.
+
+**Next Test:** re-upload, re-enable with the same live-target setup, confirm
+the servo now visibly moves toward center as the target moves right/left
+(not away from it), and that it settles near center (doesn't oscillate or
+overshoot) before considering follow behavior proven.
+
+## 2026-09-25 — Claude Code: FOLLOW_JOG_OFFSET_US raised 150us -> 300us
+
+Jeremy asked for full speed on the vision-follow bench right after the first
+successful direction-corrected test. Flagged the difference from the manual
+bench's speed history: every manual-jog speed increase (50->250->500us) was
+made with Jeremy physically present, pressing keys, watching each stage in
+real time — the vision-follow speed has no such staged history yet (it's
+only ever run once, and that run also had an unresolved spurious-disable
+issue still being diagnosed). Recommended doubling instead of jumping
+straight to the 500us historical ceiling; Jeremy agreed ("那先加速" — do the
+smaller step first).
+
+**Changed:** `VisionRotateBenchConstants.h`, `FOLLOW_JOG_OFFSET_US`
+150 -> 300 (still `<=500`, `static_assert` ceiling unchanged and still holds).
+
+**Evidence:** native `g++` test updated (pulse assertions 1350/1650 ->
+1200/1800, matching `NEUTRAL_US(1500) +- 300` with `INVERTED=true`) and
+passes; `node vision_rotate_page_test.cjs` passes unaffected; `avr-g++
+-fsyntax-only` on `VisionRotateTest.cpp` clean. Not yet re-uploaded/tested on
+real hardware.
+
+**Still open, not addressed in this change:** Jeremy separately reported the
+bench fully disables (not just stops moving) when the target reaches screen
+center, requiring re-pressing enable. No code path in `VisionRotateBenchState`
+sets direction-reaching-zero as a disable trigger, so this needs the actual
+`停用原因`/`stopReason` value from `vision_rotate.html` at the moment it
+happens (`TIMEOUT`/`VISION_TIMEOUT`/`LIMIT`/`BAD_COMMAND`) before it can be
+diagnosed — not yet provided. Do not assume this is fixed or explained by
+the speed change.
+
+**Next Test:** re-upload `mega_vision_rotate_test`, re-run the live-target
+test. Watch for: (a) whether 300us is still stable/controllable or starts
+overshooting/oscillating around center, (b) capture the actual stop reason
+the next time the unexplained disable happens.

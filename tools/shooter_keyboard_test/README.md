@@ -1,5 +1,68 @@
 # Shooter keyboard bench test
 
+## A5 horizontal-only test (2026-09-19)
+
+Enable-handshake fix: the page now waits for firmware-enabled telemetry with
+the requested limit mode before accepting arrows. Old disabled telemetry during
+this wait does not cancel the enable write. While waiting it sends only neutral
+manual state; confirmation must arrive within 1000 ms. Telemetry loss still
+stops at 350 ms, and firmware retains its 250 ms watchdog and 400 ms jog cap.
+Stop, blur, or mode changes cancel pending enable. Press arrows anew after the
+page says firmware confirmed enabled. Reload the page after updating.
+New firmware appends a stop-reason field to v2 telemetry (BOOT/NONE/OPERATOR/
+TIMEOUT/JOG_CAP/LIMIT/BAD_COMMAND). The page still accepts earlier v2 firmware,
+but reports an unknown firmware stop reason for that version; rebuild/upload
+mega_rotate_only_test manually to get precise firmware reasons.
+
+For Jeremy's continuous-rotation 360-degree servo and camera turntable, use
+`mega_rotate_only_test` and `rotate.html`, NOT the full Shooter environment
+below. The isolated build attaches only A5 and does not initialize AS5600,
+A3, elevation, flywheel, Vision, or chassis. Production Rotate remains D29.
+
+Build: `pio run -e mega_rotate_only_test` (no upload).
+After review, upload that environment manually through PlatformIO.
+Serve this directory using `python3 -m http.server 8000 --bind 127.0.0.1`
+and open `http://localhost:8000/rotate.html` in Chrome.
+
+Jeremy confirmed only the camera and servo are installed, without limit switches.
+For that setup, check the explicit no-limits acknowledgement, then click Enable.
+The firmware reports `noLimits=1` and the page warns that D43/D42 are ignored.
+No pin jumper is needed. Stop/timeout clears this authorization; check again
+before re-enabling. Without the checkbox, normal limit protection remains active.
+Enable using the visible button only; hold Left/Right to jog, release to stop.
+Enter stops/disables but keeps serial; Space stops/disconnects. Focus loss,
+hidden page, serial failure or stale telemetry disables the browser commands.
+Firmware independently disables after >250 ms without a valid manual command
+or after 400 ms of continuous same-direction jogging. Re-enable explicitly.
+Unknown/malformed/oversized lines fail disabled; oversized lines are discarded
+through newline. There is no generic heartbeat that can sustain an old jog.
+
+Provisional PWM: neutral 1500 us, jog +/-50 us (1450/1550). This is 10% of
+the historical 500 us half-span, NOT measured speed or angle. Photo labels
+35Kg HV / 360 degrees / XT do not establish the neutral calibration or voltage.
+Tune only `RotateBenchConstants.h` after a signal-only and unloaded stop test.
+
+Preserved active-high directional limit inputs: D43 left, D42 right. This
+isolated test enables pull-ups so disconnected limits block rather than float.
+A limit in protected mode immediately stops AND disables; no debounce delay. Verify externally
+driven low=clear/high=blocked before power when using protected mode. For the
+explicit no-limits test, use the checkbox rather than bridging inputs.
+No position encoder means no absolute-angle or
+software travel guarantee. Keep a physical power cut available and prevent
+camera USB cable entanglement. Software neutral is not an electrical E-stop.
+
+Protocol v2: `E` enables protected mode; `E_NO_LIMITS` explicitly enables the
+approved no-limits bench mode. `X` stops and clears bypass. Telemetry is
+`$ROTATE,2,enabled,pulse_us,left_raw_high,right_raw_high,noLimits`.
+The new page rejects v1 telemetry, so update both page and firmware together.
+
+Hardware acceptance: first motor power off, verify only A5 pulses, mode reporting,
+boot disabled, key-release, Enter, Space, browser loss and USB loss. Then
+unloaded verify neutral really stops; short jog direction; 400 ms cutoff;
+limits and reverse escape after re-enable. No firmware was uploaded by Codex.
+
+## Existing multi-axis test (unchanged)
+
 This page is separate from the robot Dashboard. It connects directly to the
 Mega through Chrome Web Serial and only works with the
 `mega_shooter_keyboard_test` firmware environment.

@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="zh-Hant"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>A5 水平伺服手動測試</title>
+<style>body{font:18px system-ui;background:#111827;color:#e5e7eb;max-width:850px;margin:40px auto;padding:20px}button{padding:14px;margin:6px;font:inherit}pre{white-space:pre-wrap;background:#1f2937;padding:20px}.warning{color:#fbbf24}</style>
+<h1>A5 水平伺服手動測試</h1>
+<p>僅適用 mega_rotate_only_test 韌體。無 AS5600、無角度控制、無鏡頭跟隨。</p>
+<p class="warning">1500 μs 尚待確認實際停止。先關閉馬達電源驗證訊號；保持實體斷電手段，留意 USB 線與皮帶。無限位模式不會阻止撞機構或纏線。已依 Jeremy 要求移除 400ms 單次點動上限（2026-09-19，僅限操作者在場的手動監督測試）；放開按鍵才會停，請隨時準備物理斷電。</p>
+<p><label><input type="checkbox" id="noLimits"> 我確認目前未接限位，使用無限位手動模式，並已備妥實體斷電手段</label></p>
+<button id="connect">連接 Mega</button><button id="enable" disabled>啟用水平輸出</button>
+<button id="stop">停止／停用（Enter）</button><button id="disconnect">停止並斷線（Space）</button>
+<p>按住 ←／→ 持續轉動，放開即停止；沒有單次點動時間上限。250ms 內沒有收到任何指令，韌體會自己逾時停用（斷線/當機保護）。雙鍵同按停止。↑↓、數字及 E 鍵不會啟動。</p>
+<pre id="status">未連線</pre><pre id="log">尚未收到水平專用韌體資料</pre>
+<script>
+'use strict';
+let port=null,reader=null,writer=null,readTask=null,closing=false,armed=false,ready=false;
+let epoch=0,lastTelemetry=0,chain=Promise.resolve();
+let pendingEnable=false,enableWritten=false,enableStarted=0,requestedNoLimits=false;
+const ENABLE_TIMEOUT_MS=1000;
+const held=new Set(), enc=new TextEncoder();
+const el=id=>document.getElementById(id);
+function controls(){el('enable').disabled=!ready||armed||pendingEnable||closing;el('connect').disabled=!!port||closing;}
+function direction(){return Number(held.has('ArrowRight'))-Number(held.has('ArrowLeft'));}
+function send(text){
+  const ticket=epoch;
+  chain=chain.then(async()=>{if(writer&&ticket===epoch)await writer.write(enc.encode(text+'\n'));})
+    .catch(()=>{armed=false;pendingEnable=false;ready=false;held.clear();epoch++;controls();el('status').textContent='寫入失敗；韌體將逾時停止，請斷開重連';});
+  return chain;
+}
+function stop(reason='操作停止'){epoch++;armed=false;pendingEnable=false;enableWritten=false;held.clear();el('noLimits').checked=false;controls();el('status').textContent='已要求停止／停用：'+reason+'；無限位模式須重新勾選';return send('X');}
+function manual(){if(armed)send('M,0,'+direction());}
+function telemetry(line){
+  const m=/^\$ROTATE,2,([01]),(\d+),([01]),([01]),([01])(?:,([A-Z_]+))?$/.exec(line.trim());
+  if(!m)return;
+  ready=true;lastTelemetry=performance.now();
+  if(pendingEnable&&enableWritten&&m[1]==='1'){
+    if((m[5]==='1')!==requestedNoLimits){stop('韌體啟用模式不符');}
+    else {pendingEnable=false;armed=true;held.clear();el('status').textContent='韌體已確認啟用；請重新按下左右鍵點動';}
+  } else if(m[1]==='0'&&armed){
+    const reasons={JOG_CAP:'達到 400 ms 點動上限',TIMEOUT:'韌體 250 ms 指令逾時',LIMIT:'觸發限位',BAD_COMMAND:'指令格式錯誤',OPERATOR:'停止指令',BOOT:'韌體重啟'};
+    stop(reasons[m[6]]||'韌體已停用（舊韌體未提供原因）');
+  }
+  el('log').textContent=`A5 脈寬：${m[2]} μs\n韌體啟用：${m[1]}\n左 D43：${m[3]==='1'?'BLOCKED':'clear'}\n右 D42：${m[4]==='1'?'BLOCKED':'clear'}`;
+  controls();
+  el('log').textContent += m[5]==='1' ? '\n⚠ 無限位保護：D43/D42 已忽略' : '\n限位保護開啟（未接會禁止轉動）';
+}
+async function readLoop(){
+  let buffer='';const decoder=new TextDecoder();
+  try{while(reader){const {value,done}=await reader.read();if(done)break;
+    buffer+=decoder.decode(value,{stream:true});let i;
+    while((i=buffer.indexOf('\n'))>=0){telemetry(buffer.slice(0,i));buffer=buffer.slice(i+1);}
+    if(buffer.length>1024)buffer='';
+  }}catch(e){el('status').textContent='讀取中斷：'+e.message;}
+  finally{ready=false;armed=false;pendingEnable=false;held.clear();epoch++;controls();}
+}
+async function disconnect(){
+  if(closing)return;closing=true;controls();
+  // Do not wait indefinitely for a hung USB write; watchdog is the fallback.
+  await Promise.race([stop('斷線'),new Promise(r=>setTimeout(r,150))]);
+  try{if(reader){await reader.cancel();await readTask;reader.releaseLock();reader=null;}
+    if(writer){await writer.abort();writer.releaseLock();writer=null;}
+    if(port)await port.close();
+  }catch(e){el('log').textContent='關閉連線：'+e.message;}
+  finally{port=null;ready=false;armed=false;closing=false;epoch++;chain=Promise.resolve();controls();el('status').textContent='已斷線';}
+}
+el('connect').onclick=async()=>{
+  if(!navigator.serial){el('status').textContent='請使用支援 Web Serial 的 Chrome 與 localhost';return;}
+  if(port||closing)return;
+  try{port=await navigator.serial.requestPort();controls();await port.open({baudRate:115200});
+    writer=port.writable.getWriter();reader=port.readable.getReader();ready=false;armed=false;
+    el('status').textContent='等待 $ROTATE,2 專用韌體遙測';readTask=readLoop();await stop();
+  }catch(e){el('log').textContent=e.message;await disconnect();}
+};
+el('enable').onclick=async()=>{
+  if(!ready||armed||pendingEnable||closing||performance.now()-lastTelemetry>350)return;
+  held.clear();epoch++;const ticket=epoch;
+  pendingEnable=true;enableWritten=false;enableStarted=performance.now();requestedNoLimits=!!el('noLimits').checked;
+  controls();el('status').textContent='等待韌體確認啟用（尚不可移動）';
+  await send(requestedNoLimits?'E_NO_LIMITS':'E');
+  if(ticket===epoch&&pendingEnable)enableWritten=true;
+};
+el('stop').onclick=()=>stop('停止按鈕');el('disconnect').onclick=disconnect;
+el('noLimits').onchange=()=>{if(armed||pendingEnable)stop('切換無限位確認');};
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'||e.code==='Enter'){
+    e.preventDefault();e.stopPropagation();if(!e.repeat)(e.code==='Space'?disconnect():stop('Enter'));return;
+  }
+  if(!['ArrowLeft','ArrowRight'].includes(e.code))return;
+  e.preventDefault();if(!armed||e.repeat)return;held.add(e.code);manual();
+},true);
+window.addEventListener('keyup',e=>{if(held.delete(e.code)){e.preventDefault();manual();}});
+window.addEventListener('blur',()=>stop('視窗失去焦點'));
+document.addEventListener('visibilitychange',()=>{if(document.hidden)stop('頁面隱藏');});
+window.addEventListener('pagehide',()=>stop('離開頁面'));
+if(navigator.serial)navigator.serial.addEventListener('disconnect',disconnect);
+setInterval(()=>{
+  if(ready&&performance.now()-lastTelemetry>350){stop('遙測超過 350 ms 未更新');ready=false;controls();}
+  if(pendingEnable&&performance.now()-enableStarted>=ENABLE_TIMEOUT_MS)stop('啟用確認超過 1 秒');
+  // Only neutral state is sent before confirmation; never revive enable.
+  if(pendingEnable&&enableWritten)send('M,0,0');
+  if(armed)manual();
+},50);
+</script></html>

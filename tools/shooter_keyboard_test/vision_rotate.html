@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-Hant"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>A5 水平伺服鏡頭跟隨測試</title>
+<style>body{font:18px system-ui;background:#111827;color:#e5e7eb;max-width:850px;margin:40px auto;padding:20px}button{padding:14px;margin:6px;font:inherit}pre{white-space:pre-wrap;background:#1f2937;padding:20px}.warning{color:#fbbf24}</style>
+<h1>A5 水平伺服鏡頭跟隨測試</h1>
+<p>僅適用 mega_vision_rotate_test 韌體。方向完全由 Orin 鏡頭資料(tx)決定，這裡不能用鍵盤控制方向。</p>
+<p class="warning">這是這顆伺服第一次被鏡頭資料自動驅動，tx&gt;0 該轉哪個方向從未驗證過。先不要按啟用，
+只看下面「鏡頭資料」面板，確認 Orin 有連上、msSinceVision 持續很小、tx/valid 隨鏡頭前目標移動合理變化。
+確認資料正常後才按啟用，並小心觀察第一次轉動方向是否正確，隨時準備物理斷電。</p>
+<p><label><input type="checkbox" id="noLimits"> 我確認目前未接限位，使用無限位模式，並已備妥實體斷電手段</label></p>
+<button id="connect">連接 Mega</button><button id="enable" disabled>啟用鏡頭跟隨</button>
+<button id="stop">停止／停用（Enter）</button><button id="disconnect">停止並斷線（Space）</button>
+<h3>鏡頭資料（Orin → Mega，不論是否啟用都會更新）</h3>
+<pre id="vision">尚未收到遙測</pre>
+<h3>伺服狀態</h3>
+<pre id="status">未連線</pre><pre id="log">尚未收到專用韌體資料</pre>
+<script>
+'use strict';
+let port=null,reader=null,writer=null,readTask=null,closing=false,armed=false,ready=false;
+let epoch=0,lastTelemetry=0,chain=Promise.resolve();
+let pendingEnable=false,enableWritten=false,enableStarted=0,requestedNoLimits=false;
+const ENABLE_TIMEOUT_MS=1000;
+const enc=new TextEncoder();
+const el=id=>document.getElementById(id);
+function controls(){el('enable').disabled=!ready||armed||pendingEnable||closing;el('connect').disabled=!!port||closing;}
+function send(text){
+  const ticket=epoch;
+  chain=chain.then(async()=>{if(writer&&ticket===epoch)await writer.write(enc.encode(text+'\n'));})
+    .catch(()=>{armed=false;pendingEnable=false;ready=false;epoch++;controls();el('status').textContent='寫入失敗；韌體將逾時停止，請斷開重連';});
+  return chain;
+}
+function stop(reason='操作停止'){epoch++;armed=false;pendingEnable=false;enableWritten=false;el('noLimits').checked=false;controls();el('status').textContent='已要求停止／停用：'+reason+'；無限位模式須重新勾選';return send('X');}
+function ping(){if(armed)send('P');}
+function telemetry(line){
+  const m=/^\$VROTATE,3,([01]),(-?\d+),([01]),([01]),([01]),([A-Z_]+),(-?\d+),(-?\d+),(-?\d+),(-?\d+),([01]),(\d+)$/.exec(line.trim());
+  if(!m)return;
+  ready=true;lastTelemetry=performance.now();
+  if(pendingEnable&&enableWritten&&m[1]==='1'){
+    if((m[5]==='1')!==requestedNoLimits){stop('韌體啟用模式不符');}
+    else {pendingEnable=false;armed=true;el('status').textContent='韌體已確認啟用；伺服現在會依鏡頭資料自動轉動';}
+  } else if(m[1]==='0'&&armed){
+    const reasons={TIMEOUT:'瀏覽器分頁逾時（250ms 內沒送出 P 心跳）',VISION_TIMEOUT:'Orin 鏡頭連結逾時（沒收到新資料）',LIMIT:'觸發限位',BAD_COMMAND:'指令格式錯誤',OPERATOR:'停止指令',BOOT:'韌體重啟'};
+    stop(reasons[m[6]]||'韌體已停用（未知原因：'+m[6]+'）');
+  }
+  el('log').textContent=`A5 脈寬：${m[2]} μs\n韌體啟用：${m[1]}\n左 D43：${m[3]==='1'?'BLOCKED':'clear'}\n右 D42：${m[4]==='1'?'BLOCKED':'clear'}\n停用原因：${m[6]}`;
+  el('log').textContent += m[5]==='1' ? '\n⚠ 無限位保護：D43/D42 已忽略' : '\n限位保護開啟（未接會禁止轉動）';
+  el('vision').textContent=`tx：${m[7]} px（正值＝目標偏右）\nty：${m[8]} px\ndistance：${m[9]}\ntarget_id：${m[10]}\nvalid：${m[11]==='1'?'鎖定中':'未鎖定'}\n距上次收到鏡頭資料：${m[12]} ms`;
+  controls();
+}
+async function readLoop(){
+  let buffer='';const decoder=new TextDecoder();
+  try{while(reader){const {value,done}=await reader.read();if(done)break;
+    buffer+=decoder.decode(value,{stream:true});let i;
+    while((i=buffer.indexOf('\n'))>=0){telemetry(buffer.slice(0,i));buffer=buffer.slice(i+1);}
+    if(buffer.length>1024)buffer='';
+  }}catch(e){el('status').textContent='讀取中斷：'+e.message;}
+  finally{ready=false;armed=false;pendingEnable=false;epoch++;controls();}
+}
+async function disconnect(){
+  if(closing)return;closing=true;controls();
+  await Promise.race([stop('斷線'),new Promise(r=>setTimeout(r,150))]);
+  try{if(reader){await reader.cancel();await readTask;reader.releaseLock();reader=null;}
+    if(writer){await writer.abort();writer.releaseLock();writer=null;}
+    if(port)await port.close();
+  }catch(e){el('log').textContent='關閉連線：'+e.message;}
+  finally{port=null;ready=false;armed=false;closing=false;epoch++;chain=Promise.resolve();controls();el('status').textContent='已斷線';}
+}
+el('connect').onclick=async()=>{
+  if(!navigator.serial){el('status').textContent='請使用支援 Web Serial 的 Chrome 與 localhost';return;}
+  if(port||closing)return;
+  try{port=await navigator.serial.requestPort();controls();await port.open({baudRate:115200});
+    writer=port.writable.getWriter();reader=port.readable.getReader();ready=false;armed=false;
+    el('status').textContent='等待 $VROTATE,3 專用韌體遙測';readTask=readLoop();await stop();
+  }catch(e){el('log').textContent=e.message;await disconnect();}
+};
+el('enable').onclick=async()=>{
+  if(!ready||armed||pendingEnable||closing||performance.now()-lastTelemetry>350)return;
+  epoch++;const ticket=epoch;
+  pendingEnable=true;enableWritten=false;enableStarted=performance.now();requestedNoLimits=!!el('noLimits').checked;
+  controls();el('status').textContent='等待韌體確認啟用（尚不可移動）';
+  await send(requestedNoLimits?'E_NO_LIMITS':'E');
+  if(ticket===epoch&&pendingEnable)enableWritten=true;
+};
+el('stop').onclick=()=>stop('停止按鈕');el('disconnect').onclick=disconnect;
+el('noLimits').onchange=()=>{if(armed||pendingEnable)stop('切換無限位確認');};
+window.addEventListener('keydown',e=>{
+  if(e.code==='Space'||e.code==='Enter'){
+    e.preventDefault();e.stopPropagation();if(!e.repeat)(e.code==='Space'?disconnect():stop('Enter'));
+  }
+},true);
+window.addEventListener('blur',()=>stop('視窗失去焦點'));
+document.addEventListener('visibilitychange',()=>{if(document.hidden)stop('頁面隱藏');});
+window.addEventListener('pagehide',()=>stop('離開頁面'));
+if(navigator.serial)navigator.serial.addEventListener('disconnect',disconnect);
+setInterval(()=>{
+  if(ready&&performance.now()-lastTelemetry>350){stop('遙測超過 350 ms 未更新');ready=false;controls();}
+  if(pendingEnable&&performance.now()-enableStarted>=ENABLE_TIMEOUT_MS)stop('啟用確認超過 1 秒');
+  if(pendingEnable&&enableWritten)send('P');
+  ping();
+},50);
+</script></html>
