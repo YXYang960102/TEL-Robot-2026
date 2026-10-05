@@ -3,6 +3,7 @@
 
 int Dribbler::shoot_pice = 0;
 bool Dribbler::sensorUp = false;
+bool Dribbler::feedAllowed = false;
 
 void Dribbler::init() {
     pinMode(PIN_DRIBBLE_UP, OUTPUT);
@@ -17,6 +18,10 @@ int Dribbler::getShootRemaining() {
     return shoot_pice;
 }
 
+void Dribbler::setFeedAllowed(bool allowed) {
+    feedAllowed = allowed;
+}
+
 void Dribbler::update() {
 
 
@@ -26,7 +31,7 @@ void Dribbler::update() {
         shoot_pice--;
     }
 
-    if (shoot_pice > 0) {
+    if (feedAllowed && shoot_pice > 0) {
         run();
     } else {
         stop();

@@ -72,6 +72,8 @@ int Shooter::leftAnglePulseUs = Angle::LEFT_MOTOR.neutralUs;
 int Shooter::rightAnglePulseUs = Angle::RIGHT_MOTOR.neutralUs;
 int Shooter::rotatePulseUs = Rotate::MOTOR.neutralUs;
 int Shooter::flywheelPulseUs = Flywheel::MOTOR.neutralUs;
+unsigned long Shooter::flywheelSpinStartMs = 0;
+bool Shooter::flywheelReady = false;
 Shooter::DebouncedLimitSwitchState Shooter::angleUpLimitState = {
     false, false, 0};
 Shooter::DebouncedLimitSwitchState Shooter::angleDownLimitState = {
@@ -134,6 +136,20 @@ void Shooter::update() {
     updateAngle();
     updateRotate();
     writeFlywheelCommand(flywheelOpenLoopCommand);
+
+    // Time-based spin-up proxy (see isFlywheelReady() comment in Shooter.h):
+    // no RPM feedback exists, so "ready" just means "commanded at/above
+    // shoot speed for long enough that it's probably spun up."
+    if (flywheelOpenLoopCommand >= Flywheel::SHOOT_COMMAND) {
+        if (flywheelSpinStartMs == 0) {
+            flywheelSpinStartMs = millis();
+        }
+        flywheelReady =
+            millis() - flywheelSpinStartMs >= Flywheel::SPIN_UP_MS;
+    } else {
+        flywheelSpinStartMs = 0;
+        flywheelReady = false;
+    }
 }
 
 void Shooter::stopAll() {
@@ -141,6 +157,8 @@ void Shooter::stopAll() {
     angleManualCommand = 0.0;
     rotateManualCommand = 0.0;
     flywheelOpenLoopCommand = 0.0;
+    flywheelSpinStartMs = 0;
+    flywheelReady = false;
     angleReady = false;
     rotateReady = false;
     resetAngleController();
@@ -333,6 +351,10 @@ bool Shooter::areRotateSoftLimitsActive() {
 bool Shooter::isReady() {
     // Overall readiness also needs rotate-angle and flywheel-speed feedback.
     return false;
+}
+
+bool Shooter::isFlywheelReady() {
+    return flywheelReady;
 }
 
 AngleControlMode Shooter::getAngleControlMode() {
@@ -634,21 +656,34 @@ void Shooter::updateRotate() {
     if (rotateMode == RotateControlMode::VISION_FOLLOW) {
         rotateControllerOutput = 0.0;
         rotateProfileEnvelope = 0.0;
-        rotateReady = false;
-        rotateReadySinceMs = 0;
         // No potentiometer needed/used here — open-loop, driven directly by
         // image-space tx, same deadband->creep->cruise shape proven on the
         // A5 bench (reusing the same PositionDecelerationProfile utility).
         if (!Vision::isValid()) {
+            rotateReady = false;
+            rotateReadySinceMs = 0;
             writeRotateCommand(0.0);
             return;
         }
         const double tx = Vision::getTx();
         const double absTx = fabs(tx);
         if (absTx <= Rotate::VISION_DEADBAND_PX) {
+            // Reuse the same settle-time pattern PROFILED_POSITION/
+            // CLOSED_LOOP use for their own "ready" flag: must stay inside
+            // the deadband for READY_SETTLE_TIME_MS, not just touch it for
+            // one tick, before the fire sequence (Auto) treats this as
+            // locked.
+            const unsigned long nowMs = millis();
+            if (rotateReadySinceMs == 0) {
+                rotateReadySinceMs = nowMs;
+            }
+            rotateReady =
+                nowMs - rotateReadySinceMs >= Rotate::READY_SETTLE_TIME_MS;
             writeRotateCommand(0.0);
             return;
         }
+        rotateReady = false;
+        rotateReadySinceMs = 0;
         const double magnitude =
             PositionDecelerationProfile::calculateMaximumCommand(
                 Rotate::VISION_SLOW_ZONE_PX,

@@ -24,6 +24,11 @@ public:
     // the real keypad actually lands on once it's built.
     static int modeChannel;
 
+    // Momentary fire-confirm button (semi-auto only, see Auto::update()).
+    // Provisional: repurposes ch2, also never used elsewhere. Re-point this
+    // once the real keypad exists.
+    static int fireChannel;
+
 private:
     static bfs::SbusRx sbus;
     static bfs::SbusData data;

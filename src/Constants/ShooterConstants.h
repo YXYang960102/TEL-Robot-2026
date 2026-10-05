@@ -241,6 +241,14 @@ constexpr double kIZone = 0.0;
 constexpr double kFF = 0.0;
 constexpr PidfConfig PIDF(kP, kI, kD, kIZone, kFF);
 
+// Auto-fire sequence (Auto::update()). No RPM/tachometer feedback exists for
+// this Falcon 500 (PWM command path is one-way) -- SHOOT_COMMAND/SPIN_UP_MS
+// are both provisional placeholders standing in for real speed feedback.
+// Re-tune against real shots once hardware is available; do not trust these
+// numbers unattended.
+constexpr double SHOOT_COMMAND = 0.8;
+constexpr uint32_t SPIN_UP_MS = 1500;
+
 }
 
 namespace Legacy {

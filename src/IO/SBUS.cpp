@@ -18,6 +18,7 @@ int SBUS::ch3 = 1500;
 int SBUS::ch8 = 1500;
 bool SBUS::signalLost = true; // fail safe until the first frame ever arrives
 int SBUS::modeChannel = 1500;
+int SBUS::fireChannel = 1500;
 
 void SBUS::init() {
     sbus.Begin();
@@ -35,6 +36,7 @@ void SBUS::update() {
         ch3 = map(data.ch[1],170,1820,500,-500);
         ch8 = map(data.ch[8],170,1820,1500,2000);
         modeChannel = ch8;
+        fireChannel = ch2;
     }
 
     signalLost = !everReceivedFrame ||
