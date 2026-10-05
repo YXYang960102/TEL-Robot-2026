@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-using namespace VisionConst;
+using namespace VisionConstants;
 
 String Vision::rx = "";
 double Vision::tx = 0;
@@ -20,8 +20,8 @@ Vision::OrinState Vision::orinState = Vision::OrinState::UNKNOWN;
 unsigned long Vision::lastOrinStateMs = 0;
 
 void Vision::init() {
-    Serial1.begin(SERIAL_BAUD);
-    rx.reserve(PACKET_MAX_CHARS);
+    Serial1.begin(Transport::SERIAL_BAUD);
+    rx.reserve(Transport::PACKET_MAX_CHARS);
 }
 
 void Vision::update() {
@@ -38,7 +38,7 @@ void Vision::update() {
             }
             rx = "";
         } else if (c != '\r') {
-            if (rx.length() < PACKET_MAX_CHARS) {
+            if (rx.length() < Transport::PACKET_MAX_CHARS) {
                 rx += c;
             } else {
                 rx = "";
@@ -47,11 +47,12 @@ void Vision::update() {
         }
     }
 
-    if (hasPacket && millis() - lastPacketMs > PACKET_TIMEOUT_MS) {
+    if (hasPacket && millis() - lastPacketMs > Transport::PACKET_TIMEOUT_MS) {
         invalidateTarget();
     }
 
-    if (orinState != OrinState::UNKNOWN && millis() - lastOrinStateMs > PACKET_TIMEOUT_MS) {
+    if (orinState != OrinState::UNKNOWN &&
+        millis() - lastOrinStateMs > Transport::PACKET_TIMEOUT_MS) {
         orinState = OrinState::UNKNOWN;
     }
 }
@@ -61,20 +62,20 @@ void Vision::sendHeartbeat() {
 
     if (!sentReady) {
         Serial1.print("MEGA_READY,");
-        Serial1.print(PROTOCOL_VERSION);
+        Serial1.print(Transport::PROTOCOL_VERSION);
         Serial1.print('\n');
         sentReady = true;
         lastHeartbeatMs = now;
         return;
     }
 
-    if (now - lastHeartbeatMs < HEARTBEAT_INTERVAL_MS) {
+    if (now - lastHeartbeatMs < Transport::HEARTBEAT_INTERVAL_MS) {
         return;
     }
     lastHeartbeatMs = now;
 
     Serial1.print("MEGA_HEARTBEAT,");
-    Serial1.print(PROTOCOL_VERSION);
+    Serial1.print(Transport::PROTOCOL_VERSION);
     Serial1.print('\n');
 }
 
@@ -111,7 +112,8 @@ bool Vision::parseOrinControl(const String& input) {
 
         char* end = nullptr;
         const long version = strtol(versionField.c_str(), &end, 10);
-        if (end == versionField.c_str() || *end != '\0' || version != PROTOCOL_VERSION) {
+        if (end == versionField.c_str() || *end != '\0' ||
+            version != Transport::PROTOCOL_VERSION) {
             return false;
         }
 
@@ -172,23 +174,39 @@ bool Vision::parse(const String& input) {
         return false;
     }
 
-    if (abs(nextTx) > X_MAX || abs(nextTy) > TY_MAX || nextDistance < 0 ||
-        nextDistance > DISTANCE_MAX_MM || nextTargetId < TARGET_ID_MIN ||
-        nextTargetId > TARGET_ID_MAX) {
+    if (abs(nextTx) > Validation::MAX_ABS_TX ||
+        abs(nextTy) > Validation::MAX_ABS_TY ||
+        nextDistance < 0 ||
+        nextDistance > Validation::MAX_DISTANCE_MM ||
+        nextTargetId < Validation::MIN_TARGET_ID ||
+        nextTargetId > Validation::MAX_TARGET_ID) {
         return false;
     }
 
-    updatePrediction(nextTx, nextTy, nextDistance, static_cast<int>(nextTargetId), validValue == 1);
+    updatePrediction(
+        nextTx,
+        nextTy,
+        nextDistance,
+        static_cast<int>(nextTargetId),
+        validValue == 1);
     return true;
 }
 
-void Vision::updatePrediction(double nextTx, double nextTy, double nextDistance, int nextTargetId, bool nextValid) {
+void Vision::updatePrediction(
+    double nextTx,
+    double nextTy,
+    double nextDistance,
+    int nextTargetId,
+    bool nextValid) {
     lastPacketMs = millis();
     hasPacket = true;
     valid = nextValid;
 
     if (valid) {
-        tx = constrain(nextTx, -X_MAX, X_MAX);
+        tx = constrain(
+            nextTx,
+            -Validation::MAX_ABS_TX,
+            Validation::MAX_ABS_TX);
         ty = nextTy;
         distance = nextDistance;
         targetId = nextTargetId;
@@ -230,7 +248,8 @@ bool Vision::isValid() {
 }
 
 bool Vision::isConnected() {
-    return hasPacket && millis() - lastPacketMs <= PACKET_TIMEOUT_MS;
+    return hasPacket &&
+           millis() - lastPacketMs <= Transport::PACKET_TIMEOUT_MS;
 }
 
 unsigned long Vision::getPacketAgeMs() {
@@ -242,5 +261,6 @@ Vision::OrinState Vision::getOrinState() {
 }
 
 bool Vision::isVisionReady() {
-    return orinState == OrinState::READY && millis() - lastOrinStateMs <= PACKET_TIMEOUT_MS;
+    return orinState == OrinState::READY &&
+           millis() - lastOrinStateMs <= Transport::PACKET_TIMEOUT_MS;
 }

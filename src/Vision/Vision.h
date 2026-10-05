@@ -8,15 +8,19 @@ public:
     // heard yet, or the last state line went stale."
     enum class OrinState { UNKNOWN, STANDBY, STARTING, READY, ERROR };
 
+    // Lifecycle
     static void init();
     static void update();
 
+    // Target facts from YOLO. getXPred() is a compatibility alias for tx.
     static double getXPred();
     static double getTx();
     static double getTy();
     static double getDistance();
     static int getTargetId();
     static bool isValid();
+
+    // Transport and Orin lifecycle status
     static bool isConnected();
     static unsigned long getPacketAgeMs();
     static OrinState getOrinState();
@@ -25,7 +29,12 @@ public:
 private:
     static bool parse(const String& s);
     static bool parseOrinControl(const String& s);
-    static void updatePrediction(double tx, double ty, double distance, int targetId, bool valid);
+    static void updatePrediction(
+        double tx,
+        double ty,
+        double distance,
+        int targetId,
+        bool valid);
     static void invalidateTarget();
     static void sendHeartbeat();
 
