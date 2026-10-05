@@ -1510,3 +1510,109 @@ power be reconnected and actual vision-follow be tested on the pin-29
 mechanism, with someone able to cut power immediately — direction sign and
 the carried-over bench speed constants have never been run on this
 mechanism before.
+
+## 2026-10-06 — Claude Code: cross-branch integration (merge/refactor complete, Shooter -> dev -> main, Vision synced to Chassis/Dribbler/ShooterMG996)
+
+Jeremy asked to integrate today's vision-follow/mode-switching work across
+the whole project and clean up the now-redundant bench test files, rather
+than leaving it isolated on `Shooter`. Explicitly confirmed scope before
+doing anything irreversible: `dev`/`main` get the full `Shooter` branch
+merged in as the new baseline; `Chassis`/`Dribbler`/`ShooterMG996` only get
+their `Vision` module synced to the one canonical version (their own
+subsystem code stays untouched). Also confirmed: do this now, even though
+today's vision-follow/mode work is still only statically verified, not
+hardware-tested — real-hardware verification happens after, on whichever
+branch.
+
+**Branches touched, in order:**
+
+1. **`Shooter`** (committed `9a38c71`, pushed): bundled the production
+   auto/semi-auto/manual + vision-follow work from earlier today with a
+   cleanup pass — removed `rotate.html`/`mega_rotate_only_test` (manual-jog
+   bench, superseded by production `VISION_FOLLOW`) and
+   `UART_BARE_TEST.md`/`mega_uart_bare_test` (one-time diagnostic, issue
+   already fixed), stripped the temporary `RX1:` debug echo out of
+   `VisionRotateTest.cpp`, inlined `RotateBenchConstants.h`'s few needed
+   values directly into `VisionRotateBenchConstants.h` so the surviving
+   vision-follow bench no longer depends on a file that no longer exists,
+   rewrote `tools/shooter_keyboard_test/README.md` (was describing the now
+   deleted bench in detail). Kept `ShooterKeyboardTest.cpp`/`index.html`
+   (Angle/Flywheel bench — unrelated to vision, still the only way to bench
+   those axes independently) and `vision_rotate.html`/
+   `mega_vision_rotate_test` (the one surviving standalone bench). Verified
+   full production env + both surviving bench envs compile, full native/page
+   test suite passes.
+
+2. **`Chassis`**: no change needed — its `Vision.{h,cpp}`/`VisionConstants.h`
+   were already byte-identical to the canonical version (this is in fact
+   where the canonical version originally came from, back on 2026-09-24).
+
+3. **`Dribbler`** (committed `d64b1b5`, pushed): its own
+   `Vision.{h,cpp}`/`VisionConstants.h` turned out to already be a
+   functionally-complete, independently-built equivalent (full handshake,
+   same public API) — just under its own flat `VisionConst` namespace
+   instead of the canonical nested `VisionConstants::Transport/Validation`.
+   Swapped for the canonical version; its own `Shooter.cpp` (which already
+   called `isVisionReady()`/`isValid()`/`getXPred()`) needed no changes.
+   Nothing else on this branch touched — its own more-developed `SBUS`
+   wrapper (`isHealthy()`/`getDriveForward()`/`getDriveTurn()`/dedicated
+   `SBUSConstants.h`) and PID_v1-based `Shooter.cpp` (which already has a
+   *working* fire-trigger: flywheel gated on
+   `Vision::isValid() && readyH && readyV && Dribbler::getShootRemaining() > 0`)
+   are untouched and still there.
+
+4. **`ShooterMG996`** (committed `cf8b88f`, pushed): its `Vision.{h,cpp}`
+   was the older first-field-style stub (loose `.toFloat()`/`.toInt()`
+   parsing, no handshake). Swapped for the canonical version — purely
+   additive from this branch's own call sites (`Shooter.cpp`/`Telemetry.cpp`
+   only ever called the subset of methods the stub already had).
+
+5. **`dev`** (merge commit `5ad3a9d`, pushed): `git merge Shooter`, real
+   conflicts in `platformio.ini`, `Constants/Pins.h`, `ShooterConstants.h`,
+   `Shooter.{h,cpp}`, `Vision.{h,cpp}`/`VisionConstants.h`, `main.cpp` —
+   resolved file-by-file on their merits, not a blanket "ours" or "theirs":
+   - Vision/Shooter/ShooterConstants: took `Shooter`'s side (the new
+     architecture supersedes dev's own simpler PID_v1-style Shooter, which
+     turned out to be the same family as Dribbler/ShooterMG996's old
+     versions).
+   - `Pins.h`: kept **dev's** side instead (its own `#pragma once`
+     modernization; `Shooter`'s copy still used the old `#ifndef` guard,
+     content otherwise identical).
+   - `main.cpp`: hand-merged — kept dev's `Telemetry::init()/update()` calls
+     and its safer `Dribbler::setShootRequest(0)` ("disarmed until
+     confirmation flow enables it" — dev's own explicit comment/intent, kept
+     over `Shooter`'s unexplained `setShootRequest(3)`), added `Shooter`'s
+     new `OperatorMode`-gated `setRotateVisionFollow()`/`disableRotate()`
+     call.
+   - `platformio.ini`: combined both sides' `-I` paths and bench env
+     sections; added the `-<Bench/>` source-filter exclusion to the main env
+     (dev never needed it before since it had no `Bench/` folder until this
+     merge).
+   - **Real capability lost in this merge, flagged for follow-up**: dev's
+     old `Shooter.cpp` had a *working* fire-trigger (same condition as
+     Dribbler's: `Vision::isValid() && readyH && readyV &&
+     Dribbler::getShootRemaining() > 0` → fires the flywheel). The new
+     `PidfController`-based architecture has no equivalent yet — flywheel
+     firing/trigger logic is still completely unbuilt on it. This needs to
+     be redesigned on top of the new architecture when the semi-auto
+     fire-confirmation flow actually gets built (see the 2026-10-06 entry
+     above — explicitly out of scope for that work).
+   - Verified: full compile of dev's own `main.cpp` (pulls in `Telemetry`,
+     `Chassis`, `Dribbler`, `Sensors`, `Control`), both bench envs, and the
+     complete native/page test suite — all pass.
+
+6. **`main`** (merge commit `3c21b98`, pushed): confirmed `main` was a pure
+   ancestor of `dev` (zero unique commits) before touching it — so this was
+   `git merge dev` with **zero conflicts**, not a repeat of the `dev`
+   conflict resolution. Brought along dev's own unique work too
+   (`tools/dashboard/`, `docs/autonomous-zone-strategy.md`,
+   `src/Constants/Mode.h`) that `main` didn't have yet. Verified the same
+   full compile check passes.
+
+**Not touched**: `STM32-ELRS` branch — outside the scope Jeremy specified
+(`Chassis`/`Dribbler`/`ShooterMG996` only for the Vision sync).
+
+**Still true, unchanged by any of this**: none of today's
+auto/semi-auto/manual + vision-follow logic has been hardware-tested on any
+branch. The staged verification plan from the earlier 2026-10-06 entry
+still applies, now on whichever branch(es) Jeremy actually flashes.
