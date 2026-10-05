@@ -1,5 +1,4 @@
-#ifndef CONSTANTS_PINS_H
-#define CONSTANTS_PINS_H
+#pragma once
 
 // Shooter
 #define PIN_ESC_HORI 29
@@ -20,4 +19,3 @@
 #define PIN_SAFE 28
 #define PIN_POT A3
 
-#endif 

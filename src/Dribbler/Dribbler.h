@@ -1,5 +1,4 @@
-#ifndef DRIBBLER_H
-#define DRIBBLER_H
+#pragma once
 
 #include <Arduino.h>
 
@@ -19,4 +18,3 @@ private:
 
     static bool sensorUp;
 };
-#endif

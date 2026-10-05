@@ -1,6 +1,4 @@
-#ifndef PIDCONFIG_H
-#define PIDCONFIG_H
-
+#pragma once
 // 手動水平
 #define Kp1 1.4
 #define Ki1 0.20
@@ -16,4 +14,3 @@
 #define Ki2 0.017
 #define Kd2 0.0
 
-#endif
