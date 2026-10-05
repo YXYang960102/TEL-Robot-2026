@@ -18,7 +18,8 @@ enum class RotateControlMode {
     DISABLED,
     MANUAL_OPEN_LOOP,
     PROFILED_POSITION,
-    CLOSED_LOOP
+    CLOSED_LOOP,
+    VISION_FOLLOW
 };
 
 class Shooter {
@@ -57,6 +58,11 @@ public:
         double maximumCommand =
             ShooterConstants::Rotate::PROFILE_CRUISE_COMMAND);
     static void disableRotate();
+
+    // Open-loop, vision-driven: command comes from Vision::getTx() each
+    // update(), not from a potentiometer target. Does not require the
+    // position sensor (none is installed on the real turret mechanism).
+    static void setRotateVisionFollow();
 
     // Status
     static bool isAngleEncoderValid();

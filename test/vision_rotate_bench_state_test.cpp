@@ -16,15 +16,32 @@ int main() {
         assert(s.direction == 0 && s.pulse() == 1500);
     }
 
-    // Deadband: tx just inside/outside +-25px.
+    // Deadband: tx just inside/outside +-20px (tightened from 25, 2026-10-05).
+    // Just past the deadband is still inside the slow zone (<=70px), so it
+    // creeps, not full speed.
     {
         VisionRotateBenchState s;
         s.command("E", 0);
-        s.onVision(25, true, 1); assert(s.direction == 0); // at the edge, not beyond
-        s.onVision(26, true, 2); assert(s.direction == 1 && s.pulse() == 1200); // INVERTED
-        s.onVision(-25, true, 3); assert(s.direction == 0);
-        s.onVision(-26, true, 4); assert(s.direction == -1 && s.pulse() == 1800); // INVERTED
+        s.onVision(20, true, 1); assert(s.direction == 0); // at the edge, not beyond
+        s.onVision(21, true, 2); assert(s.direction == 1 && s.pulse() == 1350); // creep, INVERTED
+        s.onVision(-20, true, 3); assert(s.direction == 0);
+        s.onVision(-21, true, 4); assert(s.direction == -1 && s.pulse() == 1650); // creep, INVERTED
         s.onVision(0, true, 5); assert(s.direction == 0 && s.pulse() == 1500);
+    }
+
+    // Speed profile: stop (<=20px) -> PositionDecelerationProfile ramp,
+    // floored at the creep speed near the deadband, linearly increasing to
+    // full speed exactly at the slow-zone edge (70px, narrowed from 80,
+    // 2026-10-05) and beyond. This is a genuinely gradual slowdown (Jeremy's
+    // requested behavior, reusing the same profile already used for Shooter
+    // elevation), not a hand-rolled two-step jump between fixed speeds.
+    {
+        VisionRotateBenchState s;
+        s.command("E", 0);
+        s.onVision(35, true, 1); assert(s.direction == 1 && s.pulse() == 1350); // at the floor (300*35/70=150)
+        s.onVision(49, true, 2); assert(s.direction == 1 && s.pulse() == 1290); // mid-ramp (300*49/70=210)
+        s.onVision(70, true, 3); assert(s.direction == 1 && s.pulse() == 1200); // full speed at the slow-zone edge
+        s.onVision(-49, true, 4); assert(s.direction == -1 && s.pulse() == 1710); // mid-ramp, mirrored
     }
 
     // valid=0 forces direction 0 even with a large tx.

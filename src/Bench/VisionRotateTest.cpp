@@ -89,12 +89,6 @@ void loop() {
     // not treated as an operator error — only silence trips VISION_TIMEOUT.
     for (uint8_t budget = 0; budget < 64 && Serial1.available(); ++budget) {
         const char ch = Serial1.read();
-        // TEMPORARY DEBUG (2026-09-23): echo every raw Serial1 byte to USB so
-        // a plain serial monitor (not vision_rotate.html, which filters for
-        // $VROTATE lines only) can show exactly what does/doesn't arrive
-        // during Orin<->Mega link bring-up. Remove once the link is proven.
-        if (ch >= 32 && ch <= 126) { Serial.write("RX1:"); Serial.write(ch); Serial.write('\n'); }
-        else if (ch != '\r' && ch != '\n') { Serial.print(F("RX1:[0x")); Serial.print((uint8_t)ch, HEX); Serial.println(']'); }
         if (ch == '\n') {
             if (!visionDiscard && visionLength > 0) {
                 visionLine[visionLength] = '\0';

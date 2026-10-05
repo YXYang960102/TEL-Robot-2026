@@ -1267,3 +1267,246 @@ the speed change.
 test. Watch for: (a) whether 300us is still stable/controllable or starts
 overshooting/oscillating around center, (b) capture the actual stop reason
 the next time the unexplained disable happens.
+
+## 2026-09-30 — Claude Code: added a creep zone to fix center oscillation
+
+Jeremy reported: after vision-follow reaches screen center, it occasionally
+oscillates back and forth, and this gets worse the higher `FOLLOW_JOG_OFFSET_US`
+is set. Root cause: the controller was pure on/off (bang-bang) — full speed
+right up to the deadband edge, then stop — so any real control-loop latency
+(waiting for the next Serial1 frame) plus servo momentum causes it to
+overshoot past center and correct back the other way. Overshoot distance
+scales directly with speed, which matches exactly what was observed.
+
+**Changed:**
+- `VisionRotateBenchConstants.h`: added `SLOW_ZONE_PX = 80` and
+  `FOLLOW_CREEP_OFFSET_US = 150`. `DEADBAND_PX` (25) and `FOLLOW_JOG_OFFSET_US`
+  (300) unchanged.
+- `VisionRotateBenchState.h`: added a `speedOffsetUs` member. `onVision()` now
+  picks one of three zones from `|tx|`: `<=DEADBAND_PX` -> stop (0),
+  `<=SLOW_ZONE_PX` -> creep (`FOLLOW_CREEP_OFFSET_US`), else -> full speed
+  (`FOLLOW_JOG_OFFSET_US`). `pulse()` and `stop()` updated to use
+  `speedOffsetUs` instead of the flat `FOLLOW_JOG_OFFSET_US` constant.
+
+**Why not a full PID/continuous-proportional controller:** a three-zone
+creep step is simpler to reason about and verify (exact expected pulse per
+zone, same style as the existing tests) than tuning a continuous gain
+constant with no real-hardware data yet on how much creep speed actually
+helps. If creep alone isn't enough once Jeremy re-tests, a continuous
+proportional term (speed scaling linearly with `|tx|` above the deadband) is
+the natural next step, reusing the existing `PidfController` pattern already
+used for Shooter.
+
+**Evidence:** native `g++` test updated — two existing deadband-boundary
+assertions changed from full-speed to creep-speed pulse values, and a new
+block added asserting the creep/full-speed boundary at 80/81px both signs;
+passes. `node vision_rotate_page_test.cjs` passes unaffected. `avr-g++
+-fsyntax-only` on `VisionRotateTest.cpp` clean. Not yet re-uploaded or
+re-tested on real hardware.
+
+**Next Test:** re-upload `mega_vision_rotate_test`, re-run the live-target
+follow test. Confirm the servo now visibly slows down as it approaches
+center instead of slamming in at full speed, and settles without the
+back-and-forth oscillation Jeremy saw before. If it still oscillates, the
+creep speed (150) may still be too fast, or the slow zone (80px) too narrow
+for this camera's field of view/frame rate — both are provisional, tunable
+values pending this real-hardware result.
+
+## 2026-09-30 — Claude Code: reused PositionDecelerationProfile instead of a hand-rolled speed step
+
+Jeremy pointed out the hand-rolled two-speed step added just above duplicates
+a design he'd already specified and that already exists in this codebase:
+`PositionDecelerationProfile` (used for Shooter elevation's "80/20 position
+profile"). Replaced the step function with it.
+
+**Changed:** `VisionRotateBenchState.h` now includes
+`PositionDecelerationProfile.h` (same directory, header-only, no build_src_filter
+change needed). `onVision()`'s speed selection is now:
+```
+PositionDecelerationProfile::calculateMaximumCommand(
+    SLOW_ZONE_PX, absTx, 1.0, FOLLOW_JOG_OFFSET_US, FOLLOW_CREEP_OFFSET_US)
+```
+— using `SLOW_ZONE_PX` (80) as the profile's reference distance and
+`decelerationFraction=1.0` (ramp spans the whole zone) makes this simplify to
+a linear ramp `FOLLOW_JOG_OFFSET_US * |tx| / SLOW_ZONE_PX`, floored at
+`FOLLOW_CREEP_OFFSET_US` and capped at `FOLLOW_JOG_OFFSET_US` — full speed
+exactly at/beyond 80px, a genuine gradual ramp down through the slow zone
+(not a step), floored at the creep speed near the deadband so it doesn't
+stall out approaching center. `DEADBAND_PX`/`SLOW_ZONE_PX`/
+`FOLLOW_CREEP_OFFSET_US`/`FOLLOW_JOG_OFFSET_US` constants unchanged from the
+step-function version.
+
+**Evidence:** native `g++` test rewritten to assert the ramp shape (40px ->
+floored at creep, 60px -> mid-ramp 225us, 80px -> full speed, -60px mirrored)
+instead of the old two-step boundary; passes. `node
+vision_rotate_page_test.cjs` unaffected, passes. `avr-g++ -fsyntax-only`
+clean. Not yet re-uploaded or re-tested on real hardware — still the same
+provisional 25/80/150/300 constants, only the shape of the curve between them
+changed from a step to a ramp.
+
+**Next Test:** same as above — re-upload, re-run the live-target follow
+test, confirm smoother deceleration into center and no oscillation.
+
+## 2026-10-05 — Claude Code: tightened deadband and slow zone (follow felt too slow on real hardware)
+
+Jeremy tested the new deceleration ramp and found overall follow speed too
+slow. Offered two deadband options (20 or 15); picked the more conservative
+(20, smaller step down from the previous 25) consistent with this project's
+staged-tuning history, rather than jumping straight to 15.
+
+**Changed:** `VisionRotateBenchConstants.h` — `DEADBAND_PX` 25 -> 20,
+`SLOW_ZONE_PX` 80 -> 70. `FOLLOW_CREEP_OFFSET_US` (150) and
+`FOLLOW_JOG_OFFSET_US` (300) unchanged — this reaches both the creep floor
+and full speed sooner (at a smaller `|tx|`) without changing the speeds
+themselves.
+
+**Evidence:** native `g++` test's deadband-boundary and speed-profile
+assertions recomputed for the new thresholds (20/21px and 35/49/70px
+boundaries) and pass. `node vision_rotate_page_test.cjs` unaffected, passes.
+`avr-g++ -fsyntax-only` clean. Not yet re-uploaded or re-tested on real
+hardware.
+
+**Next Test:** re-upload, re-run the live-target follow test. If still not
+fast enough, the next lever is 15px deadband (the other value Jeremy
+offered) or raising `FOLLOW_JOG_OFFSET_US` itself (still below the 500us
+manual-jog ceiling) rather than narrowing the zones further — narrowing the
+slow zone much more risks bringing back the overshoot/oscillation this ramp
+was added to fix in the first place.
+
+## 2026-10-06 — Claude Code: production rotate-axis full-auto/semi-auto/full-manual mode, vision-follow wired into Shooter (NOT hardware-tested, NOT committed)
+
+**Context:** Jeremy's competition sequence — Orin powers up and idles in
+standby for a long period before the match; Mega/mechanism main power only
+comes on when they take the field. From that moment, the turret must default
+to autonomous vision-follow unless the operator explicitly switches modes
+with a custom keypad (ELRS -> this robot's existing SBUS receiver). This is
+categorically different from every bench safety model built so far this
+session, all of which assumed a human watching a browser tab over USB —
+there is no laptop on the field. Confirmed with Jeremy before implementing:
+(1) the real turret hardware is the same open-loop continuous-rotation servo
+as the A5 bench, on the existing production pin (`Rotate::SIGNAL_PIN=29`),
+but **no limit switches will be installed**; (2) semi-auto and full-auto are
+identical for the rotate axis (both auto-aim) — semi-auto only changes
+whether *firing* needs a button press, and that trigger/flywheel logic
+doesn't exist yet, so it's out of scope here.
+
+**Explored before writing any code** (two parallel research passes): SBUS's
+actual channel usage (`ch0/ch1/ch3` used by Chassis mecanum mixing, `ch2`/
+`ch8` computed but never read by anything — safe to repurpose), confirmed
+the underlying `bfs::SbusData` struct already carries `lost_frame`/
+`failsafe` fields that the wrapper never exposed (no RC-signal-loss
+protection existed anywhere in this codebase until now), and Shooter's
+existing `RotateControlMode` architecture (`DISABLED`/`MANUAL_OPEN_LOOP`/
+`PROFILED_POSITION`/`CLOSED_LOOP`, the latter two require a potentiometer
+that `Rotate::POSITION_CALIBRATED=false` already keeps permanently disabled
+and that the real mechanism won't have installed anyway).
+
+**Changed/Added:**
+- `src/Vision/Vision.h`/`.cpp`, new `src/Constants/VisionConstants.h`
+  (replacing the old `VisionConst` namespace, confirmed unused anywhere
+  else) — the production Vision receiver was previously a stub (first CSV
+  field only, no handshake at all). Replaced wholesale with the Chassis
+  branch's already-built, already-reviewed version (`git show
+  Chassis:src/Vision/...`), unmodified: `MEGA_READY`/`MEGA_HEARTBEAT`
+  handshake, full 5-field `tx,ty,distance,target_id,valid` parse with strict
+  field-end/range validation, Orin lifecycle tracking
+  (`VISION_STANDBY`/`STARTING`/`READY`/`ERROR`), `isConnected()`/
+  `isVisionReady()`/`getPacketAgeMs()` for link-health checks. This was the
+  long-deferred "merge should match Chassis's packet format" decision from
+  2026-09-21/2026-09-25 — finally has a real caller now.
+- `src/IO/SBUS.h`/`.cpp` — added `SBUS::signalLost` (now-exposed
+  `lost_frame`/`failsafe` from the library, plus a 200ms no-new-frame
+  timeout as a second independent check) and `SBUS::modeChannel`
+  (provisionally aliases `ch8`; re-point once the real keypad exists and its
+  actual channel is known).
+- New `src/IO/OperatorMode.h`/`.cpp` — `enum class OperatorMode { FULL_AUTO,
+  SEMI_AUTO, FULL_MANUAL }`, `OperatorModeSelector::current()` thresholds
+  `SBUS::modeChannel` into thirds (provisional, needs re-measuring against
+  the real keypad) and **always returns `FULL_MANUAL` when `SBUS::
+  signalLost`** — losing the RC link must never leave an axis armed for
+  autonomous motion.
+- `src/Constants/ShooterConstants.h`, `Rotate` namespace — added
+  `LIMIT_SWITCHES_INSTALLED = false` (see below) and the vision-follow
+  tuning constants `VISION_DEADBAND_PX=20`/`VISION_SLOW_ZONE_PX=70`/
+  `VISION_CREEP_COMMAND=0.3`/`VISION_CRUISE_COMMAND=0.6` — directly carried
+  over from the A5 bench's real-hardware-tuned pixel thresholds (20/70px,
+  2026-10-05), with cruise/creep normalized from the bench's 300us/150us
+  using the same 500us-authority ratio. Explicitly commented that these are
+  unverified on the actual turret mechanism and must be re-checked.
+- `src/Shooter/Shooter.h`/`.cpp` — `RotateControlMode` gained
+  `VISION_FOLLOW`; new `Shooter::setRotateVisionFollow()`.
+  `updateRotate()`'s new branch does not touch the potentiometer at all
+  (none installed) — same deadband -> `PositionDecelerationProfile`-ramped
+  creep -> cruise shape already proven on the bench, reading `Vision::
+  getTx()`/`isValid()` directly, output through the existing
+  `writeRotateCommand()` (so `DirectionalLimit`/limit-switch handling stays
+  identical to every other mode). **Sign is unverified** — tx>0 maps to a
+  positive command with no inversion baked into the vision-follow code
+  itself; if it's backwards on first power-up (as it was on the bench
+  before `INVERTED` was flipped there), the fix is flipping the *existing*
+  `ShooterConstants::Rotate::INVERTED` flag, not adding a second inversion
+  here.
+- **Safety fix, not just a feature addition:** `isRotateLeftLimitTriggered()`/
+  `isRotateRightLimitTriggered()` now return `false` unconditionally when
+  `Rotate::LIMIT_SWITCHES_INSTALLED` is false. Found while implementing
+  this: `ShooterConstants::Rotate`'s limit-switch config already has
+  `LIMIT_USE_INTERNAL_PULLUP = false` (comment: "Legacy all_robot_017
+  wiring"), so with no switches installed those pins would float and read
+  an unpredictable value — worse than the bench's deliberate
+  pulled-high-when-disconnected fail-safe design. This affects *all* Rotate
+  modes, not just vision-follow, since the mechanism will never have
+  switches installed regardless of mode.
+- `src/main.cpp` — after `SBUS::update()`/`Vision::update()`, arbitrates:
+  `FULL_MANUAL` or an unhealthy vision link (`!isConnected() ||
+  !isVisionReady()`) -> `Shooter::disableRotate()`; otherwise ->
+  `Shooter::setRotateVisionFollow()`. **Deviation from the original
+  plan worth flagging**: the plan said "reuse the existing manual joystick
+  path" for full-manual — there isn't one. No SBUS channel is wired to
+  Rotate's `MANUAL_OPEN_LOOP` anywhere in this codebase (the keypad that
+  would drive it doesn't exist yet). Defaulted to `disableRotate()` (safe,
+  does nothing) rather than inventing an unreviewed channel mapping for
+  manual rotate control — that's a separate decision for whenever the
+  keypad's full channel layout is actually known.
+- `platformio.ini` — `mega_shooter_keyboard_test` now also builds
+  `+<Vision/>` / `-I src/Vision`. Without this it would have failed to link
+  once `Shooter.cpp` started including `Vision.h` — caught and fixed via
+  compile verification before considering this done, see Evidence.
+
+**Explicitly deferred (per Jeremy's own scoping):** flywheel/firing
+auto-trigger for semi-auto ("confirm before firing") — flywheel has zero
+trigger mechanism today, independent future feature. Angle (elevation) axis
+— untouched. Potentiometer-based Rotate closed loop — not applicable, no
+pot on the real mechanism. Real keypad channel/threshold calibration —
+`SBUS::modeChannel`/`OperatorModeConstants` thresholds are placeholders
+pending the keypad actually being built.
+
+**Evidence:** `avr-g++ -fsyntax-only` against the full `megaatmega2560`
+production environment (`main.cpp` pulling in every subsystem, plus each
+changed `.cpp` compiled individually) — clean, including the previously-weird
+case-insensitive-filesystem false error (`<sbus.h>` angle-include resolving
+to `src/IO/SBUS.h` instead of the real library when `-I src/IO` was listed
+before `-I lib/sbus/src`; fixed by reordering the manual verification
+command only, not a real code issue). Re-ran the full existing native test
+suite (`directional_limit_test`, `pidf_controller_test`,
+`position_deceleration_profile_test`, `rotate_bench_state_test`,
+`vision_rotate_bench_state_test`) plus both `.cjs` page tests — all still
+pass, nothing regressed. Confirmed `mega_shooter_keyboard_test`,
+`mega_rotate_only_test`, and `mega_vision_rotate_test` bench environments
+are unaffected (the latter two fully replace their `build_src_filter`, never
+touch `Shooter.cpp`; the first needed the `platformio.ini` fix above, now
+verified). **No `pio` build/upload, no motor power, no real SBUS/ELRS
+signal, no real Orin link tested against this code at all — this is static
+verification only.** Not committed.
+
+**Next Test — do not skip straight to "trust auto-arm on power-up":**
+matches the plan's own staged-verification section. First, motor power
+disconnected (logic/SBUS/Vision wiring only): confirm telemetry
+(`Shooter::getRotateControlMode()`, and whatever gets exposed for
+`OperatorModeSelector::current()`/`SBUS::signalLost`) behaves correctly —
+normal SBUS -> `FULL_AUTO`, RC unplugged -> flips to `FULL_MANUAL`
+automatically, Orin/vision link down -> rotate axis disables automatically.
+Only after that logic is confirmed correct on real hardware should motor
+power be reconnected and actual vision-follow be tested on the pin-29
+mechanism, with someone able to cut power immediately — direction sign and
+the carried-over bench speed constants have never been run on this
+mechanism before.

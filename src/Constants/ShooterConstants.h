@@ -175,6 +175,31 @@ constexpr double kIZone = 0.0;
 constexpr double kFF = 0.0;
 constexpr PidfConfig PIDF(kP, kI, kD, kIZone, kFF);
 
+// No limit switches will be installed on the real turret mechanism (Jeremy,
+// 2026-10-06) — LEFT/RIGHT_LIMIT_PIN stay defined for bench compatibility
+// but are not wired on the competition robot. LIMIT_USE_INTERNAL_PULLUP is
+// already false for this axis, so without this flag the pins would float
+// (unpredictable, not fail-safe) instead of reading a real switch.
+// isRotateLeftLimitTriggered()/isRotateRightLimitTriggered() return false
+// unconditionally while this is false.
+constexpr bool LIMIT_SWITCHES_INSTALLED = false;
+
+// Vision-follow (RotateControlMode::VISION_FOLLOW). Deadband/slow-zone are
+// image-space pixels, same values tuned on the real A5 bench through
+// 2026-10-05 (see docs/codex-handoff.md) — re-verify once this runs on the
+// actual turret mechanism/pin, they are not guaranteed to transfer as-is.
+// Cruise/creep are normalized to this axis's full +-1.0 command range using
+// the same 300us/150us : 500us ratio the bench used (this axis's full +-1.0
+// command == the servo's full 1000-2000us range == the bench's +-500us).
+// Sign (does positive tx need a positive or negative command) is UNVERIFIED
+// on the real mechanism — the bench needed its own INVERTED flipped after
+// first real-hardware test; if this is backwards here, flip Rotate::INVERTED
+// above (do not add a second inversion inside the vision-follow code path).
+constexpr int VISION_DEADBAND_PX = 20;
+constexpr int VISION_SLOW_ZONE_PX = 70;
+constexpr double VISION_CREEP_COMMAND = 0.3;
+constexpr double VISION_CRUISE_COMMAND = 0.6;
+
 constexpr double PROFILE_CRUISE_COMMAND = 1.0;
 constexpr double PROFILE_MINIMUM_APPROACH_RATIO = 0.10;
 constexpr double PROFILE_DECELERATION_FRACTION = 0.20;
@@ -245,6 +270,14 @@ static_assert(Rotate::PROFILE_DECELERATION_FRACTION > 0.0 &&
 static_assert(Rotate::PROFILE_MINIMUM_APPROACH_RATIO >= 0.0 &&
               Rotate::PROFILE_MINIMUM_APPROACH_RATIO <= 1.0,
               "Invalid rotate minimum approach ratio");
+static_assert(Rotate::VISION_SLOW_ZONE_PX > Rotate::VISION_DEADBAND_PX,
+              "Vision slow zone must be outside the deadband");
+static_assert(Rotate::VISION_CREEP_COMMAND > 0.0 &&
+              Rotate::VISION_CREEP_COMMAND <= Rotate::VISION_CRUISE_COMMAND,
+              "Vision creep command must be positive and no faster than cruise");
+static_assert(Rotate::VISION_CRUISE_COMMAND > 0.0 &&
+              Rotate::VISION_CRUISE_COMMAND <= 1.0,
+              "Vision cruise command out of range");
 static_assert(Flywheel::MIN_PULSE_US < Flywheel::NEUTRAL_US, "Invalid flywheel minimum PWM");
 static_assert(Flywheel::NEUTRAL_US < Flywheel::MAX_PULSE_US, "Invalid flywheel maximum PWM");
 static_assert(

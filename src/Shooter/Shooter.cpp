@@ -2,6 +2,7 @@
 
 #include "../Control/DirectionalLimit.h"
 #include "../Control/PositionDecelerationProfile.h"
+#include "../Vision/Vision.h"
 
 using namespace ShooterConstants;
 
@@ -257,6 +258,14 @@ void Shooter::disableRotate() {
     writeRotateCommand(0.0);
 }
 
+void Shooter::setRotateVisionFollow() {
+    if (rotateMode != RotateControlMode::VISION_FOLLOW) {
+        rotateReady = false;
+        resetRotateController();
+    }
+    rotateMode = RotateControlMode::VISION_FOLLOW;
+}
+
 void Shooter::setFlywheelOpenLoop(double command) {
     flywheelOpenLoopCommand = constrain(command, 0.0, 1.0);
 }
@@ -294,10 +303,15 @@ bool Shooter::isAngleDownLimitTriggered() {
 }
 
 bool Shooter::isRotateLeftLimitTriggered() {
+    // No limit switches are installed on the real turret mechanism; these
+    // pins would otherwise float (LIMIT_USE_INTERNAL_PULLUP is false for
+    // this axis) and read an unpredictable, not fail-safe value.
+    if (!Rotate::LIMIT_SWITCHES_INSTALLED) return false;
     return rotateLeftLimitState.stableTriggered;
 }
 
 bool Shooter::isRotateRightLimitTriggered() {
+    if (!Rotate::LIMIT_SWITCHES_INSTALLED) return false;
     return rotateRightLimitState.stableTriggered;
 }
 
@@ -614,6 +628,35 @@ void Shooter::updateRotate() {
         rotateReady = false;
         rotateReadySinceMs = 0;
         writeRotateCommand(rotateManualCommand);
+        return;
+    }
+
+    if (rotateMode == RotateControlMode::VISION_FOLLOW) {
+        rotateControllerOutput = 0.0;
+        rotateProfileEnvelope = 0.0;
+        rotateReady = false;
+        rotateReadySinceMs = 0;
+        // No potentiometer needed/used here — open-loop, driven directly by
+        // image-space tx, same deadband->creep->cruise shape proven on the
+        // A5 bench (reusing the same PositionDecelerationProfile utility).
+        if (!Vision::isValid()) {
+            writeRotateCommand(0.0);
+            return;
+        }
+        const double tx = Vision::getTx();
+        const double absTx = fabs(tx);
+        if (absTx <= Rotate::VISION_DEADBAND_PX) {
+            writeRotateCommand(0.0);
+            return;
+        }
+        const double magnitude =
+            PositionDecelerationProfile::calculateMaximumCommand(
+                Rotate::VISION_SLOW_ZONE_PX,
+                absTx,
+                1.0,
+                Rotate::VISION_CRUISE_COMMAND,
+                Rotate::VISION_CREEP_COMMAND);
+        writeRotateCommand(tx > 0.0 ? magnitude : -magnitude);
         return;
     }
 

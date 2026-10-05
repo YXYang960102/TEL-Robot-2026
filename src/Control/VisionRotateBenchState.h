@@ -2,6 +2,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "../Constants/VisionRotateBenchConstants.h"
+#include "PositionDecelerationProfile.h"
 
 // Pure state machine, shared by the firmware and host regression tests.
 // Direction comes from Orin vision data (onVision), never from the browser —
@@ -14,11 +15,12 @@ public:
     bool noLimits = false;
     const char* stopReason = "BOOT";
     int direction = 0;
+    int speedOffsetUs = 0; // magnitude selected by onVision's zone logic; 0 when stopped
     uint32_t lastUsbPing = 0;
     uint32_t lastVisionRx = 0;
 
     void stop(const char* reason="OPERATOR") {
-        enabled = false; direction = 0; noLimits = false; stopReason = reason;
+        enabled = false; direction = 0; speedOffsetUs = 0; noLimits = false; stopReason = reason;
     }
 
     void applyLimits(bool left, bool right) {
@@ -51,19 +53,32 @@ public:
     }
 
     // Called for every decoded Serial1 line from Orin, regardless of `enabled`
-    // (link liveness is independent of the motion-armed gate).
+    // (link liveness is independent of the motion-armed gate). Inside the
+    // deadband: stop. Outside it: speed comes from PositionDecelerationProfile
+    // (the same profiled-deceleration utility already used for Shooter
+    // elevation) — a smooth ramp from FOLLOW_CREEP_OFFSET_US up to
+    // FOLLOW_JOG_OFFSET_US across the slow zone, floored at the creep speed,
+    // instead of a hand-rolled step between two fixed speeds. This is what
+    // gradually slows the servo down as it approaches center rather than
+    // slamming into it at full speed and overshooting back and forth.
     void onVision(int tx, bool valid, uint32_t now) {
         lastVisionRx = now;
-        if (!enabled || !valid) { direction = 0; return; }
+        if (!enabled || !valid) { direction = 0; speedOffsetUs = 0; return; }
         using namespace VisionRotateBenchConstants;
-        if (tx > DEADBAND_PX) direction = 1;
-        else if (tx < -DEADBAND_PX) direction = -1;
-        else direction = 0;
+        const int absTx = tx < 0 ? -tx : tx;
+        if (absTx <= DEADBAND_PX) {
+            direction = 0; speedOffsetUs = 0;
+        } else {
+            direction = tx > 0 ? 1 : -1;
+            const double command = PositionDecelerationProfile::calculateMaximumCommand(
+                SLOW_ZONE_PX, absTx, 1.0, FOLLOW_JOG_OFFSET_US, FOLLOW_CREEP_OFFSET_US);
+            speedOffsetUs = (int)(command + 0.5);
+        }
     }
 
     int pulse() const {
         using namespace VisionRotateBenchConstants;
-        return NEUTRAL_US + (enabled ? direction : 0) *
-            (INVERTED ? -FOLLOW_JOG_OFFSET_US : FOLLOW_JOG_OFFSET_US);
+        const int signedOffset = INVERTED ? -speedOffsetUs : speedOffsetUs;
+        return NEUTRAL_US + (enabled ? direction : 0) * signedOffset;
     }
 };
