@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/jeremy/Desktop/FRC8169/TEL_Robot_2026/docs/elrs-architecture/system.architecture.json",
+  "output": "/Users/jeremy/Desktop/FRC8169/TEL_Robot_2026/docs/elrs-architecture/system.html",
+  "specification": {
+    "sha256": "a5be98bf92fa7b2d05909b278bf181e2822d24b7a3dd852ad2a7cfc70dc5a7e5",
+    "bytes": 3272
+  },
+  "artifact": {
+    "sha256": "d596195da892cec291c3344a9ad0cdad54b27ed3b2b69e6604342a98ea833643",
+    "bytes": 804390
+  },
+  "validation": {
+    "checksPassed": 9,
+    "checkCount": 9,
+    "compositionProfile": "showcase",
+    "compositionStatus": "pass",
+    "errors": 0,
+    "warnings": 0
+  }
+}

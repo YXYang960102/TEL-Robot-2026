@@ -3,7 +3,7 @@
 #include <Arduino.h>
 
 #include "../Dribbler/Dribbler.h"
-#include "../IO/SBUS.h"
+#include "../IO/MechLink.h"
 #include "../Shooter/Shooter.h"
 #include "../Vision/Vision.h"
 
@@ -44,15 +44,15 @@ void Telemetry::update() {
     Serial.print(",");
     Serial.print(Vision::isValid() ? 1 : 0);
     Serial.print(",");
-    Serial.print(SBUS::ch0);
+    Serial.print(MechLink::ch0);
     Serial.print(",");
-    Serial.print(SBUS::ch1);
+    Serial.print(MechLink::ch1);
     Serial.print(",");
-    Serial.print(SBUS::ch2);
+    Serial.print(MechLink::ch2);
     Serial.print(",");
-    Serial.print(SBUS::ch3);
+    Serial.print(MechLink::ch3);
     Serial.print(",");
-    Serial.print(SBUS::ch8);
+    Serial.print(MechLink::ch8);
     Serial.print(",");
     Serial.print(Shooter::isReady() ? 1 : 0);
     Serial.print(",");

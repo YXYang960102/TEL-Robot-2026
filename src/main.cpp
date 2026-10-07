@@ -1,6 +1,6 @@
 #include <Arduino.h>
 
-#include "IO/SBUS.h"
+#include "IO/MechLink.h"
 #include "Vision/Vision.h"
 #include "Shooter/Shooter.h"
 #include "Dribbler/Dribbler.h"
@@ -10,7 +10,7 @@
 void setup() {
     Serial.begin(115200);
 
-    SBUS::init();
+    MechLink::init();
     Vision::init();
     Shooter::init();
     Dribbler::init();
@@ -23,11 +23,11 @@ void setup() {
 
 void loop() {
 
-    SBUS::update();
+    MechLink::update();
     Vision::update();
 
-    Shooter::update();   
-    Dribbler::update();  
+    Shooter::update();
+    Dribbler::update();
 
     Chassis::update();
     Telemetry::update();
