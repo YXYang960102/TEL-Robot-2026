@@ -6,6 +6,7 @@
 #include "Shooter/Shooter.h"
 #include "Dribbler/Dribbler.h"
 #include "Chassis/Chassis.h"
+#include "Telemetry/Telemetry.h"
 
 void setup() {
     Serial.begin(115200);
@@ -16,6 +17,7 @@ void setup() {
     Dribbler::init();
     Chassis::init();
     Auto::init();
+    Telemetry::init();
 
     // Shooting stays disarmed until something actually requests shots.
     // Previously defaulted to 3 -- now that Auto::update() auto-fires
@@ -38,6 +40,7 @@ void loop() {
     Dribbler::update();
 
     Chassis::update();
+    Telemetry::update();
 
     delay(10);
 }

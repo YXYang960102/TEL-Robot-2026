@@ -33,6 +33,14 @@ public:
     // Momentary fire-confirm button (semi-auto only, see Auto::update()).
     static int fireChannel;
 
+    // Forwards the Mega's "TEL,..." dashboard line (Telemetry.cpp) to the
+    // robot-side STM32 over the same serial port, for it to relay back to
+    // the ground-station dashboard over the ELRS backlink (see
+    // tools/stm32_elrs_robot_bridge/README.md). Telemetry.cpp still also
+    // prints this same line to the Mega's own USB Serial directly -- that
+    // wired path stays useful for bench debugging.
+    static void sendTelemetryLine(const String& line);
+
 private:
     static void parseLine(const String& line);
     static void setNeutral();

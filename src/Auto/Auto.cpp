@@ -26,6 +26,10 @@ void Auto::enterFireState(FireState next) {
     fireStateEnteredMs = millis();
 }
 
+Auto::FireState Auto::getFireState() {
+    return fireState;
+}
+
 void Auto::update() {
     const OperatorMode mode = OperatorModeSelector::current();
     const bool visionHealthy = Vision::isConnected() && Vision::isVisionReady();

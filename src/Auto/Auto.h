@@ -10,7 +10,6 @@ public:
     static void init();
     static void update();
 
-private:
     enum class FireState {
         IDLE,
         SPINNING_UP,
@@ -19,6 +18,11 @@ private:
         COOLDOWN
     };
 
+    // For telemetry only (Telemetry.cpp); nothing in Auto.cpp itself needs
+    // this to be externally readable.
+    static FireState getFireState();
+
+private:
     static void enterFireState(FireState next);
 
     static FireState fireState;

@@ -99,3 +99,7 @@ void MechLink::setNeutral() {
     modeChannel = 1500;
     fireChannel = 1500;
 }
+
+void MechLink::sendTelemetryLine(const String& line) {
+    MECH_LINK_SERIAL_PORT.println(line);
+}
