@@ -2,8 +2,10 @@
 
 #include <Arduino.h>
 
+#include "../Auto/Auto.h"
+#include "../Constants/Mode.h"
 #include "../Dribbler/Dribbler.h"
-#include "../IO/SBUS.h"
+#include "../IO/MechLink.h"
 #include "../Shooter/Shooter.h"
 #include "../Vision/Vision.h"
 
@@ -31,32 +33,44 @@ void Telemetry::update() {
         warn |= 4;
     }
 
-    Serial.print("TEL,");
-    Serial.print(now);
-    Serial.print(",");
-    Serial.print(Vision::getTx(), 2);
-    Serial.print(",");
-    Serial.print(Vision::getTy(), 2);
-    Serial.print(",");
-    Serial.print(Vision::getDistance(), 2);
-    Serial.print(",");
-    Serial.print(Vision::getTargetId());
-    Serial.print(",");
-    Serial.print(Vision::isValid() ? 1 : 0);
-    Serial.print(",");
-    Serial.print(SBUS::getDriveForwardPulseUs());
-    Serial.print(",");
-    Serial.print(SBUS::getAuxiliaryPulseUs());
-    Serial.print(",");
-    Serial.print(SBUS::getMechanismPulseUs());
-    Serial.print(",");
-    Serial.print(SBUS::getDriveTurnPulseUs());
-    Serial.print(",");
-    Serial.print(SBUS::getModePulseUs());
-    Serial.print(",");
-    Serial.print(Shooter::isReady() ? 1 : 0);
-    Serial.print(",");
-    Serial.print(Dribbler::getShootRemaining());
-    Serial.print(",");
-    Serial.println(warn);
+    String line = "TEL,";
+    line += now;
+    line += ",";
+    line += String(Vision::getTx(), 2);
+    line += ",";
+    line += String(Vision::getTy(), 2);
+    line += ",";
+    line += String(Vision::getDistance(), 2);
+    line += ",";
+    line += Vision::getTargetId();
+    line += ",";
+    line += Vision::isValid() ? 1 : 0;
+    line += ",";
+    line += MechLink::getDriveForwardPulseUs();
+    line += ",";
+    line += MechLink::getAuxiliaryPulseUs();
+    line += ",";
+    line += MechLink::getMechanismPulseUs();
+    line += ",";
+    line += MechLink::getDriveTurnPulseUs();
+    line += ",";
+    line += MechLink::getModePulseUs();
+    line += ",";
+    line += Shooter::isReady() ? 1 : 0;
+    line += ",";
+    line += Dribbler::getShootRemaining();
+    line += ",";
+    line += warn;
+
+    Serial.println(line);
+    MechLink::sendTelemetryLine(line);
+
+    // Not part of the TEL,... line the dashboard parses (that format is
+    // fixed, see tools/dashboard/README.md) -- a separate human-readable
+    // line so the operator can confirm over USB Serial, before a match,
+    // that the starting-side switch was actually read and latched to the
+    // side they expect.
+    Serial.print("StartSide: ");
+    Serial.print(Auto::getStartingSide() == StartingSide::RIGHT ? "RIGHT" : "LEFT");
+    Serial.println(Auto::isStartingSideLatched() ? " (locked)" : " (pending)");
 }

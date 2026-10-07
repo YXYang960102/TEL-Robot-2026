@@ -2,16 +2,18 @@
 
 #include <stdint.h>
 
+#include "TuningConstants.h"
+
 namespace ChassisConstants {
 
 namespace RightDrive {
+using namespace TuningConstants::RightDrive;
 constexpr uint8_t SIGNAL_PIN = 39;
-constexpr bool INVERTED = false;
 }
 
 namespace LeftDrive {
+using namespace TuningConstants::LeftDrive;
 constexpr uint8_t SIGNAL_PIN = 38;
-constexpr bool INVERTED = false;
 }
 
 namespace Output {
@@ -22,9 +24,7 @@ constexpr int RANGE_US = 500;
 }
 
 namespace Manual {
-constexpr double COMMAND_DEADBAND = 0.04;
-constexpr double MIN_COMMAND = -1.0;
-constexpr double MAX_COMMAND = 1.0;
+using namespace TuningConstants::Manual;
 }
 
 static_assert(Output::MIN_PULSE_US < Output::NEUTRAL_US, "Invalid chassis minimum PWM");

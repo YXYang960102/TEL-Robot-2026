@@ -1,6 +1,7 @@
 #include <Arduino.h>
 
-#include "IO/SBUS.h"
+#include "Auto/Auto.h"
+#include "IO/MechLink.h"
 #include "Vision/Vision.h"
 #include "Shooter/Shooter.h"
 #include "Dribbler/Dribbler.h"
@@ -10,12 +11,13 @@
 void setup() {
     Serial.begin(115200);
 
-    SBUS::init();
+    MechLink::init();
     Vision::init();
     Shooter::init();
     Dribbler::init();
     Chassis::init();
     Telemetry::init();
+    Auto::init();
 
     // Shooting stays disarmed until the mode and shot-confirmation flow enables it.
     Dribbler::setShootRequest(0);
@@ -23,19 +25,20 @@ void setup() {
 
 void loop() {
 
-    SBUS::update();
+    MechLink::update();
     Vision::update();
+    Auto::update();
 
-    if (SBUS::isHealthy()) {
+    if (MechLink::isHealthy()) {
         Chassis::setOutputsEnabled(true);
-        Chassis::setOpenLoop(SBUS::getDriveForward(), SBUS::getDriveTurn());
+        Chassis::setOpenLoop(MechLink::getDriveForward(), MechLink::getDriveTurn());
     } else {
         Chassis::setOutputsEnabled(false);
         Chassis::stop();
     }
 
     Shooter::update();
-    Dribbler::update();  
+    Dribbler::update();
 
     Chassis::update();
     Telemetry::update();
