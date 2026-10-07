@@ -1,17 +1,19 @@
 
 Discarded input sections
 
- .text          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc3cIMGL.o
- .data          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc3cIMGL.o
- .bss           0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc3cIMGL.o
- .text          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
- .data          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
- .bss           0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
- .comment       0x00000000       0x39 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
- .text          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc2ntyRl.o
- .data          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc2ntyRl.o
- .bss           0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc2ntyRl.o
- .comment       0x00000000       0x39 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc2ntyRl.o
+ .text          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccqynjto.o
+ .data          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccqynjto.o
+ .bss           0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccqynjto.o
+ .text          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
+ .data          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
+ .bss           0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
+ .comment       0x00000000       0x39 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
+ .text          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccYTEzKz.o
+ .data          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccYTEzKz.o
+ .bss           0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccYTEzKz.o
+ .text.crsf_build_tel_chunk_frame
+                0x00000000       0x48 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccYTEzKz.o
+ .comment       0x00000000       0x39 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccYTEzKz.o
 
 Memory Configuration
 
@@ -22,62 +24,62 @@ RAM              0x20000000         0x00010000         xrw
 
 Linker script and memory map
 
-LOAD /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc3cIMGL.o
-LOAD /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
-LOAD /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc2ntyRl.o
+LOAD /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccqynjto.o
+LOAD /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
+LOAD /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccYTEzKz.o
                 0x20010000                        _stack_top = (ORIGIN (RAM) + LENGTH (RAM))
 
 .isr_vector     0x08004000      0x198
  *(.isr_vector)
- .isr_vector    0x08004000      0x198 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc3cIMGL.o
+ .isr_vector    0x08004000      0x198 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccqynjto.o
                 0x08004000                vectors
 
 .text           0x08004198      0x7a4
  *(.text*)
  .text.Reset_Handler
-                0x08004198       0x58 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc3cIMGL.o
+                0x08004198       0x58 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccqynjto.o
                 0x08004198                Reset_Handler
  .text.Default_Handler
-                0x080041f0        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc3cIMGL.o
+                0x080041f0        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccqynjto.o
                 0x080041f0                Default_Handler
  .text.SysTick_Handler
-                0x080041f4       0x10 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x080041f4       0x10 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
                 0x080041f4                SysTick_Handler
  .text.USART1_IRQHandler
-                0x08004204       0x74 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x08004204       0x74 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
                 0x08004204                USART1_IRQHandler
  .text.USART2_IRQHandler
-                0x08004278       0xc8 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x08004278       0xc8 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
                 0x08004278                USART2_IRQHandler
  .text.startup.main
-                0x08004340      0x394 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x08004340      0x394 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
                 0x08004340                main
  .text.crsf_crc8
-                0x080046d4       0x30 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc2ntyRl.o
+                0x080046d4       0x30 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccYTEzKz.o
                 0x080046d4                crsf_crc8
  .text.crsf_us_to_tick
-                0x08004704       0x28 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc2ntyRl.o
+                0x08004704       0x28 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccYTEzKz.o
                 0x08004704                crsf_us_to_tick
  .text.crsf_tick_to_us
-                0x0800472c       0x14 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc2ntyRl.o
+                0x0800472c       0x14 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccYTEzKz.o
                 0x0800472c                crsf_tick_to_us
  .text.crsf_pack_channels
-                0x08004740       0x64 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc2ntyRl.o
+                0x08004740       0x64 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccYTEzKz.o
                 0x08004740                crsf_pack_channels
  .text.crsf_unpack_channels
-                0x080047a4       0x3c /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc2ntyRl.o
+                0x080047a4       0x3c /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccYTEzKz.o
                 0x080047a4                crsf_unpack_channels
  .text.crsf_build_rc_frame
-                0x080047e0       0x40 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc2ntyRl.o
+                0x080047e0       0x40 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccYTEzKz.o
                 0x080047e0                crsf_build_rc_frame
  .text.crsf_build_battery_frame
-                0x08004820       0x3c /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc2ntyRl.o
+                0x08004820       0x3c /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccYTEzKz.o
                 0x08004820                crsf_build_battery_frame
  .text.crsf_parser_init
-                0x0800485c       0x18 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc2ntyRl.o
+                0x0800485c       0x18 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccYTEzKz.o
                 0x0800485c                crsf_parser_init
  .text.crsf_parser_push
-                0x08004874       0xc6 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc2ntyRl.o
+                0x08004874       0xc6 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccYTEzKz.o
                 0x08004874                crsf_parser_push
  *(.rodata*)
                 0x0800493c                        . = ALIGN (0x4)
@@ -96,10 +98,10 @@ LOAD /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc2ntyRl.o
  .v4_bx         0x0800493c        0x0 linker stubs
 
 .iplt           0x0800493c        0x0
- .iplt          0x0800493c        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc3cIMGL.o
+ .iplt          0x0800493c        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccqynjto.o
 
 .rel.dyn        0x0800493c        0x0
- .rel.iplt      0x0800493c        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc3cIMGL.o
+ .rel.iplt      0x0800493c        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccqynjto.o
 
 .ARM.exidx
  *(.ARM.exidx*)
@@ -109,49 +111,49 @@ LOAD /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc2ntyRl.o
                 0x20000000                        _sdata = .
  *(.data*)
  .data.fake_voltage_01v.0
-                0x20000000        0x2 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x20000000        0x2 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
  *fill*         0x20000002        0x2 
  .data.tx_ch_us
-                0x20000004       0x40 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x20000004       0x40 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
                 0x20000044                        . = ALIGN (0x4)
                 0x20000044                        _edata = .
                 0x0800493c                        _sidata = LOADADDR (.data)
 
 .igot.plt       0x20000044        0x0 load address 0x08004980
- .igot.plt      0x20000044        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc3cIMGL.o
+ .igot.plt      0x20000044        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccqynjto.o
 
 .bss            0x20000044      0x10c load address 0x08004980
                 0x20000044                        . = ALIGN (0x4)
                 0x20000044                        _sbss = .
  *(.bss*)
- .bss.state.1   0x20000044        0x1 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+ .bss.state.1   0x20000044        0x1 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
  *fill*         0x20000045        0x3 
  .bss.battery_rejected_count
-                0x20000048        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x20000048        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
  .bss.battery_valid_backlink_count
-                0x2000004c        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x2000004c        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
  .bss.battery_sent_count
-                0x20000050        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x20000050        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
  .bss.rc_downlink_match_count
-                0x20000054        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x20000054        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
  .bss.rc_sent_count
-                0x20000058        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x20000058        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
  .bss.last_valid_battery_frame_ms
-                0x2000005c        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x2000005c        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
  .bss.last_rc_rx_ms
-                0x20000060        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x20000060        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
  .bss.downlink_ok
-                0x20000064        0x1 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x20000064        0x1 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
  .bss.parser_receiver
-                0x20000065       0x42 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x20000065       0x42 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
  .bss.parser_tx_module
-                0x200000a7       0x42 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x200000a7       0x42 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
  *fill*         0x200000e9        0x3 
  .bss.last_rx_ch_us
-                0x200000ec       0x40 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x200000ec       0x40 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
  .bss.last_rx_ch_tick
-                0x2000012c       0x20 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
- .bss.g_millis  0x2000014c        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x2000012c       0x20 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
+ .bss.g_millis  0x2000014c        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
  *(COMMON)
                 0x20000150                        . = ALIGN (0x4)
                 0x20000150                        _ebss = .
@@ -167,8 +169,8 @@ LOAD linker stubs
 .ARM.attributes
                 0x00000000       0x2f
  .ARM.attributes
-                0x00000000       0x21 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc3cIMGL.o
+                0x00000000       0x21 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccqynjto.o
  .ARM.attributes
-                0x00000021       0x2e /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cceqAbxT.o
+                0x00000021       0x2e /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc4jB2wB.o
  .ARM.attributes
-                0x0000004f       0x2e /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cc2ntyRl.o
+                0x0000004f       0x2e /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccYTEzKz.o

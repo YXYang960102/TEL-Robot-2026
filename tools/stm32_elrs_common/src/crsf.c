@@ -91,6 +91,23 @@ uint8_t crsf_build_battery_frame(uint8_t *frame, uint16_t voltage_01v,
   return 12;
 }
 
+uint8_t crsf_build_tel_chunk_frame(uint8_t *frame, uint8_t chunkIndex,
+                                    uint8_t chunkCount, const uint8_t *data,
+                                    uint8_t dataLen) {
+  if (dataLen > CRSF_TEL_CHUNK_DATA_MAX) dataLen = CRSF_TEL_CHUNK_DATA_MAX;
+
+  frame[0] = CRSF_ADDR_FC;
+  frame[1] = (uint8_t)(dataLen + 4); /* type(1) + chunkIndex(1) + chunkCount(1) + data + crc(1) */
+  frame[2] = CRSF_FRAME_TEL_CHUNK;
+  frame[3] = chunkIndex;
+  frame[4] = chunkCount;
+  for (uint8_t i = 0; i < dataLen; i++) frame[5 + i] = data[i];
+
+  uint8_t crc_len = (uint8_t)(3 + dataLen); /* type + chunkIndex + chunkCount + data */
+  frame[5 + dataLen] = crsf_crc8(&frame[2], crc_len);
+  return (uint8_t)(6 + dataLen);
+}
+
 static bool crsf_is_possible_address(uint8_t b) {
   switch (b) {
     case 0x00:

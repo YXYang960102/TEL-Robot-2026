@@ -21,6 +21,17 @@
 #define CRSF_RC_PAYLOAD_SIZE     22u
 #define CRSF_RC_FRAME_SIZE       26u
 
+/* User-defined custom frame type (CRSF reserves this range for non-standard
+   payloads), used to relay a chunk of the Mega's ASCII "TEL,..." dashboard
+   telemetry line over the same backlink the bidirectional bench test
+   validated with the official Battery type. Deliberately NOT built as a
+   Battery frame: that type has real voltage/current/capacity semantics
+   elsewhere in CRSF tooling, and repurposing it for arbitrary text would
+   mislead a future reader who knows that meaning. */
+#define CRSF_FRAME_TEL_CHUNK     0x7Fu
+#define CRSF_TEL_CHUNK_DATA_MAX  18u /* payload = chunkIndex(1)+chunkCount(1)+data(<=18) */
+#define CRSF_TEL_CHUNK_FRAME_MAX (6u + CRSF_TEL_CHUNK_DATA_MAX)
+
 uint8_t crsf_crc8(const uint8_t *data, uint8_t len);
 uint16_t crsf_us_to_tick(int us);
 int crsf_tick_to_us(uint16_t tick);
@@ -30,6 +41,15 @@ void crsf_build_rc_frame(uint8_t frame[26], const int ch_us[16]);
 uint8_t crsf_build_battery_frame(uint8_t *frame, uint16_t voltage_01v,
                                   uint16_t current_01a, uint32_t capacity_mah,
                                   uint8_t remaining_percent);
+/* Builds one CRSF_FRAME_TEL_CHUNK frame into frame[], which must have room
+   for at least CRSF_TEL_CHUNK_FRAME_MAX bytes. dataLen above
+   CRSF_TEL_CHUNK_DATA_MAX is truncated, not rejected: the caller (ground/
+   robot bridge main loop) is expected to split its line into
+   CRSF_TEL_CHUNK_DATA_MAX-sized pieces itself, so this is a defensive clamp,
+   not the intended chunking path. Returns the total frame length in bytes. */
+uint8_t crsf_build_tel_chunk_frame(uint8_t *frame, uint8_t chunkIndex,
+                                    uint8_t chunkCount, const uint8_t *data,
+                                    uint8_t dataLen);
 
 typedef struct {
   uint8_t buf[CRSF_MAX_FRAME_SIZE];

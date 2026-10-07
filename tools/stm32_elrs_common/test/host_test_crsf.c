@@ -4,7 +4,7 @@
    streaming parser before anything is cross-compiled for the STM32. */
 #include <stdio.h>
 #include <string.h>
-#include "../src/crsf.h"
+#include "crsf.h" /* -I tools/stm32_elrs_common/src, see build.py */
 
 static int failures = 0;
 
@@ -92,6 +92,41 @@ static void test_battery_frame_parses_back(void) {
   CHECK(voltage == 126, "parsed battery voltage round-trips");
 }
 
+static void test_tel_chunk_frame_parses_back(void) {
+  const uint8_t data[] = "TEL,1234,5.5"; /* 12 bytes, well under the 18-byte cap */
+  uint8_t dataLen = (uint8_t)(sizeof(data) - 1); /* exclude the trailing '\0' */
+  uint8_t frame[CRSF_TEL_CHUNK_FRAME_MAX];
+  uint8_t len = crsf_build_tel_chunk_frame(frame, 2, 5, data, dataLen);
+  CHECK(len == (uint8_t)(6 + dataLen), "tel chunk frame length matches data length");
+  CHECK(frame[0] == CRSF_ADDR_FC, "tel chunk frame address is CRSF_ADDR_FC");
+  CHECK(frame[2] == CRSF_FRAME_TEL_CHUNK, "tel chunk frame type is TEL_CHUNK");
+
+  CrsfParser parser;
+  crsf_parser_init(&parser);
+  CrsfFrame out;
+  bool got = false;
+  for (uint8_t i = 0; i < len; i++) {
+    got = crsf_parser_push(&parser, frame[i], &out);
+  }
+  CHECK(got, "parser accepts a freshly built tel chunk frame");
+  CHECK(out.type == CRSF_FRAME_TEL_CHUNK, "parsed type is TEL_CHUNK");
+  CHECK(out.payload_len == (uint8_t)(2 + dataLen), "parsed tel chunk payload length matches");
+  CHECK(out.payload[0] == 2, "parsed chunk index round-trips");
+  CHECK(out.payload[1] == 5, "parsed chunk count round-trips");
+  for (uint8_t i = 0; i < dataLen; i++) {
+    CHECK(out.payload[2 + i] == data[i], "parsed chunk data byte round-trips");
+  }
+}
+
+static void test_tel_chunk_frame_truncates_oversize_data(void) {
+  uint8_t data[CRSF_TEL_CHUNK_DATA_MAX + 5];
+  for (uint8_t i = 0; i < sizeof(data); i++) data[i] = (uint8_t)('A' + i);
+  uint8_t frame[CRSF_TEL_CHUNK_FRAME_MAX];
+  uint8_t len = crsf_build_tel_chunk_frame(frame, 0, 1, data, (uint8_t)sizeof(data));
+  CHECK(len == (uint8_t)(6 + CRSF_TEL_CHUNK_DATA_MAX),
+        "oversize data is clamped to CRSF_TEL_CHUNK_DATA_MAX, not rejected");
+}
+
 static void test_parser_rejects_bad_crc(void) {
   int ch_us[16];
   for (int i = 0; i < 16; i++) ch_us[i] = 1500;
@@ -135,6 +170,8 @@ int main(void) {
   test_channel_pack_round_trip();
   test_rc_frame_parses_back();
   test_battery_frame_parses_back();
+  test_tel_chunk_frame_parses_back();
+  test_tel_chunk_frame_truncates_oversize_data();
   test_parser_rejects_bad_crc();
   test_parser_resyncs_on_garbage_prefix();
 

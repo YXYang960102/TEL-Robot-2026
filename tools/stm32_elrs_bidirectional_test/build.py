@@ -16,6 +16,7 @@ import subprocess
 import tempfile
 
 root = Path(__file__).resolve().parent
+common_src = root.parent / 'stm32_elrs_common' / 'src'
 out = root / 'dist'
 out.mkdir(exist_ok=True)
 
@@ -24,8 +25,10 @@ if not host_cc:
     raise SystemExit('Install a host C compiler (gcc/cc) to run the CRSF unit test.')
 with tempfile.TemporaryDirectory() as tmp:
     host_test_bin = Path(tmp) / 'host_test_crsf'
+    common_test = root.parent / 'stm32_elrs_common' / 'test'
     subprocess.run([host_cc, '-Wall', '-Wextra', '-Werror', '-std=c11',
-                     str(root / 'test/host_test_crsf.c'), str(root / 'src/crsf.c'),
+                     '-I', str(common_src),
+                     str(common_test / 'host_test_crsf.c'), str(common_src / 'crsf.c'),
                      '-o', str(host_test_bin)], check=True)
     subprocess.run([str(host_test_bin)], check=True)
 
@@ -44,11 +47,12 @@ binary = out / f'{name}.bin'
 flags = ['-mcpu=cortex-m4', '-mthumb', '-mfloat-abi=soft', '-Os',
          '-ffreestanding', '-fno-builtin', '-ffunction-sections', '-fdata-sections',
          '-Wall', '-Wextra', '-Werror', '-nostdlib', '-nostartfiles',
+         '-I', str(common_src),
          '-Wl,--gc-sections', '-Wl,--build-id=none',
          '-Wl,-Map=' + str(out / f'{name}.map')]
 subprocess.run([compiler, *flags, '-T', str(root / 'linker.ld'),
                 str(root / 'src/startup.S'), str(root / 'src/main.c'),
-                str(root / 'src/crsf.c'),
+                str(common_src / 'crsf.c'),
                 '-o', str(elf)], check=True)
 subprocess.run([prefix + 'objcopy', '-O', 'binary', str(elf), str(binary)], check=True)
 headers = subprocess.check_output([prefix + 'objdump', '-h', str(elf)], text=True)
