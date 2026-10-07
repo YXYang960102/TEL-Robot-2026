@@ -1,6 +1,6 @@
 #include "Chassis.h"
 #include "../Constants/Pins.h"
-#include "../IO/SBUS.h"
+#include "../IO/MechLink.h"
 
 Servo Chassis::fr;
 Servo Chassis::fl;
@@ -15,10 +15,10 @@ void Chassis::init() {
 }
 
 void Chassis::update() {
-    int FR = SBUS::ch0 - SBUS::ch1 + SBUS::ch3;
-    int BR = SBUS::ch0 - SBUS::ch1 - SBUS::ch3;
-    int FL = SBUS::ch0 + SBUS::ch1 - SBUS::ch3;
-    int BL = SBUS::ch0 + SBUS::ch1 + SBUS::ch3;
+    int FR = MechLink::ch0 - MechLink::ch1 + MechLink::ch3;
+    int BR = MechLink::ch0 - MechLink::ch1 - MechLink::ch3;
+    int FL = MechLink::ch0 + MechLink::ch1 - MechLink::ch3;
+    int BL = MechLink::ch0 + MechLink::ch1 + MechLink::ch3;
 
     fr.writeMicroseconds(FR);
     br.writeMicroseconds(BR);

@@ -2,11 +2,11 @@
 
 #include <Arduino.h>
 
-#include "../Constants/AutoConstants.h"
-#include "../Constants/ShooterConstants.h"
+#include "../Constants/TuningConstants.h"
+#include "../Control/ShotTableLookup.h"
 #include "../Dribbler/Dribbler.h"
+#include "../IO/MechLink.h"
 #include "../IO/OperatorMode.h"
-#include "../IO/SBUS.h"
 #include "../Shooter/Shooter.h"
 #include "../Vision/Vision.h"
 
@@ -46,7 +46,7 @@ void Auto::update() {
     // held button fires once, not every loop. Provisional channel/threshold,
     // same caveat as OperatorMode's mode channel -- the real keypad doesn't
     // exist yet.
-    const bool fireButtonDown = SBUS::fireChannel >= AutoConstants::FIRE_BUTTON_THRESHOLD;
+    const bool fireButtonDown = MechLink::fireChannel >= TuningConstants::Auto::FIRE_BUTTON_THRESHOLD;
     const bool fireButtonPressed = fireButtonDown && !fireButtonWasDown;
     fireButtonWasDown = fireButtonDown;
 
@@ -66,23 +66,39 @@ void Auto::update() {
         return;
     }
 
+    // Distance-based shot table lookup, computed once per loop instead of
+    // each state case re-deriving the same fixed SHOOT_COMMAND. Falls back
+    // to the fixed command when the camera isn't actually locked onto a
+    // valid target (canAutoFire only requires visionHealthy == the Orin
+    // link being alive, not that it currently sees a target). angleDegrees
+    // is computed but intentionally not driven anywhere yet -- Angle's
+    // closed-loop calibration isn't done, see the comment above canAutoFire.
+    double flywheelCommand = TuningConstants::Flywheel::SHOOT_COMMAND;
+    if (Vision::isValid()) {
+        const ShotTableLookup::Result shot = ShotTableLookup::lookup(
+            Vision::getDistance() / 1000.0,  // mm -> m
+            TuningConstants::ShotTable::TABLE,
+            TuningConstants::ShotTable::TABLE_COUNT);
+        flywheelCommand = shot.flywheelCommand;
+    }
+
     switch (fireState) {
         case FireState::IDLE:
             Dribbler::setFeedAllowed(false);
-            Shooter::setFlywheelOpenLoop(ShooterConstants::Flywheel::SHOOT_COMMAND);
+            Shooter::setFlywheelOpenLoop(flywheelCommand);
             enterFireState(FireState::SPINNING_UP);
             break;
 
         case FireState::SPINNING_UP:
             Dribbler::setFeedAllowed(false);
-            Shooter::setFlywheelOpenLoop(ShooterConstants::Flywheel::SHOOT_COMMAND);
+            Shooter::setFlywheelOpenLoop(flywheelCommand);
             if (Shooter::isRotateReady() && Shooter::isFlywheelReady()) {
                 enterFireState(FireState::READY_TO_FIRE);
             }
             break;
 
         case FireState::READY_TO_FIRE:
-            Shooter::setFlywheelOpenLoop(ShooterConstants::Flywheel::SHOOT_COMMAND);
+            Shooter::setFlywheelOpenLoop(flywheelCommand);
             if (!Shooter::isRotateReady() || !Shooter::isFlywheelReady()) {
                 // Lost lock or spun down -- go back and wait again.
                 enterFireState(FireState::SPINNING_UP);
@@ -95,8 +111,8 @@ void Auto::update() {
             break;
 
         case FireState::FEEDING:
-            Shooter::setFlywheelOpenLoop(ShooterConstants::Flywheel::SHOOT_COMMAND);
-            if (millis() - fireStateEnteredMs >= AutoConstants::FEED_DURATION_MS) {
+            Shooter::setFlywheelOpenLoop(flywheelCommand);
+            if (millis() - fireStateEnteredMs >= TuningConstants::Auto::FEED_DURATION_MS) {
                 Dribbler::setFeedAllowed(false);
                 enterFireState(FireState::COOLDOWN);
             }
@@ -104,8 +120,8 @@ void Auto::update() {
 
         case FireState::COOLDOWN:
             Dribbler::setFeedAllowed(false);
-            Shooter::setFlywheelOpenLoop(ShooterConstants::Flywheel::SHOOT_COMMAND);
-            if (millis() - fireStateEnteredMs >= AutoConstants::COOLDOWN_MS) {
+            Shooter::setFlywheelOpenLoop(flywheelCommand);
+            if (millis() - fireStateEnteredMs >= TuningConstants::Auto::COOLDOWN_MS) {
                 enterFireState(FireState::IDLE);
             }
             break;
