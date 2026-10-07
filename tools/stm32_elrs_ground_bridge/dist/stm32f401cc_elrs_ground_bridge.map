@@ -1,0 +1,183 @@
+
+Discarded input sections
+
+ .text          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccVKJVA3.o
+ .data          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccVKJVA3.o
+ .bss           0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccVKJVA3.o
+ .text          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmvd4Mn.o
+ .data          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmvd4Mn.o
+ .bss           0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmvd4Mn.o
+ .comment       0x00000000       0x39 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmvd4Mn.o
+ .text          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccytJMSE.o
+ .data          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccytJMSE.o
+ .bss           0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccytJMSE.o
+ .comment       0x00000000       0x39 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccytJMSE.o
+ .text          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccwTWEjp.o
+ .data          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccwTWEjp.o
+ .bss           0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccwTWEjp.o
+ .text.crsf_tick_to_us
+                0x00000000       0x14 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccwTWEjp.o
+ .text.crsf_unpack_channels
+                0x00000000       0x3c /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccwTWEjp.o
+ .text.crsf_build_battery_frame
+                0x00000000       0x3c /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccwTWEjp.o
+ .text.crsf_build_tel_chunk_frame
+                0x00000000       0x48 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccwTWEjp.o
+ .comment       0x00000000       0x39 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccwTWEjp.o
+ .text          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cccN4Vcl.o
+ .data          0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cccN4Vcl.o
+ .bss           0x00000000        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cccN4Vcl.o
+ .comment       0x00000000       0x39 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cccN4Vcl.o
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+FLASH            0x08004000         0x0003c000         xr
+RAM              0x20000000         0x00010000         xrw
+*default*        0x00000000         0xffffffff
+
+Linker script and memory map
+
+LOAD /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccVKJVA3.o
+LOAD /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmvd4Mn.o
+LOAD /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccytJMSE.o
+LOAD /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccwTWEjp.o
+LOAD /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cccN4Vcl.o
+                0x20010000                        _stack_top = (ORIGIN (RAM) + LENGTH (RAM))
+
+.isr_vector     0x08004000      0x198
+ *(.isr_vector)
+ .isr_vector    0x08004000      0x198 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccVKJVA3.o
+                0x08004000                vectors
+
+.text           0x08004198      0x794
+ *(.text*)
+ .text.Reset_Handler
+                0x08004198       0x58 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccVKJVA3.o
+                0x08004198                Reset_Handler
+ .text.Default_Handler
+                0x080041f0        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccVKJVA3.o
+                0x080041f0                Default_Handler
+ .text.read_adc_channel
+                0x080041f4       0x20 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmvd4Mn.o
+ .text.SysTick_Handler
+                0x08004214       0x10 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmvd4Mn.o
+                0x08004214                SysTick_Handler
+ .text.USART1_IRQHandler
+                0x08004224       0x6c /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmvd4Mn.o
+                0x08004224                USART1_IRQHandler
+ .text.USART2_IRQHandler
+                0x08004290        0x2 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmvd4Mn.o
+                0x08004290                USART2_IRQHandler
+ *fill*         0x08004292        0x2 
+ .text.startup.main
+                0x08004294      0x3b8 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmvd4Mn.o
+                0x08004294                main
+ .text.adc_axis_to_pulse_us
+                0x0800464c       0x1a /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccytJMSE.o
+                0x0800464c                adc_axis_to_pulse_us
+ .text.digital_switch_to_pulse_us
+                0x08004666        0xe /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccytJMSE.o
+                0x08004666                digital_switch_to_pulse_us
+ .text.mode_switch_to_pulse_us
+                0x08004674       0x1c /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccytJMSE.o
+                0x08004674                mode_switch_to_pulse_us
+ .text.crsf_crc8
+                0x08004690       0x30 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccwTWEjp.o
+                0x08004690                crsf_crc8
+ .text.crsf_us_to_tick
+                0x080046c0       0x28 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccwTWEjp.o
+                0x080046c0                crsf_us_to_tick
+ .text.crsf_pack_channels
+                0x080046e8       0x64 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccwTWEjp.o
+                0x080046e8                crsf_pack_channels
+ .text.crsf_build_rc_frame
+                0x0800474c       0x40 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccwTWEjp.o
+                0x0800474c                crsf_build_rc_frame
+ .text.crsf_parser_init
+                0x0800478c       0x18 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccwTWEjp.o
+                0x0800478c                crsf_parser_init
+ .text.crsf_parser_push
+                0x080047a4       0xc6 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccwTWEjp.o
+                0x080047a4                crsf_parser_push
+ .text.tel_reassembler_reset
+                0x0800486a       0x22 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cccN4Vcl.o
+                0x0800486a                tel_reassembler_reset
+ .text.tel_reassembler_push
+                0x0800488c       0x9e /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cccN4Vcl.o
+                0x0800488c                tel_reassembler_push
+ *(.rodata*)
+                0x0800492c                        . = ALIGN (0x4)
+ *fill*         0x0800492a        0x2 
+
+.glue_7         0x0800492c        0x0
+ .glue_7        0x0800492c        0x0 linker stubs
+
+.glue_7t        0x0800492c        0x0
+ .glue_7t       0x0800492c        0x0 linker stubs
+
+.vfp11_veneer   0x0800492c        0x0
+ .vfp11_veneer  0x0800492c        0x0 linker stubs
+
+.v4_bx          0x0800492c        0x0
+ .v4_bx         0x0800492c        0x0 linker stubs
+
+.iplt           0x0800492c        0x0
+ .iplt          0x0800492c        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccVKJVA3.o
+
+.rel.dyn        0x0800492c        0x0
+ .rel.iplt      0x0800492c        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccVKJVA3.o
+
+.ARM.exidx
+ *(.ARM.exidx*)
+
+.data           0x20000000       0x40 load address 0x0800492c
+                0x20000000                        . = ALIGN (0x4)
+                0x20000000                        _sdata = .
+ *(.data*)
+ .data.tx_ch_us
+                0x20000000       0x40 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmvd4Mn.o
+                0x20000040                        . = ALIGN (0x4)
+                0x20000040                        _edata = .
+                0x0800492c                        _sidata = LOADADDR (.data)
+
+.igot.plt       0x20000040        0x0 load address 0x0800496c
+ .igot.plt      0x20000040        0x0 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccVKJVA3.o
+
+.bss            0x20000040       0xe4 load address 0x0800496c
+                0x20000040                        . = ALIGN (0x4)
+                0x20000040                        _sbss = .
+ *(.bss*)
+ .bss.tel_reassembler
+                0x20000040       0x95 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmvd4Mn.o
+ *fill*         0x200000d5        0x3 
+ .bss.last_valid_tel_chunk_ms
+                0x200000d8        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmvd4Mn.o
+ .bss.parser_tx_module
+                0x200000dc       0x42 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmvd4Mn.o
+ *fill*         0x2000011e        0x2 
+ .bss.g_millis  0x20000120        0x4 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmvd4Mn.o
+ *(COMMON)
+                0x20000124                        . = ALIGN (0x4)
+                0x20000124                        _ebss = .
+
+/DISCARD/
+ *(.comment)
+ *(.note*)
+                0x00000001                        ASSERT ((ADDR (.isr_vector) == 0x8004000), Wrong application base)
+                0x00000001                        ASSERT ((_ebss <= (_stack_top - 0x1000)), Insufficient stack reserve)
+OUTPUT(/Users/jeremy/Desktop/FRC8169/TEL_Robot_2026/tools/stm32_elrs_ground_bridge/dist/stm32f401cc_elrs_ground_bridge.elf elf32-littlearm)
+LOAD linker stubs
+
+.ARM.attributes
+                0x00000000       0x2f
+ .ARM.attributes
+                0x00000000       0x21 /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccVKJVA3.o
+ .ARM.attributes
+                0x00000021       0x2e /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccmvd4Mn.o
+ .ARM.attributes
+                0x0000004f       0x2e /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccytJMSE.o
+ .ARM.attributes
+                0x0000007d       0x2e /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//ccwTWEjp.o
+ .ARM.attributes
+                0x000000ab       0x2e /var/folders/zz/3zqhd_7x08gdrj78f8h_mw780000gn/T//cccN4Vcl.o
