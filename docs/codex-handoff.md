@@ -1510,3 +1510,216 @@ power be reconnected and actual vision-follow be tested on the pin-29
 mechanism, with someone able to cut power immediately — direction sign and
 the carried-over bench speed constants have never been run on this
 mechanism before.
+
+## 2026-10-06 — Claude Code: cross-branch integration (merge/refactor complete, Shooter -> dev -> main, Vision synced to Chassis/Dribbler/ShooterMG996)
+
+Jeremy asked to integrate today's vision-follow/mode-switching work across
+the whole project and clean up the now-redundant bench test files, rather
+than leaving it isolated on `Shooter`. Explicitly confirmed scope before
+doing anything irreversible: `dev`/`main` get the full `Shooter` branch
+merged in as the new baseline; `Chassis`/`Dribbler`/`ShooterMG996` only get
+their `Vision` module synced to the one canonical version (their own
+subsystem code stays untouched). Also confirmed: do this now, even though
+today's vision-follow/mode work is still only statically verified, not
+hardware-tested — real-hardware verification happens after, on whichever
+branch.
+
+**Branches touched, in order:**
+
+1. **`Shooter`** (committed `9a38c71`, pushed): bundled the production
+   auto/semi-auto/manual + vision-follow work from earlier today with a
+   cleanup pass — removed `rotate.html`/`mega_rotate_only_test` (manual-jog
+   bench, superseded by production `VISION_FOLLOW`) and
+   `UART_BARE_TEST.md`/`mega_uart_bare_test` (one-time diagnostic, issue
+   already fixed), stripped the temporary `RX1:` debug echo out of
+   `VisionRotateTest.cpp`, inlined `RotateBenchConstants.h`'s few needed
+   values directly into `VisionRotateBenchConstants.h` so the surviving
+   vision-follow bench no longer depends on a file that no longer exists,
+   rewrote `tools/shooter_keyboard_test/README.md` (was describing the now
+   deleted bench in detail). Kept `ShooterKeyboardTest.cpp`/`index.html`
+   (Angle/Flywheel bench — unrelated to vision, still the only way to bench
+   those axes independently) and `vision_rotate.html`/
+   `mega_vision_rotate_test` (the one surviving standalone bench). Verified
+   full production env + both surviving bench envs compile, full native/page
+   test suite passes.
+
+2. **`Chassis`**: no change needed — its `Vision.{h,cpp}`/`VisionConstants.h`
+   were already byte-identical to the canonical version (this is in fact
+   where the canonical version originally came from, back on 2026-09-24).
+
+3. **`Dribbler`** (committed `d64b1b5`, pushed): its own
+   `Vision.{h,cpp}`/`VisionConstants.h` turned out to already be a
+   functionally-complete, independently-built equivalent (full handshake,
+   same public API) — just under its own flat `VisionConst` namespace
+   instead of the canonical nested `VisionConstants::Transport/Validation`.
+   Swapped for the canonical version; its own `Shooter.cpp` (which already
+   called `isVisionReady()`/`isValid()`/`getXPred()`) needed no changes.
+   Nothing else on this branch touched — its own more-developed `SBUS`
+   wrapper (`isHealthy()`/`getDriveForward()`/`getDriveTurn()`/dedicated
+   `SBUSConstants.h`) and PID_v1-based `Shooter.cpp` (which already has a
+   *working* fire-trigger: flywheel gated on
+   `Vision::isValid() && readyH && readyV && Dribbler::getShootRemaining() > 0`)
+   are untouched and still there.
+
+4. **`ShooterMG996`** (committed `cf8b88f`, pushed): its `Vision.{h,cpp}`
+   was the older first-field-style stub (loose `.toFloat()`/`.toInt()`
+   parsing, no handshake). Swapped for the canonical version — purely
+   additive from this branch's own call sites (`Shooter.cpp`/`Telemetry.cpp`
+   only ever called the subset of methods the stub already had).
+
+5. **`dev`** (merge commit `5ad3a9d`, pushed): `git merge Shooter`, real
+   conflicts in `platformio.ini`, `Constants/Pins.h`, `ShooterConstants.h`,
+   `Shooter.{h,cpp}`, `Vision.{h,cpp}`/`VisionConstants.h`, `main.cpp` —
+   resolved file-by-file on their merits, not a blanket "ours" or "theirs":
+   - Vision/Shooter/ShooterConstants: took `Shooter`'s side (the new
+     architecture supersedes dev's own simpler PID_v1-style Shooter, which
+     turned out to be the same family as Dribbler/ShooterMG996's old
+     versions).
+   - `Pins.h`: kept **dev's** side instead (its own `#pragma once`
+     modernization; `Shooter`'s copy still used the old `#ifndef` guard,
+     content otherwise identical).
+   - `main.cpp`: hand-merged — kept dev's `Telemetry::init()/update()` calls
+     and its safer `Dribbler::setShootRequest(0)` ("disarmed until
+     confirmation flow enables it" — dev's own explicit comment/intent, kept
+     over `Shooter`'s unexplained `setShootRequest(3)`), added `Shooter`'s
+     new `OperatorMode`-gated `setRotateVisionFollow()`/`disableRotate()`
+     call.
+   - `platformio.ini`: combined both sides' `-I` paths and bench env
+     sections; added the `-<Bench/>` source-filter exclusion to the main env
+     (dev never needed it before since it had no `Bench/` folder until this
+     merge).
+   - **Real capability lost in this merge, flagged for follow-up**: dev's
+     old `Shooter.cpp` had a *working* fire-trigger (same condition as
+     Dribbler's: `Vision::isValid() && readyH && readyV &&
+     Dribbler::getShootRemaining() > 0` → fires the flywheel). The new
+     `PidfController`-based architecture has no equivalent yet — flywheel
+     firing/trigger logic is still completely unbuilt on it. This needs to
+     be redesigned on top of the new architecture when the semi-auto
+     fire-confirmation flow actually gets built (see the 2026-10-06 entry
+     above — explicitly out of scope for that work).
+   - Verified: full compile of dev's own `main.cpp` (pulls in `Telemetry`,
+     `Chassis`, `Dribbler`, `Sensors`, `Control`), both bench envs, and the
+     complete native/page test suite — all pass.
+
+6. **`main`** (merge commit `3c21b98`, pushed): confirmed `main` was a pure
+   ancestor of `dev` (zero unique commits) before touching it — so this was
+   `git merge dev` with **zero conflicts**, not a repeat of the `dev`
+   conflict resolution. Brought along dev's own unique work too
+   (`tools/dashboard/`, `docs/autonomous-zone-strategy.md`,
+   `src/Constants/Mode.h`) that `main` didn't have yet. Verified the same
+   full compile check passes.
+
+**Not touched**: `STM32-ELRS` branch — outside the scope Jeremy specified
+(`Chassis`/`Dribbler`/`ShooterMG996` only for the Vision sync).
+
+**Still true, unchanged by any of this**: none of today's
+auto/semi-auto/manual + vision-follow logic has been hardware-tested on any
+branch. The staged verification plan from the earlier 2026-10-06 entry
+still applies, now on whichever branch(es) Jeremy actually flashes.
+
+## 2026-10-06 — Claude Code: auto-fire sequence (lock → spin-up → feed → fire), Shooter branch only
+
+Jeremy described the full desired flow: camera locks/follows target → elevation
+angle and flywheel speed both ready → Dribbler feeds a ball → fire. Full-auto
+does all of this automatically; semi-auto does everything except the final
+fire step automatically, which needs a button press.
+
+**Investigated before writing code** and found three real hardware/feedback
+gaps, not just missing software — confirmed with Jeremy how to handle each:
+1. **Elevation (Angle) closed-loop can never arm right now** —
+   `ShooterConstants::Angle::POSITION_LIMITS_CALIBRATED` is hardcoded `false`,
+   so `setAngleTargetCounts()` always fails into `disableAngle()`. Jeremy:
+   mechanical limits haven't been measured yet, will be done later. **This
+   fire sequence deliberately does not gate on angle readiness** — wire
+   `isAngleReady()` into `Auto::update()`'s `canAutoFire`/state-advance
+   checks once that calibration exists.
+2. **Flywheel (Falcon 500) has zero speed feedback** — confirmed via earlier
+   handoff entries and a fresh grep (no RPM/tachometer anywhere in `src/`):
+   the PWM command path is one-way. Jeremy: use a time-based proxy for now
+   (commanded at shoot-speed for long enough == probably spun up).
+3. **Dribbler's ball sensor is non-functional as currently wired** —
+   `PIN_DRIBBLE_DOWN` (pin 51) is set `OUTPUT` in `init()` but also
+   `digitalRead()` in `update()`, so it reads back whatever it just wrote,
+   not a real ball-presence signal. Not fixed here (separate wiring issue,
+   predates this work) — "ball fed" is also approximated by time, same
+   reasoning as the flywheel.
+
+**Added/changed:**
+- `src/Shooter/Shooter.h`/`.cpp`:
+  - `updateRotate()`'s `VISION_FOLLOW` branch: `rotateReady` used to be
+    hardcoded `false`. Now set properly — reuses the exact same settle-time
+    pattern `PROFILED_POSITION`/`CLOSED_LOOP` already use
+    (`Rotate::READY_SETTLE_TIME_MS`): must stay inside
+    `Rotate::VISION_DEADBAND_PX` for the settle time, not just touch it for
+    one tick, before `isRotateReady()` reports locked. No new getter needed
+    — `isRotateReady()` already existed and is reused as-is.
+  - New `isFlywheelReady()` + private `flywheelSpinStartMs`/`flywheelReady`:
+    true once the commanded flywheel output has stayed at/above
+    `Flywheel::SHOOT_COMMAND` for `Flywheel::SPIN_UP_MS`. Reset in
+    `stopAll()` too (the early-return path in `update()` when
+    `!outputsEnabled` would otherwise skip the normal reset).
+  - `Shooter::isReady()` deliberately left untouched (still hardcoded
+    `false` with its existing comment) — its intended meaning is "fully
+    ready including angle," which still isn't achievable. `Auto` checks
+    `isRotateReady() && isFlywheelReady()` directly instead, explicitly
+    excluding angle, with a comment explaining why.
+- `src/Constants/ShooterConstants.h`, `Flywheel` namespace: new
+  `SHOOT_COMMAND` (0.8, provisional open-loop spin command) and
+  `SPIN_UP_MS` (1500, provisional time-based ready threshold) — both
+  commented as unverified placeholders pending real feedback/real shots.
+- `src/Dribbler/Dribbler.h`/`.cpp`: new `setFeedAllowed(bool)` + private
+  `feedAllowed` flag. `update()`'s existing `if (shoot_pice > 0) run(); else
+  stop();` became `if (feedAllowed && shoot_pice > 0) ...` — the existing
+  (imperfect) ball-count logic is completely untouched; this only adds an
+  external gate, because without it Dribbler would start feeding the moment
+  anyone called `setShootRequest()`, regardless of whether Shooter was even
+  aimed yet.
+- `src/IO/SBUS.h`/`.cpp`: new `fireChannel` (provisionally aliases `ch2`,
+  same pattern as `modeChannel` aliasing `ch8` — both placeholders pending
+  the real keypad).
+- New `src/Constants/AutoConstants.h`: `FEED_DURATION_MS` (500),
+  `COOLDOWN_MS` (300), `FIRE_BUTTON_THRESHOLD` (1500) — all provisional.
+- New `src/Auto/Auto.h`/`.cpp` (was a completely empty placeholder file —
+  first real use of it): state machine `IDLE -> SPINNING_UP ->
+  READY_TO_FIRE -> FEEDING -> COOLDOWN -> IDLE`. Also absorbed the
+  `OperatorMode`-driven Rotate arbitration that used to live directly in
+  `main.cpp`'s `loop()` (moved here so all cross-subsystem mode decisions
+  live in one place) — full-auto/semi-auto both call
+  `Shooter::setRotateVisionFollow()`; full-manual or unhealthy vision calls
+  `Shooter::disableRotate()`, same logic as before, just relocated.
+  `READY_TO_FIRE` auto-advances in `FULL_AUTO`; in `SEMI_AUTO` it waits for
+  an edge-triggered `SBUS::fireChannel` press. Losing rotate-lock or
+  flywheel-ready while at `READY_TO_FIRE` drops back to `SPINNING_UP`.
+- `src/main.cpp`: calls `Auto::init()` in `setup()`, `Auto::update()` in
+  `loop()` (replacing the inline mode-arbitration block that moved into
+  `Auto.cpp`). Also changed `Dribbler::setShootRequest(3)` →
+  `setShootRequest(0)` at boot — now that `Auto::update()` will auto-fire
+  whenever a shot is queued and the axis is locked+spun-up, booting with 3
+  pre-queued would auto-fire three times with zero operator action.
+
+**Evidence:** `avr-g++ -fsyntax-only` against the full production
+`megaatmega2560` build (`main.cpp` pulling in every subsystem) and each
+changed/new `.cpp` individually — clean. `mega_shooter_keyboard_test` bench
+env re-verified (touches `Shooter.cpp`). Full existing native test suite
+(`directional_limit`/`pidf_controller`/`position_deceleration_profile`/
+`vision_rotate_bench_state`) and both `.cjs` page tests re-run, all pass.
+No native test added for `Auto` itself/the state machine — consistent with
+this codebase's existing pattern, `Shooter`/`Dribbler`/`SBUS` are tightly
+coupled to Arduino statics and have never had host-side unit tests either,
+only compile verification. **No `pio` build/upload, no motor power, no real
+SBUS/fire-button/Orin link tested. This has not been merged to
+`dev`/`main`/`Chassis`/`Dribbler`/`ShooterMG996` yet** — stayed on `Shooter`
+only this time; ask explicitly before repeating the earlier cross-branch
+integration for this feature.
+
+**Next Test (staged, same discipline as every prior step):** power off
+motors first. Confirm via telemetry that `Auto`'s fire-state machine
+transitions correctly with `Dribbler::setShootRequest()` set to some count:
+does it sit in IDLE with 0 queued, enter SPINNING_UP once a shot is queued
+and vision/mode allow it, reach READY_TO_FIRE only after real
+`isRotateReady()`/`isFlywheelReady()` (watch these over serial — do they
+flip at sane times, not instantly/never), and in semi-auto does it correctly
+wait at READY_TO_FIRE until `fireChannel` is pressed. Only once that's all
+confirmed sane should motor power be reconnected, with someone able to cut
+power immediately — the flywheel command magnitude, spin-up time, and feed
+duration are all unverified guesses right now.

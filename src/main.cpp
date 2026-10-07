@@ -1,7 +1,7 @@
 #include <Arduino.h>
 
-#include "IO/SBUS.h"
-#include "IO/OperatorMode.h"
+#include "Auto/Auto.h"
+#include "IO/MechLink.h"
 #include "Vision/Vision.h"
 #include "Shooter/Shooter.h"
 #include "Dribbler/Dribbler.h"
@@ -11,35 +11,30 @@
 void setup() {
     Serial.begin(115200);
 
-    SBUS::init();
+    MechLink::init();
     Vision::init();
     Shooter::init();
     Dribbler::init();
     Chassis::init();
     Telemetry::init();
+    Auto::init();
 
-    // Shooting stays disarmed until the mode and shot-confirmation flow enables it.
+    // Shooting stays disarmed until something actually requests shots.
+    // Previously defaulted to 3 -- now that Auto::update() auto-fires
+    // whenever a shot is queued and the axis is locked+spun-up, leaving
+    // this nonzero would auto-fire on every boot with no operator action.
     Dribbler::setShootRequest(0);
 }
 
 void loop() {
 
-    SBUS::update();
+    MechLink::update();
     Vision::update();
 
-    // Full-auto and semi-auto both auto-aim (they only differ once a
-    // fire-confirmation step exists, which isn't built yet) -> VISION_FOLLOW
-    // for both. Full-manual, or a vision link that isn't actually healthy,
-    // disables the axis: no manual joystick channel is wired to Rotate yet
-    // (the operator keypad doesn't exist), so defaulting to a safe disable
-    // is the conservative choice rather than guessing an unreviewed channel.
-    const OperatorMode mode = OperatorModeSelector::current();
-    const bool visionHealthy = Vision::isConnected() && Vision::isVisionReady();
-    if (mode == OperatorMode::FULL_MANUAL || !visionHealthy) {
-        Shooter::disableRotate();
-    } else {
-        Shooter::setRotateVisionFollow();
-    }
+    // Rotate mode arbitration and the auto-fire sequence both live in
+    // Auto::update() now (moved out of here 2026-10-06) so "what mode is
+    // each subsystem in" is decided in one place.
+    Auto::update();
 
     Shooter::update();
     Dribbler::update();

@@ -1,6 +1,6 @@
 #include "Chassis.h"
 #include "../Constants/Pins.h"
-#include "../IO/SBUS.h"
+#include "../IO/MechLink.h"
 
 Servo Chassis::fr;
 Servo Chassis::fl;
@@ -15,9 +15,9 @@ void Chassis::init() {
 }
 
 void Chassis::update() {
-    double vx = (SBUS::ch0 - 1500) / 500.0;
-    double vy = (SBUS::ch1 - 1500) / 500.0;
-    double w  = (SBUS::ch3 - 1500) / 500.0;
+    double vx = (MechLink::ch0 - 1500) / 500.0;
+    double vy = (MechLink::ch1 - 1500) / 500.0;
+    double w  = (MechLink::ch3 - 1500) / 500.0;
 
     double FR = vx - vy - w;
     double FL = vx + vy + w;

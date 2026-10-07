@@ -77,6 +77,12 @@ public:
     static bool isRotateReady();
     static bool areRotateSoftLimitsActive();
     static bool isReady();
+    // Time-based proxy only: no RPM/tachometer feedback exists for the
+    // Falcon 500 flywheel (PWM command path is one-way). True once the
+    // commanded output has stayed at/above Flywheel::SHOOT_COMMAND for at
+    // least Flywheel::SPIN_UP_MS. Re-verify against real shots before
+    // trusting it, and replace with real feedback if that's ever wired up.
+    static bool isFlywheelReady();
     static AngleControlMode getAngleControlMode();
     static RotateControlMode getRotateControlMode();
 
@@ -178,6 +184,8 @@ private:
     static int rightAnglePulseUs;
     static int rotatePulseUs;
     static int flywheelPulseUs;
+    static unsigned long flywheelSpinStartMs;
+    static bool flywheelReady;
     static DebouncedLimitSwitchState angleUpLimitState;
     static DebouncedLimitSwitchState angleDownLimitState;
     static DebouncedLimitSwitchState rotateLeftLimitState;

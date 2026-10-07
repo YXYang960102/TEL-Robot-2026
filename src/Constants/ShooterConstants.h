@@ -6,11 +6,14 @@
 #include "../Control/PidfController.h"
 #include "../Sensors/AnalogPositionSensor.h"
 #include "../Sensors/AS5600Encoder.h"
+#include "TuningConstants.h"
 
 namespace ShooterConstants {
 
 // Angle Constants
 namespace Angle {
+
+using namespace TuningConstants::Angle;
 
 enum class Action : int8_t {
     REVERSE = -1,
@@ -24,8 +27,6 @@ constexpr uint8_t RIGHT_SIGNAL_PIN = 26;
 constexpr int MIN_PULSE_US = 1000;
 constexpr int NEUTRAL_US = 1500;
 constexpr int MAX_PULSE_US = 2000;
-constexpr bool LEFT_INVERTED = false;
-constexpr bool RIGHT_INVERTED = true;
 constexpr ServoMotorConfig LEFT_MOTOR(
     LEFT_INVERTED,
     MIN_PULSE_US,
@@ -64,23 +65,12 @@ constexpr AS5600EncoderConfig ENCODER(
     MAX_ACCEPTED_DELTA_COUNTS,
     SENSOR_TIMEOUT_MS);
 
-// Keep position control disabled until both mechanical limits are measured.
-constexpr bool POSITION_LIMITS_CALIBRATED = false;
-constexpr long MIN_POSITION_COUNTS = 0;
-constexpr long MAX_POSITION_COUNTS = 0;
-constexpr bool FORWARD_SOFT_LIMIT_ENABLED = false;
-constexpr bool REVERSE_SOFT_LIMIT_ENABLED = false;
 constexpr PositionLimitConfig SOFT_LIMIT(
     FORWARD_SOFT_LIMIT_ENABLED,
     REVERSE_SOFT_LIMIT_ENABLED,
     MAX_POSITION_COUNTS,
     MIN_POSITION_COUNTS);
 
-constexpr double kP = 0.0;
-constexpr double kI = 0.0;
-constexpr double kD = 0.0;
-constexpr double kIZone = 0.0;
-constexpr double kFF = 0.0;
 constexpr PidfConfig PIDF(kP, kI, kD, kIZone, kFF);
 
 constexpr int MAX_CLOSED_LOOP_OFFSET_US = 80;
@@ -102,6 +92,8 @@ constexpr double FEEDFORWARD_REFERENCE = 1.0;
 // Rotate Constants
 namespace Rotate {
 
+using namespace TuningConstants::Rotate;
+
 enum class Action : int8_t {
     REVERSE = -1,
     STOP = 0,
@@ -113,7 +105,6 @@ constexpr uint8_t SIGNAL_PIN = 29;
 constexpr int MIN_PULSE_US = 1000;
 constexpr int NEUTRAL_US = 1500;
 constexpr int MAX_PULSE_US = 2000;
-constexpr bool INVERTED = false;
 constexpr ServoMotorConfig MOTOR(
     INVERTED,
     MIN_PULSE_US,
@@ -136,15 +127,6 @@ constexpr AnalogPositionSensorConfig POSITION_SENSOR(
     SENSOR_SAMPLE_PERIOD_MS,
     SENSOR_TIMEOUT_MS);
 
-constexpr bool POSITION_CALIBRATED = false;
-constexpr int LEFT_POSITION_RAW = 0;
-constexpr int CENTER_POSITION_RAW = 0;
-constexpr int RIGHT_POSITION_RAW = 0;
-constexpr double LEFT_POSITION_DEGREES = 0.0;
-constexpr double CENTER_POSITION_DEGREES = 0.0;
-constexpr double RIGHT_POSITION_DEGREES = 0.0;
-constexpr bool FORWARD_SOFT_LIMIT_ENABLED = false;
-constexpr bool REVERSE_SOFT_LIMIT_ENABLED = false;
 constexpr PositionLimitConfig SOFT_LIMIT(
     FORWARD_SOFT_LIMIT_ENABLED,
     REVERSE_SOFT_LIMIT_ENABLED,
@@ -168,11 +150,6 @@ constexpr DigitalLimitSwitchConfig RIGHT_LIMIT_SWITCH(
     LIMIT_USE_INTERNAL_PULLUP,
     LIMIT_DEBOUNCE_MS);
 
-constexpr double kP = 0.0;
-constexpr double kI = 0.0;
-constexpr double kD = 0.0;
-constexpr double kIZone = 0.0;
-constexpr double kFF = 0.0;
 constexpr PidfConfig PIDF(kP, kI, kD, kIZone, kFF);
 
 // No limit switches will be installed on the real turret mechanism (Jeremy,
@@ -195,14 +172,6 @@ constexpr bool LIMIT_SWITCHES_INSTALLED = false;
 // on the real mechanism — the bench needed its own INVERTED flipped after
 // first real-hardware test; if this is backwards here, flip Rotate::INVERTED
 // above (do not add a second inversion inside the vision-follow code path).
-constexpr int VISION_DEADBAND_PX = 20;
-constexpr int VISION_SLOW_ZONE_PX = 70;
-constexpr double VISION_CREEP_COMMAND = 0.3;
-constexpr double VISION_CRUISE_COMMAND = 0.6;
-
-constexpr double PROFILE_CRUISE_COMMAND = 1.0;
-constexpr double PROFILE_MINIMUM_APPROACH_RATIO = 0.10;
-constexpr double PROFILE_DECELERATION_FRACTION = 0.20;
 constexpr int READY_TOLERANCE_RAW = 2;
 constexpr unsigned long READY_SETTLE_TIME_MS = 100;
 constexpr unsigned long CONTROL_PERIOD_MS = 20;
@@ -218,6 +187,8 @@ constexpr double MAX_INTEGRAL_OUTPUT = 0.25;
 // Flywheel Constants
 namespace Flywheel {
 
+using namespace TuningConstants::Flywheel;
+
 enum class Action : uint8_t {
     STOP = 0,
     FORWARD = 1
@@ -227,18 +198,12 @@ constexpr uint8_t SIGNAL_PIN = 49;
 constexpr int MIN_PULSE_US = 1000;
 constexpr int NEUTRAL_US = 1500;
 constexpr int MAX_PULSE_US = 2000;
-constexpr bool INVERTED = false;
 constexpr ServoMotorConfig MOTOR(
     INVERTED,
     MIN_PULSE_US,
     NEUTRAL_US,
     MAX_PULSE_US);
 
-constexpr double kP = 0.0;
-constexpr double kI = 0.0;
-constexpr double kD = 0.0;
-constexpr double kIZone = 0.0;
-constexpr double kFF = 0.0;
 constexpr PidfConfig PIDF(kP, kI, kD, kIZone, kFF);
 
 }
@@ -258,26 +223,9 @@ static_assert(Angle::MIN_PULSE_US < Angle::NEUTRAL_US, "Invalid angle minimum PW
 static_assert(Angle::NEUTRAL_US < Angle::MAX_PULSE_US, "Invalid angle maximum PWM");
 static_assert(Rotate::MIN_PULSE_US < Rotate::NEUTRAL_US, "Invalid rotate minimum PWM");
 static_assert(Rotate::NEUTRAL_US < Rotate::MAX_PULSE_US, "Invalid rotate maximum PWM");
-static_assert(!Rotate::POSITION_CALIBRATED ||
-                  Rotate::LEFT_POSITION_RAW < Rotate::CENTER_POSITION_RAW,
-              "Rotate left calibration must be below center");
-static_assert(!Rotate::POSITION_CALIBRATED ||
-                  Rotate::CENTER_POSITION_RAW < Rotate::RIGHT_POSITION_RAW,
-              "Rotate center calibration must be below right");
-static_assert(Rotate::PROFILE_DECELERATION_FRACTION > 0.0 &&
-              Rotate::PROFILE_DECELERATION_FRACTION <= 1.0,
-              "Invalid rotate deceleration fraction");
-static_assert(Rotate::PROFILE_MINIMUM_APPROACH_RATIO >= 0.0 &&
-              Rotate::PROFILE_MINIMUM_APPROACH_RATIO <= 1.0,
-              "Invalid rotate minimum approach ratio");
-static_assert(Rotate::VISION_SLOW_ZONE_PX > Rotate::VISION_DEADBAND_PX,
-              "Vision slow zone must be outside the deadband");
-static_assert(Rotate::VISION_CREEP_COMMAND > 0.0 &&
-              Rotate::VISION_CREEP_COMMAND <= Rotate::VISION_CRUISE_COMMAND,
-              "Vision creep command must be positive and no faster than cruise");
-static_assert(Rotate::VISION_CRUISE_COMMAND > 0.0 &&
-              Rotate::VISION_CRUISE_COMMAND <= 1.0,
-              "Vision cruise command out of range");
+// Rotate calibration ordering, profile-shape, and vision-follow tuning
+// static_asserts now live in TuningConstants.h next to the values they
+// check (those values moved there; see Rotate::'s `using namespace` above).
 static_assert(Flywheel::MIN_PULSE_US < Flywheel::NEUTRAL_US, "Invalid flywheel minimum PWM");
 static_assert(Flywheel::NEUTRAL_US < Flywheel::MAX_PULSE_US, "Invalid flywheel maximum PWM");
 static_assert(
