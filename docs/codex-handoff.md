@@ -1880,3 +1880,91 @@ loaded onto hardware yet, only the already-proven bidirectional rig has.
 Once the link is confirmed, re-verify the Mega sees sane `MechLink` values
 over USB serial before reconnecting any motor power, same discipline as
 every prior step.
+
+## 2026-10-07 - Claude: Shooter branch Dashboard integration + Foxglove-
+inspired panels (Plot, State Transitions, Raw Messages)
+
+**User Request:** Jeremy asked to finish what the previous entry explicitly
+deferred — Shooter branch never had `tools/dashboard/` wiring. While
+reviewing the plan, he suggested drawing inspiration from Foxglove Studio
+(a common robotics telemetry-visualization tool); after confirming via
+questions, settled on adding three Foxglove-style panels (Raw Messages,
+Plot, State Transitions), renaming the stale "SBUS / 遙控器" panel label
+to MechLink, and keeping the existing Field Overview (map + robot marker)
+panel exactly as-is in the copy.
+
+**Changed:**
+- `src/Auto/Auto.h`: `FireState` moved from `private` to `public`
+  (behavior unchanged), new `Auto::getFireState()` getter for telemetry.
+- `src/IO/MechLink.h/.cpp`: added `sendTelemetryLine()` (Chassis branch's
+  `MechLink` already had this from the previous ELRS pass; Shooter
+  branch's didn't yet).
+- New `src/Telemetry/Telemetry.h/.cpp`: builds the dashboard's `TEL,...`
+  line every 100ms, length-17 variant (14 base fields +
+  `operator_mode,fire_state`, no pose — this branch has no chassis
+  odometry). Sends it to both USB `Serial` and `MechLink::sendTelemetryLine()`
+  (ELRS backlink to the ground-station dashboard). Dashboard's `ch2`/`ch8`
+  slots carry `MechLink::fireChannel`/`modeChannel` — this branch never had
+  independent `ch2`/`ch8` values, only their fire/mode aliases.
+- `platformio.ini`/`main.cpp`: wired in `-I src/Telemetry` and
+  `Telemetry::init()/update()`.
+- `tools/dashboard/`: copied from the **Chassis** branch's current version
+  (1481 lines, the newer "red/black tech HUD" redesign — not dev's older
+  1361-line teal/green version; diff between the two is only ~295 lines,
+  almost entirely color/visual, same `parseTelemetry`/`handleLine`/
+  `history`/panel-auto-discovery architecture). Extended `parseTelemetry()`
+  with a second, independent optional trailing field group
+  (`operator_mode,fire_state`) alongside the existing pose group
+  (`robot_x,robot_y,heading`) — each is present or absent on its own, and
+  total field count (15/17/18/20, counting the leading `"TEL"` tag)
+  disambiguates which combination a line carries without changing meaning
+  for any existing producer (`dev`/`Chassis`/`ShooterMG996` still send
+  length-18 lines). Added:
+  - **Plot** panel: scrolling multi-series line chart (tx/ty/distance,
+    checkbox per series), generalizing the existing Realtime Trace panel's
+    two hardcoded series into a configurable list.
+  - **State Transitions** panel: two color-banded timeline rows (Operator
+    Mode, Fire State) over the same packet history; muted color + caption
+    when a branch doesn't send those fields at all (same graceful-
+    degradation approach the Field panel already uses for missing
+    odometry).
+  - **Raw Messages** panel: latest raw line + a generic field name/value
+    table built from `Object.entries()` of the parsed object, so a future
+    field addition shows up here automatically.
+  - Renamed the "SBUS / 遙控器" panel's visible label to "MechLink / 遙控
+    器" (the `data-panel="sbus"` attribute itself is untouched, to avoid
+    invalidating anyone's saved `localStorage` layout).
+  - Demo generator ("模擬資料") now also emits `operator_mode`/`fire_state`
+    so the new panels are testable without hardware.
+  - `README.md` documents the new field-count table and the three panels.
+
+**Why:** Foxglove's Plot/State-Transitions/Raw-Messages panel types are
+exactly what this single-file CSV-based dashboard was missing for anything
+beyond instantaneous values — trend-over-time for numeric fields, and a
+visual timeline for the Auto fire-sequence/OperatorMode that's otherwise
+only visible by eyeballing scrolling numbers in the Serial Log. 3D/Map/
+Teleop/Audio-style Foxglove panels don't fit this flat-CSV data shape and
+weren't considered.
+
+**Evidence:** `avr-g++ -fsyntax-only` clean on the production environment
+and both bench environments (`mega_shooter_keyboard_test`,
+`mega_vision_rotate_test`); all native host tests and the `.cjs` page test
+pass. Dashboard verified live in a real browser tab (served via
+`python3 -m http.server`, not `file://` — the browser tool renders
+`file://` pages as non-interactive static snapshots, which cost real time
+to diagnose this pass): clicked "模擬資料" and confirmed all 11 panels (8
+original + 3 new) auto-registered with the drag/resize layout system, the
+Plot panel's checkboxes actually toggle lines on/off, the States panel
+cycles through all mode/fire-state colors correctly, the Raw Messages
+table lists all 19 parsed fields, and the Field panel shows live pose (not
+the "no odometry" fallback) since the demo line now exercises the
+length-20 case (pose + mode/fire-state together). No `pio` upload, no
+power, nothing driven on real hardware.
+
+**Next Test:** Real hardware test still blocked on the same STM32 firmware
+flashing this branch's prior entry already flagged. Once a real Mega is
+running this code, confirm over USB Serial that the dashboard's new State
+Transitions panel actually tracks `Auto`'s fire-state machine and
+`OperatorMode` correctly in real time (the demo-data cycling only proves
+the panel *renders* all states, not that the real encoding/decoding round-
+trips correctly end to end).
