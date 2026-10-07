@@ -230,3 +230,75 @@ is intentionally available only through the visible `Enable / 啟用` button.
 Window blur and page hiding continue to disable outputs without disconnecting.
 This update changes only the Chassis test page and documentation; the firmware
 protocol and Chassis control code are unchanged.
+
+---
+
+## 2026-10-07 - Claude: SBUS -> ELRS/CRSF (MechLink); left/right starting side
+
+**User Request:** Jeremy asked (in a session primarily about the Shooter
+branch's parameter centralization) for a left/right starting-position
+feature here on Chassis: the field has two start boxes, a keypad button
+should pick one, read at boot — and separately, before that work was
+approved, that the whole project stop using SBUS, moving all signal wiring
+into the existing `Pins.h`. The reason: last session's
+`tools/stm32_elrs_bidirectional_test` (hardware-confirmed working over
+real ELRS RF) was specifically built to carry both RC control AND the
+dashboard's `TEL,...` telemetry line over one ELRS link, replacing the
+USB-tethered dashboard connection, which can't survive the robot actually
+driving around. Deployment is two STM32 boards: operator-side
+STM32+ES900TX, robot-side STM32+ES900RX+this Mega.
+
+**Changed:**
+- `src/IO/SBUS.{h,cpp}` deleted. New `src/IO/MechLink.{h,cpp}`: same
+  public shape (`isHealthy/getFrameAgeMs/getDriveForward/getDriveTurn/
+  getDriveForwardPulseUs/getAuxiliaryPulseUs/getMechanismPulseUs/
+  getDriveTurnPulseUs/getModePulseUs`), but now parses a plain ASCII line
+  `"CH,fwd,turn,mech,aux,fire,mode\n"` arriving on `Pins.h`'s new
+  `MECH_LINK_SERIAL_PORT` (`Serial2`, same port SBUS used) from a new
+  robot-side STM32 (`tools/stm32_elrs_robot_bridge`, which decodes CRSF
+  from ES900RX) instead of decoding SBUS frames itself. Also deleted the
+  now-fully-orphaned `src/Constants/IOConstants.h` (its SBUS channel-
+  index/raw-ADC-range constants have no meaning under the new transport).
+- Added `MechLink::sendTelemetryLine()`; `Telemetry.cpp` now sends the
+  `TEL,...` line both to USB `Serial` (bench debugging, unchanged) and to
+  the robot-side STM32 for relay back to the dashboard over the ELRS
+  backlink — `tools/dashboard/` itself needs no changes.
+- New `StartingSide` enum (`Mode.h`: `LEFT`/`RIGHT`). Fixed the previously-
+  empty, leading-space-typo'd `"src/Auto/ Auto.cpp"` -> `src/Auto/Auto.cpp`
+  (also its GUID-style header guard -> `#pragma once`) to actually
+  implement the latch: `Auto::update()` reads `MechLink::getAuxiliaryPulseUs()`
+  against a threshold the first time a healthy frame arrives after boot
+  (not in `Auto::init()` itself — that runs in `setup()`, before any frame
+  exists) and locks it there. Exposed via `getStartingSide()/
+  isStartingSideLatched()`, not consumed by anything yet — the full field-
+  zone/pose system `docs/autonomous-zone-strategy.md` describes is a later
+  step. `Telemetry.cpp` prints the latched side to USB Serial for pre-match
+  operator confirmation.
+- New `src/Constants/TuningConstants.h` (`LeftDrive/RightDrive::INVERTED`,
+  `Manual` deadband/command range, the new `StartingSide::THRESHOLD_US`);
+  `ChassisConstants.h` pulls these via `using namespace` instead of
+  defining them directly. Same branch-local convention the Shooter
+  branch's own `TuningConstants.h` uses — the two are expected to combine
+  namespace-block-by-namespace-block whenever these branches are later
+  merged, not literally shared yet (the mechanisms differ too much).
+- Brought in `tools/stm32_elrs_bidirectional_test` (unchanged, moved its
+  shared `crsf.c/h` out to `tools/stm32_elrs_common/`), the new
+  `tools/stm32_elrs_robot_bridge`/`tools/stm32_elrs_ground_bridge`
+  firmwares, and `docs/elrs-architecture/` from a new `STM32-ELRS` branch
+  — see that branch's own history for the firmware design (CRSF chunking
+  for the long telemetry line, provisional ground-station control-input
+  pins, etc).
+
+**Evidence:** `avr-g++ -fsyntax-only` clean on the production environment
+and `mega_chassis_keyboard_test`. The one existing native test
+(`differential_drive_mixer_test.cpp`, unrelated) still passes. All three
+`tools/stm32_elrs_*/build.py` runs pass. No `pio` upload, no power, no
+STM32/ELRS hardware powered — static/host verification only. The
+starting-side threshold and the ground-station's control-input pins are
+explicitly placeholder values pending the real keypad.
+
+**Next Test:** Same as the Shooter branch's parallel entry today — flash
+and bench-test the two new STM32 firmwares against real ES900TX/RX
+hardware before trusting `MechLink` on this Mega at all; re-verify over
+USB serial that `MechLink`'s values and the latched `StartingSide` look
+sane before reconnecting any drive motor power.
