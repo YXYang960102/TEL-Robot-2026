@@ -1723,3 +1723,160 @@ wait at READY_TO_FIRE until `fireChannel` is pressed. Only once that's all
 confirmed sane should motor power be reconnected, with someone able to cut
 power immediately — the flywheel command magnitude, spin-up time, and feed
 duration are all unverified guesses right now.
+
+## 2026-10-07 - Claude: SBUS -> ELRS/CRSF (MechLink); tuning constants + shot
+table; Chassis left/right starting side; merged to dev/Dribbler/ShooterMG996
+
+**User Request:** Asked to centralize "changes at competition" parameters
+(Angle limits, flywheel speed, motor INVERTED flags, each mechanism's
+PIDF) into one new file, keeping rarely-changed values in each module's
+own Constants file, and to add a distance -> flywheel-command/angle shot
+table with linear interpolation (format inspired by an FRC `kShooterDataMap`
+example Jeremy pasted — only the format, not its numbers). Then, before
+approving that plan, added: a Chassis-branch left/right starting-position
+latch (field has two start boxes; a keypad button should pick one, read at
+boot); then, before approving *that* revision, added the big one: stop
+using SBUS entirely, move all signal wiring into the existing `Pins.h`,
+because "上次的ELRS測試是為了這次的所有機構與視覺通訊與資料回傳" — last
+session's `tools/stm32_elrs_bidirectional_test` bidirectional CRSF bench
+test (hardware-confirmed working over real ELRS RF two sessions ago) was
+specifically laying groundwork for this: routing both RC control and the
+dashboard's `TEL,...` telemetry line over the same ELRS link, replacing the
+USB-tethered dashboard connection, which can't survive the robot actually
+driving around at competition. Confirmed via questions: deployment is two
+separate STM32 boards (operator-side STM32+ES900TX, robot-side
+STM32+ES900RX+Mega — the bench rig's single-board setup was only a desk
+loopback test of both halves at once); the ground-station board's own
+firmware was explicitly in scope too; eventually all branches should share
+one `TuningConstants.h` convention, and yes, also centralize Chassis's own
+motor params (INVERTED/deadband/output range) this round.
+
+**Why CRSF instead of just pointing a commercial ELRS receiver's SBUS
+output at the Mega:** plain SBUS doesn't give an easy, generic telemetry
+back-channel; CRSF does. The STM32 bridge isn't needed for the downlink
+(RC) alone — it's there so the SAME RF link also carries dashboard
+telemetry back, instead of running SBUS for control and solving telemetry
+separately.
+
+**Design (full plan in the session; summary here):**
+- `tools/stm32_elrs_common/`: `crsf.c/h` moved here from
+  `stm32_elrs_bidirectional_test` (byte-identical rebuild confirmed, same
+  SHA256 as before the move — the already-RF-confirmed bench binary is
+  unchanged). Added `CRSF_FRAME_TEL_CHUNK` (a user-defined CRSF type,
+  deliberately not the real Battery type, so a future reader doesn't
+  confuse this with actual battery telemetry) + `crsf_build_tel_chunk_frame`
+  to carry pieces of the ~100-byte `TEL,...` line (a real Battery frame's
+  8-byte payload can't hold it). Added `tel_chunk_split.{c,h}` (splits a
+  line into `CRSF_TEL_CHUNK_DATA_MAX`-byte pieces) and
+  `tel_reassembler.{c,h}` (reassembles them back, any arrival order, discards
+  a partial round if a new one starts with a different chunk count). Added
+  `tel_channel_map.h`: the canonical 6-field channel assignment
+  (`TEL_CH_DRIVE_FORWARD/DRIVE_TURN/MECHANISM/AUXILIARY/FIRE/MODE`) both new
+  firmwares and every Mega branch's `MechLink` agree on — a fresh
+  assignment, not a continuation of the retired per-branch SBUS channel
+  numbering. All new logic has host tests (`gcc`, no hardware).
+- `tools/stm32_elrs_robot_bridge/` (new firmware, robot side): USART2/PA2-
+  PA3 unchanged from the bench rig, still talks to ES900RX. USART1/PA9 is
+  repurposed from the bench's half-duplex ES900TX wiring to an ordinary
+  full-duplex link to the Mega (adds PA10=USART1_RX, which the bench never
+  used). Downlink: decoded RC channels -> `"CH,fwd,turn,mech,aux,fire,
+  mode\n"` to the Mega. Uplink: the Mega's `TEL,...` line -> chunked ->
+  `CRSF_FRAME_TEL_CHUNK` frames -> ES900RX for RF relay.
+- `tools/stm32_elrs_ground_bridge/` (new firmware, operator side): USART1/
+  PA9 half-duplex to ES900TX, unchanged bring-up from the bench rig.
+  USART2/PA2-PA3 repurposed (that pair had no RX module on this board) to
+  drive an external USB-UART adapter into the dashboard laptop — exact
+  adapter pins TBD, left as the one explicit hardware unknown. Real control
+  inputs replace the bench's synthetic demo channels: ADC1 single-
+  conversion polling on PA0/PA1 (drive axes), active-low digital reads on
+  PA4-PA7 (2-bit mode switch, fire button, starting-side switch) — all
+  pins explicitly provisional, the real keypad doesn't exist yet. Scaling
+  thresholds are host-tested against the Mega-side
+  `OperatorModeConstants`/`TuningConstants::StartingSide` thresholds so
+  both ends agree. `CRSF_FRAME_TEL_CHUNK` frames arriving back get fed to
+  `TelReassembler`; a completed line goes out USART2 unchanged (plus a
+  trailing `\n`) — `tools/dashboard/` needs zero code changes.
+- **Mega side, every branch:** `SBUS` renamed to `MechLink`, keeping each
+  branch's own existing public shape (getter names/fields) so call sites
+  only needed a class-name/include swap. Parses the `"CH,..."` ASCII line
+  with the same house style `Vision.cpp` already uses (line-buffered on
+  `\n`, tag check, per-field `strtol`/range validation, timeout ->
+  neutral). Added `Pins.h`'s `MECH_LINK_SERIAL_PORT` (`Serial2`, same port
+  SBUS used) per Jeremy's "put signal wiring in Pins.h" instruction.
+  - **Shooter branch:** `MechLink` keeps `ch0/ch1/ch3/signalLost/
+    modeChannel/fireChannel`. New `src/Constants/TuningConstants.h`
+    (Angle/Rotate/Flywheel/Auto/OperatorMode/ShotTable namespaces);
+    `ShooterConstants.h` pulls values via `using namespace` per sub-
+    namespace so there's one definition each; `AutoConstants.h` retired
+    into `TuningConstants::Auto`. New `src/Control/ShotTableLookup.h`
+    (header-only, clamped linear interpolation, no extrapolation) +
+    `TuningConstants::ShotTable::TABLE` (13 placeholder entries, 2.0-8.0m
+    @0.5m steps, storing real open-loop flywheel command values — same
+    "store the real actuator number, not a fake RPM" convention
+    `all_robot_017`'s legacy tables used, confirmed with Jeremy). Wired into
+    `Auto.cpp`: `flywheelCommand` computed once per loop from
+    `Vision::getDistance()` when a target is locked, falling back to the
+    fixed `SHOOT_COMMAND` otherwise; `angleDegrees` computed but not driven
+    anywhere (Angle calibration still isn't done). New
+    `test/shot_table_lookup_test.cpp`.
+  - **Chassis branch:** new `StartingSide` enum (`Mode.h`), latched once in
+    the fixed, previously-empty `src/Auto/Auto.h/.cpp` (also fixed the
+    leading-space filename typo on `Auto.cpp` and its GUID-style header
+    guard) from `MechLink`'s auxiliary channel — *not* in `Auto::init()`
+    itself (runs in `setup()`, before any frame exists), but in the first
+    `Auto::update()` call after a healthy frame arrives. Exposed via
+    `getStartingSide()/isStartingSideLatched()`, not consumed by anything
+    yet (the field-zone/pose system `docs/autonomous-zone-strategy.md`
+    describes is a later step). `Telemetry.cpp` prints the latched side for
+    pre-match operator confirmation and also now calls
+    `MechLink::sendTelemetryLine()` to relay the `TEL,...` line to the
+    robot-side STM32 (USB `Serial.println` kept too, for bench debugging).
+    New branch-local `TuningConstants.h` (`LeftDrive/RightDrive::INVERTED`,
+    `Manual` deadband/range, the new `StartingSide::THRESHOLD_US`) that
+    `ChassisConstants.h` pulls from, same convention as Shooter's.
+  - **Dribbler/ShooterMG996 branches:** got the `MechLink` transport swap
+    only (their own existing getter shapes preserved field-for-field,
+    including each branch's own idiosyncratic raw-channel-to-role mapping,
+    now re-anchored to the new transport's semantic fields instead of the
+    old raw SBUS indices) — *not* `TuningConstants`/`ShotTableLookup`/
+    `StartingSide`, which are scoped to Shooter/Chassis's specific
+    mechanisms. ShooterMG996 additionally gained a signal-loss-> neutral
+    safeguard its old `SBUS` class never had (it silently froze at the
+    last value forever on a dropped link, unlike every other branch).
+    Dribbler's `SBUSConstants.h` renamed to `MechLinkConstants.h`
+    (dropped the now-meaningless raw-SBUS-tick-range constants).
+
+**Merge choreography:** `Shooter` -> `dev` (real conflicts: kept dev's own
+improved normalized mecanum math in `Chassis.cpp` just swapping the channel
+source; kept dev's `#pragma once` `Pins.h` modernization; combined dev's
+own `Telemetry::init/update()` calls with Shooter's `Auto`-based
+restructuring). Then the three new `tools/stm32_elrs_*` dirs + `docs/
+elrs-architecture/` copied onto `dev`/`Dribbler`/`ShooterMG996` as new
+paths (**not** a `git merge` of the `STM32-ELRS` branch itself — it forked
+from `Chassis` branch's tip and carries that branch's entire unrelated
+tank-drive/SBUS tree, which would have produced a wall of bogus conflicts
+against each target's own, different architecture). `main` deliberately
+excluded this round, per explicit instruction.
+
+**Evidence:** every branch re-verified independently after its own changes
+and again after each merge: `avr-g++ -fsyntax-only` clean on every
+production environment and every touched bench environment
+(`mega_shooter_keyboard_test`, `mega_vision_rotate_test`,
+`mega_chassis_keyboard_test`); all pre-existing native host tests and both
+`.cjs` page tests still pass; the new `shot_table_lookup_test.cpp` and all
+three `tools/stm32_elrs_*` host-test suites pass; all three new STM32
+firmwares' `build.py` (cross-compile + vector-table/image/undefined-symbol
+checks) pass, `stm32_elrs_bidirectional_test` rebuilding byte-identical to
+its pre-move SHA256. **No `pio` upload, no STM32 board powered, no ELRS
+module powered, nothing driven on real hardware anywhere in this pass** —
+this is all static/host verification. The ground-bridge's control-input
+pins, the shot table's numbers, and the starting-side threshold are all
+explicitly-flagged placeholders.
+
+**Next Test (staged):** flash+bench-test `stm32_elrs_robot_bridge` and
+`stm32_elrs_ground_bridge` on real STM32 boards with real ES900TX/RX
+modules before trusting any of this on the Mega side — neither has been
+loaded onto hardware yet, only the already-proven bidirectional rig has.
+Once the link is confirmed, re-verify the Mega sees sane `MechLink` values
+over USB serial before reconnecting any motor power, same discipline as
+every prior step.
