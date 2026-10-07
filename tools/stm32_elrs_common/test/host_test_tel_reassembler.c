@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "tel_reassembler.h"
+#include "tel_chunk_split.h"
 
 static int failures = 0;
 
@@ -14,19 +15,19 @@ static int failures = 0;
   } \
 } while (0)
 
-/* Splits `line` into CRSF_TEL_CHUNK_DATA_MAX-sized pieces, writing
-   chunkCount into *outCount. Mirrors what the robot/ground bridge main
-   loop is expected to do before calling crsf_build_tel_chunk_frame(). */
+/* Splits `line` into CRSF_TEL_CHUNK_DATA_MAX-sized pieces using the same
+   tel_chunk_split helpers the real robot-bridge firmware calls, so this
+   test exercises the actual sender-side logic rather than a parallel
+   reimplementation of it. */
 static uint8_t split_into_chunks(const char *line, uint8_t chunks[][CRSF_TEL_CHUNK_DATA_MAX],
                                   uint8_t lens[], uint8_t *outCount) {
-  size_t len = strlen(line);
-  uint8_t count = (uint8_t)((len + CRSF_TEL_CHUNK_DATA_MAX - 1) / CRSF_TEL_CHUNK_DATA_MAX);
-  if (count == 0) count = 1; /* an empty line is still one (empty) chunk */
+  uint16_t len = tel_cstrlen(line);
+  uint8_t count = tel_chunk_count(len);
   for (uint8_t c = 0; c < count; c++) {
-    size_t offset = (size_t)c * CRSF_TEL_CHUNK_DATA_MAX;
-    size_t remaining = len - offset;
-    uint8_t thisLen = (uint8_t)(remaining < CRSF_TEL_CHUNK_DATA_MAX ? remaining : CRSF_TEL_CHUNK_DATA_MAX);
-    for (uint8_t i = 0; i < thisLen; i++) chunks[c][i] = (uint8_t)line[offset + i];
+    const char *ptr;
+    uint8_t thisLen;
+    tel_chunk_slice(line, len, c, &ptr, &thisLen);
+    for (uint8_t i = 0; i < thisLen; i++) chunks[c][i] = (uint8_t)ptr[i];
     lens[c] = thisLen;
   }
   *outCount = count;
