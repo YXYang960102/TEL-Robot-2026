@@ -102,7 +102,11 @@ void Dribbler::setFeedOpenLoop(double command) {
 void Dribbler::setShootRequest(int count) {
     shootRemaining = constrain(count, Request::MIN_COUNT, Request::MAX_COUNT);
     feedCommand = 0.0;
-    ballSeenDuringRequest = false;
+    // A ball already sitting in the exit beam when the request starts is
+    // the first ball out: its blocked->clear edge must count. Seeding this
+    // from the debounced sensor state (instead of always false) keeps that
+    // ball from being skipped and the feed running on to a second ball.
+    ballSeenDuringRequest = stableSensorBlocked;
     controlMode = shootRemaining > 0
         ? DribblerControlMode::COUNTED_FEED
         : DribblerControlMode::DISABLED;

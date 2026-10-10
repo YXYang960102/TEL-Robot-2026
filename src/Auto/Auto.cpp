@@ -28,21 +28,24 @@ void Auto::enterFireState(FireState next) {
 }
 
 void Auto::update() {
+    // The armed wired Dashboard (src/IO/WiredControl.cpp) is the sole owner
+    // of every output while armed -- it can only be armed with no live RC
+    // link, so auto-fire couldn't run anyway. Stay entirely out of its way
+    // (no Rotate arbitration, no flywheel zeroing, no feed-gate writes)
+    // instead of overwriting its commands every tick.
+    if (WiredControl::isActive()) {
+        enterFireState(FireState::IDLE);
+        return;
+    }
+
     const OperatorMode mode = OperatorModeSelector::current();
     const bool visionHealthy = Vision::isConnected() && Vision::isVisionReady();
 
     // Rotate: full-auto and semi-auto both auto-aim continuously (they only
     // differ on whether firing needs a button press, handled below).
     // Full-manual, or a vision link that isn't actually healthy, disables
-    // the axis -- unless the wired Dashboard (src/IO/WiredControl.cpp) is
-    // actively driving it, added 2026-10-11 as the manual joystick channel
-    // this comment used to say didn't exist yet. WiredControl calls
-    // Shooter::setRotateOpenLoop()/setRotateVisionFollow()/disableRotate()
-    // itself (based on its own L toggle + vision health), so skip this
-    // block entirely rather than fight it.
-    if (WiredControl::isRotateAuthorityActive()) {
-        // WiredControl owns Rotate this tick.
-    } else if (mode == OperatorMode::FULL_MANUAL || !visionHealthy) {
+    // the axis.
+    if (mode == OperatorMode::FULL_MANUAL || !visionHealthy) {
         Shooter::disableRotate();
     } else {
         Shooter::setRotateVisionFollow();
@@ -66,15 +69,7 @@ void Auto::update() {
         mode != OperatorMode::FULL_MANUAL && visionHealthy && wantsToShoot;
 
     if (!canAutoFire) {
-        // Don't yank the feed permission out from under a wired F request
-        // in flight -- canAutoFire is always false with no RC signal
-        // (mode stays FULL_MANUAL), which is the normal case during wired
-        // Dashboard testing, so without this a wired F could never
-        // actually run the feed motors. See WiredControl::update(), which
-        // asserts/clears this same gate for exactly the F window.
-        if (!WiredControl::isDribblerAuthorityActive()) {
-            Dribbler::setFeedAllowed(false);
-        }
+        Dribbler::setFeedAllowed(false);
         Shooter::setFlywheelOpenLoop(0.0);
         enterFireState(FireState::IDLE);
         return;

@@ -70,6 +70,12 @@
 
     button:hover { border-color: var(--cyan); }
 
+    button:disabled,
+    input:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
     input {
       width: 100%;
       min-height: 34px;
@@ -608,6 +614,10 @@
           <div class="metric"><div class="label">rotate / angle mode / 旋轉・俯仰模式</div><div class="value" id="shooterAxisMode">--</div></div>
           <div class="metric"><div class="label">Falcon PWM / 飛輪 PWM</div><div class="value" id="falconPwm">--</div><div class="subvalue">command ratio, not RPM / 指令佔比，非轉速</div></div>
         </div>
+        <div class="stream-controls">
+          <input id="flywheelSlider" type="range" min="0" max="100" step="1" value="0" disabled aria-label="Falcon command ratio">
+          <span class="label" id="flywheelSliderValue">Falcon 指令 0%（Enter/Space/逾時自動歸零）</span>
+        </div>
       </section>
 
       <section class="panel" data-panel="stream" style="margin-top:14px">
@@ -711,6 +721,8 @@
     const demoButton = document.getElementById("demo");
     const enableButton = document.getElementById("enableControl");
     const controlArmedBadge = document.getElementById("controlArmedBadge");
+    const flywheelSlider = document.getElementById("flywheelSlider");
+    const flywheelSliderValue = document.getElementById("flywheelSliderValue");
     const layoutToggle = document.getElementById("layoutToggle");
     const layoutReset = document.getElementById("layoutReset");
     const dashboard = document.getElementById("dashboard");
@@ -755,6 +767,7 @@
     let controlArmed = false;
     let tankLeft = 0, tankRight = 0;
     let rotateAxis = 0, angleAxis = 0;
+    let flywheelRatio = 0;
     const heldKeys = new Set();
 
     const DRIBBLER_MODE_NAMES = ["disabled", "manual", "counted"];
@@ -774,10 +787,21 @@
       controlArmed = armed;
       controlArmedBadge.textContent = armed ? "enabled / 已啟用" : "disabled / 未啟用";
       enableButton.textContent = armed ? "Enabled / 輸出已啟用" : "Enable / 啟用輸出";
+      flywheelSlider.disabled = !armed;
       if (!armed) {
         tankLeft = 0; tankRight = 0; rotateAxis = 0; angleAxis = 0;
         heldKeys.clear();
+        setFlywheelSlider(0);
       }
+    }
+
+    // The firmware zeroes the flywheel on every disarm (Enter, Space,
+    // watchdog timeout, RC takeover); the slider is reset to match so it
+    // never shows a stale non-zero value that isn't actually being applied.
+    function setFlywheelSlider(ratio) {
+      flywheelRatio = ratio;
+      flywheelSlider.value = String(Math.round(ratio * 100));
+      flywheelSliderValue.textContent = `Falcon 指令 ${Math.round(ratio * 100)}%（Enter/Space/逾時自動歸零）`;
     }
 
     async function sendControl(command) {
@@ -1339,7 +1363,7 @@
       if (line.startsWith("$EVENT,")) {
         const eventName = line.slice(7).trim();
         if (eventName === "OUTPUTS_ENABLED") setControlArmed(true);
-        if (["OUTPUTS_DISABLED", "COMMAND_TIMEOUT"].includes(eventName)) setControlArmed(false);
+        if (["OUTPUTS_DISABLED", "COMMAND_TIMEOUT", "DISABLED_RC_LINK_ACTIVE"].includes(eventName)) setControlArmed(false);
         appendControlLog(eventName);
         return;
       }
@@ -1402,6 +1426,7 @@
     navigator.serial?.addEventListener("disconnect", () => disconnect());
 
     connectButton.addEventListener("click", () => {
+      connectButton.blur();
       if (port) {
         disconnect();
         return;
@@ -1532,8 +1557,10 @@
     }
 
     async function emergencyStop() {
-      await sendControl("X");
+      // Drop local armed state first so nothing else (heartbeat, a key
+      // handler) can queue a motion command behind this X.
       setControlArmed(false);
+      await sendControl("X");
     }
 
     async function emergencyDisconnect() {
@@ -1543,13 +1570,36 @@
 
     enableButton.addEventListener("click", async () => {
       heldKeys.clear();
+      // Drop focus so a later Space/Enter can't re-activate this button.
+      enableButton.blur();
       await sendControl("E");
     });
 
-    const MOVEMENT_KEYS = new Set(["w", "s", "a", "d", "arrowleft", "arrowright", "arrowup", "arrowdown"]);
+    flywheelSlider.addEventListener("input", async () => {
+      if (!controlArmed) {
+        setFlywheelSlider(0);
+        return;
+      }
+      setFlywheelSlider(Number(flywheelSlider.value) / 100);
+      await sendControl(`FLY,${flywheelRatio.toFixed(2)}`);
+    });
 
+    const MOVEMENT_KEYS = new Set(["w", "s", "a", "d", "arrowleft", "arrowright", "arrowup", "arrowdown"]);
+    const NON_TEXT_INPUT_TYPES = new Set(["range", "checkbox", "radio", "button", "submit", "reset"]);
+
+    // Only real text entry (the stream URL box, layout fields, etc.) is
+    // exempt from keyboard control; the Falcon range slider is not, so
+    // Enter/Space still stop the robot while it has focus.
     function isTypingTarget(target) {
-      return !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+      if (!target) return false;
+      if (target.tagName === "TEXTAREA" || target.isContentEditable) return true;
+      return target.tagName === "INPUT" && !NON_TEXT_INPUT_TYPES.has((target.type || "").toLowerCase());
+    }
+
+    async function sendAllAxesIfChanged() {
+      await sendTankIfChanged();
+      await sendRotateIfChanged();
+      await sendAngleIfChanged();
     }
 
     window.addEventListener("keydown", async (event) => {
@@ -1571,37 +1621,31 @@
       if (MOVEMENT_KEYS.has(key)) {
         event.preventDefault();
         heldKeys.add(key);
-        await sendTankIfChanged();
-        await sendRotateIfChanged();
-        await sendAngleIfChanged();
+        await sendAllAxesIfChanged();
         return;
       }
-      if (key === "r" && !event.repeat) {
+      if ((key === "r" || key === "f" || key === "l") && !event.repeat) {
         event.preventDefault();
-        await sendControl("R");
-        return;
-      }
-      if (key === "f" && !event.repeat) {
-        event.preventDefault();
-        await sendControl("F");
-        return;
-      }
-      if (key === "l" && !event.repeat) {
-        event.preventDefault();
-        await sendControl("L");
-        return;
+        await sendControl(key.toUpperCase());
       }
     });
 
+    // Releases are honored no matter where focus is: if focus moved into a
+    // text box while a key was held, the keyup still has to clear it, or
+    // the heartbeat would keep resending the stale direction.
     window.addEventListener("keyup", async (event) => {
-      if (isTypingTarget(event.target)) return;
       const key = event.key.toLowerCase();
-      if (!MOVEMENT_KEYS.has(key) || !heldKeys.has(key)) return;
+      if (!heldKeys.has(key)) return;
       heldKeys.delete(key);
       if (!controlArmed) return;
-      await sendTankIfChanged();
-      await sendRotateIfChanged();
-      await sendAngleIfChanged();
+      await sendAllAxesIfChanged();
+    });
+
+    // Moving focus into a text box mid-hold also releases everything held.
+    document.addEventListener("focusin", async (event) => {
+      if (!isTypingTarget(event.target) || heldKeys.size === 0) return;
+      heldKeys.clear();
+      if (controlArmed) await sendAllAxesIfChanged();
     });
 
     window.addEventListener("blur", () => { if (controlArmed) emergencyStop(); });
@@ -1609,19 +1653,20 @@
       if (document.hidden && controlArmed) emergencyStop();
     });
 
-    setInterval(async () => {
+    async function sendHeartbeat() {
       if (!port || !controlArmed) return;
-      // Resend whichever axes are actively non-neutral every tick (so a
-      // dropped packet doesn't leave a motor stuck running), same spirit
-      // as tools/chassis_keyboard_test/index.html's heartbeat; fall back
-      // to a bare keepalive when everything is centered.
-      if (tankLeft !== 0 || tankRight !== 0) await sendControl(`T,${tankLeft},${tankRight}`);
-      if (rotateAxis !== 0) await sendControl(`ROT,${rotateAxis}`);
-      if (angleAxis !== 0) await sendControl(`ANG,${angleAxis}`);
-      if (tankLeft === 0 && tankRight === 0 && rotateAxis === 0 && angleAxis === 0) {
-        await sendControl("K");
-      }
-    }, CONTROL_HEARTBEAT_MS);
+      // Resend whichever outputs are non-neutral every tick (so a dropped
+      // packet can't leave a motor stuck at an old value), falling back to
+      // a bare keepalive when everything is centered.
+      let sent = false;
+      if (tankLeft !== 0 || tankRight !== 0) { await sendControl(`T,${tankLeft},${tankRight}`); sent = true; }
+      if (rotateAxis !== 0) { await sendControl(`ROT,${rotateAxis}`); sent = true; }
+      if (angleAxis !== 0) { await sendControl(`ANG,${angleAxis}`); sent = true; }
+      if (flywheelRatio !== 0) { await sendControl(`FLY,${flywheelRatio.toFixed(2)}`); sent = true; }
+      if (!sent) await sendControl("K");
+    }
+
+    setInterval(sendHeartbeat, CONTROL_HEARTBEAT_MS);
 
     updatePanelDensity();
     drawField();

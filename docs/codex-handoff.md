@@ -1931,3 +1931,118 @@ reference/regression check, not deleted.
   PIDF vision-follow tuning is separately unfinished (see the 2026-10-10
   entry above), so `L` toggling to vision-follow is only expected to prove
   "the mode switch works safely," not "tracking is good."
+
+## 2026-10-11 — Claude Code: fixes for Codex review of e4a70a5 (wired path not yet accepted)
+
+**User Request:** Codex reviewed `e4a70a5` and did not pass it (four P1,
+one P2, several secondary items — see `inbox/claude-codex-message.md`
+"Codex review e4a70a5"). Jeremy approved the fix plan, including the
+pin-table Enable gate (and accepted that today's bench test needs the pin
+table confirmed before Enable will work).
+
+**Discussion Result:** Every Codex finding was checked against the code
+before changing anything and all were real. One extra finding while
+checking: `Shooter::setOutputsEnabled(true)` was never called anywhere in
+production, not just in the wired path — Auto's own vision-follow/flywheel
+writes had also never actually reached the outputs.
+
+**Changed:**
+- `src/IO/WiredControl.{h,cpp}` (rewritten around these rules):
+  - Firmware-side refusal: `R/F/L/T/ROT/ANG/FLY` while disarmed →
+    `$EVENT,REJECTED_DISARMED`, no state change. Disarmed `update()` also
+    stops any stray `MANUAL_OPEN_LOOP` feed (defense in depth). Fixes
+    Codex's repro (X then R → feed ran for 4s+ while disarmed).
+  - Enable/disarm now drive every subsystem: `Chassis` and
+    `Shooter::setOutputsEnabled(true/false)` + `Shooter::stopAll()`,
+    `Dribbler::stop()`, feed gate false, all commands cleared, L back to
+    manual. One `disarm(reason)` path is shared by X, watchdog, and RC
+    takeover.
+  - Enable gate: `E` is refused (`ENABLE_REJECTED_PINS_UNCONFIRMED`) while
+    `PIN_TABLE_CONFIRMED` (new, `src/Constants/Pins.h`) is false.
+  - Control source: `E` is refused while `MechLink` reports a live link
+    (`ENABLE_REJECTED_RC_LINK_ACTIVE`); an armed session disarms itself the
+    moment one appears (`DISABLED_RC_LINK_ACTIVE`). Wired and wireless never
+    drive outputs at the same time.
+  - Watchdog is checked **before** reading new bytes, so a heartbeat that
+    only arrives after the 250ms deadline can't rescue an expired session.
+  - F while a previous F is in flight → `FEED_BUSY`, no count/jam-clock
+    reset, no queueing. R still cancels a pending F (last explicit feed
+    command wins); F still interrupts R and does not resume it.
+  - New `FLY,<0..1>` flywheel command (open-loop ratio, not RPM), applied
+    every armed tick, zeroed by every disarm path.
+  - Keyboard axes are scaled for first bring-up
+    (`WiredControlConstants::CHASSIS/ROTATE/ANGLE_MANUAL_SCALE` = 0.30 /
+    0.10 / 0.10; rotate/angle match `ShooterBenchConstants`' existing
+    "limited authority" 0.10, chassis has no prior bench value).
+  - `isRotateAuthorityActive()`/`isDribblerAuthorityActive()` replaced by a
+    single `isActive()`.
+- `src/Auto/Auto.cpp`: the two per-feature skips from `e4a70a5` are gone;
+  `Auto::update()` now returns at the top (fire state → IDLE) whenever
+  `WiredControl::isActive()`. Since wired can only be armed with no RC
+  link, auto-fire couldn't run then anyway; this just stops Auto from
+  writing Rotate/flywheel/feed-gate over wired commands.
+- `src/Dribbler/Dribbler.cpp`: `setShootRequest()` seeds
+  `ballSeenDuringRequest` from the debounced exit-sensor state instead of
+  always `false`, so a ball already in the beam when F is pressed counts
+  when it leaves (previously the feed ran on to a second ball or the 3s jam
+  timeout).
+- `tools/dashboard/index.html`: Falcon range slider → `FLY,` (disabled until
+  armed, reset to 0 on every disarm/event, resent by the heartbeat while
+  non-zero); keyup always releases a held key regardless of focus, and
+  `focusin` on a text box releases everything held; only real text inputs
+  count as typing targets (the range slider doesn't, so Enter/Space still
+  work with it focused); Enable/Connect buttons blur after click so Space
+  can't re-activate them; `emergencyStop()` drops local armed state before
+  sending `X`; handles the new firmware events; dimmed `:disabled` style.
+
+**Added:**
+- `test/wired_control_test.cpp` + `test/host_stubs/` (fake Arduino
+  time/pins/Serial, recording Chassis/Shooter/Vision/MechLink): compiles the
+  **real** `WiredControl.cpp` and `Dribbler.cpp`. Built twice — with
+  `-DTEL_HOST_TEST_PIN_TABLE_CONFIRMED=true` (15 armed-path scenarios) and
+  without (gate refuses Enable). The override is a hard `#error` in any
+  `ARDUINO` build (verified). Scenarios: everything refused while disarmed;
+  X-then-R repro; stray manual feed stopped; enable/disable reach every
+  subsystem; watchdog timeout; late heartbeat can't rescue; heartbeat keeps
+  alive; RC refuses/takes over; axis scaling; FLY range/parsing + bad/
+  unknown commands; L toggle + re-enable returns to manual; single shot
+  with ball already blocking; single shot from clear beam; jam timeout with
+  busy F not restarting the clock; F interrupts R and R does not resume.
+  **Mutation-checked:** reverting each fix individually (old
+  `ballSeenDuringRequest=false`, no disarmed rejection, watchdog after read,
+  no Shooter enable, no FEED_BUSY, no RC takeover) makes the matching test
+  fail.
+- `test/dashboard_page_test.cjs`: loads the **whole** dashboard script in a
+  vm with a permissive DOM stub; covers Enable flow, W/A press+repeat+
+  release, R/F/L repeat suppression, arrows, text-box typing ignored, keyup
+  after focus moved, focusin release, slider → FLY + heartbeat resend,
+  Enter with slider focused, disarmed slider/heartbeat ignored, firmware
+  timeout/RC-takeover resets, telemetry resync, blur, Space disconnect.
+- `test/README`: exact build/run commands for every host test.
+
+**Evidence:** `platformio run` for `megaatmega2560` (RAM 25.4% 2083/8192,
+Flash 11.3% 28768/253952), `mega_shooter_keyboard_test`,
+`mega_vision_rotate_test` — all SUCCESS. All host tests above plus the
+existing native/page suite pass. Dashboard opened in a browser: control
+panel, slider, and new telemetry fields render (fed one synthetic `TEL`
+line through the page's own `handleLine`). No upload, no power, no
+hardware.
+
+**Not yet done / hardware-unverified:**
+- `PIN_TABLE_CONFIRMED` is false, so **wired Enable is refused until the
+  real pin table is checked and that constant flipped**.
+- The robot-side STM32 bridge (`tools/stm32_elrs_robot_bridge`) sends a
+  `CH,...` line to the Mega every period whether or not RF is up, so with
+  the bridge plugged into Serial2, `MechLink::signalLost` stays false and
+  wired Enable is refused (`ENABLE_REJECTED_RC_LINK_ACTIVE`). For wired
+  testing, unplug the bridge from Serial2. Making the bridge/MechLink
+  report real RF loss belongs to the wireless phase.
+- Pre-existing, not changed here: with an RC link, Auto's own Rotate/
+  flywheel/feed writes still never reach hardware because nothing enables
+  Shooter outputs in the RC path either. Needs a decision in the wireless
+  phase.
+- Manual scale values (0.30 chassis, 0.10 rotate/angle) are starting values.
+- Everything from the previous entry's hardware-unverified list still
+  applies (A/D polarity on real wiring, ExitSensor polarity, 3s jam value,
+  vision-follow quality).
+- Still deferred: wireless, final pins, file cleanup.

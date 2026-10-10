@@ -1,5 +1,23 @@
 #pragma once
 
+// Gate for the wired Dashboard's Enable command (src/IO/WiredControl.cpp):
+// stays false until the real motor/sensor pin table has been checked on the
+// robot against this file, ChassisConstants.h, DribblerConstants.h and
+// ShooterConstants.h. While false, Enable is refused, so provisional pins
+// can never be driven just because a comment says "provisional".
+//
+// TEL_HOST_TEST_PIN_TABLE_CONFIRMED exists only so the host test
+// (test/wired_control_test.cpp) can exercise the armed paths; it is a hard
+// compile error in any Arduino build, so firmware can't bypass the gate.
+#if defined(TEL_HOST_TEST_PIN_TABLE_CONFIRMED)
+#if defined(ARDUINO)
+#error "TEL_HOST_TEST_PIN_TABLE_CONFIRMED is for host tests only"
+#endif
+constexpr bool PIN_TABLE_CONFIRMED = TEL_HOST_TEST_PIN_TABLE_CONFIRMED;
+#else
+constexpr bool PIN_TABLE_CONFIRMED = false;
+#endif
+
 // Shooter
 #define PIN_ESC_HORI 29
 #define PIN_ESC_VER 27
