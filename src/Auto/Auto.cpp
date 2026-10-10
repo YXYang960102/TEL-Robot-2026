@@ -7,6 +7,7 @@
 #include "../Dribbler/Dribbler.h"
 #include "../IO/MechLink.h"
 #include "../IO/OperatorMode.h"
+#include "../IO/WiredControl.h"
 #include "../Shooter/Shooter.h"
 #include "../Vision/Vision.h"
 
@@ -33,10 +34,15 @@ void Auto::update() {
     // Rotate: full-auto and semi-auto both auto-aim continuously (they only
     // differ on whether firing needs a button press, handled below).
     // Full-manual, or a vision link that isn't actually healthy, disables
-    // the axis -- no manual joystick channel is wired to Rotate yet (the
-    // operator keypad doesn't exist), so a safe disable is the conservative
-    // choice over guessing an unreviewed channel.
-    if (mode == OperatorMode::FULL_MANUAL || !visionHealthy) {
+    // the axis -- unless the wired Dashboard (src/IO/WiredControl.cpp) is
+    // actively driving it, added 2026-10-11 as the manual joystick channel
+    // this comment used to say didn't exist yet. WiredControl calls
+    // Shooter::setRotateOpenLoop()/setRotateVisionFollow()/disableRotate()
+    // itself (based on its own L toggle + vision health), so skip this
+    // block entirely rather than fight it.
+    if (WiredControl::isRotateAuthorityActive()) {
+        // WiredControl owns Rotate this tick.
+    } else if (mode == OperatorMode::FULL_MANUAL || !visionHealthy) {
         Shooter::disableRotate();
     } else {
         Shooter::setRotateVisionFollow();
@@ -60,7 +66,15 @@ void Auto::update() {
         mode != OperatorMode::FULL_MANUAL && visionHealthy && wantsToShoot;
 
     if (!canAutoFire) {
-        Dribbler::setFeedAllowed(false);
+        // Don't yank the feed permission out from under a wired F request
+        // in flight -- canAutoFire is always false with no RC signal
+        // (mode stays FULL_MANUAL), which is the normal case during wired
+        // Dashboard testing, so without this a wired F could never
+        // actually run the feed motors. See WiredControl::update(), which
+        // asserts/clears this same gate for exactly the F window.
+        if (!WiredControl::isDribblerAuthorityActive()) {
+            Dribbler::setFeedAllowed(false);
+        }
         Shooter::setFlywheelOpenLoop(0.0);
         enterFireState(FireState::IDLE);
         return;

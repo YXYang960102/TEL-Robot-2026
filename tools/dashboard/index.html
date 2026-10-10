@@ -592,6 +592,24 @@
         </div>
       </section>
 
+      <section class="panel" data-panel="control" style="margin-top:14px">
+        <div class="section-title">
+          <span>Wired Control / 有線操控</span>
+          <span id="controlArmedBadge">disabled / 未啟用</span>
+        </div>
+        <div class="stream-controls">
+          <button id="enableControl" disabled>Enable / 啟用輸出</button>
+          <span class="label">W/S/A/D 底盤・R/F 送球・方向鍵 旋轉/俯仰・L 手動/視覺切換・Enter 停用・Space 停用並斷線</span>
+        </div>
+        <div class="grid">
+          <div class="metric"><div class="label">left / right pulse / 左右輪脈衝</div><div class="value" id="chassisPulses">--</div></div>
+          <div class="metric"><div class="label">dribbler mode / 送球模式</div><div class="value" id="dribblerMode">--</div></div>
+          <div class="metric"><div class="label">feeding / exit sensor / 送球中・出口感測</div><div class="value" id="dribblerSensor">--</div></div>
+          <div class="metric"><div class="label">rotate / angle mode / 旋轉・俯仰模式</div><div class="value" id="shooterAxisMode">--</div></div>
+          <div class="metric"><div class="label">Falcon PWM / 飛輪 PWM</div><div class="value" id="falconPwm">--</div><div class="subvalue">command ratio, not RPM / 指令佔比，非轉速</div></div>
+        </div>
+      </section>
+
       <section class="panel" data-panel="stream" style="margin-top:14px">
         <div class="section-title">
           <span>Vision Stream / 視覺串流</span>
@@ -662,14 +680,14 @@
       </section>
 
       <section class="panel" data-panel="sbus">
-        <div class="section-title"><span>SBUS / 遙控器</span><span>receiver / 接收機</span></div>
+        <div class="section-title"><span>MechLink / 無線鏈路</span><span>ELRS receiver / 接收機</span></div>
         <table>
           <tbody>
-            <tr><td>底盤左右平移 / ch0</td><td id="ch0">--</td></tr>
-            <tr><td>底盤前後移動 / ch1</td><td id="ch1">--</td></tr>
-            <tr><td>油門或預留旋鈕 / ch2</td><td id="ch2">--</td></tr>
-            <tr><td>底盤旋轉 / ch3</td><td id="ch3">--</td></tr>
-            <tr><td>模式或功能開關 / ch8</td><td id="ch8">--</td></tr>
+            <tr><td>ch0</td><td id="ch0">--</td></tr>
+            <tr><td>ch1</td><td id="ch1">--</td></tr>
+            <tr><td>mode channel / 模式開關 (ch2)</td><td id="ch2">--</td></tr>
+            <tr><td>ch3</td><td id="ch3">--</td></tr>
+            <tr><td>fire channel / 發射按鈕 (ch8)</td><td id="ch8">--</td></tr>
           </tbody>
         </table>
       </section>
@@ -687,10 +705,12 @@
   </main>
 
   <script>
-    const ids = ["tx", "ty", "distance", "targetId", "valid", "shooterReady", "shootRemaining", "warnBits", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone"];
+    const ids = ["tx", "ty", "distance", "targetId", "valid", "shooterReady", "shootRemaining", "warnBits", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "dribblerMode", "dribblerSensor", "shooterAxisMode", "falconPwm"];
     const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     const connectButton = document.getElementById("connect");
     const demoButton = document.getElementById("demo");
+    const enableButton = document.getElementById("enableControl");
+    const controlArmedBadge = document.getElementById("controlArmedBadge");
     const layoutToggle = document.getElementById("layoutToggle");
     const layoutReset = document.getElementById("layoutReset");
     const dashboard = document.getElementById("dashboard");
@@ -714,6 +734,7 @@
 
     let port;
     let reader;
+    let writer;
     let lastPacketAt = 0;
     let packetCount = 0;
     let lastRateAt = performance.now();
@@ -727,9 +748,49 @@
     const streamKey = "tel-dashboard-stream-url-v1";
     const resizeDirections = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
 
+    // Wired keyboard control (src/IO/WiredControl.cpp protocol), added for
+    // the 2026-10-11 dev integration -- see docs/codex-handoff.md.
+    const CONTROL_HEARTBEAT_MS = 75;
+    const encoder = new TextEncoder();
+    let controlArmed = false;
+    let tankLeft = 0, tankRight = 0;
+    let rotateAxis = 0, angleAxis = 0;
+    const heldKeys = new Set();
+
+    const DRIBBLER_MODE_NAMES = ["disabled", "manual", "counted"];
+    const ROTATE_MODE_NAMES = ["disabled", "manual", "profiled", "closed", "vision"];
+    const ANGLE_MODE_NAMES = ["disabled", "manual", "closed"];
+
     function setConnection(online) {
       connection.className = online ? "status ok" : "status";
       connection.lastElementChild.textContent = online ? "連線" : "離線";
+      enableButton.disabled = !online;
+      if (!online) {
+        setControlArmed(false);
+      }
+    }
+
+    function setControlArmed(armed) {
+      controlArmed = armed;
+      controlArmedBadge.textContent = armed ? "enabled / 已啟用" : "disabled / 未啟用";
+      enableButton.textContent = armed ? "Enabled / 輸出已啟用" : "Enable / 啟用輸出";
+      if (!armed) {
+        tankLeft = 0; tankRight = 0; rotateAxis = 0; angleAxis = 0;
+        heldKeys.clear();
+      }
+    }
+
+    async function sendControl(command) {
+      if (!writer) return;
+      try {
+        await writer.write(encoder.encode(`${command}\n`));
+      } catch (error) {
+        appendControlLog(`WRITE_ERROR ${error.message}`);
+      }
+    }
+
+    function appendControlLog(message) {
+      log.textContent = `${new Date().toLocaleTimeString()} ${message}\n${log.textContent}`.slice(0, 5000);
     }
 
     function setStreamStatus(state, text) {
@@ -1074,7 +1135,17 @@
         warn: Number(p[14]),
         robotX: p.length > 15 ? Number(p[15]) : NaN,
         robotY: p.length > 16 ? Number(p[16]) : NaN,
-        heading: p.length > 17 ? Number(p[17]) : NaN
+        heading: p.length > 17 ? Number(p[17]) : NaN,
+        wiredArmed: p.length > 18 ? Number(p[18]) === 1 : null,
+        leftPulseUs: p.length > 19 ? Number(p[19]) : NaN,
+        rightPulseUs: p.length > 20 ? Number(p[20]) : NaN,
+        dribblerMode: p.length > 21 ? Number(p[21]) : NaN,
+        dribblerFeeding: p.length > 22 ? Number(p[22]) === 1 : null,
+        exitSensorBlocked: p.length > 23 ? Number(p[23]) === 1 : null,
+        rotateMode: p.length > 24 ? Number(p[24]) : NaN,
+        angleMode: p.length > 25 ? Number(p[25]) : NaN,
+        falconPulseUs: p.length > 26 ? Number(p[26]) : NaN,
+        falconRatioPct: p.length > 27 ? Number(p[27]) : NaN
       };
     }
 
@@ -1109,8 +1180,34 @@
       el.ch2.textContent = data.ch2;
       el.ch3.textContent = data.ch3;
       el.ch8.textContent = data.ch8;
+      updateControlMetrics(data);
       updatePose(data);
       updateRisk(data);
+    }
+
+    function updateControlMetrics(data) {
+      if (Number.isFinite(data.leftPulseUs) && Number.isFinite(data.rightPulseUs)) {
+        el.chassisPulses.textContent = `${data.leftPulseUs} / ${data.rightPulseUs} us`;
+      }
+      if (Number.isFinite(data.dribblerMode)) {
+        el.dribblerMode.textContent = DRIBBLER_MODE_NAMES[data.dribblerMode] ?? `#${data.dribblerMode}`;
+      }
+      if (data.dribblerFeeding !== null && data.exitSensorBlocked !== null) {
+        el.dribblerSensor.textContent = `${data.dribblerFeeding ? "feeding" : "idle"} / ${data.exitSensorBlocked ? "blocked" : "clear"}`;
+      }
+      if (Number.isFinite(data.rotateMode) && Number.isFinite(data.angleMode)) {
+        el.shooterAxisMode.textContent = `${ROTATE_MODE_NAMES[data.rotateMode] ?? data.rotateMode} / ${ANGLE_MODE_NAMES[data.angleMode] ?? data.angleMode}`;
+      }
+      if (Number.isFinite(data.falconPulseUs) && Number.isFinite(data.falconRatioPct)) {
+        el.falconPwm.textContent = `${data.falconPulseUs} us (${data.falconRatioPct.toFixed(1)}%)`;
+      }
+      // The firmware is the source of truth for whether outputs are
+      // actually enabled (e.g. a watchdog timeout disables them without
+      // any click here) -- resync the button/badge to match, same pattern
+      // ChassisKeyboardTest's own page uses for $TEL-reported armed state.
+      if (data.wiredArmed !== null && data.wiredArmed !== controlArmed) {
+        setControlArmed(data.wiredArmed);
+      }
     }
 
     function updatePose(data) {
@@ -1239,6 +1336,14 @@
     }
 
     function handleLine(line) {
+      if (line.startsWith("$EVENT,")) {
+        const eventName = line.slice(7).trim();
+        if (eventName === "OUTPUTS_ENABLED") setControlArmed(true);
+        if (["OUTPUTS_DISABLED", "COMMAND_TIMEOUT"].includes(eventName)) setControlArmed(false);
+        appendControlLog(eventName);
+        return;
+      }
+
       const data = parseTelemetry(line);
       if (!data) return;
       latestData = data;
@@ -1259,25 +1364,48 @@
 
       port = await navigator.serial.requestPort();
       await port.open({ baudRate: 115200 });
+      writer = port.writable.getWriter();
       setConnection(true);
       connectButton.disabled = true;
+      connectButton.textContent = "斷線 / Disconnect";
 
       const decoder = new TextDecoderStream();
       port.readable.pipeTo(decoder.writable);
       reader = decoder.readable.getReader();
 
       let buffer = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += value;
-        const lines = buffer.split(/\r?\n/);
-        buffer = lines.pop();
-        lines.forEach(handleLine);
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += value;
+          const lines = buffer.split(/\r?\n/);
+          buffer = lines.pop();
+          lines.forEach(handleLine);
+        }
+      } finally {
+        await disconnect();
       }
     }
 
+    async function disconnect() {
+      setConnection(false);
+      connectButton.disabled = false;
+      connectButton.textContent = "連接 Arduino";
+      try { await reader?.cancel(); } catch (e) { /* already gone */ }
+      try { writer?.releaseLock(); } catch (e) { /* already gone */ }
+      writer = null;
+      try { await port?.close(); } catch (e) { /* already gone */ }
+      port = null;
+    }
+
+    navigator.serial?.addEventListener("disconnect", () => disconnect());
+
     connectButton.addEventListener("click", () => {
+      if (port) {
+        disconnect();
+        return;
+      }
       connect().catch((err) => {
         console.error(err);
         alert(err.message);
@@ -1353,6 +1481,147 @@
       packetCount = 0;
       lastRateAt = now;
     }, 1000);
+
+    // --- Wired keyboard control (W/S/A/D/R/F/L/arrows/Enter/Space) ---
+    // src/IO/WiredControl.cpp protocol, 2026-10-11 dev integration.
+
+    function tankCommand() {
+      const forward = (heldKeys.has("w") ? 1 : 0) - (heldKeys.has("s") ? 1 : 0);
+      // A = left wheel forward + right wheel backward (Jeremy's explicit
+      // intent, opposite the usual "nose" convention) -- confirm on real
+      // hardware, don't silently invert if it looks backwards.
+      const turnLeft = heldKeys.has("a") ? 1 : 0;
+      const turnRight = heldKeys.has("d") ? 1 : 0;
+      let left = forward + turnLeft - turnRight;
+      let right = forward - turnLeft + turnRight;
+      left = Math.max(-1, Math.min(1, left));
+      right = Math.max(-1, Math.min(1, right));
+      return [left, right];
+    }
+
+    function rotateCommand() {
+      return (heldKeys.has("arrowright") ? 1 : 0) - (heldKeys.has("arrowleft") ? 1 : 0);
+    }
+
+    function angleCommand() {
+      return (heldKeys.has("arrowup") ? 1 : 0) - (heldKeys.has("arrowdown") ? 1 : 0);
+    }
+
+    async function sendTankIfChanged() {
+      const [left, right] = tankCommand();
+      if (left !== tankLeft || right !== tankRight) {
+        tankLeft = left; tankRight = right;
+        await sendControl(`T,${left},${right}`);
+      }
+    }
+
+    async function sendRotateIfChanged() {
+      const value = rotateCommand();
+      if (value !== rotateAxis) {
+        rotateAxis = value;
+        await sendControl(`ROT,${value}`);
+      }
+    }
+
+    async function sendAngleIfChanged() {
+      const value = angleCommand();
+      if (value !== angleAxis) {
+        angleAxis = value;
+        await sendControl(`ANG,${value}`);
+      }
+    }
+
+    async function emergencyStop() {
+      await sendControl("X");
+      setControlArmed(false);
+    }
+
+    async function emergencyDisconnect() {
+      await sendControl("X");
+      await disconnect();
+    }
+
+    enableButton.addEventListener("click", async () => {
+      heldKeys.clear();
+      await sendControl("E");
+    });
+
+    const MOVEMENT_KEYS = new Set(["w", "s", "a", "d", "arrowleft", "arrowright", "arrowup", "arrowdown"]);
+
+    function isTypingTarget(target) {
+      return !!target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable);
+    }
+
+    window.addEventListener("keydown", async (event) => {
+      if (isTypingTarget(event.target)) return;
+      const key = event.key.toLowerCase();
+
+      if (key === "enter") {
+        event.preventDefault();
+        if (!event.repeat) await emergencyStop();
+        return;
+      }
+      if (key === " ") {
+        event.preventDefault();
+        if (!event.repeat) await emergencyDisconnect();
+        return;
+      }
+      if (!controlArmed) return;
+
+      if (MOVEMENT_KEYS.has(key)) {
+        event.preventDefault();
+        heldKeys.add(key);
+        await sendTankIfChanged();
+        await sendRotateIfChanged();
+        await sendAngleIfChanged();
+        return;
+      }
+      if (key === "r" && !event.repeat) {
+        event.preventDefault();
+        await sendControl("R");
+        return;
+      }
+      if (key === "f" && !event.repeat) {
+        event.preventDefault();
+        await sendControl("F");
+        return;
+      }
+      if (key === "l" && !event.repeat) {
+        event.preventDefault();
+        await sendControl("L");
+        return;
+      }
+    });
+
+    window.addEventListener("keyup", async (event) => {
+      if (isTypingTarget(event.target)) return;
+      const key = event.key.toLowerCase();
+      if (!MOVEMENT_KEYS.has(key) || !heldKeys.has(key)) return;
+      heldKeys.delete(key);
+      if (!controlArmed) return;
+      await sendTankIfChanged();
+      await sendRotateIfChanged();
+      await sendAngleIfChanged();
+    });
+
+    window.addEventListener("blur", () => { if (controlArmed) emergencyStop(); });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden && controlArmed) emergencyStop();
+    });
+
+    setInterval(async () => {
+      if (!port || !controlArmed) return;
+      // Resend whichever axes are actively non-neutral every tick (so a
+      // dropped packet doesn't leave a motor stuck running), same spirit
+      // as tools/chassis_keyboard_test/index.html's heartbeat; fall back
+      // to a bare keepalive when everything is centered.
+      if (tankLeft !== 0 || tankRight !== 0) await sendControl(`T,${tankLeft},${tankRight}`);
+      if (rotateAxis !== 0) await sendControl(`ROT,${rotateAxis}`);
+      if (angleAxis !== 0) await sendControl(`ANG,${angleAxis}`);
+      if (tankLeft === 0 && tankRight === 0 && rotateAxis === 0 && angleAxis === 0) {
+        await sendControl("K");
+      }
+    }, CONTROL_HEARTBEAT_MS);
 
     updatePanelDensity();
     drawField();

@@ -5,15 +5,11 @@
 #define PIN_ESC_VER 27
 #define PIN_FALCON 49
 
-// Dribbler
-#define PIN_DRIBBLE_UP 2
-#define PIN_DRIBBLE_DOWN 51
-
-// Chassis
-#define PIN_FR 39
-#define PIN_FL 38
-#define PIN_BR 40
-#define PIN_BL 41
+// Chassis and Dribbler pins moved to their own Constants files
+// (ChassisConstants.h / DribblerConstants.h) as part of the 2026-10-11
+// dev integration -- see docs/codex-handoff.md. Pins 40/41 (old BR/BL)
+// are unused now that the chassis is two active wheels + passive casters,
+// not four mecanum wheels; left free for the final pin table.
 
 // Sensors
 #define PIN_SAFE 28

@@ -401,6 +401,10 @@ int Shooter::getFlywheelPulseUs() {
     return flywheelPulseUs;
 }
 
+double Shooter::getFlywheelCommand() {
+    return flywheelOpenLoopCommand;
+}
+
 double Shooter::getAngleControllerOutput() {
     return angleControllerOutput;
 }

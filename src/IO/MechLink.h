@@ -1,5 +1,7 @@
 #pragma once
 
+#include <Arduino.h>
+
 // Replaces SBUS.h/.cpp. The Mega no longer parses SBUS: a dedicated STM32
 // (tools/stm32_elrs_robot_bridge) decodes CRSF from the ES900RX radio
 // module and forwards a plain ASCII line

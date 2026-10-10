@@ -2,8 +2,10 @@
 
 #include <Arduino.h>
 
+#include "../Chassis/Chassis.h"
 #include "../Dribbler/Dribbler.h"
-#include "../IO/SBUS.h"
+#include "../IO/MechLink.h"
+#include "../IO/WiredControl.h"
 #include "../Shooter/Shooter.h"
 #include "../Vision/Vision.h"
 
@@ -44,19 +46,52 @@ void Telemetry::update() {
     Serial.print(",");
     Serial.print(Vision::isValid() ? 1 : 0);
     Serial.print(",");
-    Serial.print(SBUS::ch0);
+    // MechLink replaced SBUS (see src/IO/MechLink.h) -- it only exposes
+    // ch0/ch1/ch3 plus the dedicated modeChannel/fireChannel, not a ch2/ch8
+    // pair, so those two slots are repurposed rather than left as stale
+    // SBUS field names (which no longer even compiled, see
+    // docs/codex-handoff.md 2026-10-11).
+    Serial.print(MechLink::ch0);
     Serial.print(",");
-    Serial.print(SBUS::ch1);
+    Serial.print(MechLink::ch1);
     Serial.print(",");
-    Serial.print(SBUS::ch2);
+    Serial.print(MechLink::modeChannel);
     Serial.print(",");
-    Serial.print(SBUS::ch3);
+    Serial.print(MechLink::ch3);
     Serial.print(",");
-    Serial.print(SBUS::ch8);
+    Serial.print(MechLink::fireChannel);
     Serial.print(",");
     Serial.print(Shooter::isReady() ? 1 : 0);
     Serial.print(",");
     Serial.print(Dribbler::getShootRemaining());
     Serial.print(",");
-    Serial.println(warn);
+    Serial.print(warn);
+    Serial.print(",");
+    // robotX,robotY,heading: no odometry source exists yet. Printed as
+    // literal NaN (not left empty) so the dashboard's
+    // Number.isFinite(...) pose check reads false, not a false "at 0,0".
+    Serial.print("NaN,NaN,NaN,");
+    // Wired Dashboard + Chassis/Dribbler/Shooter manual-control fields,
+    // added for the 2026-10-11 dev integration (docs/codex-handoff.md).
+    Serial.print(WiredControl::isArmed() ? 1 : 0);
+    Serial.print(",");
+    Serial.print(Chassis::getLeftPulseUs());
+    Serial.print(",");
+    Serial.print(Chassis::getRightPulseUs());
+    Serial.print(",");
+    Serial.print(static_cast<int>(Dribbler::getControlMode()));
+    Serial.print(",");
+    Serial.print(Dribbler::isFeeding() ? 1 : 0);
+    Serial.print(",");
+    Serial.print(Dribbler::isExitSensorBlocked() ? 1 : 0);
+    Serial.print(",");
+    Serial.print(static_cast<int>(Shooter::getRotateControlMode()));
+    Serial.print(",");
+    Serial.print(static_cast<int>(Shooter::getAngleControlMode()));
+    Serial.print(",");
+    Serial.print(Shooter::getFlywheelPulseUs());
+    Serial.print(",");
+    // Command ratio, not RPM -- this Falcon 500 has no speed feedback on
+    // this PWM path (see Shooter.h's getFlywheelCommand() comment).
+    Serial.println(Shooter::getFlywheelCommand() * 100.0, 1);
 }

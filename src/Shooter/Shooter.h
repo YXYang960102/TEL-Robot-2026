@@ -96,6 +96,12 @@ public:
     static int getRightAnglePulseUs();
     static int getRotatePulseUs();
     static int getFlywheelPulseUs();
+    // The open-loop command actually driving the flywheel, 0.0-1.0. Added
+    // for the Dashboard's Falcon display (2026-10-11 dev integration) --
+    // deliberately a command ratio, not an RPM: no tachometer/speed
+    // feedback exists for this Falcon 500 (see isFlywheelReady()'s comment
+    // above), so a ratio is the only honest thing to show.
+    static double getFlywheelCommand();
     static double getAngleControllerOutput();
     static double getAngleVelocityCountsPerSecond();
     static double getAngleProportionalTerm();

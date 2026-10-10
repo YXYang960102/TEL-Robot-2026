@@ -24,6 +24,20 @@
 // the same way ShooterConstants.h/Pins.h conflicts were resolved earlier.
 namespace TuningConstants {
 
+namespace LeftDrive {
+constexpr bool INVERTED = false;
+}
+
+namespace RightDrive {
+constexpr bool INVERTED = false;
+}
+
+namespace Manual {
+constexpr double COMMAND_DEADBAND = 0.04;
+constexpr double MIN_COMMAND = -1.0;
+constexpr double MAX_COMMAND = 1.0;
+}
+
 namespace Angle {
 
 constexpr bool LEFT_INVERTED = false;

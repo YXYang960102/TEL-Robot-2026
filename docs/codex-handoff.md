@@ -1723,3 +1723,211 @@ wait at READY_TO_FIRE until `fireChannel` is pressed. Only once that's all
 confirmed sane should motor power be reconnected, with someone able to cut
 power immediately — the flywheel command magnitude, spin-up time, and feed
 duration are all unverified guesses right now.
+
+## 2026-10-11 — Claude Code: wired dev integration (Chassis/Dribbler merged into dev, new WiredControl USB Dashboard protocol, wireless/final pins deferred)
+
+**User Request:** Codex's 2026-10-11 handoff (`inbox/claude-codex-message.md`)
+asked for `dev` to become the official competition architecture by merging
+`Shooter`/`Chassis`/`Dribbler`'s bench work in, with a USB-direct PC
+Dashboard keyboard layer (W/S/A/D chassis, R/F feed, arrow-key
+Rotate/Angle jog, L manual/vision-follow toggle, Enter/Space semantics),
+listing deletion candidates before deleting, and explicitly deferring
+wireless (dual-STM32/ELRS) and final pin assignments. Jeremy scoped this
+round to wired-only ("先做有線的部分，無線跟 pin 配置等你明天給資料"),
+confirmed the real ball sensor is a break-beam matching `Dribbler`
+branch's `ExitSensor` design, and after reviewing the feed-mechanism test
+video (`2u4uYxGWIXyhUO-BA1XwYuZ36QUG2A_GpggLlCAceVY.MP4`, 6 motors — 2
+horizontal collector + 4 vertical pinch-feed, all one logical group)
+confirmed F forcibly interrupts a running R (switches to single-shot, does
+not resume R afterward) with a 3-second jam timeout as a starting value.
+
+**Discussion Result:** Full plan written and approved via plan mode
+(`/Users/jeremy/.claude/plans/optimized-foraging-bumblebee.md`) before any
+file was touched. Not a wholesale branch-file copy — `dev`'s own
+`Chassis.cpp`/`Dribbler.cpp` were still the pre-merge versions (four-wheel
+mecanum mixing; the pin-51-double-duty sensor/output bug), and two
+additional pre-existing problems were found during this integration that
+had nothing to do with any branch merge: `Telemetry.cpp` referenced a
+deleted `SBUS::ch0..ch8` (the file would not compile at all), and
+`src/IO/MechLink.h` used `String` without including `<Arduino.h>` itself
+(silently relied on whichever `.cpp` happened to include it first in some
+other order — `OperatorMode.cpp`/`MechLink.cpp` both failed to compile
+standalone). Both are fixed as part of this integration; `pio run -e
+megaatmega2560` had apparently never actually been run to completion
+before this, only bench environments.
+
+**Why:** `dev` needs to be a real, buildable competition baseline, not a
+loose collection of divergent branch snapshots, and the Dashboard needed
+an actual command-sending capability (it was read-only telemetry before —
+`port.readable.pipeTo(...)` with no `getWriter()` anywhere) before any
+wired keyboard layer could exist at all.
+
+**Changed:**
+- `src/Chassis/Chassis.{h,cpp}`: replaced with the `Chassis` branch's
+  two-wheel differential drive (`setOpenLoop`/`setTankOpenLoop`/
+  `setOutputsEnabled`/`stop()`), dropping the old four-servo
+  `vx/vy/w` mecanum mixing that read `MechLink` channels directly. New
+  `src/Chassis/DifferentialDriveMixer.h` ported alongside it (used by
+  `setOpenLoop`, not by the new wired tank command, which calls
+  `setTankOpenLoop` directly to keep A/D's sign unambiguous — see below).
+- `src/Dribbler/Dribbler.{h,cpp}`: replaced the pin-51-double-duty version
+  with the `Dribbler` branch's `ExitSensor`(pin 45, active-low, 8ms
+  debounce)/`Feeder`/`DribblerControlMode` design, **plus** two additions
+  the branch didn't have: (1) `setFeedAllowed(bool)` restored/kept so
+  `Auto.cpp`'s existing auto-fire permission-gate call sites don't change,
+  gating only `COUNTED_FEED` (not `MANUAL_OPEN_LOOP`, which wired R uses
+  and isn't gated by Auto at all); (2) a 3-second jam timeout
+  (`DribblerConstants::Jam::TIMEOUT_MS`) — `COUNTED_FEED` mode had no
+  timeout at all before, a stuck/missing sensor would have run the feed
+  motors forever. `Feeder` now fans a single command out to
+  `Feeder::CHANNEL_COUNT` PWM/enable pin pairs instead of assuming exactly
+  one motor (see "Not yet done" below — still only 1 channel wired today).
+- `src/Telemetry/Telemetry.cpp`: fixed the dead `SBUS::ch0..ch8`
+  references to `MechLink::ch0/ch1/modeChannel/ch3/fireChannel` (repurposing
+  the old ch2/ch8 slots since MechLink doesn't expose a literal ch2/ch8),
+  appended new trailing fields (wired-armed, chassis L/R pulse-us, dribbler
+  mode/feeding/exit-sensor, Shooter rotate/angle mode, Falcon pulse-us +
+  **command ratio** — deliberately not RPM, this Falcon has no speed
+  feedback on this PWM path). `tools/dashboard/index.html`'s
+  `parseTelemetry()` treats all new fields as optional (`p.length > N`),
+  same pattern the existing robotX/robotY/heading fields already used, so
+  older/partial telemetry doesn't break the page.
+- `src/IO/MechLink.h`: added the missing `#include <Arduino.h>` (pre-existing
+  bug, see above).
+- `src/Auto/Auto.cpp`: two small, explicit, well-contained changes — (1)
+  `WiredControl::isRotateAuthorityActive()` skips Auto's own
+  disableRotate()/setRotateVisionFollow() arbitration for one tick when
+  the wired Dashboard is armed, since `WiredControl` now calls those exact
+  same `Shooter` methods itself based on its own L toggle + vision health;
+  (2) `WiredControl::isDribblerAuthorityActive()` skips Auto's
+  `Dribbler::setFeedAllowed(false)` in the `!canAutoFire` branch while a
+  wired F request is in flight — otherwise a wired F could never actually
+  run the feed motors, since `canAutoFire` is always false with no RC
+  signal present (the normal case during wired-only testing), and Auto was
+  forcing that gate false every single tick. **The auto-fire state machine
+  itself (`FireState`/`canAutoFire`) is completely untouched** — `mode`
+  stays `FULL_MANUAL` with no RC link regardless of anything wired control
+  does, so auto-fire structurally cannot trigger from the wired Dashboard,
+  satisfying Codex's "L switching != starting auto-fire."
+- `src/Shooter/Shooter.{h,cpp}`: added `getFlywheelCommand()` (returns the
+  raw 0.0-1.0 open-loop command) purely for the Dashboard's honest
+  us+ratio Falcon display.
+- `src/Constants/Pins.h`: removed the stale Chassis/Dribbler `#define`s
+  (pins now live in `ChassisConstants.h`/`DribblerConstants.h`, following
+  those branches' own convention); `src/Constants/TuningConstants.h`
+  gained the `Chassis` branch's `RightDrive`/`LeftDrive`/`Manual`
+  namespaces (the file's own header comment already anticipated this
+  exact merge-by-combining-namespace-blocks).
+- `src/main.cpp`: added `WiredControl::init()`/`WiredControl::update()`,
+  the latter called right after `MechLink::update()`/`Vision::update()`
+  and before `Auto::update()`, so WiredControl's authority flags and its
+  own direct `Chassis`/`Dribbler`/`Shooter` calls are current before Auto
+  arbitrates and before each subsystem's own `update()` applies them.
+
+**Added:**
+- `src/IO/WiredControl.{h,cpp}` + `src/Constants/WiredControlConstants.h`:
+  new production module, USB `Serial` (separate hardware port from
+  `Serial2`/`MechLink`'s wireless link — nothing shared, no risk of the two
+  fighting over the same UART). Line-based protocol, same buffered-byte-
+  read/`$EVENT,`-reply shape every existing bench (`ShooterKeyboardTest`/
+  `ChassisKeyboardTest`/`VisionRotateTest`) already uses:
+  `E`/`X`/`K` (enable/disable+clear-pending/keepalive), `T,<left>,<right>`
+  (tank drive, -1..1 each), `ROT,<dir>`/`ANG,<dir>` (Rotate/Angle manual
+  jog, -1/0/1), `R` (toggle continuous feed — `MANUAL_OPEN_LOOP`, not
+  gated by Auto), `F` (single-ball request — `COUNTED_FEED`, forcibly
+  clears R first), `L` (toggle Rotate manual-jog vs vision-follow, clears
+  any pending manual jog, defaults to **manual** on boot/enable — not
+  vision-follow, since vision-follow would otherwise start driving the
+  turret the instant outputs are enabled with no explicit per-axis
+  operator action). 250ms command watchdog (`WiredControlConstants::
+  COMMAND_TIMEOUT_MS`, matching the existing bench convention) auto-
+  disables everything on silence.
+- `tools/dashboard/index.html`: was pure telemetry-receive-only before
+  (`port.readable.pipeTo(...)`, no `getWriter()` anywhere, no keyboard
+  handling at all). Added a `writer`, an Enable button (disabled until
+  connected, like every bench page), full W/S/A/D/arrows/R/F/L/Enter/Space
+  handling with `event.repeat` suppression on single-press keys, an input-
+  focus guard (`target.tagName === 'INPUT'/'TEXTAREA'`/`isContentEditable`
+  → ignore — this specific guard didn't exist on any existing bench page,
+  borrowed from `docs/elrs-architecture/system.html`'s own convention for
+  it since the Dashboard, unlike the benches, has real text inputs on the
+  same page), `window blur`/`visibilitychange` → stop, `navigator.serial`
+  `disconnect` event → clean teardown, a 75ms heartbeat that resends
+  whichever axes are non-neutral (not just a bare keepalive, so a dropped
+  packet can't leave a motor stuck), and a new Control panel showing
+  chassis pulse-us, dribbler mode/feeding/exit-sensor, Rotate/Angle mode,
+  and Falcon us+ratio.
+- `test/dashboard_control_test.cjs`: host test for the three pure command
+  functions (`tankCommand`/`rotateCommand`/`angleCommand`), extracted by
+  source text and run in a `vm` context rather than loading the whole
+  1600-line page (most of it is canvas/localStorage/drag-resize layout
+  code that runs at top-level load and isn't worth mocking for what this
+  round needs verified) — covers neutral, W/S/A/D individually (**A = left
+  wheel forward + right wheel backward**, Jeremy's explicit non-standard
+  polarity, asserted exactly so it can't silently drift), combined W+A,
+  opposing-key cancellation, and both Rotate/Angle axes.
+
+**Pending pin table (explicitly NOT final, per Jeremy — real pins come
+separately):**
+| Subsystem | Pin(s) used this round | Source |
+|---|---|---|
+| Chassis right/left drive | 39 / 38 | `Chassis` branch (reused dev's old FR/FL pins) |
+| Chassis pins 40/41 | unused | old BR/BL, free since this is 2-wheel not 4-wheel |
+| Dribbler ExitSensor | 45 | `Dribbler` branch |
+| Dribbler Feeder (6 real motors, 1 channel wired today) | PWM 2 / enable 51 | single-motor bench pins, `Feeder::CHANNEL_COUNT` ready to grow |
+
+**Cleanup candidates presented, none deleted yet** (per Codex's explicit
+"list before deleting" requirement) — old 4-wheel `Chassis.cpp`/pin-51-
+double-duty `Dribbler.cpp` logic is gone (replaced in place, not left as
+dead code); three divergent `tools/dashboard/index.html` copies across
+`dev`/`Shooter`/`Chassis` collapse to keeping only `dev`'s (now the
+official one); `tools/chassis_keyboard_test/`/`src/Bench/
+ChassisKeyboardTest.cpp` deliberately kept this round as a protocol
+reference/regression check, not deleted.
+
+**Evidence:**
+- `platformio run -e megaatmega2560` (real build+link, not syntax-only —
+  a working `pio` binary was found at
+  `~/.platformio/penv/bin/platformio`): **SUCCESS**, RAM 24.2%
+  (1986/8192B), Flash 10.5% (26718/253952B). This is the first time this
+  exact environment is known to have been built to completion; it was
+  broken (the `SBUS`/`MechLink.h` issues above) before this session even
+  started touching it.
+- `mega_shooter_keyboard_test` and `mega_vision_rotate_test` bench
+  environments re-built clean (both pull in `Shooter.cpp`, which changed).
+- Full existing native suite re-run and passing: `pidf_controller_test`,
+  `directional_limit_test`, `position_deceleration_profile_test`,
+  `shot_table_lookup_test`, `vision_rotate_bench_state_test`,
+  `vision_rotate_page_test.cjs`.
+- New `dashboard_control_test.cjs`: passing.
+- `node --check` on the extracted dashboard `<script>` block: clean.
+
+**Not yet done / hardware-unverified (explicit, not glossed over):**
+- **No `pio upload`, no power, no real hardware run of any of this.**
+  Jeremy is testing today (10/11) with a real USB-connected Mega.
+- No host test exists for `Dribbler.cpp`'s jam-timeout/sensor logic or
+  `WiredControl.cpp`'s command parsing/arbitration themselves — both are
+  tightly coupled to Arduino statics (`millis()`/`digitalRead`/
+  `digitalWrite`/`Serial`) the same way `Shooter.cpp`/the pre-merge
+  `Dribbler.cpp` always were, and neither ever had host tests on their
+  branch of origin either. Verified by compile+link success and manual
+  trace only — flagging this honestly rather than claiming coverage that
+  doesn't exist.
+- A/D chassis polarity (Jeremy's explicit literal spec: A = left wheel
+  forward + right wheel backward) is implemented exactly as specified but
+  **not confirmed against real wiring/chassis orientation** — first thing
+  to check on hardware, per Jeremy's own instruction not to silently
+  invert it if it looks wrong.
+- `ExitSensor` active-low assumption carried over from the `Dribbler`
+  branch unchanged — not re-verified against the real break-beam's actual
+  wiring/polarity.
+- Jam timeout (3000ms) is Jeremy's own confirmed starting value, open to
+  live tuning.
+- Wireless (dual-STM32/ELRS, CRSF channel/event encoding, loss-timeout
+  replay handling) and final pin assignments: **explicitly deferred**, not
+  attempted this round, per Jeremy's own scoping.
+- `Vision::isConnected()`/`isVisionReady()` gating for `L`'s vision-follow
+  path reuses the same healthy-check `Auto.cpp` already had — today's
+  PIDF vision-follow tuning is separately unfinished (see the 2026-10-10
+  entry above), so `L` toggling to vision-follow is only expected to prove
+  "the mode switch works safely," not "tracking is good."
