@@ -330,6 +330,89 @@ void testFInterruptsR() {
     assert(Dribbler::getControlMode() == DribblerControlMode::DISABLED);
 }
 
+// Codex review afed238 [P2]: the tail of an oversized line must never be
+// parsed as a command of its own (24 x 'z' then "E" used to arm).
+void testOversizedLineTailIsDiscarded() {
+    reset(SENSOR_CLEAR);
+    send(std::string(24, 'z') + "E");
+    step();
+    assert(saw("COMMAND_TOO_LONG"));
+    assert(!WiredControl::isArmed());
+    assert(!saw("OUTPUTS_ENABLED"));
+
+    // Parsing resumes cleanly on the next line.
+    send("E");
+    step();
+    assert(WiredControl::isArmed());
+
+    // Armed: an oversized line ending in a motion command does not run it,
+    // and the corrupt stream disarms everything.
+    const char* tails[] = {"R", "FLY,1", "T,1,1"};
+    for (const char* tail : tails) {
+        if (!WiredControl::isArmed()) arm();
+        Serial.output.clear();
+        send(std::string(30, 'z') + tail);
+        step();
+        assert(saw("COMMAND_TOO_LONG") && saw("DISABLED_CORRUPT_COMMAND"));
+        assert(!WiredControl::isArmed());
+        assert(!feedRunning());
+        assert(nearly(rec.flywheelCommand, 0.0) && nearly(rec.chassisLeft, 0.0));
+        assert(!saw("FEED_CONTINUOUS_ON"));
+    }
+
+    // Oversized line split across several reads still discards to '\n'.
+    arm();
+    Serial.output.clear();
+    send(std::string(10, 'z'));  // no newline yet...
+    Serial.input.pop_back();     // (drop the '\n' send() added)
+    step();
+    Serial.send(std::string(20, 'z') + "R");
+    step();
+    Serial.send("\n");
+    step();
+    assert(!saw("FEED_CONTINUOUS_ON") && !feedRunning());
+}
+
+// Codex review afed238 [P2]: strtod accepts nan/inf spellings and overflows
+// to inf; none of those may reach a command or refresh the watchdog.
+void testNonFiniteNumbersRejected() {
+    const char* bad[] = {"nan", "NaN", "NAN", "-nan", "inf", "-inf", "INF",
+                         "Infinity", "-infinity", "1e999", "-1e999"};
+    reset(SENSOR_CLEAR);
+    arm();
+    send("FLY,0.5");
+    send("ROT,1");
+    send("ANG,-1");
+    send("T,1,0");
+    step();
+    for (const char* v : bad) {
+        const std::string value(v);
+        const std::string lines[] = {"FLY," + value, "ROT," + value, "ANG," + value,
+                                     "T," + value + ",0", "T,0," + value};
+        for (const std::string& line : lines) {
+            Serial.output.clear();
+            send(line);
+            WiredControl::update();
+            assert(saw("BAD_COMMAND"));
+            assert(WiredControl::isArmed());
+        }
+    }
+    step();
+    using namespace WiredControlConstants;
+    assert(nearly(rec.flywheelCommand, 0.5));
+    assert(nearly(rec.rotateCommand, ROTATE_MANUAL_SCALE));
+    assert(nearly(rec.angleCommand, -ANGLE_MANUAL_SCALE));
+    assert(nearly(rec.chassisLeft, CHASSIS_MANUAL_SCALE) && nearly(rec.chassisRight, 0.0));
+
+    // Bad values don't count as heartbeats: only garbage for 300ms -> timeout.
+    for (int i = 0; i < 30; i++) {
+        send("FLY,nan");
+        step(10);
+    }
+    assert(saw("COMMAND_TIMEOUT"));
+    assert(!WiredControl::isArmed() && nearly(rec.flywheelCommand, 0.0));
+}
+
 #else
 
 void testEnableRefusedUntilPinTableConfirmed() {
@@ -366,6 +449,8 @@ int main() {
     testSingleShotFromClearBeam();
     testJamTimeoutAndBusyFDoesNotRestartIt();
     testFInterruptsR();
+    testOversizedLineTailIsDiscarded();
+    testNonFiniteNumbersRejected();
     printf("wired_control_test (pin table confirmed): all asserts passed\n");
 #else
     testEnableRefusedUntilPinTableConfirmed();

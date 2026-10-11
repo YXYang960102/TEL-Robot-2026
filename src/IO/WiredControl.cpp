@@ -1,5 +1,6 @@
 #include "WiredControl.h"
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -13,6 +14,7 @@
 
 char WiredControl::commandBuffer[WiredControlConstants::COMMAND_BUFFER_SIZE];
 size_t WiredControl::commandLength = 0;
+bool WiredControl::discardingLine = false;
 
 bool WiredControl::armed = false;
 bool WiredControl::everConnected = false;
@@ -33,6 +35,7 @@ bool WiredControl::singleShotPending = false;
 
 void WiredControl::init() {
     commandLength = 0;
+    discardingLine = false;
     armed = false;
     everConnected = false;
     timedOut = false;
@@ -118,17 +121,34 @@ void WiredControl::readIncomingLines() {
             continue;
         }
         if (next == '\n') {
+            if (discardingLine) {
+                // End of an oversized line: everything in it was dropped,
+                // resume parsing from the next line.
+                discardingLine = false;
+                commandLength = 0;
+                continue;
+            }
             commandBuffer[commandLength] = '\0';
             everConnected = true;
             processCommand(commandBuffer);
             commandLength = 0;
             continue;
         }
+        if (discardingLine) {
+            continue;
+        }
         if (commandLength + 1 < WiredControlConstants::COMMAND_BUFFER_SIZE) {
             commandBuffer[commandLength++] = next;
         } else {
+            // Drop the rest of this line too, so its tail (e.g. "...E") is
+            // never parsed as a fresh command. A corrupt stream while armed
+            // is treated like a lost link.
             commandLength = 0;
+            discardingLine = true;
             sendEvent("COMMAND_TOO_LONG");
+            if (armed) {
+                disarm("DISABLED_CORRUPT_COMMAND");
+            }
         }
     }
 }
@@ -255,7 +275,9 @@ bool WiredControl::parseTank(char* args, double& left, double& right) {
 bool WiredControl::parseValue(char* args, double minimum, double maximum, double& value) {
     char* end = nullptr;
     const double parsed = strtod(args, &end);
-    if (end == args || *end != '\0') {
+    // strtod also accepts "nan"/"inf" spellings and overflows to inf;
+    // constrain() can't clamp NaN, so non-finite input is rejected outright.
+    if (end == args || *end != '\0' || !isfinite(parsed)) {
         return false;
     }
     value = constrain(parsed, minimum, maximum);

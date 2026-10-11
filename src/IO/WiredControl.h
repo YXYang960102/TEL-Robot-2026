@@ -45,6 +45,7 @@ private:
 
     static char commandBuffer[WiredControlConstants::COMMAND_BUFFER_SIZE];
     static size_t commandLength;
+    static bool discardingLine;  // inside an oversized line, waiting for '\n'
 
     static bool armed;
     static bool everConnected;

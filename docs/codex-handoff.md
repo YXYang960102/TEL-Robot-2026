@@ -2046,3 +2046,53 @@ hardware.
   applies (A/D polarity on real wiring, ExitSensor polarity, 3s jam value,
   vision-follow quality).
 - Still deferred: wireless, final pins, file cleanup.
+
+## 2026-10-11 — Claude Code: fixes for Codex re-review of afed238 (three remaining items)
+
+**User Request:** Codex confirmed the previous round's fixes and listed
+three remaining items. Jeremy approved the plan and chose "stop keys win
+while armed" for the first one.
+
+**Changed:**
+- `tools/dashboard/index.html` [P1]: Enter/Space no longer get swallowed by
+  the text-box guard while armed. Previously, with R or the Falcon running
+  and focus in the stream URL box, Enter didn't disable and Space didn't
+  disconnect, and the heartbeat kept the session alive. Now while armed
+  they always stop/disconnect; while disarmed, text boxes keep normal
+  Enter/Space. Movement/R/F/L keys are still ignored in text boxes. The old
+  page-test assertion that "Enter in a text box sends nothing" (which
+  encoded the bug) was replaced.
+- `src/IO/WiredControl.{h,cpp}` [P2] oversized line: after
+  `COMMAND_TOO_LONG` the rest of the line is now discarded up to `\n`
+  (`discardingLine`), including across separate serial reads, so a tail
+  like `...E`/`...R`/`...FLY,1` is never parsed as its own command.
+  Overflow while armed also disarms (`DISABLED_CORRUPT_COMMAND`), treated
+  like a lost link.
+- `src/IO/WiredControl.cpp` [P2] non-finite numbers: `parseValue()` rejects
+  anything `!isfinite()` after `strtod` (nan/inf in any case, signed,
+  "infinity", overflow like `1e999`). Rejected values → `BAD_COMMAND`, the
+  previous command is kept, and the watchdog is not refreshed. Covers every
+  numeric entry point (`T` both fields, `ROT`, `ANG`, `FLY`).
+
+**Added tests:** `testOversizedLineTailIsDiscarded` (24 x `z` + `E`
+doesn't arm; next line parses normally; armed oversized lines ending in
+R/FLY/T don't run and disarm; overflow split across reads) and
+`testNonFiniteNumbersRejected` (11 spellings x 5 entry points, values
+unchanged, garbage-only traffic still times out) in
+`test/wired_control_test.cpp`. Page test: R + Falcon running → focus into
+the stream URL box → Enter stops (no further heartbeat); same with Space →
+stop then disconnect; disarmed Enter/Space in the box send nothing.
+
+**Evidence:** Mutation-checked: removing `isfinite`, removing the
+discard-to-newline, or removing the corrupt-stream disarm each fails its
+test; the new page test fails against the committed `afed238` HTML (Enter
+in text box sends no `X`). Codex's `/tmp/wired-review-extra.cpp` now
+prints `armed=0` / `isNaN=0` and passes. Full native + page suites pass
+(both `wired_control_test` builds). `platformio run`: `megaatmega2560`
+(RAM 2108/8192, Flash 28854/253952), `mega_shooter_keyboard_test`,
+`mega_vision_rotate_test` all SUCCESS. No upload/power/hardware.
+
+**Still open (unchanged):** `PIN_TABLE_CONFIRMED=false` refuses Enable; the
+robot STM32 bridge on Serial2 keeps `signalLost` false and also refuses
+Enable; RC-path Shooter enable; A/D and ExitSensor polarity, jam timeout,
+manual scale values on real hardware; wireless, final pins, cleanup.

@@ -1603,20 +1603,21 @@
     }
 
     window.addEventListener("keydown", async (event) => {
-      if (isTypingTarget(event.target)) return;
       const key = event.key.toLowerCase();
+      const typing = isTypingTarget(event.target);
 
-      if (key === "enter") {
+      // Stop keys win over text boxes while armed: Enter/Space must stop the
+      // robot even if focus happens to be in the stream URL box. Disarmed,
+      // text boxes keep their normal Enter/Space behavior.
+      if (key === "enter" || key === " ") {
+        if (typing && !controlArmed) return;
         event.preventDefault();
-        if (!event.repeat) await emergencyStop();
+        if (event.repeat) return;
+        if (key === "enter") await emergencyStop();
+        else await emergencyDisconnect();
         return;
       }
-      if (key === " ") {
-        event.preventDefault();
-        if (!event.repeat) await emergencyDisconnect();
-        return;
-      }
-      if (!controlArmed) return;
+      if (typing || !controlArmed) return;
 
       if (MOVEMENT_KEYS.has(key)) {
         event.preventDefault();

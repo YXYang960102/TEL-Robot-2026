@@ -72,10 +72,11 @@ vm.runInContext(script, ctx);
 
 const writes = [];
 ctx.writes = writes;
-vm.runInContext(
+const connectFakePort = () => vm.runInContext(
   'writer = { write: async (b) => writes.push(new TextDecoder().decode(b).trim()), releaseLock() {} };' +
   'port = { close: async () => {} }; reader = { cancel: async () => {} };',
   ctx);
+connectFakePort();
 
 const body = { tagName: 'BODY', type: '' };
 const key = (k, { repeat = false, target = body } = {}) =>
@@ -138,8 +139,9 @@ const last = () => writes.at(-1);
 
   // Typing in a real text box never drives the robot...
   writes.length = 0;
-  await windowHandlers.keydown(key('w', { target: elements.streamUrl }));
-  await windowHandlers.keydown(key('Enter', { target: elements.streamUrl }));
+  for (const k of ['w', 'r', 'f', 'l', 'ArrowUp']) {
+    await windowHandlers.keydown(key(k, { target: elements.streamUrl }));
+  }
   assert.equal(writes.length, 0);
   assert.equal(armed(), true);
 
@@ -212,6 +214,38 @@ const last = () => writes.at(-1);
   await windowHandlers.blur();
   assert.equal(last(), 'X');
   assert.equal(armed(), false);
+
+  // Codex review afed238 [P1]: with the feed (R) and the Falcon running,
+  // focus moves into the stream URL box -- Enter there must still stop.
+  event('OUTPUTS_ENABLED');
+  await windowHandlers.keydown(key('r'));
+  elements.flywheelSlider.value = '40';
+  await elements.flywheelSlider.handlers.input();
+  await documentHandlers.focusin({ target: elements.streamUrl });
+  writes.length = 0;
+  await windowHandlers.keydown(key('Enter', { target: elements.streamUrl }));
+  assert.equal(last(), 'X');
+  assert.equal(armed(), false);
+  assert.equal(run('flywheelRatio'), 0);
+  writes.length = 0;
+  await run('sendHeartbeat()');
+  assert.equal(writes.length, 0);  // no keepalive keeps anything alive
+
+  // Disarmed: Enter/Space in a text box are ordinary typing again.
+  await windowHandlers.keydown(key('Enter', { target: elements.streamUrl }));
+  await windowHandlers.keydown(key(' ', { target: elements.streamUrl }));
+  assert.equal(writes.length, 0);
+  assert.notEqual(run('port'), null);
+
+  // Same scenario with Space from the text box: stop, then disconnect.
+  event('OUTPUTS_ENABLED');
+  await windowHandlers.keydown(key('r'));
+  writes.length = 0;
+  await windowHandlers.keydown(key(' ', { target: elements.streamUrl }));
+  assert.equal(writes[0], 'X');
+  assert.equal(run('port'), null);
+  assert.equal(armed(), false);
+  connectFakePort();
 
   // Space: stop first, then disconnect.
   event('OUTPUTS_ENABLED');
