@@ -1,0 +1,23 @@
+{
+  "compiler": "arm-none-eabi-gcc (xPack GNU Arm Embedded GCC arm64) 12.3.1 20230626",
+  "image_base": "0x8000000",
+  "flash_method": "ROM USB DFU (BOOT0) -- see README.md; no HID bootloader assumed",
+  "uart": "USART1 PA9 TX / PA10 RX, 115200 8N1 (BRR 0x8B)",
+  "initial_stack": "0x20010000",
+  "reset_vector": "0x8000199",
+  "usart1_irq_vector": "0x8000221",
+  "systick_vector": "0x8000211",
+  "binary_bytes": 3640,
+  "sha256": "f80173da9cd6e7335df48485e2a07bb943316e421dd1f02ca1443576b8997a43",
+  "checks": [
+    "host ulink protocol + link simulation test",
+    "vector VMA/LMA at 0x08000000",
+    "Thumb handler pointers",
+    "SysTick/USART1 vectors wired",
+    "stack bounds",
+    "image size",
+    "no undefined symbols"
+  ],
+  "hardware_tested": false,
+  "flashed": false
+}

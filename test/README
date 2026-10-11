@@ -28,3 +28,9 @@ Host tests used in this repo (run from the repo root):
   g++ -std=c++17 -Wall -Wextra -Werror -I test/host_stubs \
       test/wired_control_test.cpp test/host_stubs/host_stubs.cpp src/IO/WiredControl.cpp src/Dribbler/Dribbler.cpp \
       -o /tmp/t && /tmp/t
+
+  # Standalone Mega <-> STM32 UART link test protocol (src/Bench/UartLinkTest/ulink.c):
+  # unit checks + 60 s two-endpoint simulation with drop/corrupt/late/dup/cut faults.
+  # tools/stm32_mega_uart_test/build.py runs this before cross-compiling.
+  gcc -std=c11 -Wall -Wextra -Werror -I src/Bench/UartLinkTest \
+      tools/stm32_mega_uart_test/test/host_test_ulink.c src/Bench/UartLinkTest/ulink.c -o /tmp/t && /tmp/t

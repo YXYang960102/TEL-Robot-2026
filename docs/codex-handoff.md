@@ -2096,3 +2096,80 @@ prints `armed=0` / `isNaN=0` and passes. Full native + page suites pass
 robot STM32 bridge on Serial2 keeps `signalLost` false and also refuses
 Enable; RC-path Shooter enable; A/D and ExitSensor polarity, jam timeout,
 manual scale values on real hardware; wireless, final pins, cleanup.
+
+## 2026-10-11 — Claude Code: standalone Mega <-> STM32 UART link test (before ELRS)
+
+**User Request:** Jeremy (via Codex's handoff, and confirmed directly):
+prove the STM32 and Mega can talk both ways before wiring the ELRS RX.
+Mega Serial2 D16 TX → STM32 PA10, STM32 PA9 → Mega D17, 115200 8N1;
+Orin stays on Serial1 D18/D19. The STM32 is a **new, never-flashed**
+WeAct F401CCU6 (not the earlier board). Jeremy: circuit and level shifter
+are already wired, don't re-investigate them.
+
+**Added:**
+- `src/Bench/UartLinkTest/ulink.{h,c}`: shared protocol, plain C, no libc
+  (the same file builds into the Mega sketch, the STM32 firmware and the
+  host test). ASCII lines `<body>*<CRC-8>\n`; `D` data every 100 ms from
+  each side, `A` ACK echoing run/seq/payload (an ACK never triggers an
+  ACK), `C` Mega→STM32 run start/stop, `S` STM32→Mega status every 250 ms.
+  One outstanding packet per side, 50 ms ACK timeout; only an ACK matching
+  the outstanding run+seq+payload counts; late/duplicate/wrong-payload ACKs
+  have their own counters. Receivers verify payload content and track
+  sequence gaps/duplicates. Bounded 200-byte line buffer, oversized lines
+  dropped through the next `\n`. LINK_DOWN after 5 consecutive timeouts,
+  LINK_UP after 3 consecutive successes. Explicit run start (data begins
+  only after the STM32 confirms) and drain (report only after both sides
+  stopped sending and have nothing outstanding, else NOT CONFIRMED after
+  2 s). The 100 ms cadence is this test's own; it is not the ELRS rate
+  design.
+- `src/Bench/UartLinkTest/MegaUartLinkTest.cpp` + new isolated env
+  `mega_uart_link_test` (builds only `Bench/UartLinkTest/`, so it can't
+  contend with the robot build for Serial2; serial buffers raised to 256
+  so a 1 s USB progress print can't drop Serial2 bytes — verified in the
+  ELF: `Serial`/`Serial2` objects are 0x21d bytes). USB commands
+  `RUN,<s>`, `START`, `STOP`, `STATUS`; prints progress, LINK/STM32-alive
+  events, a human-readable final report with both directions, RTT
+  min/avg/max for each side, error counters, `RESULT: PASS/FAIL`, and a
+  `$ULINK_RESULT,...` machine line.
+- `tools/stm32_mega_uart_test/`: register-level STM32 firmware (USART1
+  PA9/PA10, IRQ → 512-byte ring, hardware overrun/framing/noise and
+  ring-full counted into `bad`), clock/GPIO/USART bring-up reused from
+  `stm32_elrs_robot_bridge`, linked at **0x08000000** for the ROM USB DFU
+  bootloader (no WeAct HID bootloader assumed on a fresh board — the old
+  0x08004000 images don't apply). `build.py` runs the host test first,
+  then cross-compiles and checks vectors/stack/size/no undefined symbols
+  (adds `-fno-tree-loop-distribute-patterns` so gcc can't emit hidden
+  memset/memcpy calls under `-nostdlib`). README has the dfu-util flash
+  steps, the Mega upload/monitor commands, and the acceptance procedure.
+- `tools/stm32_mega_uart_test/test/host_test_ulink.c`: unit checks (CRC-8
+  check value 0xF4, payload) and a 1 ms-stepped simulation of both real
+  endpoints through two byte channels with per-line faults: clean 60 s
+  (M sent 600 / S received 600, S sent 601 / M received 601, zero errors,
+  drain confirmed, A-lines == D-lines), dropped data, dropped ACK,
+  corruption that breaks the format, corruption that stays well-formed
+  (only CRC catches it), late ACK, duplicate ACK, cut + reconnect
+  (LINK_DOWN, ~20 timeouts, LINK_UP, no further timeouts), stop while cut
+  (NOT CONFIRMED), lost control lines, oversized line whose tail looks
+  like `C,1,0`, wrong run / wrong role.
+
+**Evidence:** host test passes; mutation-checked (removing CRC check,
+discard-to-newline, outstanding-match for ACKs, D payload verification,
+drain condition, or making stale ACKs trigger an ACK each fails a test —
+the CRC mutation initially slipped through, which is why the well-formed
+corruption test exists). `build.py`: 3640-byte image, vectors at
+0x08000000, SysTick/USART1 wired, no undefined symbols, sha256
+f80173da…7a43. `platformio run`: `mega_uart_link_test` SUCCESS (RAM 1583/8192);
+`megaatmega2560`, `mega_shooter_keyboard_test`, `mega_vision_rotate_test`
+still SUCCESS. **Not flashed, not run on hardware.**
+
+**Next Test (Jeremy, on the bench):** flash STM32 via ROM DFU and the Mega
+env (README), confirm `STM32_STATUS_RECEIVED`, `RUN,60` → expect ~600 each
+way and `RESULT: PASS`; then `START`, pull one signal wire → `LINK_DOWN`,
+replug → `LINK_UP`, `STOP`. Paste the report back. ELRS RX only after this
+passes on real hardware.
+
+**Side note (pre-existing, not changed):** a full rebuild shows
+`division by zero` warnings at `src/Shooter/Shooter.cpp:946/953`
+(`rotateRawToDegrees`, from `a720ac0`): the rotate calibration raw values
+are all still 0, so the denominators are constant zero. Needs a guard or
+real calibration values; out of scope here.
