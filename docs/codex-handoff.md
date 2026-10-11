@@ -2173,3 +2173,56 @@ passes on real hardware.
 (`rotateRawToDegrees`, from `a720ac0`): the rotate calibration raw values
 are all still 0, so the denominators are constant zero. Needs a guard or
 real calibration values; out of scope here.
+
+## 2026-10-11 — Claude Code: UART link test hardware results (Jeremy ran it, 9d6aa12)
+
+**Flash:** STM32 (fresh WeAct F401CCU6) entered ROM DFU (`0483:df11`, alt 0
+`@Internal Flash /0x08000000`) after Jeremy fixed the USB data connection;
+`dfu-util -a 0 -s 0x08000000:leave -D stm32f401cc_mega_uart_test.bin` →
+`Download done`, 3640 bytes (sha256 f80173da… matches `verification.json`).
+The initial `dfuERROR ... firmware is corrupt` was the blank chip before
+download; `Invalid DFU suffix` is because a raw .bin was used. Mega flashed
+with `pio run -e mega_uart_link_test -t upload`.
+
+**Monitor note:** `pio device monitor` sends keystrokes one by one without
+echo; the first `RUN,60` attempt arrived as `UNKNOWN_COMMAND` (likely a typo
+the operator couldn't see). Use
+`pio device monitor -e mega_uart_link_test --echo --filter send_on_enter`.
+
+**60 s run (run 1636) — PASS:**
+```
+duration_ms=60000  drain=confirmed (STM32 final counters)
+Mega->STM32: sent=600 acked=600 timeout=0 lateAck=0 dupAck=0 badAck=0 | received=600 lost(gap)=0 dup=0
+STM32->Mega: sent=604 acked=604 timeout=0 lateAck=0 dupAck=0 badAck=0 | received=604 lost(gap)=0 dup=0
+RTT seen by Mega:  min=4 avg=5.19 max=9 ms
+RTT seen by STM32: min=3 avg=5.27 max=9 ms
+line errors: Mega bad=0 overflow=0 | STM32 bad=0 overflow=0
+RESULT: PASS
+$ULINK_RESULT,1636,60000,1,1,600,600,0,0,0,0,600,0,0,604,604,0,0,0,0,604,0,0,0,0,0,0,4,9,3111,3,9,3183
+```
+Observation: the STM32 sent 604 in the Mega's 60 s, and the lead grew
+during the run (+2 by 28 s, +4 by 55 s) — its 16 MHz HSI is running ~0.6 %
+fast relative to the Mega (within HSI's ±1 % factory spec). Harmless at
+115200 here (zero errors), but it adds to the nominal +0.25 % BRR error of
+the 420000-baud ES900RX link in the ELRS firmware, which also runs on HSI.
+Worth considering the board's HSE crystal before/while doing ELRS.
+
+**Disconnect/recover (run 38824):** signal wires are soldered and can't be
+unplugged, so Jeremy chose to hold the STM32's NRST for ~3 s mid-run (real
+"peer disappears" event; no code change). Result: LINK_DOWN at t=12753 ms
+(5 consecutive timeouts), STM32_SILENT ~1 s later, 30 timeouts total during
+the hold, none counted as success; after release STM32_STATUS_RECEIVED and
+LINK_UP at t=15508 ms, Mega timeouts stayed at 30 for the remaining ~19 s,
+every Mega packet acked again (RTT avg 5.15 ms). STM32→Mega had received 124
+with 0 gaps before the reset. `Mbad=1`: one partial/garbled line from the
+reset moment, rejected by CRC. Report shows `drain=NOT CONFIRMED`,
+`RESULT: FAIL`, `S>M=0/0` — expected: the rebooted STM32 doesn't rejoin the
+run, so its counters restart and it stops sending data.
+
+**Not verified:** STM32→Mega recovery after a real outage (the reset
+approach can't show it; would need a rejoin feature or a software CUT
+command), a physical wire break (soldered), behavior over longer runs.
+
+**Next:** per Codex's gate, the wired Mega↔STM32 link has passed on real
+hardware for the 60 s and outage-detection checks above; ELRS RX is the next
+stage once Codex reviews 9d6aa12 and these results.
