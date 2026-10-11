@@ -16,6 +16,10 @@ struct Recorder {
     double rotateCommand = 0.0;
     double angleCommand = 0.0;
     double flywheelCommand = 0.0;
+    unsigned long statusCount = 0;
+    uint8_t statusFlags = 0;
+    unsigned long statusSeq = 0;
+    uint16_t statusCode = 0;
 };
 
 extern Recorder rec;

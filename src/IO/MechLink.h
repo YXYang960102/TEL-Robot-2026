@@ -2,40 +2,43 @@
 
 #include <Arduino.h>
 
-// Replaces SBUS.h/.cpp. The Mega no longer parses SBUS: a dedicated STM32
-// (tools/stm32_elrs_robot_bridge) decodes CRSF from the ES900RX radio
-// module and forwards a plain ASCII line
-//   "CH,fwd,turn,mech,aux,fire,mode\n"
-// over Pins.h's MECH_LINK_SERIAL_PORT. Field order/meaning is
-// tools/stm32_elrs_common/src/tel_channel_map.h's TEL_CH_* assignment.
-// This class keeps the same public shape the old SBUS class had
-// (ch0/ch1/ch3/signalLost/modeChannel/fireChannel) so call sites only
-// needed a class-name/include change, not a logic change.
+#include "RcControlMap.h"
+
+// Wireless link to the robot-side STM32 bridge (tools/stm32_elrs_robot_bridge)
+// on Pins.h's MECH_LINK_SERIAL_PORT.
+//
+// Downlink: the bridge forwards the decoded CRSF channels as
+//   "RC,c1,c2,...,c9\n"   (pulse microseconds, table in RcControlMap.h)
+// and goes silent when the ELRS link drops, so "no valid line for
+// LINE_TIMEOUT_MS" is the RF-loss signal (signalLost).
+//
+// Uplink: sendStatus() writes "ST,flags,seq,code\n" back to the bridge,
+// which packs it into a CRSF Battery frame for the ground station.
 class MechLink {
 public:
     static void init();
     static void update();
 
-    // driveForward, driveTurn, auxiliary (pulse-us convention, same
-    // 1000-2000us-ish range the retired SBUS fields of the same name used).
-    // Consumed by the mecanum mixing in Chassis.cpp.
-    static int ch0, ch1, ch3;
+    // Latest valid channel values (us), neutral/safe while signalLost.
+    static int channels[RCMAP_CHANNEL_COUNT];
 
-    // True until the first valid "CH,..." line ever arrives, and again
-    // whenever one hasn't arrived recently -- mirrors the old SBUS class's
-    // fail-safe behavior (lost_frame/failsafe/timeout all meant the same
-    // thing: do not trust these values for autonomous motion).
+    // Increments once per valid RC line, so a consumer can process each
+    // received frame exactly once.
+    static unsigned long frameCount;
+
+    // True until the first valid line ever arrives, and again whenever one
+    // hasn't arrived for LINE_TIMEOUT_MS.
     static bool signalLost;
 
-    // Dedicated operator-mode switch input (full-auto/semi-auto/full-manual
-    // keypad). Provisional: the real keypad doesn't exist yet, see
-    // tools/stm32_elrs_ground_bridge/README.md.
+    // OperatorMode / Auto inputs. modeChannel is CH4 (the ground sends
+    // FULL_MANUAL for now); there is no wireless fire-confirm channel, so
+    // fireChannel stays released.
     static int modeChannel;
-
-    // Momentary fire-confirm button (semi-auto only, see Auto::update()).
     static int fireChannel;
 
+    static void sendStatus(uint8_t flags, unsigned long eventSeq, uint16_t eventCode);
+
 private:
-    static void parseLine(const String& line);
-    static void setNeutral();
+    static void parseLine();
+    static void setSafe();
 };

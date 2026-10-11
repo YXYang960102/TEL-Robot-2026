@@ -1,33 +1,38 @@
 #ifndef CH_LINE_FORMAT_H
 #define CH_LINE_FORMAT_H
 
-/* Formats decoded CRSF channel values into the ASCII line this firmware
-   sends to the Mega over its dedicated UART link (Pins.h
-   MECH_LINK_SERIAL_PORT), replacing the channel values the Mega used to
-   read directly off SBUS. Pure string formatting, no UART/registers --
-   this firmware links -nostdlib, so no snprintf()/itoa() from libc. */
+/* Pure text helpers for the bridge's UART link to the Mega (Pins.h
+   MECH_LINK_SERIAL_PORT). No UART/registers here, and no libc (the firmware
+   links -nostdlib), so they run unchanged in the host test.
+
+   Downlink: "RC,c1,...,c9\n" -- the first RCMAP_CHANNEL_COUNT CRSF channels
+   in microseconds, table in src/IO/RcControlMap.h.
+   Uplink:   "ST,flags,seq,code" from the Mega, packed by the main loop into
+   a CRSF Battery frame for the ground station. */
 
 #include <stdbool.h>
 #include <stdint.h>
 
-/* "CH," + 6 signed ints (each up to 6 chars incl. sign) + 5 commas + '\n' +
+#include "RcControlMap.h"
+
+/* "RC," + 9 signed ints (each up to 6 chars incl. sign) + 8 commas + '\n' +
    '\0', rounded up with margin. */
-#define CH_LINE_MAX_CHARS 48u
+#define CH_LINE_MAX_CHARS 72u
 
-/* ch_us must have at least as many entries as the highest TEL_CH_* index
-   (tel_channel_map.h) plus one; values are the project's existing
-   pulse-microsecond convention (same range SBUS used to produce). Writes
-   a '\0'-terminated "CH,fwd,turn,mech,aux,fire,mode\n" into buf (capacity
-   bufSize) and returns the formatted length excluding the '\0'. Returns 0
-   and writes an empty string if bufSize is too small for CH_LINE_MAX_CHARS. */
-uint16_t format_ch_line(char *buf, uint16_t bufSize, const int ch_us[16]);
+/* Writes a '\0'-terminated "RC,...\n" into buf and returns its length
+   excluding the '\0'. Returns 0 (empty string) if bufSize is too small. */
+uint16_t format_rc_line(char *buf, uint16_t bufSize, const int ch_us[16]);
 
-/* Whether a "CH,..." line may be forwarded to the Mega right now: only
-   while a validated RC_CHANNELS frame from ES900RX has arrived within
+/* Whether channels may be forwarded to the Mega right now: only while a
+   validated RC_CHANNELS frame from the receiver has arrived within
    stale_ms. When RF is lost the bridge goes silent instead of repeating the
    last channels, so the Mega's MechLink line timeout reports signalLost and
    its failsafe runs (a bridge that kept talking would hide the outage). */
 bool ch_line_should_forward(bool ever_received, uint32_t now_ms,
                             uint32_t last_rc_rx_ms, uint32_t stale_ms);
+
+/* Parses "ST,<flags 0-255>,<seq 0-16777215>,<code 0-65535>" (no '\n').
+   Returns false and leaves out untouched on any malformed field. */
+bool parse_status_line(const char *line, uint16_t len, rcmap_status *out);
 
 #endif

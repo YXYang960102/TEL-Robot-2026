@@ -4,71 +4,40 @@
 
 #include "../Constants/DribblerConstants.h"
 
-enum class DribblerControlMode {
-    DISABLED,
-    MANUAL_OPEN_LOOP,
-    COUNTED_FEED
-};
-
+// Feed tower trigger. See DribblerConstants.h: the tower feeds and refills
+// itself; the Mega only sends a 100 ms HIGH pulse per requested ball and
+// then refuses further triggers for the tower's cycle time.
 class Dribbler {
 public:
-    using FeedAction = DribblerConstants::Feeder::Action;
-
-    // Lifecycle
     static void init();
     static void update();
+
+    // Drops the line LOW immediately (cutting any pulse short) and clears
+    // Auto's queue. Does not shorten the lockout: the tower may still be
+    // mid-cycle.
     static void stop();
 
-    // Manual open-loop control (wired R routes through this -- continuous,
-    // not sensor-gated).
-    static void setFeedAction(FeedAction action);
-    static void setFeedOpenLoop(double command);
+    // One ball. Returns false (and sends nothing) while a pulse or the
+    // lockout is still running -- no queueing.
+    static bool requestFeed();
 
-    // Counted feeding (wired F, and Auto's auto-fire sequence, both route
-    // through this -- sensor-gated, decrements as balls are confirmed
-    // exiting).
+    static bool isPulseActive();
+    static bool isBusy();
+    static unsigned long getTriggerCount();
+
+    // Auto's auto-fire sequence (src/Auto/Auto.cpp): queue N shots, and
+    // allow them to go out one trigger at a time while feedAllowed is set.
     static void setShootRequest(int count);
-
-    // Gates whether update() is allowed to actually run the feed motors in
-    // COUNTED_FEED mode, even if a shot is queued. Kept from the pre-merge
-    // dev Dribbler -- Auto::update() uses this as its auto-fire permission
-    // gate, and src/IO/WiredControl.cpp uses it the same way for a wired F
-    // request, so neither has to duplicate COUNTED_FEED/sensor logic.
+    static int getShootRemaining();
     static void setFeedAllowed(bool allowed);
 
-    // Status and telemetry
-    static DribblerControlMode getControlMode();
-    static int getShootRemaining();
-    static unsigned long getCompletedShotCount();
-    static bool isExitSensorBlocked();
-    static bool isFeeding();
-    static double getFeedCommand();
-    static int getFeedPwm();
-
-    // True once, the first time it's read after a COUNTED_FEED request
-    // timed out without the ExitSensor seeing a ball pass (see
-    // DribblerConstants::Jam::TIMEOUT_MS). Clears itself on read so the
-    // caller (WiredControl, for $EVENT,FEED_JAM) sees each jam exactly
-    // once, the same edge-detected-flag pattern Auto.cpp uses for its fire
-    // button.
-    static bool consumeJamEvent();
-
 private:
-    static void writeFeedOutput(double command);
-    static void updateExitSensor();
-    static bool readExitSensorBlocked();
+    static void writeLine(bool active);
 
-    static DribblerControlMode controlMode;
+    static bool pulseActive;
+    static bool everTriggered;
+    static unsigned long pulseStartMs;
+    static unsigned long triggerCount;
     static int shootRemaining;
-    static unsigned long completedShotCount;
     static bool feedAllowed;
-    static bool feeding;
-    static double feedCommand;
-    static int feedPwm;
-    static bool rawSensorBlocked;
-    static bool stableSensorBlocked;
-    static bool ballSeenDuringRequest;
-    static unsigned long rawSensorChangedMs;
-    static unsigned long feedStartedMs;
-    static bool jamEventPending;
 };

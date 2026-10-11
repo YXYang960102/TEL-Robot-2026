@@ -1,7 +1,13 @@
 #ifndef TEL_CHANNEL_MAP_H
 #define TEL_CHANNEL_MAP_H
 
-/* Canonical CRSF channel-index assignment shared by the ground-bridge
+/* SUPERSEDED for the robot bridge (2026-10-11): the robot-side bridge and
+   tools/stm32_ground_control now use the channel table in
+   src/IO/RcControlMap.h (9 channels, "RC,..." line). This header is kept
+   only for the older tools/stm32_elrs_ground_bridge, which has not been
+   updated to that table.
+
+   Original note: CRSF channel-index assignment shared by the ground-bridge
    firmware (writes these channels from its own control inputs) and the
    robot-bridge firmware (reads them back out and forwards them to the
    Mega as a "CH,..." line -- see stm32_elrs_robot_bridge/src/ch_line_format.h

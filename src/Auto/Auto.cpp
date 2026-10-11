@@ -7,7 +7,7 @@
 #include "../Dribbler/Dribbler.h"
 #include "../IO/MechLink.h"
 #include "../IO/OperatorMode.h"
-#include "../IO/WiredControl.h"
+#include "../IO/ManualControl.h"
 #include "../Shooter/Shooter.h"
 #include "../Vision/Vision.h"
 
@@ -28,12 +28,12 @@ void Auto::enterFireState(FireState next) {
 }
 
 void Auto::update() {
-    // The armed wired Dashboard (src/IO/WiredControl.cpp) is the sole owner
-    // of every output while armed -- it can only be armed with no live RC
-    // link, so auto-fire couldn't run anyway. Stay entirely out of its way
-    // (no Rotate arbitration, no flywheel zeroing, no feed-gate writes)
-    // instead of overwriting its commands every tick.
-    if (WiredControl::isActive()) {
+    // While an operator (wired Dashboard or the wireless ground station,
+    // src/IO/ManualControl.cpp) has the robot armed, it is the sole owner of
+    // every output. Stay entirely out of its way (no Rotate arbitration, no
+    // flywheel zeroing, no feed-gate writes) instead of overwriting its
+    // commands every tick.
+    if (ManualControl::isActive()) {
         enterFireState(FireState::IDLE);
         return;
     }

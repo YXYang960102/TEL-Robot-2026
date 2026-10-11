@@ -21,6 +21,7 @@ import tempfile
 
 root = Path(__file__).resolve().parent
 common_src = root.parent / 'stm32_elrs_common' / 'src'
+rcmap_src = root.parent.parent / 'src' / 'IO'
 out = root / 'dist'
 out.mkdir(exist_ok=True)
 
@@ -30,7 +31,7 @@ if not host_cc:
 with tempfile.TemporaryDirectory() as tmp:
     host_test_bin = Path(tmp) / 'host_test_ch_line_format'
     subprocess.run([host_cc, '-Wall', '-Wextra', '-Werror', '-std=c11',
-                     '-I', str(root / 'src'), '-I', str(common_src),
+                     '-I', str(root / 'src'), '-I', str(common_src), '-I', str(rcmap_src),
                      str(root / 'test/host_test_ch_line_format.c'),
                      str(root / 'src/ch_line_format.c'),
                      '-o', str(host_test_bin)], check=True)
@@ -52,12 +53,13 @@ binary = out / f'{name}.bin'
 flags = ['-mcpu=cortex-m4', '-mthumb', '-mfloat-abi=soft', '-Os',
          '-ffreestanding', '-fno-builtin', '-ffunction-sections', '-fdata-sections',
          '-Wall', '-Wextra', '-Werror', '-nostdlib', '-nostartfiles',
-         '-I', str(root / 'src'), '-I', str(common_src),
+         '-I', str(root / 'src'), '-I', str(common_src), '-I', str(rcmap_src),
+         '-fno-tree-loop-distribute-patterns',
          '-Wl,--gc-sections', '-Wl,--build-id=none',
          '-Wl,-Map=' + str(out / f'{name}.map')]
 subprocess.run([compiler, *flags, '-T', str(root / 'linker.ld'),
                 str(root / 'src/startup.S'), str(root / 'src/main.c'),
-                str(root / 'src/ch_line_format.c'),
+                str(root / 'src/ch_line_format.c'), str(rcmap_src / 'RcControlMap.c'),
                 str(common_src / 'crsf.c'), str(common_src / 'tel_chunk_split.c'),
                 '-o', str(elf)], check=True)
 subprocess.run([prefix + 'objcopy', '-O', 'binary', str(elf), str(binary)], check=True)

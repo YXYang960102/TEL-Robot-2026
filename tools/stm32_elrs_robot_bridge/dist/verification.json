@@ -8,10 +8,10 @@
   "initial_stack": "0x20010000",
   "reset_vector": "0x8000199",
   "usart1_irq_vector": "0x8000205",
-  "usart2_irq_vector": "0x8000285",
+  "usart2_irq_vector": "0x80002c5",
   "systick_vector": "0x80001f5",
-  "binary_bytes": 2360,
-  "sha256": "4d4fae9254d1044debf57bf0ed5bbff0c53237c3a5ed63b6e6e2176e2a8f2b38",
+  "binary_bytes": 2932,
+  "sha256": "ddd9ef2177af8d401dbcb9b9d087c69d5b851ba43754fa1d29f778b13fb12e3e",
   "checks": [
     "host ch_line_format unit test",
     "vector VMA/LMA",

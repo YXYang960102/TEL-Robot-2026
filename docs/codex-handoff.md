@@ -2324,3 +2324,201 @@ packet statistics, range, the HSI baud margin at 420000 under temperature,
 and everything in step 2 (PC/keypad input to the ground STM32 over its
 USB-C, CRSF channel/event table, F/R/L anti-repeat, wired/wireless
 authority) — step 2's USB-stack architecture question is with Codex.
+
+## 2026-10-11 — Claude Code: wireless PC control (ELRS step 2) + feed-tower trigger redesign
+
+**User Request:** "現在要準備接上電腦，用電腦控制整台機器人" (connect the PC and
+control the whole robot from it). Jeremy chose to go **straight to wireless**
+(skip a wired test), approved the plan, and mid-round redefined the feed
+tower: "送球塔的部分是平時低電位，收到發射的訊號已100ms做發送高電位…才做自動送球、補球"
+(the line idles low; on a fire signal send a 100 ms HIGH pulse; the tower
+does its own feeding/refilling). His answers: the Mega only sends the
+trigger pulse; R (continuous feed) is no longer needed; whether the tower
+has feedback is unknown. The pin table is still to come from Jeremy.
+
+**Discussion Result / architecture (step 2's open question):**
+- **Ground STM32 firmware** (`tools/stm32_ground_control`) is built on the
+  PlatformIO STM32 Arduino core (`blackpill_f401cc`) for its USB CDC stack
+  and HSE 25 MHz clocking. The bare-metal tools stay as they are. This is
+  the alternative proposed in the step-1 entry; Codex has not reviewed it yet.
+- **One shared C codec**, `src/IO/RcControlMap.{h,c}`, used by the ground,
+  the robot bridge, the Mega and the host tests:
+  - The 9-channel table is in its header. CH1-4 are full resolution: drive
+    L/R, flywheel, mode (fixed 2000 = FULL_MANUAL). CH5 is the arm 2-position
+    switch. CH6/7 are rotate/angle jog (3 levels). CH8/9 are the F/L
+    **event counters** (6 levels).
+  - It fits ELRS Hybrid switch mode. The real 6-position outputs
+    (988/1193/1398/1602/1807/2012 µs) are covered by tests.
+- **Event counters, not held buttons:**
+  - Exactly one action per +1 step.
+  - After a reconnect, the first level seen is only a baseline, so nothing
+    is replayed.
+  - A jump of more than one step is ignored and reported as `EVENT_SKIPPED`.
+- **Enable needs an edge:**
+  - Wireless enables only on a CH5 low→high edge.
+  - The edge detector is reset on link loss, so a recovered link never
+    re-enables by itself.
+  - Arm going low disarms a wireless session.
+- **Control authority:** there is exactly one owner, WIRED or WIRELESS.
+  - The other source's E is refused with `ENABLE_REJECTED_OTHER_SOURCE`.
+  - The other source's commands are refused with `REJECTED_NOT_OWNER`.
+  - **Wired X always disarms, whoever owns the robot.**
+  - Wired K only refreshes a WIRED session.
+- **Status uplink:** the Mega sends `ST,flags,seq,code` every 100 ms on
+  Serial2. The robot bridge packs it into a standard CRSF **Battery** frame:
+  - voltage = 0xA5 marker + flags
+  - current = event code
+  - capacity = 24-bit event sequence
+
+  ELRS relays this as FC telemetry. The ground prints `$EVENT,<name>` when
+  the sequence advances, plus `$WIRELESS,...` every 250 ms and `$RFLINK,...`
+  (LQ/RSSI from LINK_STATISTICS).
+- **Feed tower:** the Mega only drives a trigger line.
+  - It idles inactive and goes active for `PULSE_MS` 100.
+  - A `COOLDOWN_MS` 1000 lockout follows; the value is provisional and
+    waits for the real tower cycle time.
+  - A trigger inside the lockout gets `FEED_BUSY` and is **dropped, not
+    queued**.
+  - Disarm cuts an active pulse but does not shorten the lockout.
+  - There is no sensor feedback, so the Mega reports only
+    `FEED_TRIGGER_SENT`.
+  - R is removed and is now `UNKNOWN_COMMAND`.
+
+**Why:**
+- Held-level buttons over a lossy, round-robin link either repeat or get
+  missed. Counters make F/L idempotent.
+- The edge requirement and the reset on link loss prevent a robot that
+  comes back into range from re-arming by itself.
+- The single owner keeps a USB page and a radio from both driving at once,
+  while the wired stop still always works.
+- Using the Battery frame avoids depending on a custom frame type surviving
+  the radio.
+
+**Changed:**
+- `src/IO/WiredControl.*` → `ManualControl.*` and
+  `WiredControlConstants.h` → `ManualControlConstants.h` (git mv, then
+  rewritten).
+  - `update()` order: watchdogs, wired lines, wireless frame, outputs,
+    status.
+  - Watchdogs: wired 250 ms; wireless RC loss gives `DISABLED_RC_LINK_LOST`;
+    no valid frame for 250 ms gives `COMMAND_TIMEOUT`.
+  - Kept from afed238/5d02fca: the wired hardening (NaN/inf, oversize
+    discarded through `\n`, `DISABLED_CORRUPT_COMMAND`).
+- `src/IO/MechLink.*`
+  - Parses `RC,c1..c9`, with values limited to 0..3000 and an 80-byte line
+    cap; oversized lines are discarded through `\n`.
+  - `channels[9]`, `frameCount`, `signalLost` (200 ms).
+  - `sendStatus()`.
+  - Safe values on loss: arm 1000, flywheel 1000, mode 2000, counters 1000.
+- `src/Dribbler/*`, `src/Constants/DribblerConstants.h`: rewritten as the
+  trigger tower.
+  - `Tower::TRIGGER_PIN` 2 is **PROVISIONAL**.
+  - The line is written inactive before `pinMode(OUTPUT)`.
+- `src/Telemetry/Telemetry.cpp`
+  - Slots 7-11: left, right, mode, arm and F-counter channels.
+  - Slots 21-23: owner (0/1/2), tower busy, trigger count.
+- `src/main.cpp`, `src/Auto/Auto.cpp`, `src/Constants/Pins.h`: renames and
+  comments only. Auto still steps aside while `ManualControl::isActive()`.
+  `PIN_TABLE_CONFIRMED` is **still false**.
+- `tools/stm32_elrs_robot_bridge`
+  - Downlink is now `RC,...` with 9 channels.
+  - The USART1 RX interrupt sorts `ST,` lines into a status buffer.
+  - A Battery status frame goes out every 100 ms while the status line is
+    ≤ 500 ms old.
+  - `build.py` also compiles `RcControlMap.c`.
+  - The `dist/` image is rebuilt: 2932 bytes, sha256 `ddd9ef21…12e3e`.
+  - The unused `tel_channel_map.h` include is removed; that header is now
+    marked as old-ground-bridge only.
+- `tools/dashboard/index.html`
+  - R is removed and the labels are updated.
+  - New metrics: control owner, feed tower busy/ready plus trigger count,
+    wireless status and RF LQ.
+  - **Enable is now a pending handshake:**
+    - Clicking sends E and starts sending K heartbeats.
+    - The page arms only on `OUTPUTS_ENABLED`, and only if it asked
+      (the Mega prints the wireless operator's enable on USB too), or on
+      telemetry/`$WIRELESS` confirming its own source.
+    - After 3 s with no confirmation it gives up.
+    - On a rejection or timeout it sends X **only on the ground link**,
+      because a wired X would disarm a wireless owner.
+  - Telemetry resync counts as "armed" only when the owner is WIRED.
+  - Disarm event list: `OUTPUTS_DISABLED`, `COMMAND_TIMEOUT`,
+    `DISABLED_RC_LINK_LOST`, `DISABLED_CORRUPT_COMMAND`.
+  - Ground `PC_TIMEOUT`/`ENABLE_RELEASED`/… also disarm.
+  - A stale `$WIRELESS` warns but does **not** auto-stop; the robot's own
+    RC-loss failsafe does that.
+- `src/Bench/ElrsLinkTest/MegaElrsLinkTest.cpp` and the
+  `mega_elrs_link_test` env (+`RcControlMap.c`)
+  - Decodes each frame with the production codec.
+  - Sends status back, with "armed" mirroring the arm channel.
+  - Reports `OUTPUTS_ENABLED`/`DISABLED`/`FEED_TRIGGER_SENT`/
+    `EVENT_SKIPPED` as events.
+  - This makes it a motor-free round-trip test.
+
+**Added:**
+- `src/IO/RcControlMap.{h,c}`
+- `test/rc_control_map_test.c`
+- `test/manual_control_test.cpp` (renamed from `wired_control_test.cpp` and
+  rewritten)
+- `tools/stm32_ground_control/` (platformio.ini, `src/GroundCommandState.*`,
+  `src/main.cpp`, `src/shared_sources.c`,
+  `test/host_test_ground_state.cpp`, README)
+- Ground PC protocol: the same lines as wired. The ground's own watchdog is
+  250 ms: `PC_TIMEOUT` releases the arm channel.
+
+**Calculation:**
+- Drive channel: µs = 1500 + 500·cmd. For example, T,1,-1 → CH1 2000 /
+  CH2 1000.
+- Flywheel: µs = 1000 + 1000·ratio, with a 0.02 deadband. For example,
+  FLY,0.40 → 1400.
+- Counters: 1000 + 200·k. They are accepted within ±90 µs of a level, so
+  ELRS's 1193 is read as k=1.
+- Arm counts as requested only at ≥ 1750 µs.
+- Jog: < 1250 → −1; > 1750 → +1; anything else (including ELRS's
+  1398/1602) → 0.
+- Mega outputs keep the wired scales: chassis 0.30, rotate/angle 0.10.
+
+**Impact:**
+- Wired USB control behaves as before, except that R is gone and the stop
+  and authority rules above apply.
+- **The old ground firmware (`stm32_elrs_bidirectional_test`) sends
+  CH4 = 1000 = FULL_AUTO.** Do not run the production build against it.
+- The new ground sends 2000.
+- `PIN_TABLE_CONFIRMED` false still refuses every Enable
+  (`ENABLE_REJECTED_PINS_UNCONFIRMED`).
+
+**Evidence (host/build only, nothing flashed, no hardware run):**
+- PIO SUCCESS for all 5 Mega envs; production RAM 27.6 %, Flash 11.5 %.
+- Ground `pio run` SUCCESS (RAM 9.0 %, Flash 17.2 %, vector table at
+  0x08000000).
+- Robot bridge `build.py` passes all checks.
+- Host tests pass: rc_control_map, manual_control (both pin-gate variants),
+  ground state, ch_line_format, ulink, and the 5 older C++ tests.
+- Node tests pass: `dashboard_page_test` (new handshake, ground lines,
+  authority resync), `dashboard_control_test`, `vision_rotate_page_test`.
+
+**Not verified / risks:**
+1. **Whether Battery frames from the RX actually reach the ground over the
+   air.** The earlier "bidirectional" bench may only have shown
+   LINK_STATISTICS. Without that uplink, wireless Enable cannot complete.
+   The page gives up after 3 s and releases the arm channel, which is the
+   safe failure.
+2. Status coalescing: one status line is sent per 100 ms and carries only
+   the latest event. Two events within 100 ms show only the second;
+   `$WIRELESS` flags still resync the page.
+3. CH6+ round-robin latency depends on the ELRS packet rate.
+4. Whether the 3.3 V-referenced trigger pulse is compatible with the
+   tower's input.
+5. Tower cycle time (`COOLDOWN_MS`).
+6. The real pin table.
+
+**Next Test (Jeremy runs; wheels off the ground):**
+1. Flash the new robot bridge `dist/` image and the ground board
+   (`tools/stm32_ground_control/README.md`; this overwrites its HID
+   bootloader). Upload `mega_elrs_link_test`.
+2. Connect the Dashboard to the ground board's USB. Check: Enable completes,
+   F → `FEED_TRIGGER_SENT`, `$RFLINK` LQ, ground power-off → Mega
+   `LINK_LOST`.
+3. Only after the pin table is confirmed: run the production build at low
+   speed. Check direction, Enter/Space, F, L, ground power-off while moving,
+   and closing the page while moving.

@@ -1,212 +1,86 @@
 #include "Dribbler.h"
 
-#include "../Constants/DribblerConstants.h"
-
 using namespace DribblerConstants;
 
-DribblerControlMode Dribbler::controlMode = DribblerControlMode::DISABLED;
+bool Dribbler::pulseActive = false;
+bool Dribbler::everTriggered = false;
+unsigned long Dribbler::pulseStartMs = 0;
+unsigned long Dribbler::triggerCount = 0;
 int Dribbler::shootRemaining = 0;
-unsigned long Dribbler::completedShotCount = 0;
 bool Dribbler::feedAllowed = false;
-bool Dribbler::feeding = false;
-double Dribbler::feedCommand = 0.0;
-int Dribbler::feedPwm = Feeder::MIN_PWM;
-bool Dribbler::rawSensorBlocked = false;
-bool Dribbler::stableSensorBlocked = false;
-bool Dribbler::ballSeenDuringRequest = false;
-unsigned long Dribbler::rawSensorChangedMs = 0;
-unsigned long Dribbler::feedStartedMs = 0;
-bool Dribbler::jamEventPending = false;
 
 void Dribbler::init() {
-    for (uint8_t i = 0; i < Feeder::CHANNEL_COUNT; i++) {
-        pinMode(Feeder::PWM_PINS[i], OUTPUT);
-        pinMode(Feeder::ENABLE_PINS[i], OUTPUT);
-    }
-    pinMode(ExitSensor::SIGNAL_PIN, INPUT_PULLUP);
-
-    rawSensorBlocked = readExitSensorBlocked();
-    stableSensorBlocked = rawSensorBlocked;
-    rawSensorChangedMs = millis();
-    stop();
+    // Drive the line inactive before switching the pin to output, so it
+    // never glitches active during boot. (Before this runs the pin floats:
+    // the tower side should have a pull-down.)
+    writeLine(false);
+    pinMode(Tower::TRIGGER_PIN, OUTPUT);
+    writeLine(false);
+    pulseActive = false;
+    everTriggered = false;
+    triggerCount = 0;
+    shootRemaining = 0;
+    feedAllowed = false;
 }
 
 void Dribbler::update() {
-    updateExitSensor();
-
-    // Jam check uses last tick's `feeding` state: if the motors were
-    // already actively running toward this request and TIMEOUT_MS has
-    // passed since they started without a ball being confirmed, give up
-    // on this request rather than run the feed motors indefinitely.
-    if (controlMode == DribblerControlMode::COUNTED_FEED &&
-        shootRemaining > 0 && feeding &&
-        millis() - feedStartedMs >= Jam::TIMEOUT_MS) {
-        shootRemaining = 0;
-        controlMode = DribblerControlMode::DISABLED;
-        ballSeenDuringRequest = false;
-        writeFeedOutput(0.0);
-        jamEventPending = true;
-        return;
+    if (pulseActive && millis() - pulseStartMs >= Tower::PULSE_MS) {
+        writeLine(false);
+        pulseActive = false;
     }
 
-    if (controlMode == DribblerControlMode::MANUAL_OPEN_LOOP) {
-        writeFeedOutput(feedCommand);
-        return;
-    }
-
-    if (controlMode == DribblerControlMode::COUNTED_FEED &&
-        shootRemaining > 0) {
-        if (!feedAllowed) {
-            // Request still queued, just not permitted to energize yet
-            // (Auto's auto-fire gate, or WiredControl hasn't asserted F
-            // this tick) -- hold at zero without clearing the request.
-            writeFeedOutput(0.0);
-            return;
+    if (feedAllowed && shootRemaining > 0 && !isBusy()) {
+        if (requestFeed()) {
+            shootRemaining--;
         }
-        if (!feeding) {
-            feedStartedMs = millis();
-        }
-        writeFeedOutput(Feeder::DEFAULT_FEED_COMMAND);
-        return;
     }
-
-    stop();
 }
 
 void Dribbler::stop() {
-    controlMode = DribblerControlMode::DISABLED;
+    writeLine(false);
+    pulseActive = false;
     shootRemaining = 0;
-    feedCommand = 0.0;
-    ballSeenDuringRequest = false;
-    writeFeedOutput(0.0);
 }
 
-void Dribbler::setFeedAction(FeedAction action) {
-    if (action == FeedAction::FEED) {
-        setFeedOpenLoop(Feeder::DEFAULT_FEED_COMMAND);
-    } else {
-        stop();
+bool Dribbler::requestFeed() {
+    if (isBusy()) {
+        return false;
     }
+    pulseStartMs = millis();
+    pulseActive = true;
+    everTriggered = true;
+    triggerCount++;
+    writeLine(true);
+    return true;
 }
 
-void Dribbler::setFeedOpenLoop(double command) {
-    feedCommand = constrain(command, 0.0, 1.0);
-    shootRemaining = 0;
-    ballSeenDuringRequest = false;
-    controlMode = feedCommand > 0.0
-        ? DribblerControlMode::MANUAL_OPEN_LOOP
-        : DribblerControlMode::DISABLED;
-    writeFeedOutput(feedCommand);
+bool Dribbler::isPulseActive() {
+    return pulseActive;
+}
+
+bool Dribbler::isBusy() {
+    if (pulseActive) {
+        return true;
+    }
+    return everTriggered && millis() - pulseStartMs < Tower::COOLDOWN_MS;
+}
+
+unsigned long Dribbler::getTriggerCount() {
+    return triggerCount;
 }
 
 void Dribbler::setShootRequest(int count) {
     shootRemaining = constrain(count, Request::MIN_COUNT, Request::MAX_COUNT);
-    feedCommand = 0.0;
-    // A ball already sitting in the exit beam when the request starts is
-    // the first ball out: its blocked->clear edge must count. Seeding this
-    // from the debounced sensor state (instead of always false) keeps that
-    // ball from being skipped and the feed running on to a second ball.
-    ballSeenDuringRequest = stableSensorBlocked;
-    controlMode = shootRemaining > 0
-        ? DribblerControlMode::COUNTED_FEED
-        : DribblerControlMode::DISABLED;
-    feedStartedMs = millis();
-}
-
-void Dribbler::setFeedAllowed(bool allowed) {
-    feedAllowed = allowed;
-}
-
-DribblerControlMode Dribbler::getControlMode() {
-    return controlMode;
 }
 
 int Dribbler::getShootRemaining() {
     return shootRemaining;
 }
 
-unsigned long Dribbler::getCompletedShotCount() {
-    return completedShotCount;
+void Dribbler::setFeedAllowed(bool allowed) {
+    feedAllowed = allowed;
 }
 
-bool Dribbler::isExitSensorBlocked() {
-    return stableSensorBlocked;
-}
-
-bool Dribbler::isFeeding() {
-    return feeding;
-}
-
-double Dribbler::getFeedCommand() {
-    return feeding ? feedCommand : 0.0;
-}
-
-int Dribbler::getFeedPwm() {
-    return feedPwm;
-}
-
-bool Dribbler::consumeJamEvent() {
-    const bool pending = jamEventPending;
-    jamEventPending = false;
-    return pending;
-}
-
-void Dribbler::writeFeedOutput(double command) {
-    const double boundedCommand = constrain(command, 0.0, 1.0);
-    feedCommand = boundedCommand;
-    feedPwm = constrain(
-        static_cast<int>(boundedCommand * Feeder::MAX_PWM + 0.5),
-        Feeder::MIN_PWM,
-        Feeder::MAX_PWM);
-    feeding = feedPwm > Feeder::MIN_PWM;
-
-    for (uint8_t i = 0; i < Feeder::CHANNEL_COUNT; i++) {
-        digitalWrite(
-            Feeder::ENABLE_PINS[i],
-            feeding == Feeder::ENABLE_ACTIVE_HIGH ? HIGH : LOW);
-        analogWrite(Feeder::PWM_PINS[i], feedPwm);
-    }
-}
-
-void Dribbler::updateExitSensor() {
-    const bool nextRawBlocked = readExitSensorBlocked();
-    const unsigned long now = millis();
-
-    if (nextRawBlocked != rawSensorBlocked) {
-        rawSensorBlocked = nextRawBlocked;
-        rawSensorChangedMs = now;
-    }
-
-    if (rawSensorBlocked == stableSensorBlocked ||
-        now - rawSensorChangedMs < ExitSensor::DEBOUNCE_MS) {
-        return;
-    }
-
-    stableSensorBlocked = rawSensorBlocked;
-
-    if (controlMode != DribblerControlMode::COUNTED_FEED ||
-        shootRemaining <= 0) {
-        ballSeenDuringRequest = false;
-        return;
-    }
-
-    if (stableSensorBlocked) {
-        ballSeenDuringRequest = true;
-        return;
-    }
-
-    if (ballSeenDuringRequest) {
-        shootRemaining--;
-        completedShotCount++;
-        ballSeenDuringRequest = false;
-        feedStartedMs = now; // restart the jam clock for the next queued ball
-        if (shootRemaining == 0) {
-            controlMode = DribblerControlMode::DISABLED;
-        }
-    }
-}
-
-bool Dribbler::readExitSensorBlocked() {
-    const bool pinLow = digitalRead(ExitSensor::SIGNAL_PIN) == LOW;
-    return ExitSensor::BLOCKED_LOW ? pinLow : !pinLow;
+void Dribbler::writeLine(bool active) {
+    digitalWrite(Tower::TRIGGER_PIN, active == Tower::TRIGGER_ACTIVE_HIGH ? HIGH : LOW);
 }

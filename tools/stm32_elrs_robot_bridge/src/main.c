@@ -3,7 +3,6 @@
 #include "config.h"
 #include "crsf.h"
 #include "tel_chunk_split.h"
-#include "tel_channel_map.h"
 #include "ch_line_format.h"
 
 /* STM32F401 RM0368 register map + Cortex-M4 core registers. Bare-metal,
@@ -90,6 +89,18 @@ static uint16_t mega_rx_line_len = 0;
 static char tel_line_ready[MEGA_LINE_BUF_SIZE];
 static uint16_t tel_line_ready_len = 0;
 static volatile bool tel_line_pending_reset = false;
+
+/* Latest "ST,..." status line from the Mega (ManualControl), copied out by
+   the IRQ and parsed in the main loop. It goes to the ground station as a
+   CRSF Battery frame (rcmap_status_to_battery), the telemetry type already
+   proven across this ELRS link. */
+static char status_line_ready[MEGA_LINE_BUF_SIZE];
+static volatile uint16_t status_line_ready_len = 0;
+static volatile bool status_line_pending = false;
+static rcmap_status latest_status;
+static bool have_status = false;
+static uint32_t last_status_ms = 0;
+static uint8_t status_rolling = 0;
 
 /* ------------------------------------------------------------------ */
 /* Hardware bring-up                                                   */
@@ -182,10 +193,40 @@ static void nvic_enable_usarts(void) {
 
 static void send_ch_line_to_mega(void) {
   char line[CH_LINE_MAX_CHARS];
-  uint16_t len = format_ch_line(line, sizeof(line), last_rx_ch_us);
+  uint16_t len = format_rc_line(line, sizeof(line), last_rx_ch_us);
   for (uint16_t i = 0; i < len; i++) {
     while (!(USART1_SR & USART_SR_TXE)) {}
     USART1_DR = (uint8_t)line[i];
+  }
+}
+
+static void take_status_line(uint32_t now) {
+  if (!status_line_pending) return;
+  status_line_pending = false;
+  rcmap_status parsed;
+  if (parse_status_line(status_line_ready, status_line_ready_len, &parsed)) {
+    latest_status = parsed;
+    have_status = true;
+    last_status_ms = now;
+  }
+}
+
+/* One Battery frame carrying the Mega's latest status, only while that
+   status is fresh: if the Mega stops reporting, the ground sees the status
+   go stale instead of a frozen "armed". */
+static void send_status_frame(uint32_t now) {
+  if (!have_status || (uint32_t)(now - last_status_ms) > STATUS_STALE_MS) return;
+  rcmap_status s = latest_status;
+  s.rolling = status_rolling++;
+  uint16_t voltage, current;
+  uint32_t capacity;
+  uint8_t remaining;
+  rcmap_status_to_battery(&s, &voltage, &current, &capacity, &remaining);
+  uint8_t frame[12];
+  uint8_t len = crsf_build_battery_frame(frame, voltage, current, capacity, remaining);
+  for (uint8_t i = 0; i < len; i++) {
+    while (!(USART2_SR & USART_SR_TXE)) {}
+    USART2_DR = frame[i];
   }
 }
 
@@ -260,9 +301,16 @@ void USART1_IRQHandler(void) {
     if (b == (uint8_t)'\n') {
       uint16_t len = mega_rx_line_len;
       if (len >= MEGA_LINE_BUF_SIZE) len = MEGA_LINE_BUF_SIZE - 1u;
-      for (uint16_t i = 0; i < len; i++) tel_line_ready[i] = mega_rx_line[i];
-      tel_line_ready_len = len;
-      tel_line_pending_reset = true;
+      if (len >= 3u && mega_rx_line[0] == 'S' && mega_rx_line[1] == 'T' &&
+          mega_rx_line[2] == ',') {
+        for (uint16_t i = 0; i < len; i++) status_line_ready[i] = mega_rx_line[i];
+        status_line_ready_len = len;
+        status_line_pending = true;
+      } else {
+        for (uint16_t i = 0; i < len; i++) tel_line_ready[i] = mega_rx_line[i];
+        tel_line_ready_len = len;
+        tel_line_pending_reset = true;
+      }
       mega_rx_line_len = 0;
     } else if (b != (uint8_t)'\r') {
       if (mega_rx_line_len < MEGA_LINE_BUF_SIZE) {
@@ -315,6 +363,7 @@ int main(void) {
 
   uint32_t last_ch_send_ms = 0;
   uint32_t last_tel_send_ms = 0;
+  uint32_t last_status_send_ms = 0;
 
   for (;;) {
     uint32_t now = g_millis;
@@ -326,7 +375,11 @@ int main(void) {
       }
     }
 
-    if ((now - last_tel_send_ms) >= TEL_CHUNK_SEND_PERIOD_MS) {
+    take_status_line(now);
+    if ((now - last_status_send_ms) >= STATUS_SEND_PERIOD_MS) {
+      last_status_send_ms = now;
+      send_status_frame(now);
+    } else if ((now - last_tel_send_ms) >= TEL_CHUNK_SEND_PERIOD_MS) {
       last_tel_send_ms = now;
       send_next_tel_chunk();
     }

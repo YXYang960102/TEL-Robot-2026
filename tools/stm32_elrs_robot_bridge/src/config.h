@@ -36,5 +36,10 @@
    the Mega reports signalLost within ~700 ms of the RF loss. */
 #define DOWNLINK_STALE_MS 500u
 
+/* Mega status uplink (Battery frame to the receiver). The Mega reports
+   every 100 ms; a status older than STATUS_STALE_MS is not forwarded. */
+#define STATUS_SEND_PERIOD_MS 100u
+#define STATUS_STALE_MS 500u
+
 #define LED_SLOW_PERIOD_MS 1000u /* downlink not fresh */
 #define LED_FAST_PERIOD_MS 200u  /* downlink fresh (solid once Mega-link send activity starts) */

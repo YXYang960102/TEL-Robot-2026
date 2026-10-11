@@ -17,16 +17,22 @@ ES900RX (CRSF, RF)  <--USART2 PA2/PA3-->  this board  <--USART1 PA9/PA10-->  Meg
 
 - **Downlink** (operator's RC channels, arriving over RF at ES900RX): decoded
   from `CRSF_FRAME_RC_CHANNELS` frames on USART2, reformatted as the ASCII
-  line `CH,fwd,turn,mech,aux,fire,mode\n` (`src/ch_line_format.c`, channel
-  order from `tools/stm32_elrs_common/src/tel_channel_map.h`), sent to the
-  Mega on USART1. This replaces the channel values the Mega used to read
-  directly off SBUS -- see the Mega's `src/IO/MechLink.h/.cpp`.
-- **Uplink** (the Mega's `TEL,...` dashboard telemetry line, read back on
-  USART1): split into `CRSF_TEL_CHUNK_DATA_MAX`-byte pieces
-  (`tools/stm32_elrs_common/src/tel_chunk_split.c`) and sent as
-  `CRSF_FRAME_TEL_CHUNK` frames on USART2 for ES900RX to relay back over RF.
-  The ground bridge reassembles them (`tel_reassembler.c`) back into the
-  original line for the dashboard.
+  line `RC,c1,...,c9\n` (`src/ch_line_format.c`; channel meaning in the
+  shared table `src/IO/RcControlMap.h`), sent to the Mega on USART1 and
+  parsed by the Mega's `src/IO/MechLink.cpp`. (Before 2026-10-11 this was a
+  6-field `CH,...` line in `tools/stm32_elrs_common/src/tel_channel_map.h`
+  order; that header now only serves the older ground bridge.)
+- **Uplink, status** (added 2026-10-11): the Mega sends `ST,flags,seq,code\n`
+  every 100 ms (`MechLink::sendStatus`). This board packs the newest one into
+  a standard CRSF **Battery** frame (`rcmap_status_to_battery`: voltage =
+  `0xA5` marker + flags, current = event code, capacity = event sequence)
+  and sends it to ES900RX every `STATUS_SEND_PERIOD_MS` (100 ms), only while
+  that line is younger than `STATUS_STALE_MS` (500 ms). Battery is a frame
+  type ELRS already relays as flight-controller telemetry, so no custom
+  frame type has to survive the radio. **Not yet verified on hardware.**
+- **Uplink, TEL lines**: a `TEL,...` line read back on USART1 is still split
+  into `CRSF_TEL_CHUNK` frames between status frames. The production Mega
+  prints `TEL` to USB only, so in practice this path is idle.
 
 USART2/PA2-PA3's role, baud, and bring-up code are unchanged from
 `tools/stm32_elrs_bidirectional_test`, which is hardware-confirmed working
@@ -103,3 +109,19 @@ Pass criteria:
 Uplink (Mega `TEL,...` → TEL_CHUNK → ground) is not part of this step: this
 Mega test build doesn't send `TEL` lines, and the ground board's old test
 firmware doesn't reassemble TEL chunks.
+
+## 2026-10-11 (later): wireless control round
+
+Downlink is now the 9-channel `RC,...` line and the status uplink above was
+added (`src/main.c`: the USART1 RX interrupt sorts incoming lines into the
+`ST,` status buffer vs. TEL lines; `send_status_frame()`). Host tests in
+`test/host_test_ch_line_format.c` cover the RC line, forwarding rule and
+`ST` parsing; `build.py` also compiles `src/IO/RcControlMap.c` from the Mega
+tree so both ends share one codec.
+
+Full round-trip bench test (no motors): flash this build, flash the ground
+board with `tools/stm32_ground_control` (see its README), and upload
+`mega_elrs_link_test` to the Mega. It decodes every `RC` frame with the
+production codec and sends status back, so the Dashboard connected to the
+ground board should show `$EVENT,FEED_TRIGGER_SENT` for each F press — the
+first hardware proof that Battery frames make it back over the air.

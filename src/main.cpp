@@ -2,7 +2,7 @@
 
 #include "Auto/Auto.h"
 #include "IO/MechLink.h"
-#include "IO/WiredControl.h"
+#include "IO/ManualControl.h"
 #include "Vision/Vision.h"
 #include "Shooter/Shooter.h"
 #include "Dribbler/Dribbler.h"
@@ -13,7 +13,7 @@ void setup() {
     Serial.begin(115200);
 
     MechLink::init();
-    WiredControl::init();
+    ManualControl::init();
     Vision::init();
     Shooter::init();
     Dribbler::init();
@@ -33,11 +33,11 @@ void loop() {
     MechLink::update();
     Vision::update();
 
-    // WiredControl parses the USB Dashboard's commands and applies its own
-    // Chassis/Dribbler/Shooter calls (when armed) before Auto::update()
-    // runs its arbitration below, so Auto sees this tick's wired state via
-    // WiredControl::isRotateAuthorityActive()/isDribblerAuthorityActive().
-    WiredControl::update();
+    // ManualControl handles both operator sources (wired USB Dashboard and
+    // the wireless ELRS channels MechLink just read) and applies its own
+    // Chassis/Dribbler/Shooter calls while armed, before Auto::update(),
+    // which steps aside whenever ManualControl::isActive().
+    ManualControl::update();
 
     // Rotate mode arbitration and the auto-fire sequence both live in
     // Auto::update() now (moved out of here 2026-10-06) so "what mode is

@@ -1,6 +1,7 @@
-// Fake Arduino core + recording stand-ins for the subsystems WiredControl
-// drives (Chassis/Shooter/Vision/MechLink). Dribbler is NOT stubbed: the
-// real src/Dribbler/Dribbler.cpp is compiled against the fake pins here.
+// Fake Arduino core + recording stand-ins for the subsystems ManualControl
+// drives (Chassis/Shooter/Vision) and for MechLink (the test injects RC
+// frames directly and reads back status lines). Dribbler is NOT stubbed:
+// the real src/Dribbler/Dribbler.cpp runs against the fake pins here.
 #include "host_stubs.h"
 
 #include "../../src/Chassis/Chassis.h"
@@ -61,4 +62,15 @@ void Shooter::setFlywheelOpenLoop(double command) { rec.flywheelCommand = comman
 bool Vision::isConnected() { return hoststub::visionReady; }
 bool Vision::isVisionReady() { return hoststub::visionReady; }
 
+int MechLink::channels[RCMAP_CHANNEL_COUNT];
+unsigned long MechLink::frameCount = 0;
 bool MechLink::signalLost = true;
+int MechLink::modeChannel = RCMAP_MODE_FULL_MANUAL_US;
+int MechLink::fireChannel = 1000;
+
+void MechLink::sendStatus(uint8_t flags, unsigned long eventSeq, uint16_t eventCode) {
+    rec.statusCount++;
+    rec.statusFlags = flags;
+    rec.statusSeq = eventSeq;
+    rec.statusCode = eventCode;
+}
