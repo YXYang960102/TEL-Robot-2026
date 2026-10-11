@@ -2272,3 +2272,55 @@ STM32 Arduino core (`board = blackpill_f401cc`, built-in USB CDC Serial,
 HSE 25 MHz + PLL clocking — which also removes the measured ~0.6 % HSI
 error), reusing `tools/stm32_elrs_common` C code. This is an architecture
 call; not taken yet.
+
+## 2026-10-11 — Claude Code: ELRS step 1 hardware result — downlink PASS end to end (b624da7)
+
+**Setup that worked:** ground = old STM32 (WeAct HID bootloader) still
+running `tools/stm32_elrs_bidirectional_test` (RC frames every 10 ms, CH1
+cycling 1000/1500/2000 every 2 s) → **2.4 GHz** ELRS TX module (PA9
+half-duplex, 400000) ))) **2.4 GHz** ELRS RX (firmware 3.5.1, ISM2G4) →
+robot STM32 (fresh board, `stm32_elrs_robot_bridge` b624da7 at 0x08000000,
+PA3 ← RX's TX, PA2 → RX's RX) → Mega Serial2 running `mega_elrs_link_test`.
+
+**How we got there (module configuration, done by Jeremy in the ELRS web
+UIs):**
+- The first pair tried was 900 MHz ES900TX/ES900RX (both 3.2.0) and could
+  never link: TX was **FCC915** with UID 180,148,31,165,224,154, RX was
+  **AU915** with UID 212,50,59,163,20,74 — different regulatory domain and
+  different binding. (Claude also caused a side problem there: advised a
+  Save on the RX options page while "WiFi auto on interval" was blank,
+  which ELRS stores as -1 = auto-WiFi disabled.)
+- Jeremy switched to 2.4 GHz ELRS. New RX was set to: Serial Protocol
+  **CRSF** (it shipped as Inverted SBUS), UART baud **420000** (was
+  100000), WiFi auto-on 60, Model Match off, telemetry not forced off,
+  Lock on first connection on. New TX: same binding phrase as the RX
+  (UIDs matched on both pages before saving), **UART inverted unchecked**
+  (the STM32 drives a plain non-inverted UART; the earlier hardware-
+  confirmed 900 MHz TX also had it unchecked). The binding phrase itself
+  is intentionally not written into the repo.
+
+**Result (`pio device monitor -e mega_elrs_link_test`):**
+- `$ELRS_EVENT,LINK_OK` within ~15 ms of the monitor opening; `fwd`
+  stepping 1000 → 1500 → 2000 every 2 s, and every other channel exactly
+  the ground firmware's fixed values (turn 1500, aux 1000, fire 1000,
+  mode 1000) — channel order and µs scaling are correct end to end.
+- Ground STM32 powered off: `$ELRS_EVENT,LINK_LOST` at t=9238 ms (last
+  `link=OK` print at 9000 ms; exact power-off instant not captured, so
+  latency is only bounded, ≤ the designed ~0.7 s), all channels back to
+  neutral 1500. This **confirms on hardware that the ELRS RX stops sending
+  RC_CHANNELS frames on link loss** and that the bridge's new silence →
+  MechLink `signalLost` path works — the reason for b624da7's change.
+- Ground STM32 powered back on: `$ELRS_EVENT,LINK_OK` at t=8391 ms of a
+  fresh monitor session, `fwd` cycling resumed.
+
+**Safety note for the next step:** the bench ground firmware sends
+mode = 1000, which the production `OperatorModeSelector` reads as
+**FULL_AUTO** (< 1667). Do not run the production robot build against this
+ground firmware; the real ground firmware (step 2) must define safe
+defaults (manual mode, fire released) before any production test over RF.
+
+**Not covered yet:** uplink (Mega `TEL` → TEL_CHUNK → ground), long-run
+packet statistics, range, the HSI baud margin at 420000 under temperature,
+and everything in step 2 (PC/keypad input to the ground STM32 over its
+USB-C, CRSF channel/event table, F/R/L anti-repeat, wired/wireless
+authority) — step 2's USB-stack architecture question is with Codex.
