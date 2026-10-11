@@ -46,3 +46,8 @@ uint16_t format_ch_line(char *buf, uint16_t bufSize, const int ch_us[16]) {
   buf[pos] = '\0';
   return pos;
 }
+
+bool ch_line_should_forward(bool ever_received, uint32_t now_ms,
+                            uint32_t last_rc_rx_ms, uint32_t stale_ms) {
+  return ever_received && (uint32_t)(now_ms - last_rc_rx_ms) < stale_ms;
+}

@@ -321,7 +321,9 @@ int main(void) {
 
     if ((now - last_ch_send_ms) >= RC_FORWARD_PERIOD_MS) {
       last_ch_send_ms = now;
-      send_ch_line_to_mega();
+      if (ch_line_should_forward(downlink_ok, now, last_rc_rx_ms, DOWNLINK_STALE_MS)) {
+        send_ch_line_to_mega();
+      }
     }
 
     if ((now - last_tel_send_ms) >= TEL_CHUNK_SEND_PERIOD_MS) {

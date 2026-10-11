@@ -45,6 +45,7 @@ if not compiler:
     raise SystemExit('Install ARM GNU toolchain; set ARM_GCC to arm-none-eabi-gcc.')
 prefix = str(Path(compiler).resolve()).removesuffix('gcc')
 
+APP_BASE = 0x08000000
 name = 'stm32f401cc_elrs_robot_bridge'
 elf = out / f'{name}.elf'
 binary = out / f'{name}.bin'
@@ -68,19 +69,19 @@ data = binary.read_bytes()
 stack, reset = struct.unpack_from('<II', data)
 assert stack == 0x20010000, hex(stack)
 assert reset & 1, 'Reset entry must select Thumb mode'
-assert 0x08004000 <= (reset & ~1) < 0x08004000 + len(data)
-assert len(data) <= 240 * 1024
+assert APP_BASE <= (reset & ~1) < APP_BASE + len(data)
+assert len(data) <= 256 * 1024
 
 for line in headers.splitlines():
     columns = line.split()
     if len(columns) >= 6 and columns[1] == '.isr_vector':
-        assert int(columns[3], 16) == int(columns[4], 16) == 0x08004000
+        assert int(columns[3], 16) == int(columns[4], 16) == APP_BASE
         break
 else:
     raise AssertionError('Missing vector section')
 
 vectors = struct.unpack_from('<102I', data)
-assert all(v & 1 and 0x08004000 <= (v & ~1) < 0x08004000 + len(data)
+assert all(v & 1 and APP_BASE <= (v & ~1) < APP_BASE + len(data)
            for v in vectors[1:]), 'Invalid exception handler pointer'
 assert vectors[15] != vectors[2], 'SysTick_Handler must not fall back to Default_Handler'
 assert vectors[53] != vectors[2], 'USART1_IRQHandler must not fall back to Default_Handler'
@@ -92,8 +93,9 @@ assert not undefined.strip(), undefined
 
 report = {
     'compiler': subprocess.check_output([compiler, '--version'], text=True).splitlines()[0],
-    'application_base': '0x08004000', 'reserved_bootloader_bytes': 16384,
-    'application_limit_bytes': 245760, 'ram_limit_bytes': 65536,
+    'application_base': hex(APP_BASE), 'reserved_bootloader_bytes': 0,
+    'flash_method': 'ROM USB DFU (BOOT0) + dfu-util; no WeAct HID bootloader on this board',
+    'application_limit_bytes': 262144, 'ram_limit_bytes': 65536,
     'initial_stack': hex(stack), 'reset_vector': hex(reset),
     'usart1_irq_vector': hex(vectors[53]), 'usart2_irq_vector': hex(vectors[54]),
     'systick_vector': hex(vectors[15]),

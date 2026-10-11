@@ -1,6 +1,9 @@
 #pragma once
 
-#define APP_BASE 0x08004000u
+/* Robot-side board is a fresh WeAct F401CCU6 with no WeAct HID bootloader
+   (2026-10-11), flashed through the chip's ROM USB DFU -- so the image
+   starts at the beginning of flash, not 0x08004000. */
+#define APP_BASE 0x08000000u
 #define HSI_HZ 16000000u
 #define LED_PIN 13u
 
@@ -27,7 +30,11 @@
 #define RC_FORWARD_PERIOD_MS 20u      /* how often a "CH,..." line goes to the Mega */
 #define TEL_CHUNK_SEND_PERIOD_MS 20u  /* how often one TEL_CHUNK frame goes to ES900RX */
 
-#define DOWNLINK_STALE_MS 500u /* no fresh validated RC_CHANNELS frame from ES900RX */
+/* No fresh validated RC_CHANNELS frame from ES900RX for this long = RF
+   lost: the LED drops to slow blink AND "CH,..." forwarding to the Mega
+   stops (see ch_line_should_forward). With MechLink's 200 ms line timeout
+   the Mega reports signalLost within ~700 ms of the RF loss. */
+#define DOWNLINK_STALE_MS 500u
 
 #define LED_SLOW_PERIOD_MS 1000u /* downlink not fresh */
 #define LED_FAST_PERIOD_MS 200u  /* downlink fresh (solid once Mega-link send activity starts) */

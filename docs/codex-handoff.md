@@ -2226,3 +2226,49 @@ command), a physical wire break (soldered), behavior over longer runs.
 **Next:** per Codex's gate, the wired Mega↔STM32 link has passed on real
 hardware for the 60 s and outage-detection checks above; ELRS RX is the next
 stage once Codex reviews 9d6aa12 and these results.
+
+## 2026-10-11 — Claude Code: ELRS step 1 (downlink only) — robot bridge on the fresh board + Mega bench env
+
+**User Request:** after the Mega↔STM32 UART test passed on hardware, Jeremy
+wired the ES900RX to the robot STM32's PA2/PA3 (Dupont) and approved
+"step 1: get the wireless link working" (downlink only). Topology confirmed:
+PC / homemade keypad → ground STM32 (the **old** board, WeAct HID
+bootloader) → ES900TX ))) ES900RX → robot STM32 (the **new** board) → Mega
+Serial2. ES900TX not wired yet; the PC will connect to the ground STM32
+through its own USB-C (step 2, not started).
+
+**Changed (`tools/stm32_elrs_robot_bridge`):**
+- Linked at `0x08000000` (was `0x08004000`) for the fresh board's ROM DFU
+  flash; `build.py`/`linker.ld`/`verification.json` updated. 2360 bytes,
+  sha256 4d4fae92…2b38.
+- `CH,...` forwarding to the Mega is gated by
+  `ch_line_should_forward()` (new, host-tested incl. wrap-around): only
+  while a validated `RC_CHANNELS` frame arrived within 500 ms. Previously
+  the bridge sent a line every 20 ms regardless, so `MechLink` could never
+  see RF loss (and the wired Dashboard's RC-link gate would refuse Enable
+  forever). Assumes ES900RX stops emitting RC frames on link loss — the
+  bench test is what verifies it.
+
+**Added:** `src/Bench/ElrsLinkTest/MegaElrsLinkTest.cpp` + env
+`mega_elrs_link_test` (production `MechLink.cpp` unchanged + a printer:
+channels 4x/s, LINK_OK/LINK_LOST events with previous-state duration,
+count of `fwd` changes; serial buffers 256). README section "2026-10-11
+changes" has flash steps and pass criteria.
+
+**Ground side for step 1:** no new firmware. The old board should still
+carry `tools/stm32_elrs_bidirectional_test` (RC frames every 10 ms, CH1
+cycling 1000/1500/2000 every 2 s) — enough as a signal source. Not
+confirmed what's actually on it; its LED behavior will tell.
+
+**Evidence:** robot bridge `build.py` (host test + image checks) passes;
+`platformio run`: `mega_elrs_link_test`, `megaatmega2560`,
+`mega_uart_link_test` SUCCESS. Not flashed, not run.
+
+**Step 2 (not started, needs Codex's view):** PC → ground STM32 over its
+own USB-C needs a USB device (CDC) stack. Every STM32 tool here is
+register-level/no-HAL; hand-writing an OTG FS CDC stack is large and hard to
+debug without SWD. Alternative: build the ground firmware on PlatformIO's
+STM32 Arduino core (`board = blackpill_f401cc`, built-in USB CDC Serial,
+HSE 25 MHz + PLL clocking — which also removes the measured ~0.6 % HSI
+error), reusing `tools/stm32_elrs_common` C code. This is an architecture
+call; not taken yet.

@@ -49,7 +49,23 @@ static void test_rejects_undersized_buffer(void) {
   CHECK(buf[0] == '\0', "an undersized buffer is left as an empty string");
 }
 
+static void test_forward_gate(void) {
+  CHECK(!ch_line_should_forward(false, 1000u, 0u, 500u),
+        "nothing is forwarded before the first RC frame ever arrives");
+  CHECK(ch_line_should_forward(true, 1000u, 1000u, 500u),
+        "a frame that just arrived is forwarded");
+  CHECK(ch_line_should_forward(true, 1499u, 1000u, 500u),
+        "still forwarded 499 ms after the last frame");
+  CHECK(!ch_line_should_forward(true, 1500u, 1000u, 500u),
+        "stops at exactly stale_ms without a new frame (RF lost)");
+  CHECK(!ch_line_should_forward(true, 90000u, 1000u, 500u),
+        "stays silent for a long outage");
+  CHECK(ch_line_should_forward(true, 5u, 0xFFFFFFF0u, 500u),
+        "millisecond counter wrap-around does not read as stale");
+}
+
 int main(void) {
+  test_forward_gate();
   test_formats_expected_fields_in_order();
   test_handles_negative_values();
   test_rejects_undersized_buffer();
