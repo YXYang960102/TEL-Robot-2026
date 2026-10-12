@@ -1,0 +1,11 @@
+{
+  "tools/stm32_elrs_bidirectional_test/build.py": "976cf11ab0f5d484815e2c5a851881d2b97268e99a321c254de925435a16e17f",
+  "tools/stm32_elrs_bidirectional_test/dist/stm32f401cc_elrs_bidir_test.bin": "0b3c43a945cafafc32df46589bd8774b0aa08d42983b27d71c243427d7a67ac6",
+  "tools/stm32_elrs_bidirectional_test/linker.ld": "a36f4620e77f7fb288290b8bf03febd48d36a97604f28591aae75b614eaaee2a",
+  "tools/stm32_elrs_bidirectional_test/src/config.h": "0a424305fa2b9af69175252da9992b5d69b003ad0dcf0a274b0c1c5f92af2b50",
+  "tools/stm32_elrs_bidirectional_test/src/crsf.c": "c2a51656725dc4634e50aed793b8dc0bf023400a4c5edca5818b8dc360f186bb",
+  "tools/stm32_elrs_bidirectional_test/src/crsf.h": "208e23061857b2a7cf294d0bc001140c64a8efee611a0360e5e917c247d97c4a",
+  "tools/stm32_elrs_bidirectional_test/src/main.c": "45505828675b98767d02796306d4542d88589e13f80d78c548c61620bad2b714",
+  "tools/stm32_elrs_bidirectional_test/src/startup.S": "a4c22021f9ef497a430a30ce002992c4e576f7c9eba0acf64eea087cc57a61da",
+  "tools/stm32_elrs_bidirectional_test/test/host_test_crsf.c": "59873fad43eb9378686b755fab02a2138630769ee9934acd15a63bf7ef1b06bb"
+}

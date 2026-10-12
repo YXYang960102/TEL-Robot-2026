@@ -1510,3 +1510,1099 @@ power be reconnected and actual vision-follow be tested on the pin-29
 mechanism, with someone able to cut power immediately — direction sign and
 the carried-over bench speed constants have never been run on this
 mechanism before.
+
+## 2026-10-06 — Claude Code: cross-branch integration (merge/refactor complete, Shooter -> dev -> main, Vision synced to Chassis/Dribbler/ShooterMG996)
+
+Jeremy asked to integrate today's vision-follow/mode-switching work across
+the whole project and clean up the now-redundant bench test files, rather
+than leaving it isolated on `Shooter`. Explicitly confirmed scope before
+doing anything irreversible: `dev`/`main` get the full `Shooter` branch
+merged in as the new baseline; `Chassis`/`Dribbler`/`ShooterMG996` only get
+their `Vision` module synced to the one canonical version (their own
+subsystem code stays untouched). Also confirmed: do this now, even though
+today's vision-follow/mode work is still only statically verified, not
+hardware-tested — real-hardware verification happens after, on whichever
+branch.
+
+**Branches touched, in order:**
+
+1. **`Shooter`** (committed `9a38c71`, pushed): bundled the production
+   auto/semi-auto/manual + vision-follow work from earlier today with a
+   cleanup pass — removed `rotate.html`/`mega_rotate_only_test` (manual-jog
+   bench, superseded by production `VISION_FOLLOW`) and
+   `UART_BARE_TEST.md`/`mega_uart_bare_test` (one-time diagnostic, issue
+   already fixed), stripped the temporary `RX1:` debug echo out of
+   `VisionRotateTest.cpp`, inlined `RotateBenchConstants.h`'s few needed
+   values directly into `VisionRotateBenchConstants.h` so the surviving
+   vision-follow bench no longer depends on a file that no longer exists,
+   rewrote `tools/shooter_keyboard_test/README.md` (was describing the now
+   deleted bench in detail). Kept `ShooterKeyboardTest.cpp`/`index.html`
+   (Angle/Flywheel bench — unrelated to vision, still the only way to bench
+   those axes independently) and `vision_rotate.html`/
+   `mega_vision_rotate_test` (the one surviving standalone bench). Verified
+   full production env + both surviving bench envs compile, full native/page
+   test suite passes.
+
+2. **`Chassis`**: no change needed — its `Vision.{h,cpp}`/`VisionConstants.h`
+   were already byte-identical to the canonical version (this is in fact
+   where the canonical version originally came from, back on 2026-09-24).
+
+3. **`Dribbler`** (committed `d64b1b5`, pushed): its own
+   `Vision.{h,cpp}`/`VisionConstants.h` turned out to already be a
+   functionally-complete, independently-built equivalent (full handshake,
+   same public API) — just under its own flat `VisionConst` namespace
+   instead of the canonical nested `VisionConstants::Transport/Validation`.
+   Swapped for the canonical version; its own `Shooter.cpp` (which already
+   called `isVisionReady()`/`isValid()`/`getXPred()`) needed no changes.
+   Nothing else on this branch touched — its own more-developed `SBUS`
+   wrapper (`isHealthy()`/`getDriveForward()`/`getDriveTurn()`/dedicated
+   `SBUSConstants.h`) and PID_v1-based `Shooter.cpp` (which already has a
+   *working* fire-trigger: flywheel gated on
+   `Vision::isValid() && readyH && readyV && Dribbler::getShootRemaining() > 0`)
+   are untouched and still there.
+
+4. **`ShooterMG996`** (committed `cf8b88f`, pushed): its `Vision.{h,cpp}`
+   was the older first-field-style stub (loose `.toFloat()`/`.toInt()`
+   parsing, no handshake). Swapped for the canonical version — purely
+   additive from this branch's own call sites (`Shooter.cpp`/`Telemetry.cpp`
+   only ever called the subset of methods the stub already had).
+
+5. **`dev`** (merge commit `5ad3a9d`, pushed): `git merge Shooter`, real
+   conflicts in `platformio.ini`, `Constants/Pins.h`, `ShooterConstants.h`,
+   `Shooter.{h,cpp}`, `Vision.{h,cpp}`/`VisionConstants.h`, `main.cpp` —
+   resolved file-by-file on their merits, not a blanket "ours" or "theirs":
+   - Vision/Shooter/ShooterConstants: took `Shooter`'s side (the new
+     architecture supersedes dev's own simpler PID_v1-style Shooter, which
+     turned out to be the same family as Dribbler/ShooterMG996's old
+     versions).
+   - `Pins.h`: kept **dev's** side instead (its own `#pragma once`
+     modernization; `Shooter`'s copy still used the old `#ifndef` guard,
+     content otherwise identical).
+   - `main.cpp`: hand-merged — kept dev's `Telemetry::init()/update()` calls
+     and its safer `Dribbler::setShootRequest(0)` ("disarmed until
+     confirmation flow enables it" — dev's own explicit comment/intent, kept
+     over `Shooter`'s unexplained `setShootRequest(3)`), added `Shooter`'s
+     new `OperatorMode`-gated `setRotateVisionFollow()`/`disableRotate()`
+     call.
+   - `platformio.ini`: combined both sides' `-I` paths and bench env
+     sections; added the `-<Bench/>` source-filter exclusion to the main env
+     (dev never needed it before since it had no `Bench/` folder until this
+     merge).
+   - **Real capability lost in this merge, flagged for follow-up**: dev's
+     old `Shooter.cpp` had a *working* fire-trigger (same condition as
+     Dribbler's: `Vision::isValid() && readyH && readyV &&
+     Dribbler::getShootRemaining() > 0` → fires the flywheel). The new
+     `PidfController`-based architecture has no equivalent yet — flywheel
+     firing/trigger logic is still completely unbuilt on it. This needs to
+     be redesigned on top of the new architecture when the semi-auto
+     fire-confirmation flow actually gets built (see the 2026-10-06 entry
+     above — explicitly out of scope for that work).
+   - Verified: full compile of dev's own `main.cpp` (pulls in `Telemetry`,
+     `Chassis`, `Dribbler`, `Sensors`, `Control`), both bench envs, and the
+     complete native/page test suite — all pass.
+
+6. **`main`** (merge commit `3c21b98`, pushed): confirmed `main` was a pure
+   ancestor of `dev` (zero unique commits) before touching it — so this was
+   `git merge dev` with **zero conflicts**, not a repeat of the `dev`
+   conflict resolution. Brought along dev's own unique work too
+   (`tools/dashboard/`, `docs/autonomous-zone-strategy.md`,
+   `src/Constants/Mode.h`) that `main` didn't have yet. Verified the same
+   full compile check passes.
+
+**Not touched**: `STM32-ELRS` branch — outside the scope Jeremy specified
+(`Chassis`/`Dribbler`/`ShooterMG996` only for the Vision sync).
+
+**Still true, unchanged by any of this**: none of today's
+auto/semi-auto/manual + vision-follow logic has been hardware-tested on any
+branch. The staged verification plan from the earlier 2026-10-06 entry
+still applies, now on whichever branch(es) Jeremy actually flashes.
+
+## 2026-10-06 — Claude Code: auto-fire sequence (lock → spin-up → feed → fire), Shooter branch only
+
+Jeremy described the full desired flow: camera locks/follows target → elevation
+angle and flywheel speed both ready → Dribbler feeds a ball → fire. Full-auto
+does all of this automatically; semi-auto does everything except the final
+fire step automatically, which needs a button press.
+
+**Investigated before writing code** and found three real hardware/feedback
+gaps, not just missing software — confirmed with Jeremy how to handle each:
+1. **Elevation (Angle) closed-loop can never arm right now** —
+   `ShooterConstants::Angle::POSITION_LIMITS_CALIBRATED` is hardcoded `false`,
+   so `setAngleTargetCounts()` always fails into `disableAngle()`. Jeremy:
+   mechanical limits haven't been measured yet, will be done later. **This
+   fire sequence deliberately does not gate on angle readiness** — wire
+   `isAngleReady()` into `Auto::update()`'s `canAutoFire`/state-advance
+   checks once that calibration exists.
+2. **Flywheel (Falcon 500) has zero speed feedback** — confirmed via earlier
+   handoff entries and a fresh grep (no RPM/tachometer anywhere in `src/`):
+   the PWM command path is one-way. Jeremy: use a time-based proxy for now
+   (commanded at shoot-speed for long enough == probably spun up).
+3. **Dribbler's ball sensor is non-functional as currently wired** —
+   `PIN_DRIBBLE_DOWN` (pin 51) is set `OUTPUT` in `init()` but also
+   `digitalRead()` in `update()`, so it reads back whatever it just wrote,
+   not a real ball-presence signal. Not fixed here (separate wiring issue,
+   predates this work) — "ball fed" is also approximated by time, same
+   reasoning as the flywheel.
+
+**Added/changed:**
+- `src/Shooter/Shooter.h`/`.cpp`:
+  - `updateRotate()`'s `VISION_FOLLOW` branch: `rotateReady` used to be
+    hardcoded `false`. Now set properly — reuses the exact same settle-time
+    pattern `PROFILED_POSITION`/`CLOSED_LOOP` already use
+    (`Rotate::READY_SETTLE_TIME_MS`): must stay inside
+    `Rotate::VISION_DEADBAND_PX` for the settle time, not just touch it for
+    one tick, before `isRotateReady()` reports locked. No new getter needed
+    — `isRotateReady()` already existed and is reused as-is.
+  - New `isFlywheelReady()` + private `flywheelSpinStartMs`/`flywheelReady`:
+    true once the commanded flywheel output has stayed at/above
+    `Flywheel::SHOOT_COMMAND` for `Flywheel::SPIN_UP_MS`. Reset in
+    `stopAll()` too (the early-return path in `update()` when
+    `!outputsEnabled` would otherwise skip the normal reset).
+  - `Shooter::isReady()` deliberately left untouched (still hardcoded
+    `false` with its existing comment) — its intended meaning is "fully
+    ready including angle," which still isn't achievable. `Auto` checks
+    `isRotateReady() && isFlywheelReady()` directly instead, explicitly
+    excluding angle, with a comment explaining why.
+- `src/Constants/ShooterConstants.h`, `Flywheel` namespace: new
+  `SHOOT_COMMAND` (0.8, provisional open-loop spin command) and
+  `SPIN_UP_MS` (1500, provisional time-based ready threshold) — both
+  commented as unverified placeholders pending real feedback/real shots.
+- `src/Dribbler/Dribbler.h`/`.cpp`: new `setFeedAllowed(bool)` + private
+  `feedAllowed` flag. `update()`'s existing `if (shoot_pice > 0) run(); else
+  stop();` became `if (feedAllowed && shoot_pice > 0) ...` — the existing
+  (imperfect) ball-count logic is completely untouched; this only adds an
+  external gate, because without it Dribbler would start feeding the moment
+  anyone called `setShootRequest()`, regardless of whether Shooter was even
+  aimed yet.
+- `src/IO/SBUS.h`/`.cpp`: new `fireChannel` (provisionally aliases `ch2`,
+  same pattern as `modeChannel` aliasing `ch8` — both placeholders pending
+  the real keypad).
+- New `src/Constants/AutoConstants.h`: `FEED_DURATION_MS` (500),
+  `COOLDOWN_MS` (300), `FIRE_BUTTON_THRESHOLD` (1500) — all provisional.
+- New `src/Auto/Auto.h`/`.cpp` (was a completely empty placeholder file —
+  first real use of it): state machine `IDLE -> SPINNING_UP ->
+  READY_TO_FIRE -> FEEDING -> COOLDOWN -> IDLE`. Also absorbed the
+  `OperatorMode`-driven Rotate arbitration that used to live directly in
+  `main.cpp`'s `loop()` (moved here so all cross-subsystem mode decisions
+  live in one place) — full-auto/semi-auto both call
+  `Shooter::setRotateVisionFollow()`; full-manual or unhealthy vision calls
+  `Shooter::disableRotate()`, same logic as before, just relocated.
+  `READY_TO_FIRE` auto-advances in `FULL_AUTO`; in `SEMI_AUTO` it waits for
+  an edge-triggered `SBUS::fireChannel` press. Losing rotate-lock or
+  flywheel-ready while at `READY_TO_FIRE` drops back to `SPINNING_UP`.
+- `src/main.cpp`: calls `Auto::init()` in `setup()`, `Auto::update()` in
+  `loop()` (replacing the inline mode-arbitration block that moved into
+  `Auto.cpp`). Also changed `Dribbler::setShootRequest(3)` →
+  `setShootRequest(0)` at boot — now that `Auto::update()` will auto-fire
+  whenever a shot is queued and the axis is locked+spun-up, booting with 3
+  pre-queued would auto-fire three times with zero operator action.
+
+**Evidence:** `avr-g++ -fsyntax-only` against the full production
+`megaatmega2560` build (`main.cpp` pulling in every subsystem) and each
+changed/new `.cpp` individually — clean. `mega_shooter_keyboard_test` bench
+env re-verified (touches `Shooter.cpp`). Full existing native test suite
+(`directional_limit`/`pidf_controller`/`position_deceleration_profile`/
+`vision_rotate_bench_state`) and both `.cjs` page tests re-run, all pass.
+No native test added for `Auto` itself/the state machine — consistent with
+this codebase's existing pattern, `Shooter`/`Dribbler`/`SBUS` are tightly
+coupled to Arduino statics and have never had host-side unit tests either,
+only compile verification. **No `pio` build/upload, no motor power, no real
+SBUS/fire-button/Orin link tested. This has not been merged to
+`dev`/`main`/`Chassis`/`Dribbler`/`ShooterMG996` yet** — stayed on `Shooter`
+only this time; ask explicitly before repeating the earlier cross-branch
+integration for this feature.
+
+**Next Test (staged, same discipline as every prior step):** power off
+motors first. Confirm via telemetry that `Auto`'s fire-state machine
+transitions correctly with `Dribbler::setShootRequest()` set to some count:
+does it sit in IDLE with 0 queued, enter SPINNING_UP once a shot is queued
+and vision/mode allow it, reach READY_TO_FIRE only after real
+`isRotateReady()`/`isFlywheelReady()` (watch these over serial — do they
+flip at sane times, not instantly/never), and in semi-auto does it correctly
+wait at READY_TO_FIRE until `fireChannel` is pressed. Only once that's all
+confirmed sane should motor power be reconnected, with someone able to cut
+power immediately — the flywheel command magnitude, spin-up time, and feed
+duration are all unverified guesses right now.
+
+## 2026-10-11 — Claude Code: wired dev integration (Chassis/Dribbler merged into dev, new WiredControl USB Dashboard protocol, wireless/final pins deferred)
+
+**User Request:** Codex's 2026-10-11 handoff (`inbox/claude-codex-message.md`)
+asked for `dev` to become the official competition architecture by merging
+`Shooter`/`Chassis`/`Dribbler`'s bench work in, with a USB-direct PC
+Dashboard keyboard layer (W/S/A/D chassis, R/F feed, arrow-key
+Rotate/Angle jog, L manual/vision-follow toggle, Enter/Space semantics),
+listing deletion candidates before deleting, and explicitly deferring
+wireless (dual-STM32/ELRS) and final pin assignments. Jeremy scoped this
+round to wired-only ("先做有線的部分，無線跟 pin 配置等你明天給資料"),
+confirmed the real ball sensor is a break-beam matching `Dribbler`
+branch's `ExitSensor` design, and after reviewing the feed-mechanism test
+video (`2u4uYxGWIXyhUO-BA1XwYuZ36QUG2A_GpggLlCAceVY.MP4`, 6 motors — 2
+horizontal collector + 4 vertical pinch-feed, all one logical group)
+confirmed F forcibly interrupts a running R (switches to single-shot, does
+not resume R afterward) with a 3-second jam timeout as a starting value.
+
+**Discussion Result:** Full plan written and approved via plan mode
+(`/Users/jeremy/.claude/plans/optimized-foraging-bumblebee.md`) before any
+file was touched. Not a wholesale branch-file copy — `dev`'s own
+`Chassis.cpp`/`Dribbler.cpp` were still the pre-merge versions (four-wheel
+mecanum mixing; the pin-51-double-duty sensor/output bug), and two
+additional pre-existing problems were found during this integration that
+had nothing to do with any branch merge: `Telemetry.cpp` referenced a
+deleted `SBUS::ch0..ch8` (the file would not compile at all), and
+`src/IO/MechLink.h` used `String` without including `<Arduino.h>` itself
+(silently relied on whichever `.cpp` happened to include it first in some
+other order — `OperatorMode.cpp`/`MechLink.cpp` both failed to compile
+standalone). Both are fixed as part of this integration; `pio run -e
+megaatmega2560` had apparently never actually been run to completion
+before this, only bench environments.
+
+**Why:** `dev` needs to be a real, buildable competition baseline, not a
+loose collection of divergent branch snapshots, and the Dashboard needed
+an actual command-sending capability (it was read-only telemetry before —
+`port.readable.pipeTo(...)` with no `getWriter()` anywhere) before any
+wired keyboard layer could exist at all.
+
+**Changed:**
+- `src/Chassis/Chassis.{h,cpp}`: replaced with the `Chassis` branch's
+  two-wheel differential drive (`setOpenLoop`/`setTankOpenLoop`/
+  `setOutputsEnabled`/`stop()`), dropping the old four-servo
+  `vx/vy/w` mecanum mixing that read `MechLink` channels directly. New
+  `src/Chassis/DifferentialDriveMixer.h` ported alongside it (used by
+  `setOpenLoop`, not by the new wired tank command, which calls
+  `setTankOpenLoop` directly to keep A/D's sign unambiguous — see below).
+- `src/Dribbler/Dribbler.{h,cpp}`: replaced the pin-51-double-duty version
+  with the `Dribbler` branch's `ExitSensor`(pin 45, active-low, 8ms
+  debounce)/`Feeder`/`DribblerControlMode` design, **plus** two additions
+  the branch didn't have: (1) `setFeedAllowed(bool)` restored/kept so
+  `Auto.cpp`'s existing auto-fire permission-gate call sites don't change,
+  gating only `COUNTED_FEED` (not `MANUAL_OPEN_LOOP`, which wired R uses
+  and isn't gated by Auto at all); (2) a 3-second jam timeout
+  (`DribblerConstants::Jam::TIMEOUT_MS`) — `COUNTED_FEED` mode had no
+  timeout at all before, a stuck/missing sensor would have run the feed
+  motors forever. `Feeder` now fans a single command out to
+  `Feeder::CHANNEL_COUNT` PWM/enable pin pairs instead of assuming exactly
+  one motor (see "Not yet done" below — still only 1 channel wired today).
+- `src/Telemetry/Telemetry.cpp`: fixed the dead `SBUS::ch0..ch8`
+  references to `MechLink::ch0/ch1/modeChannel/ch3/fireChannel` (repurposing
+  the old ch2/ch8 slots since MechLink doesn't expose a literal ch2/ch8),
+  appended new trailing fields (wired-armed, chassis L/R pulse-us, dribbler
+  mode/feeding/exit-sensor, Shooter rotate/angle mode, Falcon pulse-us +
+  **command ratio** — deliberately not RPM, this Falcon has no speed
+  feedback on this PWM path). `tools/dashboard/index.html`'s
+  `parseTelemetry()` treats all new fields as optional (`p.length > N`),
+  same pattern the existing robotX/robotY/heading fields already used, so
+  older/partial telemetry doesn't break the page.
+- `src/IO/MechLink.h`: added the missing `#include <Arduino.h>` (pre-existing
+  bug, see above).
+- `src/Auto/Auto.cpp`: two small, explicit, well-contained changes — (1)
+  `WiredControl::isRotateAuthorityActive()` skips Auto's own
+  disableRotate()/setRotateVisionFollow() arbitration for one tick when
+  the wired Dashboard is armed, since `WiredControl` now calls those exact
+  same `Shooter` methods itself based on its own L toggle + vision health;
+  (2) `WiredControl::isDribblerAuthorityActive()` skips Auto's
+  `Dribbler::setFeedAllowed(false)` in the `!canAutoFire` branch while a
+  wired F request is in flight — otherwise a wired F could never actually
+  run the feed motors, since `canAutoFire` is always false with no RC
+  signal present (the normal case during wired-only testing), and Auto was
+  forcing that gate false every single tick. **The auto-fire state machine
+  itself (`FireState`/`canAutoFire`) is completely untouched** — `mode`
+  stays `FULL_MANUAL` with no RC link regardless of anything wired control
+  does, so auto-fire structurally cannot trigger from the wired Dashboard,
+  satisfying Codex's "L switching != starting auto-fire."
+- `src/Shooter/Shooter.{h,cpp}`: added `getFlywheelCommand()` (returns the
+  raw 0.0-1.0 open-loop command) purely for the Dashboard's honest
+  us+ratio Falcon display.
+- `src/Constants/Pins.h`: removed the stale Chassis/Dribbler `#define`s
+  (pins now live in `ChassisConstants.h`/`DribblerConstants.h`, following
+  those branches' own convention); `src/Constants/TuningConstants.h`
+  gained the `Chassis` branch's `RightDrive`/`LeftDrive`/`Manual`
+  namespaces (the file's own header comment already anticipated this
+  exact merge-by-combining-namespace-blocks).
+- `src/main.cpp`: added `WiredControl::init()`/`WiredControl::update()`,
+  the latter called right after `MechLink::update()`/`Vision::update()`
+  and before `Auto::update()`, so WiredControl's authority flags and its
+  own direct `Chassis`/`Dribbler`/`Shooter` calls are current before Auto
+  arbitrates and before each subsystem's own `update()` applies them.
+
+**Added:**
+- `src/IO/WiredControl.{h,cpp}` + `src/Constants/WiredControlConstants.h`:
+  new production module, USB `Serial` (separate hardware port from
+  `Serial2`/`MechLink`'s wireless link — nothing shared, no risk of the two
+  fighting over the same UART). Line-based protocol, same buffered-byte-
+  read/`$EVENT,`-reply shape every existing bench (`ShooterKeyboardTest`/
+  `ChassisKeyboardTest`/`VisionRotateTest`) already uses:
+  `E`/`X`/`K` (enable/disable+clear-pending/keepalive), `T,<left>,<right>`
+  (tank drive, -1..1 each), `ROT,<dir>`/`ANG,<dir>` (Rotate/Angle manual
+  jog, -1/0/1), `R` (toggle continuous feed — `MANUAL_OPEN_LOOP`, not
+  gated by Auto), `F` (single-ball request — `COUNTED_FEED`, forcibly
+  clears R first), `L` (toggle Rotate manual-jog vs vision-follow, clears
+  any pending manual jog, defaults to **manual** on boot/enable — not
+  vision-follow, since vision-follow would otherwise start driving the
+  turret the instant outputs are enabled with no explicit per-axis
+  operator action). 250ms command watchdog (`WiredControlConstants::
+  COMMAND_TIMEOUT_MS`, matching the existing bench convention) auto-
+  disables everything on silence.
+- `tools/dashboard/index.html`: was pure telemetry-receive-only before
+  (`port.readable.pipeTo(...)`, no `getWriter()` anywhere, no keyboard
+  handling at all). Added a `writer`, an Enable button (disabled until
+  connected, like every bench page), full W/S/A/D/arrows/R/F/L/Enter/Space
+  handling with `event.repeat` suppression on single-press keys, an input-
+  focus guard (`target.tagName === 'INPUT'/'TEXTAREA'`/`isContentEditable`
+  → ignore — this specific guard didn't exist on any existing bench page,
+  borrowed from `docs/elrs-architecture/system.html`'s own convention for
+  it since the Dashboard, unlike the benches, has real text inputs on the
+  same page), `window blur`/`visibilitychange` → stop, `navigator.serial`
+  `disconnect` event → clean teardown, a 75ms heartbeat that resends
+  whichever axes are non-neutral (not just a bare keepalive, so a dropped
+  packet can't leave a motor stuck), and a new Control panel showing
+  chassis pulse-us, dribbler mode/feeding/exit-sensor, Rotate/Angle mode,
+  and Falcon us+ratio.
+- `test/dashboard_control_test.cjs`: host test for the three pure command
+  functions (`tankCommand`/`rotateCommand`/`angleCommand`), extracted by
+  source text and run in a `vm` context rather than loading the whole
+  1600-line page (most of it is canvas/localStorage/drag-resize layout
+  code that runs at top-level load and isn't worth mocking for what this
+  round needs verified) — covers neutral, W/S/A/D individually (**A = left
+  wheel forward + right wheel backward**, Jeremy's explicit non-standard
+  polarity, asserted exactly so it can't silently drift), combined W+A,
+  opposing-key cancellation, and both Rotate/Angle axes.
+
+**Pending pin table (explicitly NOT final, per Jeremy — real pins come
+separately):**
+| Subsystem | Pin(s) used this round | Source |
+|---|---|---|
+| Chassis right/left drive | 39 / 38 | `Chassis` branch (reused dev's old FR/FL pins) |
+| Chassis pins 40/41 | unused | old BR/BL, free since this is 2-wheel not 4-wheel |
+| Dribbler ExitSensor | 45 | `Dribbler` branch |
+| Dribbler Feeder (6 real motors, 1 channel wired today) | PWM 2 / enable 51 | single-motor bench pins, `Feeder::CHANNEL_COUNT` ready to grow |
+
+**Cleanup candidates presented, none deleted yet** (per Codex's explicit
+"list before deleting" requirement) — old 4-wheel `Chassis.cpp`/pin-51-
+double-duty `Dribbler.cpp` logic is gone (replaced in place, not left as
+dead code); three divergent `tools/dashboard/index.html` copies across
+`dev`/`Shooter`/`Chassis` collapse to keeping only `dev`'s (now the
+official one); `tools/chassis_keyboard_test/`/`src/Bench/
+ChassisKeyboardTest.cpp` deliberately kept this round as a protocol
+reference/regression check, not deleted.
+
+**Evidence:**
+- `platformio run -e megaatmega2560` (real build+link, not syntax-only —
+  a working `pio` binary was found at
+  `~/.platformio/penv/bin/platformio`): **SUCCESS**, RAM 24.2%
+  (1986/8192B), Flash 10.5% (26718/253952B). This is the first time this
+  exact environment is known to have been built to completion; it was
+  broken (the `SBUS`/`MechLink.h` issues above) before this session even
+  started touching it.
+- `mega_shooter_keyboard_test` and `mega_vision_rotate_test` bench
+  environments re-built clean (both pull in `Shooter.cpp`, which changed).
+- Full existing native suite re-run and passing: `pidf_controller_test`,
+  `directional_limit_test`, `position_deceleration_profile_test`,
+  `shot_table_lookup_test`, `vision_rotate_bench_state_test`,
+  `vision_rotate_page_test.cjs`.
+- New `dashboard_control_test.cjs`: passing.
+- `node --check` on the extracted dashboard `<script>` block: clean.
+
+**Not yet done / hardware-unverified (explicit, not glossed over):**
+- **No `pio upload`, no power, no real hardware run of any of this.**
+  Jeremy is testing today (10/11) with a real USB-connected Mega.
+- No host test exists for `Dribbler.cpp`'s jam-timeout/sensor logic or
+  `WiredControl.cpp`'s command parsing/arbitration themselves — both are
+  tightly coupled to Arduino statics (`millis()`/`digitalRead`/
+  `digitalWrite`/`Serial`) the same way `Shooter.cpp`/the pre-merge
+  `Dribbler.cpp` always were, and neither ever had host tests on their
+  branch of origin either. Verified by compile+link success and manual
+  trace only — flagging this honestly rather than claiming coverage that
+  doesn't exist.
+- A/D chassis polarity (Jeremy's explicit literal spec: A = left wheel
+  forward + right wheel backward) is implemented exactly as specified but
+  **not confirmed against real wiring/chassis orientation** — first thing
+  to check on hardware, per Jeremy's own instruction not to silently
+  invert it if it looks wrong.
+- `ExitSensor` active-low assumption carried over from the `Dribbler`
+  branch unchanged — not re-verified against the real break-beam's actual
+  wiring/polarity.
+- Jam timeout (3000ms) is Jeremy's own confirmed starting value, open to
+  live tuning.
+- Wireless (dual-STM32/ELRS, CRSF channel/event encoding, loss-timeout
+  replay handling) and final pin assignments: **explicitly deferred**, not
+  attempted this round, per Jeremy's own scoping.
+- `Vision::isConnected()`/`isVisionReady()` gating for `L`'s vision-follow
+  path reuses the same healthy-check `Auto.cpp` already had — today's
+  PIDF vision-follow tuning is separately unfinished (see the 2026-10-10
+  entry above), so `L` toggling to vision-follow is only expected to prove
+  "the mode switch works safely," not "tracking is good."
+
+## 2026-10-11 — Claude Code: fixes for Codex review of e4a70a5 (wired path not yet accepted)
+
+**User Request:** Codex reviewed `e4a70a5` and did not pass it (four P1,
+one P2, several secondary items — see `inbox/claude-codex-message.md`
+"Codex review e4a70a5"). Jeremy approved the fix plan, including the
+pin-table Enable gate (and accepted that today's bench test needs the pin
+table confirmed before Enable will work).
+
+**Discussion Result:** Every Codex finding was checked against the code
+before changing anything and all were real. One extra finding while
+checking: `Shooter::setOutputsEnabled(true)` was never called anywhere in
+production, not just in the wired path — Auto's own vision-follow/flywheel
+writes had also never actually reached the outputs.
+
+**Changed:**
+- `src/IO/WiredControl.{h,cpp}` (rewritten around these rules):
+  - Firmware-side refusal: `R/F/L/T/ROT/ANG/FLY` while disarmed →
+    `$EVENT,REJECTED_DISARMED`, no state change. Disarmed `update()` also
+    stops any stray `MANUAL_OPEN_LOOP` feed (defense in depth). Fixes
+    Codex's repro (X then R → feed ran for 4s+ while disarmed).
+  - Enable/disarm now drive every subsystem: `Chassis` and
+    `Shooter::setOutputsEnabled(true/false)` + `Shooter::stopAll()`,
+    `Dribbler::stop()`, feed gate false, all commands cleared, L back to
+    manual. One `disarm(reason)` path is shared by X, watchdog, and RC
+    takeover.
+  - Enable gate: `E` is refused (`ENABLE_REJECTED_PINS_UNCONFIRMED`) while
+    `PIN_TABLE_CONFIRMED` (new, `src/Constants/Pins.h`) is false.
+  - Control source: `E` is refused while `MechLink` reports a live link
+    (`ENABLE_REJECTED_RC_LINK_ACTIVE`); an armed session disarms itself the
+    moment one appears (`DISABLED_RC_LINK_ACTIVE`). Wired and wireless never
+    drive outputs at the same time.
+  - Watchdog is checked **before** reading new bytes, so a heartbeat that
+    only arrives after the 250ms deadline can't rescue an expired session.
+  - F while a previous F is in flight → `FEED_BUSY`, no count/jam-clock
+    reset, no queueing. R still cancels a pending F (last explicit feed
+    command wins); F still interrupts R and does not resume it.
+  - New `FLY,<0..1>` flywheel command (open-loop ratio, not RPM), applied
+    every armed tick, zeroed by every disarm path.
+  - Keyboard axes are scaled for first bring-up
+    (`WiredControlConstants::CHASSIS/ROTATE/ANGLE_MANUAL_SCALE` = 0.30 /
+    0.10 / 0.10; rotate/angle match `ShooterBenchConstants`' existing
+    "limited authority" 0.10, chassis has no prior bench value).
+  - `isRotateAuthorityActive()`/`isDribblerAuthorityActive()` replaced by a
+    single `isActive()`.
+- `src/Auto/Auto.cpp`: the two per-feature skips from `e4a70a5` are gone;
+  `Auto::update()` now returns at the top (fire state → IDLE) whenever
+  `WiredControl::isActive()`. Since wired can only be armed with no RC
+  link, auto-fire couldn't run then anyway; this just stops Auto from
+  writing Rotate/flywheel/feed-gate over wired commands.
+- `src/Dribbler/Dribbler.cpp`: `setShootRequest()` seeds
+  `ballSeenDuringRequest` from the debounced exit-sensor state instead of
+  always `false`, so a ball already in the beam when F is pressed counts
+  when it leaves (previously the feed ran on to a second ball or the 3s jam
+  timeout).
+- `tools/dashboard/index.html`: Falcon range slider → `FLY,` (disabled until
+  armed, reset to 0 on every disarm/event, resent by the heartbeat while
+  non-zero); keyup always releases a held key regardless of focus, and
+  `focusin` on a text box releases everything held; only real text inputs
+  count as typing targets (the range slider doesn't, so Enter/Space still
+  work with it focused); Enable/Connect buttons blur after click so Space
+  can't re-activate them; `emergencyStop()` drops local armed state before
+  sending `X`; handles the new firmware events; dimmed `:disabled` style.
+
+**Added:**
+- `test/wired_control_test.cpp` + `test/host_stubs/` (fake Arduino
+  time/pins/Serial, recording Chassis/Shooter/Vision/MechLink): compiles the
+  **real** `WiredControl.cpp` and `Dribbler.cpp`. Built twice — with
+  `-DTEL_HOST_TEST_PIN_TABLE_CONFIRMED=true` (15 armed-path scenarios) and
+  without (gate refuses Enable). The override is a hard `#error` in any
+  `ARDUINO` build (verified). Scenarios: everything refused while disarmed;
+  X-then-R repro; stray manual feed stopped; enable/disable reach every
+  subsystem; watchdog timeout; late heartbeat can't rescue; heartbeat keeps
+  alive; RC refuses/takes over; axis scaling; FLY range/parsing + bad/
+  unknown commands; L toggle + re-enable returns to manual; single shot
+  with ball already blocking; single shot from clear beam; jam timeout with
+  busy F not restarting the clock; F interrupts R and R does not resume.
+  **Mutation-checked:** reverting each fix individually (old
+  `ballSeenDuringRequest=false`, no disarmed rejection, watchdog after read,
+  no Shooter enable, no FEED_BUSY, no RC takeover) makes the matching test
+  fail.
+- `test/dashboard_page_test.cjs`: loads the **whole** dashboard script in a
+  vm with a permissive DOM stub; covers Enable flow, W/A press+repeat+
+  release, R/F/L repeat suppression, arrows, text-box typing ignored, keyup
+  after focus moved, focusin release, slider → FLY + heartbeat resend,
+  Enter with slider focused, disarmed slider/heartbeat ignored, firmware
+  timeout/RC-takeover resets, telemetry resync, blur, Space disconnect.
+- `test/README`: exact build/run commands for every host test.
+
+**Evidence:** `platformio run` for `megaatmega2560` (RAM 25.4% 2083/8192,
+Flash 11.3% 28768/253952), `mega_shooter_keyboard_test`,
+`mega_vision_rotate_test` — all SUCCESS. All host tests above plus the
+existing native/page suite pass. Dashboard opened in a browser: control
+panel, slider, and new telemetry fields render (fed one synthetic `TEL`
+line through the page's own `handleLine`). No upload, no power, no
+hardware.
+
+**Not yet done / hardware-unverified:**
+- `PIN_TABLE_CONFIRMED` is false, so **wired Enable is refused until the
+  real pin table is checked and that constant flipped**.
+- The robot-side STM32 bridge (`tools/stm32_elrs_robot_bridge`) sends a
+  `CH,...` line to the Mega every period whether or not RF is up, so with
+  the bridge plugged into Serial2, `MechLink::signalLost` stays false and
+  wired Enable is refused (`ENABLE_REJECTED_RC_LINK_ACTIVE`). For wired
+  testing, unplug the bridge from Serial2. Making the bridge/MechLink
+  report real RF loss belongs to the wireless phase.
+- Pre-existing, not changed here: with an RC link, Auto's own Rotate/
+  flywheel/feed writes still never reach hardware because nothing enables
+  Shooter outputs in the RC path either. Needs a decision in the wireless
+  phase.
+- Manual scale values (0.30 chassis, 0.10 rotate/angle) are starting values.
+- Everything from the previous entry's hardware-unverified list still
+  applies (A/D polarity on real wiring, ExitSensor polarity, 3s jam value,
+  vision-follow quality).
+- Still deferred: wireless, final pins, file cleanup.
+
+## 2026-10-11 — Claude Code: fixes for Codex re-review of afed238 (three remaining items)
+
+**User Request:** Codex confirmed the previous round's fixes and listed
+three remaining items. Jeremy approved the plan and chose "stop keys win
+while armed" for the first one.
+
+**Changed:**
+- `tools/dashboard/index.html` [P1]: Enter/Space no longer get swallowed by
+  the text-box guard while armed. Previously, with R or the Falcon running
+  and focus in the stream URL box, Enter didn't disable and Space didn't
+  disconnect, and the heartbeat kept the session alive. Now while armed
+  they always stop/disconnect; while disarmed, text boxes keep normal
+  Enter/Space. Movement/R/F/L keys are still ignored in text boxes. The old
+  page-test assertion that "Enter in a text box sends nothing" (which
+  encoded the bug) was replaced.
+- `src/IO/WiredControl.{h,cpp}` [P2] oversized line: after
+  `COMMAND_TOO_LONG` the rest of the line is now discarded up to `\n`
+  (`discardingLine`), including across separate serial reads, so a tail
+  like `...E`/`...R`/`...FLY,1` is never parsed as its own command.
+  Overflow while armed also disarms (`DISABLED_CORRUPT_COMMAND`), treated
+  like a lost link.
+- `src/IO/WiredControl.cpp` [P2] non-finite numbers: `parseValue()` rejects
+  anything `!isfinite()` after `strtod` (nan/inf in any case, signed,
+  "infinity", overflow like `1e999`). Rejected values → `BAD_COMMAND`, the
+  previous command is kept, and the watchdog is not refreshed. Covers every
+  numeric entry point (`T` both fields, `ROT`, `ANG`, `FLY`).
+
+**Added tests:** `testOversizedLineTailIsDiscarded` (24 x `z` + `E`
+doesn't arm; next line parses normally; armed oversized lines ending in
+R/FLY/T don't run and disarm; overflow split across reads) and
+`testNonFiniteNumbersRejected` (11 spellings x 5 entry points, values
+unchanged, garbage-only traffic still times out) in
+`test/wired_control_test.cpp`. Page test: R + Falcon running → focus into
+the stream URL box → Enter stops (no further heartbeat); same with Space →
+stop then disconnect; disarmed Enter/Space in the box send nothing.
+
+**Evidence:** Mutation-checked: removing `isfinite`, removing the
+discard-to-newline, or removing the corrupt-stream disarm each fails its
+test; the new page test fails against the committed `afed238` HTML (Enter
+in text box sends no `X`). Codex's `/tmp/wired-review-extra.cpp` now
+prints `armed=0` / `isNaN=0` and passes. Full native + page suites pass
+(both `wired_control_test` builds). `platformio run`: `megaatmega2560`
+(RAM 2108/8192, Flash 28854/253952), `mega_shooter_keyboard_test`,
+`mega_vision_rotate_test` all SUCCESS. No upload/power/hardware.
+
+**Still open (unchanged):** `PIN_TABLE_CONFIRMED=false` refuses Enable; the
+robot STM32 bridge on Serial2 keeps `signalLost` false and also refuses
+Enable; RC-path Shooter enable; A/D and ExitSensor polarity, jam timeout,
+manual scale values on real hardware; wireless, final pins, cleanup.
+
+## 2026-10-11 — Claude Code: standalone Mega <-> STM32 UART link test (before ELRS)
+
+**User Request:** Jeremy (via Codex's handoff, and confirmed directly):
+prove the STM32 and Mega can talk both ways before wiring the ELRS RX.
+Mega Serial2 D16 TX → STM32 PA10, STM32 PA9 → Mega D17, 115200 8N1;
+Orin stays on Serial1 D18/D19. The STM32 is a **new, never-flashed**
+WeAct F401CCU6 (not the earlier board). Jeremy: circuit and level shifter
+are already wired, don't re-investigate them.
+
+**Added:**
+- `src/Bench/UartLinkTest/ulink.{h,c}`: shared protocol, plain C, no libc
+  (the same file builds into the Mega sketch, the STM32 firmware and the
+  host test). ASCII lines `<body>*<CRC-8>\n`; `D` data every 100 ms from
+  each side, `A` ACK echoing run/seq/payload (an ACK never triggers an
+  ACK), `C` Mega→STM32 run start/stop, `S` STM32→Mega status every 250 ms.
+  One outstanding packet per side, 50 ms ACK timeout; only an ACK matching
+  the outstanding run+seq+payload counts; late/duplicate/wrong-payload ACKs
+  have their own counters. Receivers verify payload content and track
+  sequence gaps/duplicates. Bounded 200-byte line buffer, oversized lines
+  dropped through the next `\n`. LINK_DOWN after 5 consecutive timeouts,
+  LINK_UP after 3 consecutive successes. Explicit run start (data begins
+  only after the STM32 confirms) and drain (report only after both sides
+  stopped sending and have nothing outstanding, else NOT CONFIRMED after
+  2 s). The 100 ms cadence is this test's own; it is not the ELRS rate
+  design.
+- `src/Bench/UartLinkTest/MegaUartLinkTest.cpp` + new isolated env
+  `mega_uart_link_test` (builds only `Bench/UartLinkTest/`, so it can't
+  contend with the robot build for Serial2; serial buffers raised to 256
+  so a 1 s USB progress print can't drop Serial2 bytes — verified in the
+  ELF: `Serial`/`Serial2` objects are 0x21d bytes). USB commands
+  `RUN,<s>`, `START`, `STOP`, `STATUS`; prints progress, LINK/STM32-alive
+  events, a human-readable final report with both directions, RTT
+  min/avg/max for each side, error counters, `RESULT: PASS/FAIL`, and a
+  `$ULINK_RESULT,...` machine line.
+- `tools/stm32_mega_uart_test/`: register-level STM32 firmware (USART1
+  PA9/PA10, IRQ → 512-byte ring, hardware overrun/framing/noise and
+  ring-full counted into `bad`), clock/GPIO/USART bring-up reused from
+  `stm32_elrs_robot_bridge`, linked at **0x08000000** for the ROM USB DFU
+  bootloader (no WeAct HID bootloader assumed on a fresh board — the old
+  0x08004000 images don't apply). `build.py` runs the host test first,
+  then cross-compiles and checks vectors/stack/size/no undefined symbols
+  (adds `-fno-tree-loop-distribute-patterns` so gcc can't emit hidden
+  memset/memcpy calls under `-nostdlib`). README has the dfu-util flash
+  steps, the Mega upload/monitor commands, and the acceptance procedure.
+- `tools/stm32_mega_uart_test/test/host_test_ulink.c`: unit checks (CRC-8
+  check value 0xF4, payload) and a 1 ms-stepped simulation of both real
+  endpoints through two byte channels with per-line faults: clean 60 s
+  (M sent 600 / S received 600, S sent 601 / M received 601, zero errors,
+  drain confirmed, A-lines == D-lines), dropped data, dropped ACK,
+  corruption that breaks the format, corruption that stays well-formed
+  (only CRC catches it), late ACK, duplicate ACK, cut + reconnect
+  (LINK_DOWN, ~20 timeouts, LINK_UP, no further timeouts), stop while cut
+  (NOT CONFIRMED), lost control lines, oversized line whose tail looks
+  like `C,1,0`, wrong run / wrong role.
+
+**Evidence:** host test passes; mutation-checked (removing CRC check,
+discard-to-newline, outstanding-match for ACKs, D payload verification,
+drain condition, or making stale ACKs trigger an ACK each fails a test —
+the CRC mutation initially slipped through, which is why the well-formed
+corruption test exists). `build.py`: 3640-byte image, vectors at
+0x08000000, SysTick/USART1 wired, no undefined symbols, sha256
+f80173da…7a43. `platformio run`: `mega_uart_link_test` SUCCESS (RAM 1583/8192);
+`megaatmega2560`, `mega_shooter_keyboard_test`, `mega_vision_rotate_test`
+still SUCCESS. **Not flashed, not run on hardware.**
+
+**Next Test (Jeremy, on the bench):** flash STM32 via ROM DFU and the Mega
+env (README), confirm `STM32_STATUS_RECEIVED`, `RUN,60` → expect ~600 each
+way and `RESULT: PASS`; then `START`, pull one signal wire → `LINK_DOWN`,
+replug → `LINK_UP`, `STOP`. Paste the report back. ELRS RX only after this
+passes on real hardware.
+
+**Side note (pre-existing, not changed):** a full rebuild shows
+`division by zero` warnings at `src/Shooter/Shooter.cpp:946/953`
+(`rotateRawToDegrees`, from `a720ac0`): the rotate calibration raw values
+are all still 0, so the denominators are constant zero. Needs a guard or
+real calibration values; out of scope here.
+
+## 2026-10-11 — Claude Code: UART link test hardware results (Jeremy ran it, 9d6aa12)
+
+**Flash:** STM32 (fresh WeAct F401CCU6) entered ROM DFU (`0483:df11`, alt 0
+`@Internal Flash /0x08000000`) after Jeremy fixed the USB data connection;
+`dfu-util -a 0 -s 0x08000000:leave -D stm32f401cc_mega_uart_test.bin` →
+`Download done`, 3640 bytes (sha256 f80173da… matches `verification.json`).
+The initial `dfuERROR ... firmware is corrupt` was the blank chip before
+download; `Invalid DFU suffix` is because a raw .bin was used. Mega flashed
+with `pio run -e mega_uart_link_test -t upload`.
+
+**Monitor note:** `pio device monitor` sends keystrokes one by one without
+echo; the first `RUN,60` attempt arrived as `UNKNOWN_COMMAND` (likely a typo
+the operator couldn't see). Use
+`pio device monitor -e mega_uart_link_test --echo --filter send_on_enter`.
+
+**60 s run (run 1636) — PASS:**
+```
+duration_ms=60000  drain=confirmed (STM32 final counters)
+Mega->STM32: sent=600 acked=600 timeout=0 lateAck=0 dupAck=0 badAck=0 | received=600 lost(gap)=0 dup=0
+STM32->Mega: sent=604 acked=604 timeout=0 lateAck=0 dupAck=0 badAck=0 | received=604 lost(gap)=0 dup=0
+RTT seen by Mega:  min=4 avg=5.19 max=9 ms
+RTT seen by STM32: min=3 avg=5.27 max=9 ms
+line errors: Mega bad=0 overflow=0 | STM32 bad=0 overflow=0
+RESULT: PASS
+$ULINK_RESULT,1636,60000,1,1,600,600,0,0,0,0,600,0,0,604,604,0,0,0,0,604,0,0,0,0,0,0,4,9,3111,3,9,3183
+```
+Observation: the STM32 sent 604 in the Mega's 60 s, and the lead grew
+during the run (+2 by 28 s, +4 by 55 s) — its 16 MHz HSI is running ~0.6 %
+fast relative to the Mega (within HSI's ±1 % factory spec). Harmless at
+115200 here (zero errors), but it adds to the nominal +0.25 % BRR error of
+the 420000-baud ES900RX link in the ELRS firmware, which also runs on HSI.
+Worth considering the board's HSE crystal before/while doing ELRS.
+
+**Disconnect/recover (run 38824):** signal wires are soldered and can't be
+unplugged, so Jeremy chose to hold the STM32's NRST for ~3 s mid-run (real
+"peer disappears" event; no code change). Result: LINK_DOWN at t=12753 ms
+(5 consecutive timeouts), STM32_SILENT ~1 s later, 30 timeouts total during
+the hold, none counted as success; after release STM32_STATUS_RECEIVED and
+LINK_UP at t=15508 ms, Mega timeouts stayed at 30 for the remaining ~19 s,
+every Mega packet acked again (RTT avg 5.15 ms). STM32→Mega had received 124
+with 0 gaps before the reset. `Mbad=1`: one partial/garbled line from the
+reset moment, rejected by CRC. Report shows `drain=NOT CONFIRMED`,
+`RESULT: FAIL`, `S>M=0/0` — expected: the rebooted STM32 doesn't rejoin the
+run, so its counters restart and it stops sending data.
+
+**Not verified:** STM32→Mega recovery after a real outage (the reset
+approach can't show it; would need a rejoin feature or a software CUT
+command), a physical wire break (soldered), behavior over longer runs.
+
+**Next:** per Codex's gate, the wired Mega↔STM32 link has passed on real
+hardware for the 60 s and outage-detection checks above; ELRS RX is the next
+stage once Codex reviews 9d6aa12 and these results.
+
+## 2026-10-11 — Claude Code: ELRS step 1 (downlink only) — robot bridge on the fresh board + Mega bench env
+
+**User Request:** after the Mega↔STM32 UART test passed on hardware, Jeremy
+wired the ES900RX to the robot STM32's PA2/PA3 (Dupont) and approved
+"step 1: get the wireless link working" (downlink only). Topology confirmed:
+PC / homemade keypad → ground STM32 (the **old** board, WeAct HID
+bootloader) → ES900TX ))) ES900RX → robot STM32 (the **new** board) → Mega
+Serial2. ES900TX not wired yet; the PC will connect to the ground STM32
+through its own USB-C (step 2, not started).
+
+**Changed (`tools/stm32_elrs_robot_bridge`):**
+- Linked at `0x08000000` (was `0x08004000`) for the fresh board's ROM DFU
+  flash; `build.py`/`linker.ld`/`verification.json` updated. 2360 bytes,
+  sha256 4d4fae92…2b38.
+- `CH,...` forwarding to the Mega is gated by
+  `ch_line_should_forward()` (new, host-tested incl. wrap-around): only
+  while a validated `RC_CHANNELS` frame arrived within 500 ms. Previously
+  the bridge sent a line every 20 ms regardless, so `MechLink` could never
+  see RF loss (and the wired Dashboard's RC-link gate would refuse Enable
+  forever). Assumes ES900RX stops emitting RC frames on link loss — the
+  bench test is what verifies it.
+
+**Added:** `src/Bench/ElrsLinkTest/MegaElrsLinkTest.cpp` + env
+`mega_elrs_link_test` (production `MechLink.cpp` unchanged + a printer:
+channels 4x/s, LINK_OK/LINK_LOST events with previous-state duration,
+count of `fwd` changes; serial buffers 256). README section "2026-10-11
+changes" has flash steps and pass criteria.
+
+**Ground side for step 1:** no new firmware. The old board should still
+carry `tools/stm32_elrs_bidirectional_test` (RC frames every 10 ms, CH1
+cycling 1000/1500/2000 every 2 s) — enough as a signal source. Not
+confirmed what's actually on it; its LED behavior will tell.
+
+**Evidence:** robot bridge `build.py` (host test + image checks) passes;
+`platformio run`: `mega_elrs_link_test`, `megaatmega2560`,
+`mega_uart_link_test` SUCCESS. Not flashed, not run.
+
+**Step 2 (not started, needs Codex's view):** PC → ground STM32 over its
+own USB-C needs a USB device (CDC) stack. Every STM32 tool here is
+register-level/no-HAL; hand-writing an OTG FS CDC stack is large and hard to
+debug without SWD. Alternative: build the ground firmware on PlatformIO's
+STM32 Arduino core (`board = blackpill_f401cc`, built-in USB CDC Serial,
+HSE 25 MHz + PLL clocking — which also removes the measured ~0.6 % HSI
+error), reusing `tools/stm32_elrs_common` C code. This is an architecture
+call; not taken yet.
+
+## 2026-10-11 — Claude Code: ELRS step 1 hardware result — downlink PASS end to end (b624da7)
+
+**Setup that worked:** ground = old STM32 (WeAct HID bootloader) still
+running `tools/stm32_elrs_bidirectional_test` (RC frames every 10 ms, CH1
+cycling 1000/1500/2000 every 2 s) → **2.4 GHz** ELRS TX module (PA9
+half-duplex, 400000) ))) **2.4 GHz** ELRS RX (firmware 3.5.1, ISM2G4) →
+robot STM32 (fresh board, `stm32_elrs_robot_bridge` b624da7 at 0x08000000,
+PA3 ← RX's TX, PA2 → RX's RX) → Mega Serial2 running `mega_elrs_link_test`.
+
+**How we got there (module configuration, done by Jeremy in the ELRS web
+UIs):**
+- The first pair tried was 900 MHz ES900TX/ES900RX (both 3.2.0) and could
+  never link: TX was **FCC915** with UID 180,148,31,165,224,154, RX was
+  **AU915** with UID 212,50,59,163,20,74 — different regulatory domain and
+  different binding. (Claude also caused a side problem there: advised a
+  Save on the RX options page while "WiFi auto on interval" was blank,
+  which ELRS stores as -1 = auto-WiFi disabled.)
+- Jeremy switched to 2.4 GHz ELRS. New RX was set to: Serial Protocol
+  **CRSF** (it shipped as Inverted SBUS), UART baud **420000** (was
+  100000), WiFi auto-on 60, Model Match off, telemetry not forced off,
+  Lock on first connection on. New TX: same binding phrase as the RX
+  (UIDs matched on both pages before saving), **UART inverted unchecked**
+  (the STM32 drives a plain non-inverted UART; the earlier hardware-
+  confirmed 900 MHz TX also had it unchecked). The binding phrase itself
+  is intentionally not written into the repo.
+
+**Result (`pio device monitor -e mega_elrs_link_test`):**
+- `$ELRS_EVENT,LINK_OK` within ~15 ms of the monitor opening; `fwd`
+  stepping 1000 → 1500 → 2000 every 2 s, and every other channel exactly
+  the ground firmware's fixed values (turn 1500, aux 1000, fire 1000,
+  mode 1000) — channel order and µs scaling are correct end to end.
+- Ground STM32 powered off: `$ELRS_EVENT,LINK_LOST` at t=9238 ms (last
+  `link=OK` print at 9000 ms; exact power-off instant not captured, so
+  latency is only bounded, ≤ the designed ~0.7 s), all channels back to
+  neutral 1500. This **confirms on hardware that the ELRS RX stops sending
+  RC_CHANNELS frames on link loss** and that the bridge's new silence →
+  MechLink `signalLost` path works — the reason for b624da7's change.
+- Ground STM32 powered back on: `$ELRS_EVENT,LINK_OK` at t=8391 ms of a
+  fresh monitor session, `fwd` cycling resumed.
+
+**Safety note for the next step:** the bench ground firmware sends
+mode = 1000, which the production `OperatorModeSelector` reads as
+**FULL_AUTO** (< 1667). Do not run the production robot build against this
+ground firmware; the real ground firmware (step 2) must define safe
+defaults (manual mode, fire released) before any production test over RF.
+
+**Not covered yet:** uplink (Mega `TEL` → TEL_CHUNK → ground), long-run
+packet statistics, range, the HSI baud margin at 420000 under temperature,
+and everything in step 2 (PC/keypad input to the ground STM32 over its
+USB-C, CRSF channel/event table, F/R/L anti-repeat, wired/wireless
+authority) — step 2's USB-stack architecture question is with Codex.
+
+## 2026-10-11 — Claude Code: wireless PC control (ELRS step 2) + feed-tower trigger redesign
+
+**User Request:** "現在要準備接上電腦，用電腦控制整台機器人" (connect the PC and
+control the whole robot from it). Jeremy chose to go **straight to wireless**
+(skip a wired test), approved the plan, and mid-round redefined the feed
+tower: "送球塔的部分是平時低電位，收到發射的訊號已100ms做發送高電位…才做自動送球、補球"
+(the line idles low; on a fire signal send a 100 ms HIGH pulse; the tower
+does its own feeding/refilling). His answers: the Mega only sends the
+trigger pulse; R (continuous feed) is no longer needed; whether the tower
+has feedback is unknown. The pin table is still to come from Jeremy.
+
+**Discussion Result / architecture (step 2's open question):**
+- **Ground STM32 firmware** (`tools/stm32_ground_control`) is built on the
+  PlatformIO STM32 Arduino core (`blackpill_f401cc`) for its USB CDC stack
+  and HSE 25 MHz clocking. The bare-metal tools stay as they are. This is
+  the alternative proposed in the step-1 entry; Codex has not reviewed it yet.
+- **One shared C codec**, `src/IO/RcControlMap.{h,c}`, used by the ground,
+  the robot bridge, the Mega and the host tests:
+  - The 9-channel table is in its header. CH1-4 are full resolution: drive
+    L/R, flywheel, mode (fixed 2000 = FULL_MANUAL). CH5 is the arm 2-position
+    switch. CH6/7 are rotate/angle jog (3 levels). CH8/9 are the F/L
+    **event counters** (6 levels).
+  - It fits ELRS Hybrid switch mode. The real 6-position outputs
+    (988/1193/1398/1602/1807/2012 µs) are covered by tests.
+- **Event counters, not held buttons:**
+  - Exactly one action per +1 step.
+  - After a reconnect, the first level seen is only a baseline, so nothing
+    is replayed.
+  - A jump of more than one step is ignored and reported as `EVENT_SKIPPED`.
+- **Enable needs an edge:**
+  - Wireless enables only on a CH5 low→high edge.
+  - The edge detector is reset on link loss, so a recovered link never
+    re-enables by itself.
+  - Arm going low disarms a wireless session.
+- **Control authority:** there is exactly one owner, WIRED or WIRELESS.
+  - The other source's E is refused with `ENABLE_REJECTED_OTHER_SOURCE`.
+  - The other source's commands are refused with `REJECTED_NOT_OWNER`.
+  - **Wired X always disarms, whoever owns the robot.**
+  - Wired K only refreshes a WIRED session.
+- **Status uplink:** the Mega sends `ST,flags,seq,code` every 100 ms on
+  Serial2. The robot bridge packs it into a standard CRSF **Battery** frame:
+  - voltage = 0xA5 marker + flags
+  - current = event code
+  - capacity = 24-bit event sequence
+
+  ELRS relays this as FC telemetry. The ground prints `$EVENT,<name>` when
+  the sequence advances, plus `$WIRELESS,...` every 250 ms and `$RFLINK,...`
+  (LQ/RSSI from LINK_STATISTICS).
+- **Feed tower:** the Mega only drives a trigger line.
+  - It idles inactive and goes active for `PULSE_MS` 100.
+  - A `COOLDOWN_MS` 1000 lockout follows; the value is provisional and
+    waits for the real tower cycle time.
+  - A trigger inside the lockout gets `FEED_BUSY` and is **dropped, not
+    queued**.
+  - Disarm cuts an active pulse but does not shorten the lockout.
+  - There is no sensor feedback, so the Mega reports only
+    `FEED_TRIGGER_SENT`.
+  - R is removed and is now `UNKNOWN_COMMAND`.
+
+**Why:**
+- Held-level buttons over a lossy, round-robin link either repeat or get
+  missed. Counters make F/L idempotent.
+- The edge requirement and the reset on link loss prevent a robot that
+  comes back into range from re-arming by itself.
+- The single owner keeps a USB page and a radio from both driving at once,
+  while the wired stop still always works.
+- Using the Battery frame avoids depending on a custom frame type surviving
+  the radio.
+
+**Changed:**
+- `src/IO/WiredControl.*` → `ManualControl.*` and
+  `WiredControlConstants.h` → `ManualControlConstants.h` (git mv, then
+  rewritten).
+  - `update()` order: watchdogs, wired lines, wireless frame, outputs,
+    status.
+  - Watchdogs: wired 250 ms; wireless RC loss gives `DISABLED_RC_LINK_LOST`;
+    no valid frame for 250 ms gives `COMMAND_TIMEOUT`.
+  - Kept from afed238/5d02fca: the wired hardening (NaN/inf, oversize
+    discarded through `\n`, `DISABLED_CORRUPT_COMMAND`).
+- `src/IO/MechLink.*`
+  - Parses `RC,c1..c9`, with values limited to 0..3000 and an 80-byte line
+    cap; oversized lines are discarded through `\n`.
+  - `channels[9]`, `frameCount`, `signalLost` (200 ms).
+  - `sendStatus()`.
+  - Safe values on loss: arm 1000, flywheel 1000, mode 2000, counters 1000.
+- `src/Dribbler/*`, `src/Constants/DribblerConstants.h`: rewritten as the
+  trigger tower.
+  - `Tower::TRIGGER_PIN` 2 is **PROVISIONAL**.
+  - The line is written inactive before `pinMode(OUTPUT)`.
+- `src/Telemetry/Telemetry.cpp`
+  - Slots 7-11: left, right, mode, arm and F-counter channels.
+  - Slots 21-23: owner (0/1/2), tower busy, trigger count.
+- `src/main.cpp`, `src/Auto/Auto.cpp`, `src/Constants/Pins.h`: renames and
+  comments only. Auto still steps aside while `ManualControl::isActive()`.
+  `PIN_TABLE_CONFIRMED` is **still false**.
+- `tools/stm32_elrs_robot_bridge`
+  - Downlink is now `RC,...` with 9 channels.
+  - The USART1 RX interrupt sorts `ST,` lines into a status buffer.
+  - A Battery status frame goes out every 100 ms while the status line is
+    ≤ 500 ms old.
+  - `build.py` also compiles `RcControlMap.c`.
+  - The `dist/` image is rebuilt: 2932 bytes, sha256 `ddd9ef21…12e3e`.
+  - The unused `tel_channel_map.h` include is removed; that header is now
+    marked as old-ground-bridge only.
+- `tools/dashboard/index.html`
+  - R is removed and the labels are updated.
+  - New metrics: control owner, feed tower busy/ready plus trigger count,
+    wireless status and RF LQ.
+  - **Enable is now a pending handshake:**
+    - Clicking sends E and starts sending K heartbeats.
+    - The page arms only on `OUTPUTS_ENABLED`, and only if it asked
+      (the Mega prints the wireless operator's enable on USB too), or on
+      telemetry/`$WIRELESS` confirming its own source.
+    - After 3 s with no confirmation it gives up.
+    - On a rejection or timeout it sends X **only on the ground link**,
+      because a wired X would disarm a wireless owner.
+  - Telemetry resync counts as "armed" only when the owner is WIRED.
+  - Disarm event list: `OUTPUTS_DISABLED`, `COMMAND_TIMEOUT`,
+    `DISABLED_RC_LINK_LOST`, `DISABLED_CORRUPT_COMMAND`.
+  - Ground `PC_TIMEOUT`/`ENABLE_RELEASED`/… also disarm.
+  - A stale `$WIRELESS` warns but does **not** auto-stop; the robot's own
+    RC-loss failsafe does that.
+- `src/Bench/ElrsLinkTest/MegaElrsLinkTest.cpp` and the
+  `mega_elrs_link_test` env (+`RcControlMap.c`)
+  - Decodes each frame with the production codec.
+  - Sends status back, with "armed" mirroring the arm channel.
+  - Reports `OUTPUTS_ENABLED`/`DISABLED`/`FEED_TRIGGER_SENT`/
+    `EVENT_SKIPPED` as events.
+  - This makes it a motor-free round-trip test.
+
+**Added:**
+- `src/IO/RcControlMap.{h,c}`
+- `test/rc_control_map_test.c`
+- `test/manual_control_test.cpp` (renamed from `wired_control_test.cpp` and
+  rewritten)
+- `tools/stm32_ground_control/` (platformio.ini, `src/GroundCommandState.*`,
+  `src/main.cpp`, `src/shared_sources.c`,
+  `test/host_test_ground_state.cpp`, README)
+- Ground PC protocol: the same lines as wired. The ground's own watchdog is
+  250 ms: `PC_TIMEOUT` releases the arm channel.
+
+**Calculation:**
+- Drive channel: µs = 1500 + 500·cmd. For example, T,1,-1 → CH1 2000 /
+  CH2 1000.
+- Flywheel: µs = 1000 + 1000·ratio, with a 0.02 deadband. For example,
+  FLY,0.40 → 1400.
+- Counters: 1000 + 200·k. They are accepted within ±90 µs of a level, so
+  ELRS's 1193 is read as k=1.
+- Arm counts as requested only at ≥ 1750 µs.
+- Jog: < 1250 → −1; > 1750 → +1; anything else (including ELRS's
+  1398/1602) → 0.
+- Mega outputs keep the wired scales: chassis 0.30, rotate/angle 0.10.
+
+**Impact:**
+- Wired USB control behaves as before, except that R is gone and the stop
+  and authority rules above apply.
+- **The old ground firmware (`stm32_elrs_bidirectional_test`) sends
+  CH4 = 1000 = FULL_AUTO.** Do not run the production build against it.
+- The new ground sends 2000.
+- `PIN_TABLE_CONFIRMED` false still refuses every Enable
+  (`ENABLE_REJECTED_PINS_UNCONFIRMED`).
+
+**Evidence (host/build only, nothing flashed, no hardware run):**
+- PIO SUCCESS for all 5 Mega envs; production RAM 27.6 %, Flash 11.5 %.
+- Ground `pio run` SUCCESS (RAM 9.0 %, Flash 17.2 %, vector table at
+  0x08000000).
+- Robot bridge `build.py` passes all checks.
+- Host tests pass: rc_control_map, manual_control (both pin-gate variants),
+  ground state, ch_line_format, ulink, and the 5 older C++ tests.
+- Node tests pass: `dashboard_page_test` (new handshake, ground lines,
+  authority resync), `dashboard_control_test`, `vision_rotate_page_test`.
+
+**Not verified / risks:**
+1. **Whether Battery frames from the RX actually reach the ground over the
+   air.** The earlier "bidirectional" bench may only have shown
+   LINK_STATISTICS. Without that uplink, wireless Enable cannot complete.
+   The page gives up after 3 s and releases the arm channel, which is the
+   safe failure.
+2. Status coalescing: one status line is sent per 100 ms and carries only
+   the latest event. Two events within 100 ms show only the second;
+   `$WIRELESS` flags still resync the page.
+3. CH6+ round-robin latency depends on the ELRS packet rate.
+4. Whether the 3.3 V-referenced trigger pulse is compatible with the
+   tower's input.
+5. Tower cycle time (`COOLDOWN_MS`).
+6. The real pin table.
+
+**Next Test (Jeremy runs; wheels off the ground):**
+1. Flash the new robot bridge `dist/` image and the ground board
+   (`tools/stm32_ground_control/README.md`; this overwrites its HID
+   bootloader). Upload `mega_elrs_link_test`.
+2. Connect the Dashboard to the ground board's USB. Check: Enable completes,
+   F → `FEED_TRIGGER_SENT`, `$RFLINK` LQ, ground power-off → Mega
+   `LINK_LOST`.
+3. Only after the pin table is confirmed: run the production build at low
+   speed. Check direction, Enter/Space, F, L, ground power-off while moving,
+   and closing the page while moving.
+
+## 2026-10-11 — Codex：Jeremy 授權補回 R 水平輸送帶，F 獨立觸發塔
+
+User Request / Discussion Result: Jeremy 明確確認整台實控馬達共六顆：底盤兩顆、水平輸送帶、飛輪、仰角、水平各一；塔只需短暫 HIGH 自行完成一輪。直接授權實作 R 開關水平輸送帶、F 單次塔觸發，不再詢問。
+
+Changed / Why: Dashboard R 單次按下送命令（repeat 忽略）；ManualControl 有線 R 僅 owner/armed 下切換，F 不影響輸送帶。地面端 R 切換持續狀態，新增 CH10 1000=off /2000=on，機器人使用狀態而非對每包 toggle。CH1-9 語意不變；wire format RC 現為十欄，bridge/地面/Mega 必須同步更新。停用、watchdog、RF loss 清除輸送帶；地面 release/E 清除狀態。追加 CONVEYOR_ON/OFF 事件代碼。F 保留 100ms HIGH、從觸發起 1000ms lockout，忙碌不排隊，不聲稱出球成功。
+
+Added / Calculation: Dribbler 新增獨立 conveyor API，沿用先前 PWM+enable 驅動介面，RUN_PWM=180/255 約70.6% 為既有起始值而非已確認速度。正式 PWM/enable 腳位未知，均設255為未配置，不寫任何硬體腳；PIN_TABLE_CONFIRMED 仍false，並新增編譯檢查防止未配置輸送帶卻設true、或與塔/彼此腳位碰撞。isConveyorOn 表示要求的開關狀態，未配置時不代表馬達實際轉動。待 Jeremy 提供正式腳位/驅動介面再落實。
+
+Evidence: manual_control host confirmed/unconfirmed皆過，新增 R/F 獨立、R反向切換、X、逾時、無線重複幀及失聯清除；ground host 新增 disarmed R拒絕、R切換/編解碼/F不影響/watchdog/re-enable；rcmap、dashboard page（R/F/L repeat）、dashboard control tests皆過。bridge build.py及映像檢查通過，重建dist；Mega production PIO SUCCESS RAM2291 Flash29286，ground PIO SUCCESS RAM5888 Flash45196。git diff --check通過。未燒錄、未上機；未完成整個16f26be廣泛review。
+
+Next Test / Impact: 等正式pin後再次編譯，三端同步燒錄，實測R獨立開關、F單脈衝/忙碌、Enter/Space/失聯停機。不能沿用舊九欄bridge搭新十欄Mega。目前只有控制路徑完成，輸送帶實際硬體輸出待pin配置。
+
+## 2026-10-11 — Codex：優先有線全手動，更新操作輸出比例
+
+Jeremy 要求先 PC USB-C→Mega 有線全手動，不先測無線；底盤0.5、水平旋轉滿輸出1.0、輸送帶0.5、仰角MG996R且無encoder希望0.3、飛輪保留速度拉條。
+新增 mega_wired_manual_test env (TEL_WIRED_MANUAL_ONLY)，拒絕無線frame控制、不執行Auto、L維持manual。共用ManualControl比例改底盤0.5/水平1.0/仰角0.3，輸送帶 PWM128/255=50.2%。飛輪既有FLY比例路徑不變，仍為PWM開迴路而非RPM閉迴路。沒有拆除水平硬限位。
+已跑新profile host（拒無線、L不切追蹤、0.5/1.0/-0.3/FLY0.6數值、X停用）通過；完整manual_control confirmed host也過。新env PIO SUCCESS RAM2120 Flash26600，未燒錄。
+重要未決：使用者說單顆MG996R，現有Shooter仍attach兩顆仰角pin27/26，PWM以1500中立速度方式控制，型號可能180定位或360連續。已async詢問版本；尚未改為單顆或position slew，ANGLE_MANUAL_SCALE=0.3只是參數準備，不聲稱仰角可用。PIN_TABLE_CONFIRMED仍false，正式pin待Jeremy提供，輸送帶仍未配置。MG996R版本確定後才完成對應仰角輸出/停止語意。全手動profile目前不是硬體驗收完成。
+
+## 2026-10-11 — Codex：按 Jeremy 指示先使用單顆 MG996R 定位版
+
+User Request / Discussion Result: Jeremy 明確採用定位版先寫，若硬體不符再切連續旋轉版。取代上一則「型號待確認」。
+Changed: ShooterConstants::Angle 新增 POSITION_SERVO=true、EXTERNAL_ENCODER_ENABLED=false。移除第二顆Servo物件/attach；保留舊right telemetry欄位但回0，單顆仍使用LEFT_SIGNAL_PIN暫定27。無外接encoder不初始化/輪詢AS5600，拒絕encoder counts closed-loop目標。POSITION_SERVO=false可切回單顆連續旋轉速度模式。
+Calculation: ServoPositionJog累積目標 target += command *1000 us/s *dt；手動縮放0.3，因此10ms變3us、1秒變300us，例如1500→1800us。不是實測速度或仰角。暫定起始1500us、上下界1000/2000us，保留硬限位方向判斷；迴圈間隔>100ms不補跳、NaN/越界command不更新。
+Semantics: 放開鍵command0保持最後目標。啟動disabled不attach定位舵機；首次Enable會送初始1500us（實際位置未知可能移動）。stopAll/disableAngle/Enter/watchdog在定位模式detach，不送1500作停止，保留軟體target；停止脈衝不等於断電、不保證保持扭力；再啟用使用保留target，無實際位置回饋。連續旋轉模式則0命令仍送中立。
+Evidence: 新test/servo_position_jog_test.cpp驗證0.3累積、放鍵、停頓、NaN、兩端clamp與反向離開邊界通過；mega_wired_manual_test PIO SUCCESS RAM1992 Flash25050。git diff --check通過。未燒錄/未實機，PIN_TABLE_CONFIRMED仍false；正式pin、實際servo行程仍待提供/實測。
+
+
+## 2026-10-11 — Codex：Jeremy 授權清理未使用檔案與建置快取
+
+Jeremy 明確要求「刪掉會影響嗎？不會的話就刪」，承接先前盤點。已刪根目錄及 stm32_ground_control 的 .pio 快取、未引用 lib/sbus、Constants/Mode.h、PIDConfig.h、src/list.md、include/README、lib/README、舊 .vscode/arduino.json，以及 .DS_Store/空 .claude/.dist。Dashboard data-panel="sbus" 僅 UI 名稱，不引用被移除函式庫。保留現有未提交功能修改、全部 dist 燒錄產物、實際引用的 AS5600、測試程式、舊架構資料與編輯器除錯設定。功能控制流程未改；下次編譯需要重建快取/可能重新下載依賴。以引用搜尋及刪除後 git diff --check 檢查；未重新編譯或上機。
+
+
+## 2026-10-11 — Codex：正式底盤腳位及 D45 單線 ESC 輸送帶
+
+Jeremy 提供輸送帶 D45、右輪 D47、左輪 D46，確認輸送帶 VCC/GND/單訊號 ESC 伺服脈寬介面，並明確批准「開始」。ChassisConstants 腳位39/38改47/46；Dribbler 移除 analogWrite+enable，改單 Servo D45，R保持切換、stop/disable/watchdog回停止脈寬；F塔100ms邏輯不變。輸送帶暫採雙向ESC校準1500us停止、1750us運轉，即1500+0.5*500；使用者確認介面，不代表確認ESC中立/端點。實測若單向ESC停點1000us，需先改校準，不能把1750us當實測50% RPM。PIN_TABLE_CONFIRMED仍false，整台正式pin表未齊，Enable仍拒絕。
+新增 conveyor_esc_test 檢查D45、起始1500、R狀態運轉1750及stop回1500；Servo host stub記錄attached/pin/pulse。主機測試 conveyor_esc、manual_control confirmed及unconfirmed gate均過。PIO megaatmega2560及mega_wired_manual_test均SUCCESS，後者RAM1995 Flash25148；清理後依賴已重新下載/快取重建，證實這兩個Mega環境可編譯。git diff --check通過。沒有上傳/硬體測試；未驗證其他Mega bench或STM32環境的清理後重建。新增底盤左右/輸送帶腳位相異assert。後續低速台架確認ESC停點與方向，再確認其他pin後開啟Enable。
+
+
+## 2026-10-11 — Codex：右底盤改 D48
+
+Jeremy 回報 D47 改 D48。檢查共享工作目錄 ChassisConstants.h 已是右48/左46，未覆寫其修改；輸送帶45不變。mega_wired_manual_test重新編譯SUCCESS，RAM1995 Flash25148，未上傳；Enable門檻仍false。
+
+
+## 2026-10-11 — Codex：只測底盤與輸送帶的局部確認版本
+
+Jeremy 授權先測右D48/左D46/輸送帶D45，其他pin先不管。新增 mega_drive_conveyor_test，繼承有線全手動，TEL_DRIVE_CONVEYOR_ONLY局部腳位確認允許Enable；編譯assert鎖定45/46/48且禁止脫離wired模式。完整production與mega_wired_manual_test的全機pin gate仍false。此profile Shooter不初始化sensor/attach、不執行update、不寫任何軸或飛輪，setOutputsEnabled仍false；塔不pinMode/不digitalWrite/requestFeed回false。UI其他命令仍可發送但沒有硬體輸出，F會拒絕（既有FEED_BUSY回報，不表示塔真的忙）。底盤/輸送帶R、Enter/Space/250ms watchdog保留。ESC校準仍暫定1500停止、1750輸送帶運轉，非RPM50%驗收。
+主機conveyor_esc partial test確認1750run/1500stop與塔GPIO sentinel完全未寫，通過。新env PIO SUCCESS RAM1888 Flash18840；git diff --check過。未上傳未實機。上傳請改用pio run -e mega_drive_conveyor_test -t upload，不要用原全手動env。先架空輪子、無球測W/S/A/D/R/Enter/Space，確認ESC中立與方向。
+
+
+## 2026-10-11 — Codex To Claude：加入D24仰角、D23水平手動測試
+
+Jeremy提供仰角D24、180度定位馬達，水平D23，明確同意加入有線局部測試。更新ShooterConstants/Pins別名；新env mega_manual_axes_test繼承mega_drive_conveyor_test，TEL_MANUAL_AXES_TEST允許兩軸，底盤右48/左46/輸送帶45保留。上傳改用 pio run -e mega_manual_axes_test -t upload。Dashboard Enable後W/S/A/D底盤0.5、R輸送帶0.5、上下仰角0.3、左右水平1.0；Enter停用、Space停用斷線。飛輪仍不attach/不write、塔仍拒絕不write，自動/無線不開放。完整production pin gate仍false。
+此profile跳過未確認sensor/limit初始化與讀取，因此沒有實際硬限位保護；手動機構行程需Jeremy觀察。仰角1000..2000us暫定、1500起始，0.3*1000us/s=300us/s，10ms變3us，鬆鍵保持，停用detach，首次Enable可能移到1500。180度型號不代表已校準機構行程。水平暫定1500中立，滿輸出1000/2000，方向依既有反相設定。ESC停止點仍需實機。
+新env編譯SUCCESS RAM1933 Flash22990；ServoPositionJog主機測試過；本次修改檔diff --check過。全working-tree檢查另發現同時更新的robot_bridge dist .map第143行尾空白，沒有改動他人生成產物。未上傳未實機。共享工作目錄有其他協作者更新，勿覆寫。
+
+
+## 2026-10-11 — Codex To Claude：D25 Falcon拉條開放
+
+Jeremy提供Falcon訊號D25並同意開放目前有線測試。ShooterConstants::Flywheel/PIN_FALCON改25；mega_manual_axes_test增加TEL_MANUAL_FLYWHEEL_TEST，在局部Shooter init預載1500us後attach D25，update輸出FLY命令，stopAll仍回0指令1500us。舊mega_drive_conveyor_test仍不開飛輪；塔仍拒絕/無輸出，未確認sensor/limits跳過。各六顆馬達訊號：右48左46、輸送帶45、仰角24、水平23、飛輪25。
+拉條0..100→ratio0..1→1500+ratio*500us，例20%=1600us、50%=1750us；是開迴路指令不是RPM/PIDF，ESC中立仍沿既有1500假設待實測。開機即1500us，未Enable也有中立脈衝；首次Enable拉條0，Enter/Space/watchdog清零。先無球低比例確認停點，不能把型號或編譯當硬體校準。
+PIO mega_manual_axes_test SUCCESS RAM1935 Flash23228；manual_control confirmed host與dashboard_control_test皆過，修改檔diff --check過。未上傳/未實機；保留vendor AS5600既有warnings。上傳命令 pio run -e mega_manual_axes_test -t upload，Dashboard Enable後拉條可用；F仍停用。此則取代上一則此env「飛輪停用」。
+
+
+## 2026-10-11 — Codex To Claude：底盤與仰角手動比例改1.0
+
+Jeremy直接要求底盤/仰角改1.0。ManualControlConstants CHASSIS_MANUAL_SCALE與ANGLE_MANUAL_SCALE均1.00，共用有線/無線手動路徑也採此比例；輸送帶0.5、水平1.0及飛輪拉條不變。仰角定位slew=1.0*1000us/s，10ms變10us、1500→2000需0.5s（軟體目標，不是實測舵機速度），1000..2000clamp保留。底盤±1對應1000/2000us依反相方向。更新有線host數值斷言。wired profile host通過（需-Wno-unused-function，其他profile測試函式在此編譯分支未呼叫）；PIO mega_manual_axes_test SUCCESS RAM1935 Flash23188。修改檔diff --check過。未上傳/實機，沿用上傳env；未確認限位仍不啟用。
+
+
+## 2026-10-12 — Codex：Dashboard HTTPS部署
+
+Jeremy明確要求部署HTTPS網站。使用Sites建立owner-private TEL Robot Dashboard，project_id appgprj_6acc72ec26408191bc872f13043b71a5；URL https://tel-robot-dashboard.yuxiuy15.chatgpt.site。僅tools/dashboard/index.html原樣靜態發布，不上傳韌體或整個repo，不改控制协议；USB Serial仍瀏覽器本機與Mega直接通訊。Dashboard control/page node測試皆過；來源commit 0c857fc1f03e490322d0308393ba7902b3498c3b（獨立Sites source repo，非robot git commit），部署工具確認succeeded。網站私人需同帳號登入。未做遠端頁面USB實機驗證；若網站host或登入框架限制serial權限，需另驗證。當前部署是快照，後續本機改Dashboard不會自動同步。源checkout在/private/tmp/tel-dashboard-site，雲端source已保存，可再取回。未改Mega韌體。
+
+
+## 2026-10-12 — Codex：Jeremy授權推送整個dev並改GitHub Pages
+
+Jeremy明確要求現在dev推上去、Dashboard部署Pages。本機dev領先origin/dev八個提交，沒有落後；本次包含工作目錄已授權功能/腳位/清理及協作者現有修改。新增.github/workflows/dashboard-pages.yml，dev Dashboard相關push觸發，Node兩個control/page測試通過才發布tools/dashboard；Pages artifact不含robot source/firmware。公開repo且現有GitHub登入admin。維持原Sites網站不刪除。正式全機gate仍false，局部手動env可Enable，不聲稱實機通過。
+
+
+## 2026-10-12 — Codex To Claude：dev已推送、GitHub Pages部署完成
+
+Jeremy授權推送現在全部dev並改Dashboard GitHub Pages。整合commit d7b6cbe已push origin/dev（包含先前8個本機提交）；Pages https://yxyang960102.github.io/TEL-Robot-2026/，公開HTTPS、不需ChatGPT登入。workflow .github/workflows/dashboard-pages.yml 由dev的Dashboard相關push自動跑2個Node測試，再deploy工具資料夾。Pages設build_type workflow、HTTPS enforced，github-pages環境新增dev精確分支allow policy，其他保護保留。run38209907595 attempt3 success；初次未啟用Pages、第二次dev被預設環境規則拒絕，均已解決。curl回200，live HTML SHA256與本機index完全相同1c8f9fc45eb67805f3a21f1d933dcbd02cc93943006842bf22f6744604e13adc。
+兩個Dashboard node測試及Mega production/manual_axes編譯SUCCESS，未做Pages實機USB驗證。production compile顯示既存rotateRawToDegrees除零warning（未校準raw端點），full gate仍false，手動局部profile不使用位置換算；不要把compile成功視為整台自動功能驗收。生成bridge map仍有一處尾空白，本次沒有重寫生成產物。原Sites私人網站沒有刪除，今後以GitHub Pages網址為主要分享入口。Chrome/Edge直接USB接Mega，需使用正確手動profile，無需拷貝網頁或重燒僅為换筆電。

@@ -1,0 +1,15 @@
+
+/Users/jeremy/Desktop/FRC8169/TEL_Robot_2026/tools/stm32_mega_uart_test/dist/stm32f401cc_mega_uart_test.elf:     file format elf32-littlearm
+
+Sections:
+Idx Name          Size      VMA       LMA       File off  Algn
+  0 .isr_vector   00000198  08000000  08000000  00001000  2**0
+                  CONTENTS, ALLOC, LOAD, READONLY, DATA
+  1 .text         00000ca0  08000198  08000198  00001198  2**2
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  2 .data         00000000  20000000  20000000  00001e38  2**0
+                  CONTENTS, ALLOC, LOAD, DATA
+  3 .bss          000003a0  20000000  08000e38  00002000  2**2
+                  ALLOC
+  4 .ARM.attributes 0000002f  00000000  00000000  00001e38  2**0
+                  CONTENTS, READONLY

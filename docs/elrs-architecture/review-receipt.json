@@ -1,0 +1,37 @@
+{
+  "diagram_type": "architecture",
+  "output": "/Users/jeremy/Desktop/FRC8169/TEL_Robot_2026/docs/elrs-architecture/system.html",
+  "delivery_receipt": {
+    "schemaVersion": 1,
+    "ok": true,
+    "command": "deliver",
+    "type": "architecture",
+    "input": "/Users/jeremy/Desktop/FRC8169/TEL_Robot_2026/docs/elrs-architecture/system.architecture.json",
+    "output": "/Users/jeremy/Desktop/FRC8169/TEL_Robot_2026/docs/elrs-architecture/system.html",
+    "specification": {
+      "sha256": "a5be98bf92fa7b2d05909b278bf181e2822d24b7a3dd852ad2a7cfc70dc5a7e5",
+      "bytes": 3272
+    },
+    "artifact": {
+      "sha256": "d596195da892cec291c3344a9ad0cdad54b27ed3b2b69e6604342a98ea833643",
+      "bytes": 804390
+    },
+    "validation": {
+      "checksPassed": 9,
+      "checkCount": 9,
+      "compositionProfile": "showcase",
+      "compositionStatus": "pass",
+      "errors": 0,
+      "warnings": 0
+    }
+  },
+  "validation": "9/9 showcase, 0 errors, 0 warnings",
+  "browser_evidence": "pass",
+  "visual_review": "passed",
+  "visual_review_scope": "Inspected 2048x1320 light and 1440x900 dark screenshot; no node/route overlap observed. Interactive viewer actions not manually exercised.",
+  "correction_rounds": 0,
+  "host_tests": "Six existing CRSF host test groups compiled -Wall -Wextra -Werror and passed on 2026-09-13",
+  "simulation_model_tests": "Node VM tests: conversion endpoints, CRC sample, packing first bytes, stepwise valid/corrupt frame, CH1 timeline, LED timeout edges passed",
+  "hardware_tested_this_turn": false,
+  "firmware_modified_this_turn": false
+}

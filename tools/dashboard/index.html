@@ -70,6 +70,12 @@
 
     button:hover { border-color: var(--cyan); }
 
+    button:disabled,
+    input:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
     input {
       width: 100%;
       min-height: 34px;
@@ -592,6 +598,29 @@
         </div>
       </section>
 
+      <section class="panel" data-panel="control" style="margin-top:14px">
+        <div class="section-title">
+          <span>Manual Control / 手動操控（USB 接 Mega＝有線，接地面 STM32＝無線）</span>
+          <span id="controlArmedBadge">disabled / 未啟用</span>
+        </div>
+        <div class="stream-controls">
+          <button id="enableControl" disabled>Enable / 啟用輸出</button>
+          <span class="label">W/S/A/D 底盤・R 水平輸送帶開關・F 觸發送球塔・方向鍵 旋轉/俯仰・L 手動/視覺切換・Enter 停用・Space 停用並斷線</span>
+        </div>
+        <div class="grid">
+          <div class="metric"><div class="label">left / right pulse / 左右輪脈衝</div><div class="value" id="chassisPulses">--</div></div>
+          <div class="metric"><div class="label">control owner / 控制權</div><div class="value" id="controlOwner">--</div></div>
+          <div class="metric"><div class="label">feed tower / 送球塔</div><div class="value" id="towerState">--</div><div class="subvalue">trigger pulses sent, no ball sensor / 已送觸發次數，無球感測</div></div>
+          <div class="metric"><div class="label">wireless link / 無線狀態</div><div class="value" id="wirelessState">--</div><div class="subvalue" id="rfLinkState">ground station only / 僅接地面站時</div></div>
+          <div class="metric"><div class="label">rotate / angle mode / 旋轉・俯仰模式</div><div class="value" id="shooterAxisMode">--</div></div>
+          <div class="metric"><div class="label">Falcon PWM / 飛輪 PWM</div><div class="value" id="falconPwm">--</div><div class="subvalue">command ratio, not RPM / 指令佔比，非轉速</div></div>
+        </div>
+        <div class="stream-controls">
+          <input id="flywheelSlider" type="range" min="0" max="100" step="1" value="0" disabled aria-label="Falcon command ratio">
+          <span class="label" id="flywheelSliderValue">Falcon 指令 0%（Enter/Space/逾時自動歸零）</span>
+        </div>
+      </section>
+
       <section class="panel" data-panel="stream" style="margin-top:14px">
         <div class="section-title">
           <span>Vision Stream / 視覺串流</span>
@@ -662,14 +691,14 @@
       </section>
 
       <section class="panel" data-panel="sbus">
-        <div class="section-title"><span>SBUS / 遙控器</span><span>receiver / 接收機</span></div>
+        <div class="section-title"><span>MechLink / 無線鏈路</span><span>ELRS receiver / 接收機</span></div>
         <table>
           <tbody>
-            <tr><td>底盤左右平移 / ch0</td><td id="ch0">--</td></tr>
-            <tr><td>底盤前後移動 / ch1</td><td id="ch1">--</td></tr>
-            <tr><td>油門或預留旋鈕 / ch2</td><td id="ch2">--</td></tr>
-            <tr><td>底盤旋轉 / ch3</td><td id="ch3">--</td></tr>
-            <tr><td>模式或功能開關 / ch8</td><td id="ch8">--</td></tr>
+            <tr><td>left / 左輪 (CH1)</td><td id="ch0">--</td></tr>
+            <tr><td>right / 右輪 (CH2)</td><td id="ch1">--</td></tr>
+            <tr><td>mode / 模式 (CH4)</td><td id="ch2">--</td></tr>
+            <tr><td>arm / 啟用開關 (CH5)</td><td id="ch3">--</td></tr>
+            <tr><td>F counter / 送球計數 (CH8)</td><td id="ch8">--</td></tr>
           </tbody>
         </table>
       </section>
@@ -687,10 +716,14 @@
   </main>
 
   <script>
-    const ids = ["tx", "ty", "distance", "targetId", "valid", "shooterReady", "shootRemaining", "warnBits", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone"];
+    const ids = ["tx", "ty", "distance", "targetId", "valid", "shooterReady", "shootRemaining", "warnBits", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm"];
     const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     const connectButton = document.getElementById("connect");
     const demoButton = document.getElementById("demo");
+    const enableButton = document.getElementById("enableControl");
+    const controlArmedBadge = document.getElementById("controlArmedBadge");
+    const flywheelSlider = document.getElementById("flywheelSlider");
+    const flywheelSliderValue = document.getElementById("flywheelSliderValue");
     const layoutToggle = document.getElementById("layoutToggle");
     const layoutReset = document.getElementById("layoutReset");
     const dashboard = document.getElementById("dashboard");
@@ -714,6 +747,7 @@
 
     let port;
     let reader;
+    let writer;
     let lastPacketAt = 0;
     let packetCount = 0;
     let lastRateAt = performance.now();
@@ -727,9 +761,80 @@
     const streamKey = "tel-dashboard-stream-url-v1";
     const resizeDirections = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
 
+    // Keyboard control (src/IO/ManualControl.cpp protocol). The same lines
+    // go either to the Mega's USB (wired) or to the ground STM32's USB
+    // (tools/stm32_ground_control, wireless over ELRS) -- see
+    // docs/codex-handoff.md.
+    const CONTROL_HEARTBEAT_MS = 75;
+    // After E, wait this long for the robot to confirm OUTPUTS_ENABLED.
+    // Wireless confirmation rides the ELRS telemetry uplink, so it is
+    // slower than wired; 3 s is generous for both.
+    const ENABLE_PENDING_TIMEOUT_MS = 3000;
+    const OWNER_NAMES = ["none / 無", "wired / 有線", "wireless / 無線"];
+    const DISARM_EVENTS = ["OUTPUTS_DISABLED", "COMMAND_TIMEOUT", "DISABLED_RC_LINK_LOST", "DISABLED_CORRUPT_COMMAND"];
+    const ENABLE_REJECT_EVENTS = ["ENABLE_REJECTED_PINS_UNCONFIRMED", "ENABLE_REJECTED_OTHER_SOURCE"];
+    // Ground-station events that mean it already released the arm channel.
+    const GROUND_RELEASE_EVENTS = ["PC_TIMEOUT", "ENABLE_RELEASED", "RELEASED_CORRUPT_COMMAND", "COMMAND_TOO_LONG"];
+    const encoder = new TextEncoder();
+    let controlArmed = false;
+    let enablePending = false;
+    let enablePendingSince = 0;
+    // "robot" once a TEL line arrives (Mega USB), "ground" once a ground
+    // station line arrives; decides whether a failed enable sends X (a
+    // wired X would disarm a wireless operator, so only the ground gets it).
+    let linkKind = "unknown";
+    let tankLeft = 0, tankRight = 0;
+    let rotateAxis = 0, angleAxis = 0;
+    let flywheelRatio = 0;
+    const heldKeys = new Set();
+
+    const ROTATE_MODE_NAMES = ["disabled", "manual", "profiled", "closed", "vision"];
+    const ANGLE_MODE_NAMES = ["disabled", "manual", "closed"];
+
     function setConnection(online) {
       connection.className = online ? "status ok" : "status";
       connection.lastElementChild.textContent = online ? "連線" : "離線";
+      enableButton.disabled = !online;
+      if (!online) {
+        enablePending = false;
+        linkKind = "unknown";
+        setControlArmed(false);
+      }
+    }
+
+    function setControlArmed(armed) {
+      controlArmed = armed;
+      if (armed) enablePending = false;
+      controlArmedBadge.textContent = armed ? "enabled / 已啟用" : enablePending ? "enabling / 啟用中" : "disabled / 未啟用";
+      enableButton.textContent = armed ? "Enabled / 輸出已啟用" : enablePending ? "Enabling… / 等待機器人確認" : "Enable / 啟用輸出";
+      flywheelSlider.disabled = !armed;
+      if (!armed) {
+        tankLeft = 0; tankRight = 0; rotateAxis = 0; angleAxis = 0;
+        heldKeys.clear();
+        setFlywheelSlider(0);
+      }
+    }
+
+    // The firmware zeroes the flywheel on every disarm (Enter, Space,
+    // watchdog timeout, RC takeover); the slider is reset to match so it
+    // never shows a stale non-zero value that isn't actually being applied.
+    function setFlywheelSlider(ratio) {
+      flywheelRatio = ratio;
+      flywheelSlider.value = String(Math.round(ratio * 100));
+      flywheelSliderValue.textContent = `Falcon 指令 ${Math.round(ratio * 100)}%（Enter/Space/逾時自動歸零）`;
+    }
+
+    async function sendControl(command) {
+      if (!writer) return;
+      try {
+        await writer.write(encoder.encode(`${command}\n`));
+      } catch (error) {
+        appendControlLog(`WRITE_ERROR ${error.message}`);
+      }
+    }
+
+    function appendControlLog(message) {
+      log.textContent = `${new Date().toLocaleTimeString()} ${message}\n${log.textContent}`.slice(0, 5000);
     }
 
     function setStreamStatus(state, text) {
@@ -1074,7 +1179,17 @@
         warn: Number(p[14]),
         robotX: p.length > 15 ? Number(p[15]) : NaN,
         robotY: p.length > 16 ? Number(p[16]) : NaN,
-        heading: p.length > 17 ? Number(p[17]) : NaN
+        heading: p.length > 17 ? Number(p[17]) : NaN,
+        armed: p.length > 18 ? Number(p[18]) === 1 : null,
+        leftPulseUs: p.length > 19 ? Number(p[19]) : NaN,
+        rightPulseUs: p.length > 20 ? Number(p[20]) : NaN,
+        controlOwner: p.length > 21 ? Number(p[21]) : NaN,
+        towerBusy: p.length > 22 ? Number(p[22]) === 1 : null,
+        triggerCount: p.length > 23 ? Number(p[23]) : NaN,
+        rotateMode: p.length > 24 ? Number(p[24]) : NaN,
+        angleMode: p.length > 25 ? Number(p[25]) : NaN,
+        falconPulseUs: p.length > 26 ? Number(p[26]) : NaN,
+        falconRatioPct: p.length > 27 ? Number(p[27]) : NaN
       };
     }
 
@@ -1109,8 +1224,38 @@
       el.ch2.textContent = data.ch2;
       el.ch3.textContent = data.ch3;
       el.ch8.textContent = data.ch8;
+      updateControlMetrics(data);
       updatePose(data);
       updateRisk(data);
+    }
+
+    function updateControlMetrics(data) {
+      if (Number.isFinite(data.leftPulseUs) && Number.isFinite(data.rightPulseUs)) {
+        el.chassisPulses.textContent = `${data.leftPulseUs} / ${data.rightPulseUs} us`;
+      }
+      if (Number.isFinite(data.controlOwner)) {
+        el.controlOwner.textContent = OWNER_NAMES[data.controlOwner] ?? `#${data.controlOwner}`;
+      }
+      if (data.towerBusy !== null && Number.isFinite(data.triggerCount)) {
+        el.towerState.textContent = `${data.towerBusy ? "busy / 冷卻中" : "ready / 可觸發"} · ${data.triggerCount}`;
+      }
+      if (Number.isFinite(data.rotateMode) && Number.isFinite(data.angleMode)) {
+        el.shooterAxisMode.textContent = `${ROTATE_MODE_NAMES[data.rotateMode] ?? data.rotateMode} / ${ANGLE_MODE_NAMES[data.angleMode] ?? data.angleMode}`;
+      }
+      if (Number.isFinite(data.falconPulseUs) && Number.isFinite(data.falconRatioPct)) {
+        el.falconPwm.textContent = `${data.falconPulseUs} us (${data.falconRatioPct.toFixed(1)}%)`;
+      }
+      // The firmware is the source of truth for whether outputs are
+      // actually enabled (e.g. a watchdog timeout disables them without
+      // any click here) -- resync the button/badge to match. This page only
+      // counts as armed while the WIRED source owns the robot: if a
+      // wireless operator holds it, this USB page must not heartbeat or
+      // drive. It only arms from telemetry while its own E is pending.
+      if (data.armed !== null) {
+        const wiredOwned = data.armed && (!Number.isFinite(data.controlOwner) || data.controlOwner === 1);
+        if (controlArmed && !wiredOwned) setControlArmed(false);
+        else if (!controlArmed && enablePending && wiredOwned) setControlArmed(true);
+      }
     }
 
     function updatePose(data) {
@@ -1239,8 +1384,43 @@
     }
 
     function handleLine(line) {
+      if (line.startsWith("$EVENT,")) {
+        const eventName = line.slice(7).trim();
+        // The Mega prints every event to USB, including the other source's
+        // OUTPUTS_ENABLED -- only an enable this page asked for arms it.
+        if (eventName === "OUTPUTS_ENABLED" && enablePending) setControlArmed(true);
+        if (DISARM_EVENTS.includes(eventName)) setControlArmed(false);
+        if (ENABLE_REJECT_EVENTS.includes(eventName) && enablePending) failEnable(eventName);
+        appendControlLog(eventName);
+        return;
+      }
+      if (line.startsWith("$GROUND_EVENT,")) {
+        linkKind = "ground";
+        const eventName = line.slice(14).trim();
+        if (GROUND_RELEASE_EVENTS.includes(eventName)) {
+          enablePending = false;
+          setControlArmed(false);
+        }
+        appendControlLog(`ground: ${eventName}`);
+        return;
+      }
+      if (line.startsWith("$WIRELESS,")) {
+        linkKind = "ground";
+        handleWirelessStatus(line);
+        return;
+      }
+      if (line.startsWith("$RFLINK,")) {
+        linkKind = "ground";
+        const p = line.trim().split(",");
+        el.rfLinkState.textContent = p[1] === "1"
+          ? `RF LQ up ${p[2]}% / down ${p[3]}% · RSSI -${p[4]} dBm`
+          : "RF link lost / 無線電斷線";
+        return;
+      }
+
       const data = parseTelemetry(line);
       if (!data) return;
+      linkKind = "robot";
       latestData = data;
       lastPacketAt = performance.now();
       packetCount += 1;
@@ -1259,25 +1439,49 @@
 
       port = await navigator.serial.requestPort();
       await port.open({ baudRate: 115200 });
+      writer = port.writable.getWriter();
       setConnection(true);
       connectButton.disabled = true;
+      connectButton.textContent = "斷線 / Disconnect";
 
       const decoder = new TextDecoderStream();
       port.readable.pipeTo(decoder.writable);
       reader = decoder.readable.getReader();
 
       let buffer = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += value;
-        const lines = buffer.split(/\r?\n/);
-        buffer = lines.pop();
-        lines.forEach(handleLine);
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += value;
+          const lines = buffer.split(/\r?\n/);
+          buffer = lines.pop();
+          lines.forEach(handleLine);
+        }
+      } finally {
+        await disconnect();
       }
     }
 
+    async function disconnect() {
+      setConnection(false);
+      connectButton.disabled = false;
+      connectButton.textContent = "連接 Arduino";
+      try { await reader?.cancel(); } catch (e) { /* already gone */ }
+      try { writer?.releaseLock(); } catch (e) { /* already gone */ }
+      writer = null;
+      try { await port?.close(); } catch (e) { /* already gone */ }
+      port = null;
+    }
+
+    navigator.serial?.addEventListener("disconnect", () => disconnect());
+
     connectButton.addEventListener("click", () => {
+      connectButton.blur();
+      if (port) {
+        disconnect();
+        return;
+      }
       connect().catch((err) => {
         console.error(err);
         alert(err.message);
@@ -1353,6 +1557,218 @@
       packetCount = 0;
       lastRateAt = now;
     }, 1000);
+
+    // --- Keyboard control (W/S/A/D/F/L/arrows/Enter/Space) ---
+    // src/IO/ManualControl.cpp protocol, wired or through the ground station.
+
+    function tankCommand() {
+      const forward = (heldKeys.has("w") ? 1 : 0) - (heldKeys.has("s") ? 1 : 0);
+      // A = left wheel forward + right wheel backward (Jeremy's explicit
+      // intent, opposite the usual "nose" convention) -- confirm on real
+      // hardware, don't silently invert if it looks backwards.
+      const turnLeft = heldKeys.has("a") ? 1 : 0;
+      const turnRight = heldKeys.has("d") ? 1 : 0;
+      let left = forward + turnLeft - turnRight;
+      let right = forward - turnLeft + turnRight;
+      left = Math.max(-1, Math.min(1, left));
+      right = Math.max(-1, Math.min(1, right));
+      return [left, right];
+    }
+
+    function rotateCommand() {
+      return (heldKeys.has("arrowright") ? 1 : 0) - (heldKeys.has("arrowleft") ? 1 : 0);
+    }
+
+    function angleCommand() {
+      return (heldKeys.has("arrowup") ? 1 : 0) - (heldKeys.has("arrowdown") ? 1 : 0);
+    }
+
+    async function sendTankIfChanged() {
+      const [left, right] = tankCommand();
+      if (left !== tankLeft || right !== tankRight) {
+        tankLeft = left; tankRight = right;
+        await sendControl(`T,${left},${right}`);
+      }
+    }
+
+    async function sendRotateIfChanged() {
+      const value = rotateCommand();
+      if (value !== rotateAxis) {
+        rotateAxis = value;
+        await sendControl(`ROT,${value}`);
+      }
+    }
+
+    async function sendAngleIfChanged() {
+      const value = angleCommand();
+      if (value !== angleAxis) {
+        angleAxis = value;
+        await sendControl(`ANG,${value}`);
+      }
+    }
+
+    async function emergencyStop() {
+      // Drop local armed state first so nothing else (heartbeat, a key
+      // handler) can queue a motion command behind this X. Also cancels an
+      // enable that is still waiting for confirmation.
+      enablePending = false;
+      setControlArmed(false);
+      await sendControl("X");
+    }
+
+    async function emergencyDisconnect() {
+      await sendControl("X");
+      await disconnect();
+    }
+
+    // E was refused or never confirmed. The ground station is still holding
+    // its arm channel high, so release it with X; on the Mega's USB an X
+    // would disarm whoever owns the robot (possibly a wireless operator),
+    // and a wired enable that never confirmed dies on its own 250 ms
+    // watchdog once this page stops heartbeating.
+    async function failEnable(reason) {
+      enablePending = false;
+      setControlArmed(false);
+      appendControlLog(`enable failed / 啟用失敗: ${reason}`);
+      if (linkKind === "ground") await sendControl("X");
+    }
+
+    // "$WIRELESS,<fresh>,<armed>,<owner>,<pins>,<feedBusy>,<rotateManual>,
+    // <rcLink>,<ageMs>" from the ground station (robot status relayed over
+    // the ELRS telemetry uplink).
+    function handleWirelessStatus(line) {
+      const p = line.trim().split(",").map(Number);
+      if (p.length < 9) return;
+      const [, fresh, armed, owner, pins, feedBusy, rotateManual, , ageMs] = p;
+      if (!fresh) {
+        // No auto-stop here: the robot disarms itself on RC loss. This only
+        // tells the operator they are driving without feedback.
+        el.wirelessState.textContent = "no robot status / 收不到機器人狀態";
+        return;
+      }
+      el.wirelessState.textContent =
+        `${armed ? "armed / 已啟用" : "disarmed / 未啟用"} · ${OWNER_NAMES[owner] ?? owner}` +
+        `${pins ? "" : " · pins unconfirmed / 腳位未確認"} · ${ageMs} ms`;
+      el.controlOwner.textContent = OWNER_NAMES[owner] ?? `#${owner}`;
+      el.towerState.textContent = feedBusy ? "busy / 冷卻中" : "ready / 可觸發";
+      el.shooterAxisMode.textContent = rotateManual ? "manual / 手動" : "vision / 視覺";
+      const wirelessOwned = armed === 1 && owner === 2;
+      if (controlArmed && !wirelessOwned) setControlArmed(false);
+      else if (!controlArmed && enablePending && wirelessOwned) setControlArmed(true);
+    }
+
+    enableButton.addEventListener("click", async () => {
+      heldKeys.clear();
+      // Drop focus so a later Space/Enter can't re-activate this button.
+      enableButton.blur();
+      if (controlArmed || enablePending) return;
+      enablePending = true;
+      enablePendingSince = performance.now();
+      setControlArmed(false);
+      await sendControl("E");
+    });
+
+    flywheelSlider.addEventListener("input", async () => {
+      if (!controlArmed) {
+        setFlywheelSlider(0);
+        return;
+      }
+      setFlywheelSlider(Number(flywheelSlider.value) / 100);
+      await sendControl(`FLY,${flywheelRatio.toFixed(2)}`);
+    });
+
+    const MOVEMENT_KEYS = new Set(["w", "s", "a", "d", "arrowleft", "arrowright", "arrowup", "arrowdown"]);
+    const NON_TEXT_INPUT_TYPES = new Set(["range", "checkbox", "radio", "button", "submit", "reset"]);
+
+    // Only real text entry (the stream URL box, layout fields, etc.) is
+    // exempt from keyboard control; the Falcon range slider is not, so
+    // Enter/Space still stop the robot while it has focus.
+    function isTypingTarget(target) {
+      if (!target) return false;
+      if (target.tagName === "TEXTAREA" || target.isContentEditable) return true;
+      return target.tagName === "INPUT" && !NON_TEXT_INPUT_TYPES.has((target.type || "").toLowerCase());
+    }
+
+    async function sendAllAxesIfChanged() {
+      await sendTankIfChanged();
+      await sendRotateIfChanged();
+      await sendAngleIfChanged();
+    }
+
+    window.addEventListener("keydown", async (event) => {
+      const key = event.key.toLowerCase();
+      const typing = isTypingTarget(event.target);
+
+      // Stop keys win over text boxes while armed: Enter/Space must stop the
+      // robot even if focus happens to be in the stream URL box. Disarmed,
+      // text boxes keep their normal Enter/Space behavior.
+      if (key === "enter" || key === " ") {
+        if (typing && !controlArmed && !enablePending) return;
+        event.preventDefault();
+        if (event.repeat) return;
+        if (key === "enter") await emergencyStop();
+        else await emergencyDisconnect();
+        return;
+      }
+      if (typing || !controlArmed) return;
+
+      if (MOVEMENT_KEYS.has(key)) {
+        event.preventDefault();
+        heldKeys.add(key);
+        await sendAllAxesIfChanged();
+        return;
+      }
+      if ((key === "f" || key === "l" || key === "r") && !event.repeat) {
+        event.preventDefault();
+        await sendControl(key.toUpperCase());
+      }
+    });
+
+    // Releases are honored no matter where focus is: if focus moved into a
+    // text box while a key was held, the keyup still has to clear it, or
+    // the heartbeat would keep resending the stale direction.
+    window.addEventListener("keyup", async (event) => {
+      const key = event.key.toLowerCase();
+      if (!heldKeys.has(key)) return;
+      heldKeys.delete(key);
+      if (!controlArmed) return;
+      await sendAllAxesIfChanged();
+    });
+
+    // Moving focus into a text box mid-hold also releases everything held.
+    document.addEventListener("focusin", async (event) => {
+      if (!isTypingTarget(event.target) || heldKeys.size === 0) return;
+      heldKeys.clear();
+      if (controlArmed) await sendAllAxesIfChanged();
+    });
+
+    window.addEventListener("blur", () => { if (controlArmed || enablePending) emergencyStop(); });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden && (controlArmed || enablePending)) emergencyStop();
+    });
+
+    async function sendHeartbeat() {
+      if (!port) return;
+      if (enablePending && performance.now() - enablePendingSince > ENABLE_PENDING_TIMEOUT_MS) {
+        await failEnable("no confirmation / 沒收到機器人確認");
+        return;
+      }
+      // While an enable is pending, keepalives hold the ground station's
+      // arm channel (and a just-armed wired session) up until the robot's
+      // confirmation arrives; every axis is neutral then, so this sends K.
+      if (!controlArmed && !enablePending) return;
+      // Resend whichever outputs are non-neutral every tick (so a dropped
+      // packet can't leave a motor stuck at an old value), falling back to
+      // a bare keepalive when everything is centered.
+      let sent = false;
+      if (tankLeft !== 0 || tankRight !== 0) { await sendControl(`T,${tankLeft},${tankRight}`); sent = true; }
+      if (rotateAxis !== 0) { await sendControl(`ROT,${rotateAxis}`); sent = true; }
+      if (angleAxis !== 0) { await sendControl(`ANG,${angleAxis}`); sent = true; }
+      if (flywheelRatio !== 0) { await sendControl(`FLY,${flywheelRatio.toFixed(2)}`); sent = true; }
+      if (!sent) await sendControl("K");
+    }
+
+    setInterval(sendHeartbeat, CONTROL_HEARTBEAT_MS);
 
     updatePanelDensity();
     drawField();

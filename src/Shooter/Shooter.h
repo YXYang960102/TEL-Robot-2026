@@ -77,6 +77,12 @@ public:
     static bool isRotateReady();
     static bool areRotateSoftLimitsActive();
     static bool isReady();
+    // Time-based proxy only: no RPM/tachometer feedback exists for the
+    // Falcon 500 flywheel (PWM command path is one-way). True once the
+    // commanded output has stayed at/above Flywheel::SHOOT_COMMAND for at
+    // least Flywheel::SPIN_UP_MS. Re-verify against real shots before
+    // trusting it, and replace with real feedback if that's ever wired up.
+    static bool isFlywheelReady();
     static AngleControlMode getAngleControlMode();
     static RotateControlMode getRotateControlMode();
 
@@ -90,6 +96,12 @@ public:
     static int getRightAnglePulseUs();
     static int getRotatePulseUs();
     static int getFlywheelPulseUs();
+    // The open-loop command actually driving the flywheel, 0.0-1.0. Added
+    // for the Dashboard's Falcon display (2026-10-11 dev integration) --
+    // deliberately a command ratio, not an RPM: no tachometer/speed
+    // feedback exists for this Falcon 500 (see isFlywheelReady()'s comment
+    // above), so a ratio is the only honest thing to show.
+    static double getFlywheelCommand();
     static double getAngleControllerOutput();
     static double getAngleVelocityCountsPerSecond();
     static double getAngleProportionalTerm();
@@ -147,7 +159,7 @@ private:
     static double rotateRawToDegrees(double raw);
 
     static Servo angleLeftServo;
-    static Servo angleRightServo;
+
     static Servo rotateServo;
     static Servo flywheelOutput;
     static AS5600Encoder angleEncoder;
@@ -178,6 +190,8 @@ private:
     static int rightAnglePulseUs;
     static int rotatePulseUs;
     static int flywheelPulseUs;
+    static unsigned long flywheelSpinStartMs;
+    static bool flywheelReady;
     static DebouncedLimitSwitchState angleUpLimitState;
     static DebouncedLimitSwitchState angleDownLimitState;
     static DebouncedLimitSwitchState rotateLeftLimitState;
