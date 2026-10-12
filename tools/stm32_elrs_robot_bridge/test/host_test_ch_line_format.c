@@ -18,17 +18,17 @@ static void test_rc_line(void) {
   for (int i = 0; i < 16; i++) ch_us[i] = 1500;
   ch_us[0] = 1800; ch_us[1] = 1200; ch_us[2] = 1000; ch_us[3] = 2000;
   ch_us[4] = 988; ch_us[5] = 2012; ch_us[6] = 1500; ch_us[7] = 1193; ch_us[8] = 1602;
-  ch_us[9] = 1111; /* beyond RCMAP_CHANNEL_COUNT: must not appear */
+  ch_us[9] = 2000; ch_us[10] = 1111; /* beyond RCMAP_CHANNEL_COUNT: must not appear */
 
   char buf[CH_LINE_MAX_CHARS];
   uint16_t len = format_rc_line(buf, sizeof(buf), ch_us);
-  CHECK(strcmp(buf, "RC,1800,1200,1000,2000,988,2012,1500,1193,1602\n") == 0,
-        "RC line carries exactly channels 1-9 in order");
+  CHECK(strcmp(buf, "RC,1800,1200,1000,2000,988,2012,1500,1193,1602,2000\n") == 0,
+        "RC line carries exactly channels 1-10 in order");
   CHECK(len == (uint16_t)strlen(buf), "returned length matches the string");
 
   for (int i = 0; i < 16; i++) ch_us[i] = -500;
   format_rc_line(buf, sizeof(buf), ch_us);
-  CHECK(strcmp(buf, "RC,-500,-500,-500,-500,-500,-500,-500,-500,-500\n") == 0,
+  CHECK(strcmp(buf, "RC,-500,-500,-500,-500,-500,-500,-500,-500,-500,-500\n") == 0,
         "negative values keep their sign");
 
   char small[8] = "xxxxxxx";

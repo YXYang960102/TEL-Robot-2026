@@ -11,7 +11,7 @@
   "usart2_irq_vector": "0x80002c5",
   "systick_vector": "0x80001f5",
   "binary_bytes": 2932,
-  "sha256": "ddd9ef2177af8d401dbcb9b9d087c69d5b851ba43754fa1d29f778b13fb12e3e",
+  "sha256": "99b017a463ba31635ab0871af55b83bd6fd6c89531f9bb8b2ef6b778aa944138",
   "checks": [
     "host ch_line_format unit test",
     "vector VMA/LMA",

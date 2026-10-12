@@ -5,7 +5,7 @@
    MECH_LINK_SERIAL_PORT). No UART/registers here, and no libc (the firmware
    links -nostdlib), so they run unchanged in the host test.
 
-   Downlink: "RC,c1,...,c9\n" -- the first RCMAP_CHANNEL_COUNT CRSF channels
+   Downlink: "RC,c1,...,c10\n" -- the first RCMAP_CHANNEL_COUNT CRSF channels
    in microseconds, table in src/IO/RcControlMap.h.
    Uplink:   "ST,flags,seq,code" from the Mega, packed by the main loop into
    a CRSF Battery frame for the ground station. */
@@ -15,9 +15,9 @@
 
 #include "RcControlMap.h"
 
-/* "RC," + 9 signed ints (each up to 6 chars incl. sign) + 8 commas + '\n' +
+/* "RC," + N signed ints (each up to 6 chars incl. sign) + N-1 commas + '\n' +
    '\0', rounded up with margin. */
-#define CH_LINE_MAX_CHARS 72u
+#define CH_LINE_MAX_CHARS (4u + 7u * RCMAP_CHANNEL_COUNT)
 
 /* Writes a '\0'-terminated "RC,...\n" into buf and returns its length
    excluding the '\0'. Returns 0 (empty string) if bufSize is too small. */

@@ -14,14 +14,23 @@
 #error "TEL_HOST_TEST_PIN_TABLE_CONFIRMED is for host tests only"
 #endif
 constexpr bool PIN_TABLE_CONFIRMED = TEL_HOST_TEST_PIN_TABLE_CONFIRMED;
+#elif defined(TEL_DRIVE_CONVEYOR_ONLY)
+#ifndef TEL_WIRED_MANUAL_ONLY
+#error "Partial pin confirmation is restricted to wired manual testing"
+#endif
+// Only drive/conveyor outputs exist in this test profile.
+constexpr bool PIN_TABLE_CONFIRMED = true;
 #else
 constexpr bool PIN_TABLE_CONFIRMED = false;
+#include "DribblerConstants.h"
+static_assert(!PIN_TABLE_CONFIRMED || DribblerConstants::Conveyor::CONFIGURED,
+              "Configure horizontal conveyor ESC signal before enabling outputs");
 #endif
 
 // Shooter
-#define PIN_ESC_HORI 29
-#define PIN_ESC_VER 27
-#define PIN_FALCON 49
+#define PIN_ESC_HORI 23
+#define PIN_ESC_VER 24
+#define PIN_FALCON 25
 
 // Chassis and Dribbler pins moved to their own Constants files
 // (ChassisConstants.h / DribblerConstants.h) as part of the 2026-10-11
@@ -39,3 +48,32 @@ constexpr bool PIN_TABLE_CONFIRMED = false;
 // but which Serial port this link uses is still a signal-wiring decision,
 // so it's kept here with the rest of them. See src/IO/MechLink.h.
 #define MECH_LINK_SERIAL_PORT Serial2
+
+#include "ChassisConstants.h"
+#include "DribblerConstants.h"
+static_assert(ChassisConstants::RightDrive::SIGNAL_PIN != ChassisConstants::LeftDrive::SIGNAL_PIN,
+              "Drive signals must use distinct pins");
+static_assert(DribblerConstants::Conveyor::SIGNAL_PIN != ChassisConstants::RightDrive::SIGNAL_PIN &&
+              DribblerConstants::Conveyor::SIGNAL_PIN != ChassisConstants::LeftDrive::SIGNAL_PIN,
+              "Conveyor signal must not overlap drive signals");
+
+#ifdef TEL_DRIVE_CONVEYOR_ONLY
+static_assert(ChassisConstants::RightDrive::SIGNAL_PIN == 48 &&
+              ChassisConstants::LeftDrive::SIGNAL_PIN == 46 &&
+              DribblerConstants::Conveyor::SIGNAL_PIN == 45,
+              "Reconfirm partial bench wiring before changing its pins");
+#endif
+
+#ifdef TEL_MANUAL_AXES_TEST
+#include "ShooterConstants.h"
+static_assert(ShooterConstants::Angle::LEFT_SIGNAL_PIN == 24 &&
+              ShooterConstants::Rotate::SIGNAL_PIN == 23,
+              "Reconfirm manual axis bench pins");
+#endif
+
+#ifdef TEL_MANUAL_FLYWHEEL_TEST
+#ifndef TEL_MANUAL_AXES_TEST
+#error "Flywheel bench requires manual axes profile"
+#endif
+static_assert(ShooterConstants::Flywheel::SIGNAL_PIN == 25, "Reconfirm flywheel pin");
+#endif

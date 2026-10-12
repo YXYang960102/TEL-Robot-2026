@@ -17,15 +17,15 @@ constexpr size_t COMMAND_BUFFER_SIZE = 24;
 // Status line to the robot bridge for the wireless uplink.
 constexpr unsigned long STATUS_PERIOD_MS = 100;
 
-// Keyboard keys are on/off (-1/0/1); these scale that into the actual
-// open-loop command for first-power-on bring-up. Rotate/Angle match
-// ShooterBenchConstants' 0.10 "limited authority for the first unloaded
-// mechanism tests"; chassis has no prior bench value, 0.30 is a
-// conservative starting point. Raise only after real-hardware checks.
-// Applied identically to wired and wireless commands.
-constexpr double CHASSIS_MANUAL_SCALE = 0.30;
-constexpr double ROTATE_MANUAL_SCALE = 0.10;
-constexpr double ANGLE_MANUAL_SCALE = 0.10;
+// Jeremy's manual test commands (normalized output, not measured RPM).
+constexpr double CHASSIS_MANUAL_SCALE = 1.00;
+constexpr double ROTATE_MANUAL_SCALE = 1.00;
+constexpr double ANGLE_MANUAL_SCALE = 1.00;
+#ifdef TEL_WIRED_MANUAL_ONLY
+constexpr bool WIRED_MANUAL_ONLY = true;
+#else
+constexpr bool WIRED_MANUAL_ONLY = false;
+#endif
 
 static_assert(CHASSIS_MANUAL_SCALE > 0.0 && CHASSIS_MANUAL_SCALE <= 1.0, "Invalid chassis scale");
 static_assert(ROTATE_MANUAL_SCALE > 0.0 && ROTATE_MANUAL_SCALE <= 1.0, "Invalid rotate scale");

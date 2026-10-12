@@ -605,7 +605,7 @@
         </div>
         <div class="stream-controls">
           <button id="enableControl" disabled>Enable / 啟用輸出</button>
-          <span class="label">W/S/A/D 底盤・F 觸發送球塔・方向鍵 旋轉/俯仰・L 手動/視覺切換・Enter 停用・Space 停用並斷線</span>
+          <span class="label">W/S/A/D 底盤・R 水平輸送帶開關・F 觸發送球塔・方向鍵 旋轉/俯仰・L 手動/視覺切換・Enter 停用・Space 停用並斷線</span>
         </div>
         <div class="grid">
           <div class="metric"><div class="label">left / right pulse / 左右輪脈衝</div><div class="value" id="chassisPulses">--</div></div>
@@ -1718,7 +1718,7 @@
         await sendAllAxesIfChanged();
         return;
       }
-      if ((key === "f" || key === "l") && !event.repeat) {
+      if ((key === "f" || key === "l" || key === "r") && !event.repeat) {
         event.preventDefault();
         await sendControl(key.toUpperCase());
       }

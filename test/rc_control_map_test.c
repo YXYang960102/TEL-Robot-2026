@@ -27,7 +27,7 @@ static void test_round_trip(void) {
     rcmap_encode(&c, ch);
     assert(ch[0] == 2000 && ch[1] == 1000 && ch[2] == 1400 && ch[3] == 2000);
     assert(ch[4] == 2000 && ch[5] == 1000 && ch[6] == 2000 && ch[7] == 1600 && ch[8] == 2000);
-    for (int i = 9; i < 16; i++) assert(ch[i] == 1500);
+    for (int i = RCMAP_CHANNEL_COUNT; i < 16; i++) assert(ch[i] == 1500);
     rcmap_command d;
     assert(rcmap_decode(ch, 16, &d));
     assert(near(d.left, 1.0f) && near(d.right, -1.0f) && near(d.flywheel, 0.4f));

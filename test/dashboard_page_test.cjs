@@ -133,16 +133,15 @@ async function emergencyStopViaEnter() {
   assert.equal(last(), 'T,1,-1');
   await windowHandlers.keyup(key('a'));
 
-  // F/L: single press sends once; held-key auto-repeat sends nothing. R
-  // (the old continuous feed) is gone: the tower now only takes trigger
-  // pulses, which is F.
+  // R/F/L: single press sends once; held-key auto-repeat sends nothing.
+  // R controls the horizontal belt independently of the F tower pulse.
   writes.length = 0;
   for (const k of ['r', 'f', 'l']) {
     await windowHandlers.keydown(key(k));
     await windowHandlers.keydown(key(k, { repeat: true }));
     await windowHandlers.keydown(key(k, { repeat: true }));
   }
-  assert.deepEqual([...writes], ['F', 'L']);
+  assert.deepEqual([...writes], ['R', 'F', 'L']);
 
   // Arrows drive Rotate/Angle; release stops.
   writes.length = 0;

@@ -159,7 +159,7 @@ private:
     static double rotateRawToDegrees(double raw);
 
     static Servo angleLeftServo;
-    static Servo angleRightServo;
+
     static Servo rotateServo;
     static Servo flywheelOutput;
     static AS5600Encoder angleEncoder;

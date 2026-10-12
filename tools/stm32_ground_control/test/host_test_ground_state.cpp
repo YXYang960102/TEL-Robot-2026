@@ -147,7 +147,21 @@ static void testStatusTracker() {
     assert(!tr.fresh(1500));
 }
 
+static void testConveyor() {
+    GroundCommandState st; st.reset(0);
+    send(st, "R", 1); assert(!st.command().conveyor);
+    send(st, "E", 2); send(st, "R", 3); assert(st.command().conveyor);
+    int ch[16]; rcmap_command decoded{};
+    rcmap_encode(&st.command(), ch);
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &decoded) && decoded.conveyor);
+    send(st, "F", 4); assert(st.command().conveyor);
+    send(st, "R", 5); assert(!st.command().conveyor);
+    send(st, "R", 6); st.tick(300, collect, nullptr); assert(!st.command().conveyor);
+    send(st, "E", 301); assert(!st.command().conveyor);
+}
+
 int main() {
+    testConveyor();
     testDefaultsAndEnable();
     testCountersAdvanceOncePerPress();
     testPcWatchdog();

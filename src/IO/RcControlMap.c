@@ -39,6 +39,7 @@ void rcmap_encode(const rcmap_command *c, int ch_us[16]) {
     ch_us[RCMAP_CH_RIGHT] = axis_to_us(c->right);
     ch_us[RCMAP_CH_FLYWHEEL] = 1000 + round_float(clamp_float(c->flywheel, 0.0f, 1.0f) * 1000.0f);
     ch_us[RCMAP_CH_MODE] = RCMAP_MODE_FULL_MANUAL_US;
+    ch_us[RCMAP_CH_CONVEYOR] = c->armed && c->conveyor ? 2000 : 1000;
     ch_us[RCMAP_CH_ARM] = c->armed ? 2000 : 1000;
     ch_us[RCMAP_CH_ROTATE] = dir_to_us(c->rotate);
     ch_us[RCMAP_CH_ANGLE] = dir_to_us(c->angle);
@@ -85,6 +86,7 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     float fly = clamp_float((float)(ch_us[RCMAP_CH_FLYWHEEL] - 1000) / 1000.0f, 0.0f, 1.0f);
     out->flywheel = fly < RCMAP_FLYWHEEL_DEADBAND ? 0.0f : fly;
     out->mode_us = ch_us[RCMAP_CH_MODE];
+    out->conveyor = ch_us[RCMAP_CH_CONVEYOR] >= RCMAP_ARM_ON_US;
     out->armed = ch_us[RCMAP_CH_ARM] >= RCMAP_ARM_ON_US;
     out->rotate = us_to_dir(ch_us[RCMAP_CH_ROTATE]);
     out->angle = us_to_dir(ch_us[RCMAP_CH_ANGLE]);
@@ -132,6 +134,8 @@ static const char *const event_names[RCMAP_EVENT_COUNT] = {
     "UNKNOWN_COMMAND",
     "COMMAND_TOO_LONG",
     "EVENT_SKIPPED",
+    "CONVEYOR_ON",
+    "CONVEYOR_OFF",
 };
 
 const char *rcmap_event_name(uint16_t code) {

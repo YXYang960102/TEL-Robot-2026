@@ -163,7 +163,7 @@ void ManualControl::processCommand(char* command) {
     const bool isRotate = strncmp(command, "ROT,", 4) == 0;
     const bool isAngle = strncmp(command, "ANG,", 4) == 0;
     const bool isFlywheel = strncmp(command, "FLY,", 4) == 0;
-    const bool isSingle = command[1] == '\0' && (command[0] == 'F' || command[0] == 'L');
+    const bool isSingle = command[1] == '\0' && (command[0] == 'F' || command[0] == 'L' || command[0] == 'R');
 
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle) {
         sendEvent(RCMAP_EVENT_UNKNOWN_COMMAND);
@@ -211,7 +211,10 @@ void ManualControl::processCommand(char* command) {
     }
 
     refreshWiredWatchdog();
-    if (command[0] == 'F') {
+    if (command[0] == 'R') {
+        Dribbler::setConveyor(!Dribbler::isConveyorOn());
+        sendEvent(Dribbler::isConveyorOn() ? RCMAP_EVENT_CONVEYOR_ON : RCMAP_EVENT_CONVEYOR_OFF);
+    } else if (command[0] == 'F') {
         triggerFeed();
     } else {
         toggleRotateMode();
@@ -253,6 +256,7 @@ void ManualControl::resetWirelessTracking() {
 }
 
 void ManualControl::processWirelessFrame() {
+    if (ManualControlConstants::WIRED_MANUAL_ONLY) return;
     if (MechLink::signalLost || MechLink::frameCount == lastFrameCount) {
         return;
     }
@@ -280,6 +284,10 @@ void ManualControl::processWirelessFrame() {
     const int lmode = rcmap_counter_update(&lmodeCounter, c.lmode_counter);
 
     if (owner == Owner::WIRELESS) {
+        if (Dribbler::isConveyorOn() != c.conveyor) {
+            Dribbler::setConveyor(c.conveyor);
+            sendEvent(c.conveyor ? RCMAP_EVENT_CONVEYOR_ON : RCMAP_EVENT_CONVEYOR_OFF);
+        }
         tankLeftCommand = c.left;
         tankRightCommand = c.right;
         rotateManualCommand = c.rotate;
@@ -368,6 +376,11 @@ void ManualControl::triggerFeed() {
 }
 
 void ManualControl::toggleRotateMode() {
+    if (ManualControlConstants::WIRED_MANUAL_ONLY) {
+        rotateManualActive = true;
+        sendEvent(RCMAP_EVENT_ROTATE_MANUAL);
+        return;
+    }
     rotateManualActive = !rotateManualActive;
     rotateManualCommand = 0.0; // clear any stale manual jog
     sendEvent(rotateManualActive ? RCMAP_EVENT_ROTATE_MANUAL : RCMAP_EVENT_ROTATE_VISION_FOLLOW);

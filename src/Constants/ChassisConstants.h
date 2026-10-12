@@ -11,12 +11,12 @@ namespace ChassisConstants {
 
 namespace RightDrive {
 using namespace TuningConstants::RightDrive;
-constexpr uint8_t SIGNAL_PIN = 39;
+constexpr uint8_t SIGNAL_PIN = 48;
 }
 
 namespace LeftDrive {
 using namespace TuningConstants::LeftDrive;
-constexpr uint8_t SIGNAL_PIN = 38;
+constexpr uint8_t SIGNAL_PIN = 46;
 }
 
 namespace Output {

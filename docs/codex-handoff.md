@@ -2522,3 +2522,81 @@ has feedback is unknown. The pin table is still to come from Jeremy.
 3. Only after the pin table is confirmed: run the production build at low
    speed. Check direction, Enter/Space, F, L, ground power-off while moving,
    and closing the page while moving.
+
+## 2026-10-11 — Codex：Jeremy 授權補回 R 水平輸送帶，F 獨立觸發塔
+
+User Request / Discussion Result: Jeremy 明確確認整台實控馬達共六顆：底盤兩顆、水平輸送帶、飛輪、仰角、水平各一；塔只需短暫 HIGH 自行完成一輪。直接授權實作 R 開關水平輸送帶、F 單次塔觸發，不再詢問。
+
+Changed / Why: Dashboard R 單次按下送命令（repeat 忽略）；ManualControl 有線 R 僅 owner/armed 下切換，F 不影響輸送帶。地面端 R 切換持續狀態，新增 CH10 1000=off /2000=on，機器人使用狀態而非對每包 toggle。CH1-9 語意不變；wire format RC 現為十欄，bridge/地面/Mega 必須同步更新。停用、watchdog、RF loss 清除輸送帶；地面 release/E 清除狀態。追加 CONVEYOR_ON/OFF 事件代碼。F 保留 100ms HIGH、從觸發起 1000ms lockout，忙碌不排隊，不聲稱出球成功。
+
+Added / Calculation: Dribbler 新增獨立 conveyor API，沿用先前 PWM+enable 驅動介面，RUN_PWM=180/255 約70.6% 為既有起始值而非已確認速度。正式 PWM/enable 腳位未知，均設255為未配置，不寫任何硬體腳；PIN_TABLE_CONFIRMED 仍false，並新增編譯檢查防止未配置輸送帶卻設true、或與塔/彼此腳位碰撞。isConveyorOn 表示要求的開關狀態，未配置時不代表馬達實際轉動。待 Jeremy 提供正式腳位/驅動介面再落實。
+
+Evidence: manual_control host confirmed/unconfirmed皆過，新增 R/F 獨立、R反向切換、X、逾時、無線重複幀及失聯清除；ground host 新增 disarmed R拒絕、R切換/編解碼/F不影響/watchdog/re-enable；rcmap、dashboard page（R/F/L repeat）、dashboard control tests皆過。bridge build.py及映像檢查通過，重建dist；Mega production PIO SUCCESS RAM2291 Flash29286，ground PIO SUCCESS RAM5888 Flash45196。git diff --check通過。未燒錄、未上機；未完成整個16f26be廣泛review。
+
+Next Test / Impact: 等正式pin後再次編譯，三端同步燒錄，實測R獨立開關、F單脈衝/忙碌、Enter/Space/失聯停機。不能沿用舊九欄bridge搭新十欄Mega。目前只有控制路徑完成，輸送帶實際硬體輸出待pin配置。
+
+## 2026-10-11 — Codex：優先有線全手動，更新操作輸出比例
+
+Jeremy 要求先 PC USB-C→Mega 有線全手動，不先測無線；底盤0.5、水平旋轉滿輸出1.0、輸送帶0.5、仰角MG996R且無encoder希望0.3、飛輪保留速度拉條。
+新增 mega_wired_manual_test env (TEL_WIRED_MANUAL_ONLY)，拒絕無線frame控制、不執行Auto、L維持manual。共用ManualControl比例改底盤0.5/水平1.0/仰角0.3，輸送帶 PWM128/255=50.2%。飛輪既有FLY比例路徑不變，仍為PWM開迴路而非RPM閉迴路。沒有拆除水平硬限位。
+已跑新profile host（拒無線、L不切追蹤、0.5/1.0/-0.3/FLY0.6數值、X停用）通過；完整manual_control confirmed host也過。新env PIO SUCCESS RAM2120 Flash26600，未燒錄。
+重要未決：使用者說單顆MG996R，現有Shooter仍attach兩顆仰角pin27/26，PWM以1500中立速度方式控制，型號可能180定位或360連續。已async詢問版本；尚未改為單顆或position slew，ANGLE_MANUAL_SCALE=0.3只是參數準備，不聲稱仰角可用。PIN_TABLE_CONFIRMED仍false，正式pin待Jeremy提供，輸送帶仍未配置。MG996R版本確定後才完成對應仰角輸出/停止語意。全手動profile目前不是硬體驗收完成。
+
+## 2026-10-11 — Codex：按 Jeremy 指示先使用單顆 MG996R 定位版
+
+User Request / Discussion Result: Jeremy 明確採用定位版先寫，若硬體不符再切連續旋轉版。取代上一則「型號待確認」。
+Changed: ShooterConstants::Angle 新增 POSITION_SERVO=true、EXTERNAL_ENCODER_ENABLED=false。移除第二顆Servo物件/attach；保留舊right telemetry欄位但回0，單顆仍使用LEFT_SIGNAL_PIN暫定27。無外接encoder不初始化/輪詢AS5600，拒絕encoder counts closed-loop目標。POSITION_SERVO=false可切回單顆連續旋轉速度模式。
+Calculation: ServoPositionJog累積目標 target += command *1000 us/s *dt；手動縮放0.3，因此10ms變3us、1秒變300us，例如1500→1800us。不是實測速度或仰角。暫定起始1500us、上下界1000/2000us，保留硬限位方向判斷；迴圈間隔>100ms不補跳、NaN/越界command不更新。
+Semantics: 放開鍵command0保持最後目標。啟動disabled不attach定位舵機；首次Enable會送初始1500us（實際位置未知可能移動）。stopAll/disableAngle/Enter/watchdog在定位模式detach，不送1500作停止，保留軟體target；停止脈衝不等於断電、不保證保持扭力；再啟用使用保留target，無實際位置回饋。連續旋轉模式則0命令仍送中立。
+Evidence: 新test/servo_position_jog_test.cpp驗證0.3累積、放鍵、停頓、NaN、兩端clamp與反向離開邊界通過；mega_wired_manual_test PIO SUCCESS RAM1992 Flash25050。git diff --check通過。未燒錄/未實機，PIN_TABLE_CONFIRMED仍false；正式pin、實際servo行程仍待提供/實測。
+
+
+## 2026-10-11 — Codex：Jeremy 授權清理未使用檔案與建置快取
+
+Jeremy 明確要求「刪掉會影響嗎？不會的話就刪」，承接先前盤點。已刪根目錄及 stm32_ground_control 的 .pio 快取、未引用 lib/sbus、Constants/Mode.h、PIDConfig.h、src/list.md、include/README、lib/README、舊 .vscode/arduino.json，以及 .DS_Store/空 .claude/.dist。Dashboard data-panel="sbus" 僅 UI 名稱，不引用被移除函式庫。保留現有未提交功能修改、全部 dist 燒錄產物、實際引用的 AS5600、測試程式、舊架構資料與編輯器除錯設定。功能控制流程未改；下次編譯需要重建快取/可能重新下載依賴。以引用搜尋及刪除後 git diff --check 檢查；未重新編譯或上機。
+
+
+## 2026-10-11 — Codex：正式底盤腳位及 D45 單線 ESC 輸送帶
+
+Jeremy 提供輸送帶 D45、右輪 D47、左輪 D46，確認輸送帶 VCC/GND/單訊號 ESC 伺服脈寬介面，並明確批准「開始」。ChassisConstants 腳位39/38改47/46；Dribbler 移除 analogWrite+enable，改單 Servo D45，R保持切換、stop/disable/watchdog回停止脈寬；F塔100ms邏輯不變。輸送帶暫採雙向ESC校準1500us停止、1750us運轉，即1500+0.5*500；使用者確認介面，不代表確認ESC中立/端點。實測若單向ESC停點1000us，需先改校準，不能把1750us當實測50% RPM。PIN_TABLE_CONFIRMED仍false，整台正式pin表未齊，Enable仍拒絕。
+新增 conveyor_esc_test 檢查D45、起始1500、R狀態運轉1750及stop回1500；Servo host stub記錄attached/pin/pulse。主機測試 conveyor_esc、manual_control confirmed及unconfirmed gate均過。PIO megaatmega2560及mega_wired_manual_test均SUCCESS，後者RAM1995 Flash25148；清理後依賴已重新下載/快取重建，證實這兩個Mega環境可編譯。git diff --check通過。沒有上傳/硬體測試；未驗證其他Mega bench或STM32環境的清理後重建。新增底盤左右/輸送帶腳位相異assert。後續低速台架確認ESC停點與方向，再確認其他pin後開啟Enable。
+
+
+## 2026-10-11 — Codex：右底盤改 D48
+
+Jeremy 回報 D47 改 D48。檢查共享工作目錄 ChassisConstants.h 已是右48/左46，未覆寫其修改；輸送帶45不變。mega_wired_manual_test重新編譯SUCCESS，RAM1995 Flash25148，未上傳；Enable門檻仍false。
+
+
+## 2026-10-11 — Codex：只測底盤與輸送帶的局部確認版本
+
+Jeremy 授權先測右D48/左D46/輸送帶D45，其他pin先不管。新增 mega_drive_conveyor_test，繼承有線全手動，TEL_DRIVE_CONVEYOR_ONLY局部腳位確認允許Enable；編譯assert鎖定45/46/48且禁止脫離wired模式。完整production與mega_wired_manual_test的全機pin gate仍false。此profile Shooter不初始化sensor/attach、不執行update、不寫任何軸或飛輪，setOutputsEnabled仍false；塔不pinMode/不digitalWrite/requestFeed回false。UI其他命令仍可發送但沒有硬體輸出，F會拒絕（既有FEED_BUSY回報，不表示塔真的忙）。底盤/輸送帶R、Enter/Space/250ms watchdog保留。ESC校準仍暫定1500停止、1750輸送帶運轉，非RPM50%驗收。
+主機conveyor_esc partial test確認1750run/1500stop與塔GPIO sentinel完全未寫，通過。新env PIO SUCCESS RAM1888 Flash18840；git diff --check過。未上傳未實機。上傳請改用pio run -e mega_drive_conveyor_test -t upload，不要用原全手動env。先架空輪子、無球測W/S/A/D/R/Enter/Space，確認ESC中立與方向。
+
+
+## 2026-10-11 — Codex To Claude：加入D24仰角、D23水平手動測試
+
+Jeremy提供仰角D24、180度定位馬達，水平D23，明確同意加入有線局部測試。更新ShooterConstants/Pins別名；新env mega_manual_axes_test繼承mega_drive_conveyor_test，TEL_MANUAL_AXES_TEST允許兩軸，底盤右48/左46/輸送帶45保留。上傳改用 pio run -e mega_manual_axes_test -t upload。Dashboard Enable後W/S/A/D底盤0.5、R輸送帶0.5、上下仰角0.3、左右水平1.0；Enter停用、Space停用斷線。飛輪仍不attach/不write、塔仍拒絕不write，自動/無線不開放。完整production pin gate仍false。
+此profile跳過未確認sensor/limit初始化與讀取，因此沒有實際硬限位保護；手動機構行程需Jeremy觀察。仰角1000..2000us暫定、1500起始，0.3*1000us/s=300us/s，10ms變3us，鬆鍵保持，停用detach，首次Enable可能移到1500。180度型號不代表已校準機構行程。水平暫定1500中立，滿輸出1000/2000，方向依既有反相設定。ESC停止點仍需實機。
+新env編譯SUCCESS RAM1933 Flash22990；ServoPositionJog主機測試過；本次修改檔diff --check過。全working-tree檢查另發現同時更新的robot_bridge dist .map第143行尾空白，沒有改動他人生成產物。未上傳未實機。共享工作目錄有其他協作者更新，勿覆寫。
+
+
+## 2026-10-11 — Codex To Claude：D25 Falcon拉條開放
+
+Jeremy提供Falcon訊號D25並同意開放目前有線測試。ShooterConstants::Flywheel/PIN_FALCON改25；mega_manual_axes_test增加TEL_MANUAL_FLYWHEEL_TEST，在局部Shooter init預載1500us後attach D25，update輸出FLY命令，stopAll仍回0指令1500us。舊mega_drive_conveyor_test仍不開飛輪；塔仍拒絕/無輸出，未確認sensor/limits跳過。各六顆馬達訊號：右48左46、輸送帶45、仰角24、水平23、飛輪25。
+拉條0..100→ratio0..1→1500+ratio*500us，例20%=1600us、50%=1750us；是開迴路指令不是RPM/PIDF，ESC中立仍沿既有1500假設待實測。開機即1500us，未Enable也有中立脈衝；首次Enable拉條0，Enter/Space/watchdog清零。先無球低比例確認停點，不能把型號或編譯當硬體校準。
+PIO mega_manual_axes_test SUCCESS RAM1935 Flash23228；manual_control confirmed host與dashboard_control_test皆過，修改檔diff --check過。未上傳/未實機；保留vendor AS5600既有warnings。上傳命令 pio run -e mega_manual_axes_test -t upload，Dashboard Enable後拉條可用；F仍停用。此則取代上一則此env「飛輪停用」。
+
+
+## 2026-10-11 — Codex To Claude：底盤與仰角手動比例改1.0
+
+Jeremy直接要求底盤/仰角改1.0。ManualControlConstants CHASSIS_MANUAL_SCALE與ANGLE_MANUAL_SCALE均1.00，共用有線/無線手動路徑也採此比例；輸送帶0.5、水平1.0及飛輪拉條不變。仰角定位slew=1.0*1000us/s，10ms變10us、1500→2000需0.5s（軟體目標，不是實測舵機速度），1000..2000clamp保留。底盤±1對應1000/2000us依反相方向。更新有線host數值斷言。wired profile host通過（需-Wno-unused-function，其他profile測試函式在此編譯分支未呼叫）；PIO mega_manual_axes_test SUCCESS RAM1935 Flash23188。修改檔diff --check過。未上傳/實機，沿用上傳env；未確認限位仍不啟用。
+
+
+## 2026-10-12 — Codex：Dashboard HTTPS部署
+
+Jeremy明確要求部署HTTPS網站。使用Sites建立owner-private TEL Robot Dashboard，project_id appgprj_6acc72ec26408191bc872f13043b71a5；URL https://tel-robot-dashboard.yuxiuy15.chatgpt.site。僅tools/dashboard/index.html原樣靜態發布，不上傳韌體或整個repo，不改控制协议；USB Serial仍瀏覽器本機與Mega直接通訊。Dashboard control/page node測試皆過；來源commit 0c857fc1f03e490322d0308393ba7902b3498c3b（獨立Sites source repo，非robot git commit），部署工具確認succeeded。網站私人需同帳號登入。未做遠端頁面USB實機驗證；若網站host或登入框架限制serial權限，需另驗證。當前部署是快照，後續本機改Dashboard不會自動同步。源checkout在/private/tmp/tel-dashboard-site，雲端source已保存，可再取回。未改Mega韌體。
+
+
+## 2026-10-12 — Codex：Jeremy授權推送整個dev並改GitHub Pages
+
+Jeremy明確要求現在dev推上去、Dashboard部署Pages。本機dev領先origin/dev八個提交，沒有落後；本次包含工作目錄已授權功能/腳位/清理及協作者現有修改。新增.github/workflows/dashboard-pages.yml，dev Dashboard相關push觸發，Node兩個control/page測試通過才發布tools/dashboard；Pages artifact不含robot source/firmware。公開repo且現有GitHub登入admin。維持原Sites網站不刪除。正式全機gate仍false，局部手動env可Enable，不聲稱實機通過。

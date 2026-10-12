@@ -116,7 +116,7 @@ bool saw(const std::string& event) {
 
 void testWiredRefusedWhileDisarmed() {
     reset();
-    for (const char* c : {"F", "L", "T,1,1", "ROT,1", "ANG,1", "FLY,0.5"}) {
+    for (const char* c : {"R", "F", "L", "T,1,1", "ROT,1", "ANG,1", "FLY,0.5"}) {
         Serial.output.clear();
         send(c);
         step();
@@ -128,12 +128,27 @@ void testWiredRefusedWhileDisarmed() {
     assert(Dribbler::getTriggerCount() == 0);
 }
 
-void testRIsGone() {
+void testConveyorIndependent() {
     reset();
     armWired();
     send("R");
     step();
-    assert(saw("UNKNOWN_COMMAND"));
+    assert(Dribbler::isConveyorOn() && saw("CONVEYOR_ON"));
+    send("F"); step();
+    assert(triggerHigh() && Dribbler::isConveyorOn());
+    send("R"); step();
+    assert(!Dribbler::isConveyorOn() && triggerHigh());
+    send("R"); step();
+    send("X"); step();
+    assert(!Dribbler::isConveyorOn() && !triggerHigh());
+    armWired(); send("R"); step(); step(300);
+    assert(!Dribbler::isConveyorOn());
+    reset(); wireless.armed = false; rcStep();
+    wireless.armed = true; rcStep();
+    wireless.conveyor = true; rcStep(); rcStep();
+    assert(Dribbler::isConveyorOn());
+    MechLink::signalLost = true; step();
+    assert(!Dribbler::isConveyorOn());
 }
 
 void testEnableDisableDrivesEverySubsystem() {
@@ -444,9 +459,21 @@ void testEnableRefusedUntilPinTableConfirmed() {
 }  // namespace
 
 int main() {
-#if defined(TEL_HOST_TEST_PIN_TABLE_CONFIRMED)
+#if defined(TEL_WIRED_MANUAL_ONLY)
+    reset();
+    wireless.armed = false; rcStep(); wireless.armed = true; rcStep();
+    assert(!ManualControl::isArmed());
+    armWired(); send("L"); step();
+    assert(rec.rotateMode == "manual");
+    send("T,1,-1"); send("ROT,1"); send("ANG,-1"); send("FLY,0.6"); step();
+    assert(nearly(rec.chassisLeft, 1.0) && nearly(rec.chassisRight, -1.0));
+    assert(nearly(rec.rotateCommand, 1.0) && nearly(rec.angleCommand, -1.0));
+    assert(nearly(rec.flywheelCommand, 0.6));
+    send("X"); step(); assert(!ManualControl::isArmed());
+    printf("wired manual profile: all asserts passed\n");
+#elif defined(TEL_HOST_TEST_PIN_TABLE_CONFIRMED)
     testWiredRefusedWhileDisarmed();
-    testRIsGone();
+    testConveyorIndependent();
     testEnableDisableDrivesEverySubsystem();
     testWiredWatchdog();
     testWiredScalingAndParsing();

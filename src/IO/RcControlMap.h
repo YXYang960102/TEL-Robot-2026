@@ -29,6 +29,7 @@
  *   CH7  angle jog       1000/1500/2000 = -1/0/+1
  *   CH8  F event counter 6 levels, 1000 + 200*k, k = 0..5
  *   CH9  L event counter 6 levels, 1000 + 200*k, k = 0..5
+ *   CH10 horizontal conveyor 1000 = off, 2000 = on (state, not toggle)
  *
  * Event counters instead of "button held" levels: one press advances the
  * counter by exactly one level. A receiver fires one action only when it
@@ -54,7 +55,8 @@ extern "C" {
 #define RCMAP_CH_ANGLE 6u
 #define RCMAP_CH_FEED_COUNTER 7u
 #define RCMAP_CH_LMODE_COUNTER 8u
-#define RCMAP_CHANNEL_COUNT 9u
+#define RCMAP_CH_CONVEYOR 9u
+#define RCMAP_CHANNEL_COUNT 10u
 
 #define RCMAP_COUNTER_LEVELS 6u
 #define RCMAP_MODE_FULL_MANUAL_US 2000
@@ -63,6 +65,7 @@ typedef struct {
     float left;            /* -1..1 */
     float right;           /* -1..1 */
     float flywheel;        /* 0..1 */
+    bool conveyor;         /* CH10: persistent on/off request */
     bool armed;            /* CH5 high = enable requested */
     int8_t rotate;         /* -1, 0, +1 */
     int8_t angle;          /* -1, 0, +1 */
@@ -129,6 +132,8 @@ typedef enum {
     RCMAP_EVENT_UNKNOWN_COMMAND,
     RCMAP_EVENT_COMMAND_TOO_LONG,
     RCMAP_EVENT_EVENT_SKIPPED,
+    RCMAP_EVENT_CONVEYOR_ON,
+    RCMAP_EVENT_CONVEYOR_OFF,
     RCMAP_EVENT_COUNT
 } rcmap_event;
 

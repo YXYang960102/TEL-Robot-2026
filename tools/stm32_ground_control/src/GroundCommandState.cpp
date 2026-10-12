@@ -42,6 +42,7 @@ void GroundCommandState::release() {
     // Arm off and every value neutral; event counters keep their level so
     // the robot never sees a spurious step.
     cmd.armed = false;
+    cmd.conveyor = false;
     cmd.left = 0.0f;
     cmd.right = 0.0f;
     cmd.flywheel = 0.0f;
@@ -101,7 +102,7 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
     const bool isRotate = strncmp(line, "ROT,", 4) == 0;
     const bool isAngle = strncmp(line, "ANG,", 4) == 0;
     const bool isFlywheel = strncmp(line, "FLY,", 4) == 0;
-    const bool isSingle = line[1] == '\0' && (line[0] == 'F' || line[0] == 'L');
+    const bool isSingle = line[1] == '\0' && (line[0] == 'F' || line[0] == 'L' || line[0] == 'R');
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle) {
         emitLine(emit, ctx, "$GROUND_EVENT,UNKNOWN_COMMAND");
         return;
@@ -146,7 +147,9 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
     }
 
     lastPcMs = nowMs;
-    if (line[0] == 'F') {
+    if (line[0] == 'R') {
+        cmd.conveyor = !cmd.conveyor;
+    } else if (line[0] == 'F') {
         cmd.feed_counter = static_cast<uint8_t>((cmd.feed_counter + 1u) % RCMAP_COUNTER_LEVELS);
     } else {
         cmd.lmode_counter = static_cast<uint8_t>((cmd.lmode_counter + 1u) % RCMAP_COUNTER_LEVELS);

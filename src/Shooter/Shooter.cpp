@@ -1,4 +1,5 @@
 #include "Shooter.h"
+#include "../Control/ServoPositionJog.h"
 
 #include "../Control/DirectionalLimit.h"
 #include "../Control/PositionDecelerationProfile.h"
@@ -7,6 +8,9 @@
 using namespace ShooterConstants;
 
 namespace {
+ServoPositionJog anglePosition(Angle::POSITION_INITIAL_US);
+uint32_t angleJogLastMs = 0;
+
 
 double clampCommand(double command) {
     if (command < -1.0) {
@@ -41,7 +45,7 @@ int offsetToPulseUs(int offsetUs, const ServoMotorConfig& config) {
 }
 
 Servo Shooter::angleLeftServo;
-Servo Shooter::angleRightServo;
+
 Servo Shooter::rotateServo;
 Servo Shooter::flywheelOutput;
 AS5600Encoder Shooter::angleEncoder(Angle::ENCODER);
@@ -84,19 +88,30 @@ Shooter::DebouncedLimitSwitchState Shooter::rotateRightLimitState = {
     false, false, 0};
 
 void Shooter::init() {
+#ifdef TEL_MANUAL_AXES_TEST
+    // Confirmed manual outputs only; unconfirmed sensors/limits remain inactive.
+    angleJogLastMs = millis();
+#ifdef TEL_MANUAL_FLYWHEEL_TEST
+    flywheelOutput.writeMicroseconds(Flywheel::NEUTRAL_US);
+    flywheelOutput.attach(Flywheel::SIGNAL_PIN, Flywheel::MIN_PULSE_US, Flywheel::MAX_PULSE_US);
+#endif
+    rotateServo.attach(Rotate::SIGNAL_PIN, Rotate::MIN_PULSE_US, Rotate::MAX_PULSE_US);
+    stopAll();
+    return;
+#endif
+#if defined(TEL_DRIVE_CONVEYOR_ONLY) && !defined(TEL_MANUAL_AXES_TEST)
+    return; // This profile has no shooter hardware outputs or sensor initialization.
+#endif
     initializeLimitSwitch(Angle::UP_LIMIT_SWITCH, angleUpLimitState);
     initializeLimitSwitch(Angle::DOWN_LIMIT_SWITCH, angleDownLimitState);
     initializeLimitSwitch(Rotate::LEFT_LIMIT_SWITCH, rotateLeftLimitState);
     initializeLimitSwitch(Rotate::RIGHT_LIMIT_SWITCH, rotateRightLimitState);
 
-    angleLeftServo.attach(
-        Angle::LEFT_SIGNAL_PIN,
-        Angle::MIN_PULSE_US,
-        Angle::MAX_PULSE_US);
-    angleRightServo.attach(
-        Angle::RIGHT_SIGNAL_PIN,
-        Angle::MIN_PULSE_US,
-        Angle::MAX_PULSE_US);
+    if (!Angle::POSITION_SERVO) {
+        angleLeftServo.attach(Angle::LEFT_SIGNAL_PIN, Angle::MIN_PULSE_US, Angle::MAX_PULSE_US);
+    }
+    rightAnglePulseUs = 0; // no second elevation output
+    angleJogLastMs = millis();
     rotateServo.attach(
         Rotate::SIGNAL_PIN,
         Rotate::MIN_PULSE_US,
@@ -106,7 +121,7 @@ void Shooter::init() {
         Flywheel::MIN_PULSE_US,
         Flywheel::MAX_PULSE_US);
 
-    angleEncoder.begin();
+    if (Angle::EXTERNAL_ENCODER_ENABLED) angleEncoder.begin();
     rotatePositionSensor.begin();
     angleController.setOutputLimits(
         Angle::MIN_NORMALIZED_OUTPUT,
@@ -124,7 +139,20 @@ void Shooter::init() {
 }
 
 void Shooter::update() {
-    angleEncoder.update();
+#ifdef TEL_MANUAL_AXES_TEST
+    if (!outputsEnabled) { stopAll(); return; }
+    updateAngle();
+    updateRotate();
+#ifdef TEL_MANUAL_FLYWHEEL_TEST
+    writeFlywheelCommand(flywheelOpenLoopCommand);
+#endif
+    flywheelReady = false;
+    return;
+#endif
+#if defined(TEL_DRIVE_CONVEYOR_ONLY) && !defined(TEL_MANUAL_AXES_TEST)
+    return; // This profile has no shooter hardware outputs or sensor initialization.
+#endif
+    if (Angle::EXTERNAL_ENCODER_ENABLED) angleEncoder.update();
     rotatePositionSensor.update();
     updateLimitSwitches();
 
@@ -170,6 +198,9 @@ void Shooter::stopAll() {
 }
 
 void Shooter::setOutputsEnabled(bool enabled) {
+#if defined(TEL_DRIVE_CONVEYOR_ONLY) && !defined(TEL_MANUAL_AXES_TEST)
+    enabled = false;
+#endif
     outputsEnabled = enabled;
     if (!outputsEnabled) {
         stopAll();
@@ -192,6 +223,10 @@ void Shooter::setAngleAction(AngleAction action) {
 }
 
 bool Shooter::setAngleTargetCounts(long targetCounts) {
+    if (Angle::POSITION_SERVO || !Angle::EXTERNAL_ENCODER_ENABLED) {
+        disableAngle();
+        return false;
+    }
     if (!Angle::POSITION_LIMITS_CALIBRATED ||
         !angleHomed ||
         !angleEncoder.isValid()) {
@@ -788,17 +823,39 @@ void Shooter::updateRotate() {
 }
 
 void Shooter::writeAngleManualCommand(double command) {
-    leftAnglePulseUs = commandToPulseUs(
-        command,
-        Angle::LEFT_MOTOR);
-    rightAnglePulseUs = commandToPulseUs(
-        command,
-        Angle::RIGHT_MOTOR);
-    angleLeftServo.writeMicroseconds(leftAnglePulseUs);
-    angleRightServo.writeMicroseconds(rightAnglePulseUs);
+#if defined(TEL_DRIVE_CONVEYOR_ONLY) && !defined(TEL_MANUAL_AXES_TEST)
+    return; // This profile has no shooter hardware outputs or sensor initialization.
+#endif
+    if (Angle::POSITION_SERVO) {
+        const uint32_t now = millis();
+        const uint32_t elapsed = now - angleJogLastMs;
+        angleJogLastMs = now;
+        if (Angle::LEFT_INVERTED) command = -command;
+        const double target = anglePosition.step(command, elapsed,
+            Angle::POSITION_RATE_US_PER_SECOND, Angle::MIN_PULSE_US, Angle::MAX_PULSE_US);
+        leftAnglePulseUs = static_cast<int>(target + 0.5);
+        // Preload before attaching, so the first pulse uses the retained target.
+        angleLeftServo.writeMicroseconds(leftAnglePulseUs);
+        if (!angleLeftServo.attached()) {
+            angleLeftServo.attach(Angle::LEFT_SIGNAL_PIN, Angle::MIN_PULSE_US, Angle::MAX_PULSE_US);
+        }
+    } else {
+        leftAnglePulseUs = commandToPulseUs(command, Angle::LEFT_MOTOR);
+        angleLeftServo.writeMicroseconds(leftAnglePulseUs);
+    }
+    rightAnglePulseUs = 0;
 }
 
 void Shooter::writeAngleOffset(int offsetUs) {
+#if defined(TEL_DRIVE_CONVEYOR_ONLY) && !defined(TEL_MANUAL_AXES_TEST)
+    return; // This profile has no shooter hardware outputs or sensor initialization.
+#endif
+    if (Angle::POSITION_SERVO) {
+        // Disable removes pulses; never command centre as a "stop".
+        angleLeftServo.detach();
+        angleJogLastMs = millis();
+        return;
+    }
     offsetUs = constrain(
         offsetUs,
         -Angle::MAX_CLOSED_LOOP_OFFSET_US,
@@ -811,16 +868,22 @@ void Shooter::writeAngleOffset(int offsetUs) {
         offsetUs,
         Angle::RIGHT_MOTOR);
     angleLeftServo.writeMicroseconds(leftAnglePulseUs);
-    angleRightServo.writeMicroseconds(rightAnglePulseUs);
+    rightAnglePulseUs = 0;
 }
 
 void Shooter::writeRotateCommand(double command) {
+#if defined(TEL_DRIVE_CONVEYOR_ONLY) && !defined(TEL_MANUAL_AXES_TEST)
+    return; // This profile has no shooter hardware outputs or sensor initialization.
+#endif
     command = limitRotateCommand(command);
     rotatePulseUs = commandToPulseUs(command, Rotate::MOTOR);
     rotateServo.writeMicroseconds(rotatePulseUs);
 }
 
 void Shooter::writeFlywheelCommand(double command) {
+#if defined(TEL_DRIVE_CONVEYOR_ONLY) && !defined(TEL_MANUAL_FLYWHEEL_TEST)
+    return; // This profile has no shooter hardware outputs or sensor initialization.
+#endif
     flywheelPulseUs = commandToPulseUs(command, Flywheel::MOTOR);
     flywheelOutput.writeMicroseconds(flywheelPulseUs);
 }

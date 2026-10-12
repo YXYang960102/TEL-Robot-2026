@@ -28,6 +28,7 @@ void Auto::enterFireState(FireState next) {
 }
 
 void Auto::update() {
+    if (ManualControlConstants::WIRED_MANUAL_ONLY) return;
     // While an operator (wired Dashboard or the wireless ground station,
     // src/IO/ManualControl.cpp) has the robot armed, it is the sole owner of
     // every output. Stay entirely out of its way (no Rotate arbitration, no

@@ -21,7 +21,13 @@ enum class Action : int8_t {
     FORWARD = 1
 };
 
-constexpr uint8_t LEFT_SIGNAL_PIN = 27;
+// Single elevation MG996R. Set false only for a continuous-rotation unit.
+constexpr bool POSITION_SERVO = true;
+constexpr bool EXTERNAL_ENCODER_ENABLED = false;
+// Provisional command travel, not calibrated mechanical limits.
+constexpr double POSITION_INITIAL_US = 1500.0;
+constexpr double POSITION_RATE_US_PER_SECOND = 1000.0;
+constexpr uint8_t LEFT_SIGNAL_PIN = 24;
 constexpr uint8_t RIGHT_SIGNAL_PIN = 26;
 
 constexpr int MIN_PULSE_US = 1000;
@@ -101,7 +107,7 @@ enum class Action : int8_t {
 };
 
 // pin pwm invert
-constexpr uint8_t SIGNAL_PIN = 29;
+constexpr uint8_t SIGNAL_PIN = 23;
 constexpr int MIN_PULSE_US = 1000;
 constexpr int NEUTRAL_US = 1500;
 constexpr int MAX_PULSE_US = 2000;
@@ -194,7 +200,7 @@ enum class Action : uint8_t {
     FORWARD = 1
 };
 
-constexpr uint8_t SIGNAL_PIN = 49;
+constexpr uint8_t SIGNAL_PIN = 25;
 constexpr int MIN_PULSE_US = 1000;
 constexpr int NEUTRAL_US = 1500;
 constexpr int MAX_PULSE_US = 2000;
