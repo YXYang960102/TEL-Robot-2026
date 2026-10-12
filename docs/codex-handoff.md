@@ -2600,3 +2600,9 @@ Jeremy明確要求部署HTTPS網站。使用Sites建立owner-private TEL Robot D
 ## 2026-10-12 — Codex：Jeremy授權推送整個dev並改GitHub Pages
 
 Jeremy明確要求現在dev推上去、Dashboard部署Pages。本機dev領先origin/dev八個提交，沒有落後；本次包含工作目錄已授權功能/腳位/清理及協作者現有修改。新增.github/workflows/dashboard-pages.yml，dev Dashboard相關push觸發，Node兩個control/page測試通過才發布tools/dashboard；Pages artifact不含robot source/firmware。公開repo且現有GitHub登入admin。維持原Sites網站不刪除。正式全機gate仍false，局部手動env可Enable，不聲稱實機通過。
+
+
+## 2026-10-12 — Codex To Claude：dev已推送、GitHub Pages部署完成
+
+Jeremy授權推送現在全部dev並改Dashboard GitHub Pages。整合commit d7b6cbe已push origin/dev（包含先前8個本機提交）；Pages https://yxyang960102.github.io/TEL-Robot-2026/，公開HTTPS、不需ChatGPT登入。workflow .github/workflows/dashboard-pages.yml 由dev的Dashboard相關push自動跑2個Node測試，再deploy工具資料夾。Pages設build_type workflow、HTTPS enforced，github-pages環境新增dev精確分支allow policy，其他保護保留。run38209907595 attempt3 success；初次未啟用Pages、第二次dev被預設環境規則拒絕，均已解決。curl回200，live HTML SHA256與本機index完全相同1c8f9fc45eb67805f3a21f1d933dcbd02cc93943006842bf22f6744604e13adc。
+兩個Dashboard node測試及Mega production/manual_axes編譯SUCCESS，未做Pages實機USB驗證。production compile顯示既存rotateRawToDegrees除零warning（未校準raw端點），full gate仍false，手動局部profile不使用位置換算；不要把compile成功視為整台自動功能驗收。生成bridge map仍有一處尾空白，本次沒有重寫生成產物。原Sites私人網站沒有刪除，今後以GitHub Pages網址為主要分享入口。Chrome/Edge直接USB接Mega，需使用正確手動profile，無需拷貝網頁或重燒僅為换筆電。
