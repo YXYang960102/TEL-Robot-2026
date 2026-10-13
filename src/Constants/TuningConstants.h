@@ -79,16 +79,31 @@ constexpr double RIGHT_POSITION_DEGREES = 0.0;
 constexpr bool FORWARD_SOFT_LIMIT_ENABLED = false;
 constexpr bool REVERSE_SOFT_LIMIT_ENABLED = false;
 
-// Vision-follow (RotateControlMode::VISION_FOLLOW). Deadband/slow-zone are
-// image-space pixels, same values tuned on the real A5 bench through
-// 2026-10-05 (see docs/codex-handoff.md) -- re-verify once this runs on the
-// actual turret mechanism/pin, they are not guaranteed to transfer as-is.
-// Cruise/creep are normalized to this axis's full +-1.0 command range using
-// the same 300us/150us : 500us ratio the bench used.
-constexpr int VISION_DEADBAND_PX = 20;
-constexpr int VISION_SLOW_ZONE_PX = 70;
-constexpr double VISION_CREEP_COMMAND = 0.3;
-constexpr double VISION_CRUISE_COMMAND = 0.6;
+// Vision-follow (RotateControlMode::VISION_FOLLOW), PIDF on image-space tx
+// (src/Control/VisionFollowController.h). These are the gains Jeremy tuned
+// and accepted on the real turret servo on the A5 bench (2026-10-13:
+// "settles at dead center", full speed when far off), converted from the
+// bench's microseconds to this axis's normalized command, where 1.0 = the
+// servo's full 500 us offset (1000..2000 us):
+//   bench kP 5 us/px          -> 5/500  = 0.01 per px
+//   bench kI 5 us/(px*s)      -> 5/500  = 0.01 per (px*s)
+//   bench I cap +-60 us       -> 60/500 = 0.12
+//   bench output cap +-500 us -> 1.0 (full speed)
+//   kIZone 20 px, kD 0 (unchanged units).
+// Example: tx = 40 px -> -0.40 command -> 1300 us (tx > 0 drives below
+// 1500 us: the direction validated on the bench with this same servo and
+// mounting). test/vision_follow_controller_test.cpp pins these to the
+// bench constants, so the two can't drift apart silently.
+constexpr double VISION_kP = 0.01;
+constexpr double VISION_kI = 0.01;
+constexpr double VISION_kD = 0.0;
+constexpr double VISION_kIZONE_PX = 20.0;
+constexpr double VISION_kFF = 0.0;
+constexpr double VISION_MAX_COMMAND = 1.0;
+constexpr double VISION_MAX_INTEGRAL_COMMAND = 0.12;
+// "Locked, OK to fire" for Auto: |tx| within this for READY_SETTLE_TIME_MS
+// (Jeremy, 2026-10-13: 5 px).
+constexpr double VISION_READY_TOLERANCE_PX = 5.0;
 
 constexpr double PROFILE_CRUISE_COMMAND = 1.0;
 constexpr double PROFILE_MINIMUM_APPROACH_RATIO = 0.10;
@@ -187,14 +202,13 @@ constexpr int TABLE_COUNT = sizeof(TABLE) / sizeof(TABLE[0]);
 
 }
 
-static_assert(Rotate::VISION_SLOW_ZONE_PX > Rotate::VISION_DEADBAND_PX,
-              "Vision slow zone must be outside the deadband");
-static_assert(Rotate::VISION_CREEP_COMMAND > 0.0 &&
-              Rotate::VISION_CREEP_COMMAND <= Rotate::VISION_CRUISE_COMMAND,
-              "Vision creep command must be positive and no faster than cruise");
-static_assert(Rotate::VISION_CRUISE_COMMAND > 0.0 &&
-              Rotate::VISION_CRUISE_COMMAND <= 1.0,
-              "Vision cruise command out of range");
+static_assert(Rotate::VISION_MAX_COMMAND > 0.0 && Rotate::VISION_MAX_COMMAND <= 1.0,
+              "Vision-follow command limit out of range");
+static_assert(Rotate::VISION_MAX_INTEGRAL_COMMAND >= 0.0 &&
+              Rotate::VISION_MAX_INTEGRAL_COMMAND <= Rotate::VISION_MAX_COMMAND,
+              "Vision-follow integral limit must fit inside the command limit");
+static_assert(Rotate::VISION_kIZONE_PX >= 0.0 && Rotate::VISION_READY_TOLERANCE_PX > 0.0,
+              "Vision-follow pixel windows must be non-negative");
 static_assert(Rotate::PROFILE_DECELERATION_FRACTION > 0.0 &&
               Rotate::PROFILE_DECELERATION_FRACTION <= 1.0,
               "Invalid rotate deceleration fraction");

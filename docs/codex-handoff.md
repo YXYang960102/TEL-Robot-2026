@@ -2606,3 +2606,114 @@ Jeremy明確要求現在dev推上去、Dashboard部署Pages。本機dev領先ori
 
 Jeremy授權推送現在全部dev並改Dashboard GitHub Pages。整合commit d7b6cbe已push origin/dev（包含先前8個本機提交）；Pages https://yxyang960102.github.io/TEL-Robot-2026/，公開HTTPS、不需ChatGPT登入。workflow .github/workflows/dashboard-pages.yml 由dev的Dashboard相關push自動跑2個Node測試，再deploy工具資料夾。Pages設build_type workflow、HTTPS enforced，github-pages環境新增dev精確分支allow policy，其他保護保留。run38209907595 attempt3 success；初次未啟用Pages、第二次dev被預設環境規則拒絕，均已解決。curl回200，live HTML SHA256與本機index完全相同1c8f9fc45eb67805f3a21f1d933dcbd02cc93943006842bf22f6744604e13adc。
 兩個Dashboard node測試及Mega production/manual_axes編譯SUCCESS，未做Pages實機USB驗證。production compile顯示既存rotateRawToDegrees除零warning（未校準raw端點），full gate仍false，手動局部profile不使用位置換算；不要把compile成功視為整台自動功能驗收。生成bridge map仍有一處尾空白，本次沒有重寫生成產物。原Sites私人網站沒有刪除，今後以GitHub Pages網址為主要分享入口。Chrome/Edge直接USB接Mega，需使用正確手動profile，無需拷貝網頁或重燒僅為换筆電。
+
+## 2026-10-13 — Claude Code: production turret vision-follow switched to the bench-tuned PIDF
+
+**User Request:** "這個數值可以，可以寫進dev嗎？正式版的參數". Jeremy accepted the A5
+bench tuning (kP 5 µs/px, kI 5 µs/(px·s) in a 20 px IZone, I cap ±60 µs,
+output ±500 µs, kD 0) and asked for it to become the production
+parameters on dev.
+
+Jeremy's answers to the open questions:
+- Fire-ready tolerance: **5 px**, held for 100 ms.
+- The bench servo **is the D23 turret servo, same mounting**, so the
+  production direction follows the bench result.
+
+**Discussion Result / Why:**
+- dev's production `VISION_FOLLOW` was still the pre-PIDF scheme:
+  - ±20 px deadband (output 0),
+  - 0.3 creep up to 70 px,
+  - 0.6 cruise beyond 70 px.
+- Its sign was the opposite of the bench-validated mapping: tx > 0 gave
+  `+magnitude`, which with `Rotate::INVERTED = false` is a pulse above
+  1500. That sign had always been marked UNVERIFIED.
+- dev also still had the older deadband bench.
+- Merging the whole Shooter branch into dev conflicts in six files: its
+  MechLink, Telemetry and Dashboard predate the wired/wireless work. So
+  only the bench files were brought over.
+
+**Changed / Added:**
+1. Commit `473d154` brings the Shooter branch's vision-rotate bench files
+   into dev, unchanged:
+   - `VisionRotateBenchConstants.h`, `VisionRotateBenchState.h`,
+     `VisionRotateTest.cpp`;
+   - the page and `analyze_vision_rotate_log.py`;
+   - both tests and `.gitignore` (`__pycache__`).
+
+   `git log Shooter..origin/dev` shows dev never modified these files after
+   the fork, so nothing on dev is overwritten.
+2. New `src/Control/VisionFollowController.h`. It is pure, header-only,
+   built on `PidfController`, and implements the same control law and lock
+   rules as `VisionRotateBenchState`:
+   - Invalid target, NaN or inf → command 0 and the lock resets.
+   - The first frame of a new or switched target only primes (no output).
+   - A control gap > `MAX_CONTROL_GAP_MS` (100) re-primes too, so a stalled
+     loop can't dump one large dt into I.
+   - Ready = |tx| ≤ tolerance continuously for the settle time.
+3. `TuningConstants::Rotate`:
+   - `VISION_DEADBAND_PX`, `VISION_SLOW_ZONE_PX`, `VISION_CREEP_COMMAND`
+     and `VISION_CRUISE_COMMAND` are removed, along with their asserts.
+   - They are replaced by `VISION_kP = 0.01`, `VISION_kI = 0.01`,
+     `VISION_kD = 0`, `VISION_kIZONE_PX = 20`, `VISION_kFF = 0`,
+     `VISION_MAX_COMMAND = 1.0`, `VISION_MAX_INTEGRAL_COMMAND = 0.12` and
+     `VISION_READY_TOLERANCE_PX = 5`, with new range asserts.
+4. `ShooterConstants::Rotate::VISION_FOLLOW` composes the config, reusing
+   the existing `READY_SETTLE_TIME_MS` (100) and `MAX_CONTROL_GAP_MS` (100).
+   The comment now records the verified sign.
+5. `Shooter.cpp`:
+   - The `VISION_FOLLOW` branch is now `rotateVisionFollow.update(tx,
+     isValid, targetId, millis())`, then `writeRotateCommand(command)`.
+   - `rotateReady` comes from the controller.
+   - `rotateControllerOutput` mirrors the command for telemetry.
+   - `resetRotateController()` also resets the follow controller, so every
+     mode change, stop or disable drops the lock and its integral.
+   - The other rotate modes and the position PIDF are untouched.
+6. `test/vision_follow_controller_test.cpp`, also added to test/README.
+
+**Calculation:** normalized command 1.0 = the full 500 µs. `Rotate::INVERTED`
+is false, so pulse = 1500 + 500·command. Each bench gain is divided by 500:
+
+| | bench | production |
+|---|---|---|
+| kP | 5 µs/px | 0.01 /px |
+| kI | 5 µs/(px·s) | 0.01 /(px·s) |
+| I cap | ±60 µs | ±0.12 |
+| output cap | ±500 µs | ±1.0 |
+
+Examples:
+- tx = 40 → −0.40 → 1300 µs.
+- tx = 400 → −1.0 → 1000 µs; tx = −400 → 2000 µs.
+- tx = 5 held → −0.05 − 0.12 = −0.17 → 1415 µs.
+- tx = 25 → outside the zone, so I = 0 and −0.25 → 1375 µs.
+
+**Evidence:**
+- The new test pins the production gains to the bench constants divided by
+  500, so they can't drift silently.
+- It also checks the examples above, the ready window (90 ms not ready,
+  100 ms ready, 6 px breaks it), and the reset rules.
+- It runs the **production controller and the real bench state machine
+  side by side** over a 28-frame approach/overshoot/hold sequence at
+  10 fps: the pulses match within ±1 µs (rounding).
+- All 8 PIO envs build: production, shooter_keyboard, vision_rotate,
+  uart_link, elrs_link, wired_manual, drive_conveyor and manual_axes.
+- All host and page tests pass: vision_follow, vision bench, pidf,
+  directional_limit, position_profile, shot_table, servo_jog, rcmap,
+  manual_control (three variants), conveyor, ground, and the 3 node tests.
+  `git diff --check` is clean.
+
+**Not verified / Impact:**
+- Production can't run vision-follow on hardware yet. The full pin gate is
+  still false, and the wired manual profiles forbid L→vision.
+- The behavior is proven only through the bench (same servo) plus the
+  equivalence test.
+- Auto now fires only when |tx| ≤ 5 px for 100 ms. That is stricter than
+  the old 20 px deadband, so lock-on takes longer but should be more
+  accurate.
+- Production's loop runs about every 10 ms and integrates I in wall time,
+  while the bench integrates per vision frame. The I growth per second is
+  the same; the equivalence test runs at 10 fps.
+
+**Next Test:** once the production pin gate is open, check direction on
+the first enable before trusting Auto: target to the right → turret turns
+right, pulse below 1500. Then check that it settles at center like the
+bench.

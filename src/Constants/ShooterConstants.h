@@ -4,6 +4,7 @@
 
 #include "../Control/ActuatorConfig.h"
 #include "../Control/PidfController.h"
+#include "../Control/VisionFollowController.h"
 #include "../Sensors/AnalogPositionSensor.h"
 #include "../Sensors/AS5600Encoder.h"
 #include "TuningConstants.h"
@@ -167,17 +168,15 @@ constexpr PidfConfig PIDF(kP, kI, kD, kIZone, kFF);
 // unconditionally while this is false.
 constexpr bool LIMIT_SWITCHES_INSTALLED = false;
 
-// Vision-follow (RotateControlMode::VISION_FOLLOW). Deadband/slow-zone are
-// image-space pixels, same values tuned on the real A5 bench through
-// 2026-10-05 (see docs/codex-handoff.md) — re-verify once this runs on the
-// actual turret mechanism/pin, they are not guaranteed to transfer as-is.
-// Cruise/creep are normalized to this axis's full +-1.0 command range using
-// the same 300us/150us : 500us ratio the bench used (this axis's full +-1.0
-// command == the servo's full 1000-2000us range == the bench's +-500us).
-// Sign (does positive tx need a positive or negative command) is UNVERIFIED
-// on the real mechanism — the bench needed its own INVERTED flipped after
-// first real-hardware test; if this is backwards here, flip Rotate::INVERTED
-// above (do not add a second inversion inside the vision-follow code path).
+// Vision-follow (RotateControlMode::VISION_FOLLOW): PIDF on image-space tx,
+// gains in TuningConstants::Rotate (VISION_*), converted from the bench
+// values Jeremy accepted on 2026-10-13. Sign: VisionFollowController's
+// output is PIDF(setpoint 0, measurement tx), so tx > 0 gives a negative
+// command, which with INVERTED = false is a pulse below 1500 us -- the
+// direction validated on the bench with this same servo and mounting
+// (Jeremy confirmed it is the D23 turret servo). If it is ever backwards,
+// flip Rotate::INVERTED above; do not add a second inversion in the
+// vision-follow path.
 constexpr int READY_TOLERANCE_RAW = 2;
 constexpr unsigned long READY_SETTLE_TIME_MS = 100;
 constexpr unsigned long CONTROL_PERIOD_MS = 20;
@@ -187,6 +186,14 @@ constexpr double MIN_NORMALIZED_OUTPUT = -1.0;
 constexpr double MAX_NORMALIZED_OUTPUT = 1.0;
 constexpr double MIN_INTEGRAL_OUTPUT = -0.25;
 constexpr double MAX_INTEGRAL_OUTPUT = 0.25;
+
+constexpr VisionFollowConfig VISION_FOLLOW(
+    PidfConfig(VISION_kP, VISION_kI, VISION_kD, VISION_kIZONE_PX, VISION_kFF),
+    VISION_MAX_COMMAND,
+    VISION_MAX_INTEGRAL_COMMAND,
+    VISION_READY_TOLERANCE_PX,
+    READY_SETTLE_TIME_MS,
+    MAX_CONTROL_GAP_MS);
 
 }
 
