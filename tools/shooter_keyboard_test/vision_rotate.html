@@ -32,7 +32,15 @@ function send(text){
 function stop(reason='操作停止'){epoch++;armed=false;pendingEnable=false;enableWritten=false;el('noLimits').checked=false;controls();el('status').textContent='已要求停止／停用：'+reason+'；無限位模式須重新勾選';return send('X');}
 function ping(){if(armed)send('P');}
 function telemetry(line){
-  const m=/^\$VROTATE,3,([01]),(-?\d+),([01]),([01]),([01]),([A-Z_]+),(-?\d+),(-?\d+),(-?\d+),(-?\d+),([01]),(\d+)$/.exec(line.trim());
+  // v4 (2026-10-10, Codex-reviewed PIDF stabilization pass): deadband
+  // retired (Jeremy's explicit call, overriding Codex's "don't loosen the
+  // deadband" note -- see docs/codex-handoff.md), pure output=kP*error(+
+  // filtered D) now settles to zero on its own instead of a hard-coded px
+  // boundary, so there's no "zone" concept left to mirror here. Added
+  // dt/P/D/raw-output/saturated so a captured log has enough to judge
+  // settling behavior, not just the final clamped pulse.
+  // v5 (2026-10-13): v4 + I term appended last (I only acts inside |tx|<=kIZone; the value is in the boot banner).
+  const m=/^\$VROTATE,5,([01]),(-?\d+),([01]),([01]),([01]),([A-Z_]+),(-?\d+),(-?\d+),(-?\d+),(-?\d+),([01]),(\d+),(\d+),(-?\d+),(-?\d+),(-?\d+),([01]),(-?\d+)$/.exec(line.trim());
   if(!m)return;
   ready=true;lastTelemetry=performance.now();
   if(pendingEnable&&enableWritten&&m[1]==='1'){
@@ -44,7 +52,8 @@ function telemetry(line){
   }
   el('log').textContent=`A5 脈寬：${m[2]} μs\n韌體啟用：${m[1]}\n左 D43：${m[3]==='1'?'BLOCKED':'clear'}\n右 D42：${m[4]==='1'?'BLOCKED':'clear'}\n停用原因：${m[6]}`;
   el('log').textContent += m[5]==='1' ? '\n⚠ 無限位保護：D43/D42 已忽略' : '\n限位保護開啟（未接會禁止轉動）';
-  el('vision').textContent=`tx：${m[7]} px（正值＝目標偏右）\nty：${m[8]} px\ndistance：${m[9]}\ntarget_id：${m[10]}\nvalid：${m[11]==='1'?'鎖定中':'未鎖定'}\n距上次收到鏡頭資料：${m[12]} ms`;
+  const tx=parseInt(m[7],10),absTx=Math.abs(tx);
+  el('vision').textContent=`tx：${m[7]} px（正值＝目標偏右）\n誤差｜tx｜：${absTx} px\nty：${m[8]} px\ndistance：${m[9]}\ntarget_id：${m[10]}\nvalid：${m[11]==='1'?'鎖定中':'未鎖定'}\n距上次收到鏡頭資料：${m[12]} ms\ndt：${m[13]} ms\nP 分量：${m[14]} μs\nI 分量（tx 在 IZone 內才累積）：${m[18]} μs\nD 分量（濾波後）：${m[15]} μs\n夾限前輸出：${m[16]} μs\n是否飽和：${m[17]==='1'?'是（撞到輸出上限）':'否'}`;
   controls();
 }
 async function readLoop(){
@@ -70,7 +79,7 @@ el('connect').onclick=async()=>{
   if(port||closing)return;
   try{port=await navigator.serial.requestPort();controls();await port.open({baudRate:115200});
     writer=port.writable.getWriter();reader=port.readable.getReader();ready=false;armed=false;
-    el('status').textContent='等待 $VROTATE,3 專用韌體遙測';readTask=readLoop();await stop();
+    el('status').textContent='等待 $VROTATE,5 專用韌體遙測';readTask=readLoop();await stop();
   }catch(e){el('log').textContent=e.message;await disconnect();}
 };
 el('enable').onclick=async()=>{
