@@ -296,9 +296,9 @@ void sendTelemetry() {
     Serial.print(',');
     Serial.print(Shooter::getAngleErrorCounts());
     Serial.print(',');
-    Serial.print(Shooter::getLeftAnglePulseUs());
+    Serial.print(Shooter::getAnglePulseUs());
     Serial.print(',');
-    Serial.print(Shooter::getRightAnglePulseUs());
+    Serial.print(0); // was the 2nd elevation servo; single servo now, slot kept for the page
     Serial.print(',');
     Serial.print(Shooter::getRotatePulseUs());
     Serial.print(',');
@@ -318,9 +318,9 @@ void sendTelemetry() {
     Serial.print(',');
     Serial.print(Shooter::getAngleRejectedSampleCount());
     Serial.print(',');
-    Serial.print(Shooter::isAngleUpLimitTriggered() ? 1 : 0);
+    Serial.print(0); // elevation up limit: none installed, slot kept for the page
     Serial.print(',');
-    Serial.print(Shooter::isAngleDownLimitTriggered() ? 1 : 0);
+    Serial.print(0); // elevation down limit: none installed, slot kept for the page
     Serial.print(',');
     Serial.print(Shooter::isRotateLeftLimitTriggered() ? 1 : 0);
     Serial.print(',');

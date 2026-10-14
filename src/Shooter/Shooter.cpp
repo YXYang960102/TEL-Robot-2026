@@ -46,7 +46,7 @@ int offsetToPulseUs(int offsetUs, const ServoMotorConfig& config) {
 
 }
 
-Servo Shooter::angleLeftServo;
+Servo Shooter::angleServo;
 
 Servo Shooter::rotateServo;
 Servo Shooter::flywheelOutput;
@@ -74,16 +74,11 @@ unsigned long Shooter::lastAngleControlMs = 0;
 unsigned long Shooter::lastRotateControlMs = 0;
 unsigned long Shooter::angleReadySinceMs = 0;
 unsigned long Shooter::rotateReadySinceMs = 0;
-int Shooter::leftAnglePulseUs = Angle::LEFT_MOTOR.neutralUs;
-int Shooter::rightAnglePulseUs = Angle::RIGHT_MOTOR.neutralUs;
+int Shooter::anglePulseUs = Angle::MOTOR.neutralUs;
 int Shooter::rotatePulseUs = Rotate::MOTOR.neutralUs;
 int Shooter::flywheelPulseUs = Flywheel::MOTOR.neutralUs;
 unsigned long Shooter::flywheelSpinStartMs = 0;
 bool Shooter::flywheelReady = false;
-Shooter::DebouncedLimitSwitchState Shooter::angleUpLimitState = {
-    false, false, 0};
-Shooter::DebouncedLimitSwitchState Shooter::angleDownLimitState = {
-    false, false, 0};
 Shooter::DebouncedLimitSwitchState Shooter::rotateLeftLimitState = {
     false, false, 0};
 Shooter::DebouncedLimitSwitchState Shooter::rotateRightLimitState = {
@@ -104,15 +99,12 @@ void Shooter::init() {
 #if defined(TEL_DRIVE_CONVEYOR_ONLY) && !defined(TEL_MANUAL_AXES_TEST)
     return; // This profile has no shooter hardware outputs or sensor initialization.
 #endif
-    initializeLimitSwitch(Angle::UP_LIMIT_SWITCH, angleUpLimitState);
-    initializeLimitSwitch(Angle::DOWN_LIMIT_SWITCH, angleDownLimitState);
     initializeLimitSwitch(Rotate::LEFT_LIMIT_SWITCH, rotateLeftLimitState);
     initializeLimitSwitch(Rotate::RIGHT_LIMIT_SWITCH, rotateRightLimitState);
 
     if (!Angle::POSITION_SERVO) {
-        angleLeftServo.attach(Angle::LEFT_SIGNAL_PIN, Angle::MIN_PULSE_US, Angle::MAX_PULSE_US);
+        angleServo.attach(Angle::ANGLE_PIN, Angle::MIN_PULSE_US, Angle::MAX_PULSE_US);
     }
-    rightAnglePulseUs = 0; // no second elevation output
     angleJogLastMs = millis();
     rotateServo.attach(
         Rotate::SIGNAL_PIN,
@@ -349,14 +341,6 @@ bool Shooter::areAngleSoftLimitsActive() {
            angleEncoder.isValid();
 }
 
-bool Shooter::isAngleUpLimitTriggered() {
-    return angleUpLimitState.stableTriggered;
-}
-
-bool Shooter::isAngleDownLimitTriggered() {
-    return angleDownLimitState.stableTriggered;
-}
-
 bool Shooter::isRotateLeftLimitTriggered() {
     // No limit switches are installed on the real turret mechanism; these
     // pins would otherwise float (LIMIT_USE_INTERNAL_PULLUP is false for
@@ -422,12 +406,8 @@ int Shooter::getAngleErrorCounts() {
     return static_cast<int>(angleSetpoint - angleEncoder.getRelativeCounts());
 }
 
-int Shooter::getLeftAnglePulseUs() {
-    return leftAnglePulseUs;
-}
-
-int Shooter::getRightAnglePulseUs() {
-    return rightAnglePulseUs;
+int Shooter::getAnglePulseUs() {
+    return anglePulseUs;
 }
 
 int Shooter::getRotatePulseUs() {
@@ -578,14 +558,6 @@ bool Shooter::readLimitSwitch(
 
 void Shooter::updateLimitSwitches() {
     const unsigned long nowMs = millis();
-    updateLimitSwitch(
-        Angle::UP_LIMIT_SWITCH,
-        angleUpLimitState,
-        nowMs);
-    updateLimitSwitch(
-        Angle::DOWN_LIMIT_SWITCH,
-        angleDownLimitState,
-        nowMs);
     updateLimitSwitch(
         Rotate::LEFT_LIMIT_SWITCH,
         rotateLeftLimitState,
@@ -807,20 +779,19 @@ void Shooter::writeAngleManualCommand(double command) {
         const uint32_t now = millis();
         const uint32_t elapsed = now - angleJogLastMs;
         angleJogLastMs = now;
-        if (Angle::LEFT_INVERTED) command = -command;
+        if (Angle::INVERTED) command = -command;
         const double target = anglePosition.step(command, elapsed,
             Angle::POSITION_RATE_US_PER_SECOND, Angle::MIN_PULSE_US, Angle::MAX_PULSE_US);
-        leftAnglePulseUs = static_cast<int>(target + 0.5);
+        anglePulseUs = static_cast<int>(target + 0.5);
         // Preload before attaching, so the first pulse uses the retained target.
-        angleLeftServo.writeMicroseconds(leftAnglePulseUs);
-        if (!angleLeftServo.attached()) {
-            angleLeftServo.attach(Angle::LEFT_SIGNAL_PIN, Angle::MIN_PULSE_US, Angle::MAX_PULSE_US);
+        angleServo.writeMicroseconds(anglePulseUs);
+        if (!angleServo.attached()) {
+            angleServo.attach(Angle::ANGLE_PIN, Angle::MIN_PULSE_US, Angle::MAX_PULSE_US);
         }
     } else {
-        leftAnglePulseUs = commandToPulseUs(command, Angle::LEFT_MOTOR);
-        angleLeftServo.writeMicroseconds(leftAnglePulseUs);
+        anglePulseUs = commandToPulseUs(command, Angle::MOTOR);
+        angleServo.writeMicroseconds(anglePulseUs);
     }
-    rightAnglePulseUs = 0;
 }
 
 void Shooter::writeAngleOffset(int offsetUs) {
@@ -829,7 +800,7 @@ void Shooter::writeAngleOffset(int offsetUs) {
 #endif
     if (Angle::POSITION_SERVO) {
         // Disable removes pulses; never command centre as a "stop".
-        angleLeftServo.detach();
+        angleServo.detach();
         angleJogLastMs = millis();
         return;
     }
@@ -838,14 +809,10 @@ void Shooter::writeAngleOffset(int offsetUs) {
         -Angle::MAX_CLOSED_LOOP_OFFSET_US,
         Angle::MAX_CLOSED_LOOP_OFFSET_US);
 
-    leftAnglePulseUs = offsetToPulseUs(
+    anglePulseUs = offsetToPulseUs(
         offsetUs,
-        Angle::LEFT_MOTOR);
-    rightAnglePulseUs = offsetToPulseUs(
-        offsetUs,
-        Angle::RIGHT_MOTOR);
-    angleLeftServo.writeMicroseconds(leftAnglePulseUs);
-    rightAnglePulseUs = 0;
+        Angle::MOTOR);
+    angleServo.writeMicroseconds(anglePulseUs);
 }
 
 void Shooter::writeRotateCommand(double command) {
@@ -885,11 +852,9 @@ void Shooter::resetRotateController() {
 }
 
 double Shooter::limitAngleCommand(double command) {
+    // No elevation limit switches are installed; only the encoder soft
+    // limits below (when calibrated) bound this axis.
     command = constrain(command, -1.0, 1.0);
-    command = DirectionalLimit::apply(
-        command,
-        isAngleDownLimitTriggered(),
-        isAngleUpLimitTriggered());
     if (!areAngleSoftLimitsActive()) {
         return command;
     }
