@@ -3,12 +3,14 @@
 
 #include "../Control/DirectionalLimit.h"
 #include "../Control/PositionDecelerationProfile.h"
+#include "../Control/VisionFollowController.h"
 #include "../Vision/Vision.h"
 
 using namespace ShooterConstants;
 
 namespace {
 ServoPositionJog anglePosition(Angle::POSITION_INITIAL_US);
+VisionFollowController rotateVisionFollow(Rotate::VISION_FOLLOW);
 uint32_t angleJogLastMs = 0;
 
 
@@ -693,44 +695,19 @@ void Shooter::updateRotate() {
     }
 
     if (rotateMode == RotateControlMode::VISION_FOLLOW) {
-        rotateControllerOutput = 0.0;
         rotateProfileEnvelope = 0.0;
-        // No potentiometer needed/used here — open-loop, driven directly by
-        // image-space tx, same deadband->creep->cruise shape proven on the
-        // A5 bench (reusing the same PositionDecelerationProfile utility).
-        if (!Vision::isValid()) {
-            rotateReady = false;
-            rotateReadySinceMs = 0;
-            writeRotateCommand(0.0);
-            return;
-        }
-        const double tx = Vision::getTx();
-        const double absTx = fabs(tx);
-        if (absTx <= Rotate::VISION_DEADBAND_PX) {
-            // Reuse the same settle-time pattern PROFILED_POSITION/
-            // CLOSED_LOOP use for their own "ready" flag: must stay inside
-            // the deadband for READY_SETTLE_TIME_MS, not just touch it for
-            // one tick, before the fire sequence (Auto) treats this as
-            // locked.
-            const unsigned long nowMs = millis();
-            if (rotateReadySinceMs == 0) {
-                rotateReadySinceMs = nowMs;
-            }
-            rotateReady =
-                nowMs - rotateReadySinceMs >= Rotate::READY_SETTLE_TIME_MS;
-            writeRotateCommand(0.0);
-            return;
-        }
-        rotateReady = false;
+        // No potentiometer needed/used here: PIDF on image-space tx, same
+        // control law and gains as the A5 bench (VisionFollowController).
+        // An invalid/stale target commands 0 and clears the lock.
+        const double command = rotateVisionFollow.update(
+            Vision::getTx(),
+            Vision::isValid(),
+            Vision::getTargetId(),
+            millis());
+        rotateControllerOutput = command;
+        rotateReady = rotateVisionFollow.isReady();
         rotateReadySinceMs = 0;
-        const double magnitude =
-            PositionDecelerationProfile::calculateMaximumCommand(
-                Rotate::VISION_SLOW_ZONE_PX,
-                absTx,
-                1.0,
-                Rotate::VISION_CRUISE_COMMAND,
-                Rotate::VISION_CREEP_COMMAND);
-        writeRotateCommand(tx > 0.0 ? magnitude : -magnitude);
+        writeRotateCommand(command);
         return;
     }
 
@@ -899,6 +876,9 @@ void Shooter::resetAngleController() {
 void Shooter::resetRotateController() {
     const double measurement = rotatePositionSensor.getFilteredRaw();
     rotateController.reset(measurement);
+    // Every mode change/stop/disable comes through here: vision-follow
+    // never carries an integral or a target lock across it.
+    rotateVisionFollow.reset();
     rotateControllerOutput = 0.0;
     lastRotateControlMs = millis();
     rotateReadySinceMs = 0;

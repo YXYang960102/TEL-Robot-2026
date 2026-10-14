@@ -17,6 +17,9 @@ Host tests used in this repo (run from the repo root):
   g++ -std=c++17 -Wall -Wextra -Werror test/position_deceleration_profile_test.cpp -o /tmp/t && /tmp/t
   g++ -std=c++17 -Wall -Wextra -Werror test/shot_table_lookup_test.cpp -o /tmp/t && /tmp/t
   g++ -std=c++17 -Wall -Wextra -Werror test/vision_rotate_bench_state_test.cpp src/Control/PidfController.cpp -o /tmp/t && /tmp/t
+  # Production turret vision-follow (VisionFollowController) with the real
+  # production gains, cross-checked frame by frame against the bench above.
+  g++ -std=c++17 -Wall -Wextra -Werror test/vision_follow_controller_test.cpp src/Control/PidfController.cpp -o /tmp/t && /tmp/t
   node test/vision_rotate_page_test.cjs
   node test/dashboard_control_test.cjs
 

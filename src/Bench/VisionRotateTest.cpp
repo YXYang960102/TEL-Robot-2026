@@ -61,6 +61,19 @@ void setup() {
     // Distinct signature so the old rotate.html (keyboard bench) can't
     // mistakenly drive this firmware.
     Serial.println(F("$VISION_ROTATE_READY,3"));
+    // One-time gain banner (2026-10-10, Codex-reviewed PIDF stabilization
+    // pass): not part of the periodic $VROTATE telemetry, so it doesn't add
+    // per-line overhead -- prints once at boot so a captured terminal/Serial
+    // Monitor log proves which gains this specific flash actually ran,
+    // instead of relying on someone's memory of "I set kP=10" matching what
+    // was really compiled in.
+    Serial.print(F("$VROTATE_GAINS,kP=")); Serial.print(kP, 4);
+    Serial.print(F(",kI=")); Serial.print(kI, 4);
+    Serial.print(F(",kIZone=")); Serial.print(kIZone, 1);
+    Serial.print(F(",I_LIMIT_US=")); Serial.print(PIDF_INTEGRAL_LIMIT_US);
+    Serial.print(F(",kD=")); Serial.print(kD, 4);
+    Serial.print(F(",kD_TAU_S=")); Serial.print(kD_FILTER_TAU_S, 4);
+    Serial.print(F(",OUT_LIMIT_US=")); Serial.println(PIDF_OUTPUT_LIMIT_US);
     // Handshake is independent of the motion-armed gate: tell Orin we're
     // here as early as possible so it can start streaming before the
     // operator even opens the browser page.
@@ -92,7 +105,7 @@ void loop() {
         if (ch == '\n') {
             if (!visionDiscard && visionLength > 0) {
                 visionLine[visionLength] = '\0';
-                if (parseVisionLine(visionLine)) state.onVision(lastTx, lastValid, millis());
+                if (parseVisionLine(visionLine)) state.onVision(lastTx, lastValid, lastTargetId, millis());
             }
             visionLength = 0; visionDiscard = false;
         } else if (ch != '\r') {
@@ -112,7 +125,9 @@ void loop() {
     }
     if (uint32_t(now - lastTelemetry) >= TELEMETRY_MS) {
         lastTelemetry = now;
-        Serial.print(F("$VROTATE,3,"));
+        // v5 (2026-10-13) = v4 + the I term appended as the last field, so
+        // every v4 field keeps its position.
+        Serial.print(F("$VROTATE,5,"));
         Serial.print(state.enabled ? 1 : 0); Serial.print(',');
         Serial.print(state.pulse()); Serial.print(',');
         Serial.print(digitalRead(LEFT_LIMIT_PIN) == HIGH ? 1 : 0); Serial.print(',');
@@ -124,6 +139,12 @@ void loop() {
         Serial.print(lastDistance); Serial.print(',');
         Serial.print(lastTargetId); Serial.print(',');
         Serial.print(lastValid ? 1 : 0); Serial.print(',');
-        Serial.println((unsigned long)(now - state.lastVisionRx));
+        Serial.print((unsigned long)(now - state.lastVisionRx)); Serial.print(',');
+        Serial.print(state.lastDtMs); Serial.print(',');
+        Serial.print(state.lastPTermUs); Serial.print(',');
+        Serial.print(state.lastDTermUs); Serial.print(',');
+        Serial.print(state.lastOutputRawUs); Serial.print(',');
+        Serial.print(state.lastSaturated ? 1 : 0); Serial.print(',');
+        Serial.println(state.lastITermUs);
     }
 }
