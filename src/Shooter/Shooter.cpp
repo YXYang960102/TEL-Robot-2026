@@ -1,5 +1,6 @@
 #include "Shooter.h"
 
+#include "../Constants/BuildProfile.h"
 #include "../Control/ServoPositionJog.h"
 #include "../Control/VisionFollowController.h"
 #include "../Vision/Vision.h"
@@ -8,20 +9,9 @@ using namespace ShooterConstants;
 
 namespace {
 
-// Which shooter outputs this build drives (bench profiles in
-// platformio.ini). Production drives all three.
-//   mega_drive_conveyor_test: none -- the shooter stays fully inert.
-//   mega_manual_axes_test:    all three (it adds the flywheel flag).
-#if defined(TEL_DRIVE_CONVEYOR_ONLY) && !defined(TEL_MANUAL_AXES_TEST)
-constexpr bool DRIVES_AXES = false;
-#else
-constexpr bool DRIVES_AXES = true;
-#endif
-#if defined(TEL_DRIVE_CONVEYOR_ONLY) && !defined(TEL_MANUAL_FLYWHEEL_TEST)
-constexpr bool DRIVES_FLYWHEEL = false;
-#else
-constexpr bool DRIVES_FLYWHEEL = true;
-#endif
+// Which shooter outputs this build drives (production: all three).
+constexpr bool DRIVES_AXES = BuildProfile::DRIVES_SHOOTER_AXES;
+constexpr bool DRIVES_FLYWHEEL = BuildProfile::DRIVES_FLYWHEEL;
 
 ServoPositionJog anglePosition(Angle::POSITION_INITIAL_US);
 VisionFollowController rotateVisionFollow(Rotate::VISION_FOLLOW);

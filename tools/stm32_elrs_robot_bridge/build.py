@@ -2,7 +2,7 @@
 """Build and inspect only. Never connects to or flashes hardware.
 
 Robot-side ELRS/CRSF bridge: ES900RX (USART2/PA2-PA3, unchanged from the
-hardware-confirmed tools/stm32_elrs_bidirectional_test rig) on one side,
+hardware-confirmed stm32_elrs_bidirectional_test rig, (retired 2026-10-14, still in git history)) on one side,
 the Mega's dedicated UART (USART1/PA9-PA10) on the other. See
 docs/elrs-architecture/ and this file's src/main.c for the role split.
 

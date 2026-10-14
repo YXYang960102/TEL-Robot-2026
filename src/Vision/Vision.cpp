@@ -183,7 +183,7 @@ bool Vision::parse(const String& input) {
         return false;
     }
 
-    updatePrediction(
+    storeTarget(
         nextTx,
         nextTy,
         nextDistance,
@@ -192,7 +192,8 @@ bool Vision::parse(const String& input) {
     return true;
 }
 
-void Vision::updatePrediction(
+// Stores one parsed frame (no prediction/extrapolation happens here).
+void Vision::storeTarget(
     double nextTx,
     double nextTy,
     double nextDistance,
@@ -221,10 +222,6 @@ void Vision::invalidateTarget() {
     ty = 0;
     distance = 0;
     targetId = 0;
-}
-
-double Vision::getXPred() {
-    return tx;
 }
 
 double Vision::getTx() {

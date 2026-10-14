@@ -108,8 +108,7 @@ constexpr int FIRE_BUTTON_THRESHOLD = 1500;
 
 namespace OperatorMode {
 
-// MechLink::modeChannel thresholds (1500-2000 split into thirds, see
-// tools/stm32_elrs_ground_bridge's mode_switch_to_pulse_us): the real
+// MechLink::modeChannel thresholds (1500-2000 split into thirds): the real
 // keypad doesn't exist yet -- re-measure its actual output against these
 // once it's built and update here; nothing else needs to change.
 constexpr int SEMI_AUTO_THRESHOLD = 1667;

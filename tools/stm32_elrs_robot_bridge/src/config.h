@@ -8,7 +8,7 @@
 #define LED_PIN 13u
 
 /* USART2: PA2 TX / PA3 RX, full-duplex -> ES900RX RX/TX. Same wiring role
-   and baud as tools/stm32_elrs_bidirectional_test's USART2 (that pairing
+   and baud as the stm32_elrs_bidirectional_test bench's USART2 (retired 2026-10-14, still in git history) (that pairing
    is hardware-confirmed working over real ELRS RF, see
    docs/codex-handoff.md) -- unchanged by splitting the bench loopback rig
    into separate robot/ground firmwares. */

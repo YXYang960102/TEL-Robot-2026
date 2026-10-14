@@ -2,13 +2,17 @@
 
 Desk/build verification only (`python3 build.py`). Never connects to or
 flashes hardware. `dist/verification.json` keeps `flashed`/`hardware_tested`
-hardcoded `false` for this build, matching `tools/stm32_elrs_bidirectional_test`'s
-convention -- this firmware has not been loaded onto a board.
+hardcoded `false` for this build, matching the convention of the
+`stm32_elrs_bidirectional_test` bench (retired 2026-10-14, still in git history). (It has since been
+flashed and passed the 2.4 GHz downlink test; see docs/codex-handoff.md.)
+The other bench/ground firmwares named below, `stm32_elrs_bidirectional_test`
+and `stm32_elrs_ground_bridge`, were both removed on 2026-10-14; mentions of
+them here are history.
 
 ## Role
 
 One half of the two-board ELRS deployment (the other half is
-`tools/stm32_elrs_ground_bridge`). This board sits on the robot, between
+`tools/stm32_ground_control`). This board sits on the robot, between
 the ES900RX radio module and the Mega:
 
 ```

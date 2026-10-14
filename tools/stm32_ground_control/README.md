@@ -51,11 +51,11 @@ The board sends to the PC:
 
 Channel table: `src/IO/RcControlMap.h`.
 
-CH4 is fixed at 2000 (FULL_MANUAL). The old `stm32_elrs_bidirectional_test` firmware sent 1000 on CH4, which production reads as FULL_AUTO. **Do not run the robot firmware against that old ground firmware.**
+CH4 is fixed at 2000 (FULL_MANUAL). The old `stm32_elrs_bidirectional_test` firmware (removed from the repo 2026-10-14) sent 1000 on CH4, which production reads as FULL_AUTO. **If a ground board still has that old firmware on it, reflash it with this one before running the robot firmware.**
 
 ## Flashing (Jeremy runs these; Claude never flashes)
 
-This is the **old board**, the one with the WeAct HID bootloader that currently carries `stm32_elrs_bidirectional_test`.
+This is the **old board**, the one with the WeAct HID bootloader that carried the retired `stm32_elrs_bidirectional_test` bench.
 
 Flashing through ROM DFU at 0x08000000 overwrites the HID bootloader. That is fine: from now on this board is always loaded through ROM DFU (BOOT0), the same way as the robot board.
 

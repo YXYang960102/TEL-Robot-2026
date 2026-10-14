@@ -2923,3 +2923,75 @@ to test exactly these sensors.
 arrows, the Falcon slider, Enter and Space behave as before. Re-flash
 `mega_vision_rotate_test` and confirm the page connects (v6) and follows
 without the checkbox.
+
+## 2026-10-14 — Claude Code: cleanup batch 2 (items 2–4) — vision alias, bench flags in one header, retired STM32 firmwares
+
+**User Request:** "先做 2、3、4" (do items 2, 3 and 4 of the second cleanup list
+first). Item 1 is still open and needs Jeremy's design decision: operator
+mode switching plus the semi-auto fire confirm, which are unreachable from
+either PC path today.
+
+**Changed:**
+- **Item 2, vision.**
+  - `Vision::getXPred()` was only an alias for `tx`, and nothing called it.
+    It is removed.
+  - Correction to what Claude told Jeremy earlier: `updatePrediction()` is
+    *not* dead prediction code. It is the function that stores each parsed
+    frame. It was misnamed, so it is renamed `storeTarget()`, with a
+    comment saying no prediction happens.
+- **Item 3, bench flags.** New `src/Constants/BuildProfile.h` is the only
+  place that tests the `TEL_*` bench macros:
+  - It turns them into constexpr `WIRED_MANUAL_ONLY`,
+    `PARTIAL_HARDWARE_BENCH`, `DRIVES_SHOOTER_AXES`, `DRIVES_FLYWHEEL` and
+    `DRIVES_FEED_TOWER`.
+  - It `#error`s on invalid combinations: a partial bench without
+    wired-only, axes without drive+conveyor, flywheel without axes.
+  - Users:
+    - `Pins.h`: `PIN_TABLE_CONFIRMED` is the host-test override, otherwise
+      `BuildProfile::PARTIAL_HARDWARE_BENCH`. The conveyor-configured
+      assert now applies to every build.
+    - `ManualControlConstants::WIRED_MANUAL_ONLY` aliases the profile.
+    - `Dribbler.cpp` uses three plain `if`s instead of `#ifdef`s.
+    - `Shooter.cpp` reads the profile.
+
+  The `src/` tree no longer tests a bench macro anywhere else. The test
+  file still selects its variants with `#if`, by design.
+- **Item 4, retired firmwares.**
+  - Removed `tools/stm32_elrs_ground_bridge` (replaced by
+    `tools/stm32_ground_control`) and `tools/stm32_elrs_bidirectional_test`.
+    The latter is a bench whose ground side sends CH4 = 1000, which
+    production reads as FULL_AUTO, a hazard if it is ever paired with the
+    robot firmware.
+  - Also removed their only-used shared pieces: `tel_channel_map.h` and
+    `tel_reassembler.{c,h}` with its host test.
+  - Comments and READMEs that cited them as provenance now say they were
+    retired 2026-10-14 and remain in git history.
+  - The ground_control README now says to reflash any ground board that
+    still carries the old firmware.
+- **Comment fix** in `src/IO/RcControlMap.h`: it claimed the Battery-frame
+  status path was "already proven" over this ELRS link. It is **not
+  verified on hardware**; the comment now says so.
+
+**Evidence:**
+- `BuildProfile.h` combinations:
+  - The 4 valid combinations compile.
+  - All 3 invalid ones fail with their `#error` message.
+- All 7 Mega envs build. The ground STM32 `pio run` succeeds.
+- Robot bridge `build.py` checks pass. The image sha256 is unchanged
+  (`99b017a4…`), because only comments changed. The path-dependent dist
+  artifacts were restored rather than committed.
+- Host and page tests pass:
+  - crsf and tel_chunk_split (the remaining common tests);
+  - vision_follow, vision bench, pidf, shot_table, servo_jog, rcmap;
+  - manual_control (three variants), conveyor (two), ground;
+  - three node tests.
+
+  `git diff --check` is clean. Not run on hardware. There is no behavior
+  change in any env.
+
+**Still open, item 1:** `OperatorModeSelector` reads only wireless CH4,
+which the ground station always sends as 2000 = FULL_MANUAL. The wired path
+has no mode command. Semi-auto fire confirm reads `MechLink::fireChannel`,
+which is always released. So Auto, the shot table and the vision-ready gate
+cannot be started from the PC. This needs Jeremy's choice of mode key and
+fire-confirm key.

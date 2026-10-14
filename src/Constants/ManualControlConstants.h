@@ -3,6 +3,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "BuildProfile.h"
+
 // Operator control (src/IO/ManualControl.cpp): wired USB Dashboard and the
 // wireless ELRS path share these.
 namespace ManualControlConstants {
@@ -20,11 +22,7 @@ constexpr unsigned long STATUS_PERIOD_MS = 100;
 constexpr double CHASSIS_MANUAL_SCALE = 1.00;
 constexpr double ROTATE_MANUAL_SCALE = 1.00;
 constexpr double ANGLE_MANUAL_SCALE = 1.00;
-#ifdef TEL_WIRED_MANUAL_ONLY
-constexpr bool WIRED_MANUAL_ONLY = true;
-#else
-constexpr bool WIRED_MANUAL_ONLY = false;
-#endif
+constexpr bool WIRED_MANUAL_ONLY = BuildProfile::WIRED_MANUAL_ONLY;
 
 static_assert(CHASSIS_MANUAL_SCALE > 0.0 && CHASSIS_MANUAL_SCALE <= 1.0, "Invalid chassis scale");
 static_assert(ROTATE_MANUAL_SCALE > 0.0 && ROTATE_MANUAL_SCALE <= 1.0, "Invalid rotate scale");

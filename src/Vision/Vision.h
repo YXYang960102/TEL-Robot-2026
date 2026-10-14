@@ -12,8 +12,7 @@ public:
     static void init();
     static void update();
 
-    // Target facts from YOLO. getXPred() is a compatibility alias for tx.
-    static double getXPred();
+    // Target facts from YOLO (latest valid frame; zeroed when invalid).
     static double getTx();
     static double getTy();
     static double getDistance();
@@ -29,7 +28,7 @@ public:
 private:
     static bool parse(const String& s);
     static bool parseOrinControl(const String& s);
-    static void updatePrediction(
+    static void storeTarget(
         double tx,
         double ty,
         double distance,
