@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Offline settling-time / max-overshoot / dt-distribution analysis for a
-captured mega_vision_rotate_test $VROTATE,4/5,... log.
+captured mega_vision_rotate_test $VROTATE,4/5/6,... log.
 
 Why this exists (2026-10-10, Codex-reviewed PIDF stabilization pass, see
 docs/codex-handoff.md): the Mega has limited RAM/flash and a real-time
@@ -17,7 +17,7 @@ Usage:
         [--settle-frames N]
 
 <log_file> is a plain text file containing captured serial output; only
-lines matching "$VROTATE,4,..." or "$VROTATE,5,..." are used, everything else (including the
+lines matching "$VROTATE,4/5/6,..." are used, everything else (including the
 one-time "$VROTATE_GAINS,..." boot banner, which is captured separately
 and shown in the report so the gains that actually produced this log are
 traceable) is ignored.
@@ -35,13 +35,43 @@ import re
 import statistics
 import sys
 
-# v4 (old logs) or v5 (2026-10-13: v4 + I term appended as the last field).
-VROTATE_RE = re.compile(
-    r"^\$VROTATE,([45]),([01]),(-?\d+),([01]),([01]),([01]),([A-Z_]+),"
-    r"(-?\d+),(-?\d+),(-?\d+),(-?\d+),([01]),(\d+),"
-    r"(\d+),(-?\d+),(-?\d+),(-?\d+),([01])(?:,(-?\d+))?\s*$"
-)
+# Field layouts after "$VROTATE,<version>,". v4/v5 are older logs; v6
+# (2026-10-14) dropped the D43/D42 limit and no-limits fields when the limit
+# switches were removed. A line whose field count doesn't match its version
+# is skipped.
+_V4 = ["enabled", "pulse", "left_limit", "right_limit", "no_limits", "reason",
+       "tx", "ty", "distance", "target_id", "valid", "ms_since_vision",
+       "dt_ms", "p_term_us", "d_term_us", "output_raw_us", "saturated"]
+LAYOUTS = {
+    "4": _V4,
+    "5": _V4 + ["i_term_us"],
+    "6": ["enabled", "pulse", "reason", "tx", "ty", "distance", "target_id",
+          "valid", "ms_since_vision", "dt_ms", "p_term_us", "d_term_us",
+          "output_raw_us", "saturated", "i_term_us"],
+}
+INT_FIELDS = {"pulse", "tx", "target_id", "ms_since_vision", "dt_ms",
+              "p_term_us", "d_term_us", "output_raw_us", "i_term_us"}
 GAINS_RE = re.compile(r"^\$VROTATE_GAINS,(.+)\s*$")
+
+
+def parse_sample(line):
+    parts = line.split(",")
+    if len(parts) < 2 or parts[0] != "$VROTATE":
+        return None
+    layout = LAYOUTS.get(parts[1])
+    fields = parts[2:]
+    if layout is None or len(fields) != len(layout):
+        return None
+    raw = dict(zip(layout, fields))
+    try:
+        sample = {name: int(raw[name]) for name in INT_FIELDS if name in raw}
+    except ValueError:
+        return None
+    sample.setdefault("i_term_us", 0)
+    sample["enabled"] = raw["enabled"] == "1"
+    sample["valid"] = raw["valid"] == "1"
+    sample["saturated"] = raw["saturated"] == "1"
+    return sample
 
 
 def parse_log(path):
@@ -57,27 +87,11 @@ def parse_log(path):
             if gains_match:
                 gains_line = gains_match.group(1)
                 continue
-            m = VROTATE_RE.match(line)
-            if not m or (m.group(1) == "5") != (m.group(19) is not None):
+            sample = parse_sample(line)
+            if sample is None:
                 continue
-            g = lambda i: m.group(i + 1)  # v4 field numbering, after the version
             matched_lines += 1
-            samples.append(
-                {
-                    "enabled": g(1) == "1",
-                    "pulse": int(g(2)),
-                    "tx": int(g(7)),
-                    "target_id": int(g(10)),
-                    "valid": g(11) == "1",
-                    "ms_since_vision": int(g(12)),
-                    "dt_ms": int(g(13)),
-                    "p_term_us": int(g(14)),
-                    "d_term_us": int(g(15)),
-                    "output_raw_us": int(g(16)),
-                    "saturated": g(17) == "1",
-                    "i_term_us": int(m.group(19)) if m.group(19) is not None else 0,
-                }
-            )
+            samples.append(sample)
     return samples, gains_line, total_lines, matched_lines
 
 
@@ -128,7 +142,7 @@ def main():
 
     samples, gains_line, total_lines, matched_lines = parse_log(args.log_file)
 
-    print(f"Read {total_lines} lines, {matched_lines} matched $VROTATE,4/5,...")
+    print(f"Read {total_lines} lines, {matched_lines} matched $VROTATE,4/5/6,...")
     if gains_line:
         print(f"Gains banner from this log: {gains_line}")
     else:
@@ -136,7 +150,7 @@ def main():
         print("         produced this run cannot be confirmed from the log itself.")
 
     if not samples:
-        print("No $VROTATE,4/5,... samples found -- nothing to analyze.")
+        print("No $VROTATE,4/5/6,... samples found -- nothing to analyze.")
         sys.exit(1)
 
     elapsed_ms = compute_elapsed_ms(samples)

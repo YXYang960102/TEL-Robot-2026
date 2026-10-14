@@ -4,8 +4,7 @@
 
 // Looks up the distance -> {flywheelCommand, angleDegrees} shot table
 // (TuningConstants::ShotTable) with clamped linear interpolation between
-// the two nearest entries. Header-only static method, same style as
-// PositionDecelerationProfile.h/DirectionalLimit.h -- pure logic, no
+// the two nearest entries. Header-only static method -- pure logic, no
 // Arduino dependency, native-host-testable.
 class ShotTableLookup {
 public:

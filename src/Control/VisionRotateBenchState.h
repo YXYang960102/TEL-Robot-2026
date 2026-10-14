@@ -6,13 +6,12 @@
 
 // Pure state machine, shared by the firmware and host regression tests.
 // Direction comes from Orin vision data (onVision), never from the browser —
-// the browser only arms/disarms (E/E_NO_LIMITS/X) and proves its tab is
+// the browser only arms/disarms (E/X) and proves its tab is
 // still alive (P), the same way the keyboard bench proves liveness via
 // repeated M commands.
 class VisionRotateBenchState {
 public:
     bool enabled = false;
-    bool noLimits = false;
     const char* stopReason = "BOOT";
     int direction = 0;
     // Signed pulse offset from NEUTRAL_US, already INVERTED-applied -- this
@@ -54,13 +53,9 @@ public:
     }
 
     void stop(const char* reason="OPERATOR") {
-        enabled = false; direction = 0; speedOffsetUs = 0; noLimits = false; stopReason = reason;
+        enabled = false; direction = 0; speedOffsetUs = 0; stopReason = reason;
         pidf.reset(0.0); lastPidUpdateMs = 0; // no stale integral across a re-enable
         resetRateFilter();
-    }
-
-    void applyLimits(bool left, bool right) {
-        if (!noLimits && ((direction < 0 && left) || (direction > 0 && right))) stop("LIMIT");
     }
 
     void tick(uint32_t now) {
@@ -74,8 +69,7 @@ public:
     bool command(const char* text, uint32_t now) {
         tick(now); // A late ping/enable cannot revive already-timed-out movement.
         if (!strcmp(text, "X")) { stop(); return true; }
-        if (!strcmp(text, "E") || !strcmp(text, "E_NO_LIMITS")) {
-            noLimits = !strcmp(text, "E_NO_LIMITS");
+        if (!strcmp(text, "E")) {
             stopReason = "NONE";
             direction = 0; enabled = true; lastUsbPing = now; lastVisionRx = now;
             resetRateFilter();

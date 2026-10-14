@@ -13,8 +13,6 @@ More information about PlatformIO Unit Testing:
 Host tests used in this repo (run from the repo root):
 
   g++ -std=c++17 -Wall -Wextra -Werror test/pidf_controller_test.cpp src/Control/PidfController.cpp -o /tmp/t && /tmp/t
-  g++ -std=c++17 -Wall -Wextra -Werror test/directional_limit_test.cpp -o /tmp/t && /tmp/t
-  g++ -std=c++17 -Wall -Wextra -Werror test/position_deceleration_profile_test.cpp -o /tmp/t && /tmp/t
   g++ -std=c++17 -Wall -Wextra -Werror test/shot_table_lookup_test.cpp -o /tmp/t && /tmp/t
   g++ -std=c++17 -Wall -Wextra -Werror test/vision_rotate_bench_state_test.cpp src/Control/PidfController.cpp -o /tmp/t && /tmp/t
   # Production turret vision-follow (VisionFollowController) with the real

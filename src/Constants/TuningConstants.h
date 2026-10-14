@@ -3,8 +3,7 @@
 #include <stdint.h>
 
 // Centralizes the parameters that actually get changed at competition --
-// angle limits, motor direction, flywheel speed, each mechanism's PIDF,
-// vision-follow tuning -- in one place, organized by mechanism namespace
+// motor direction, flywheel speed, vision-follow tuning -- in one place, organized by mechanism namespace
 // (mirrors ShooterConstants.h's own Angle/Rotate/Flywheel grouping, plus
 // Auto/OperatorMode/ShotTable). ShooterConstants.h, AutoConstants.h (now
 // retired into Auto below), and OperatorMode.h pull their tunable values
@@ -12,9 +11,8 @@
 // each one.
 //
 // What stays OUT of here, in each module's own Constants file: pin
-// numbers, servo PWM endpoints, communication/protocol constants, sensor
-// sampling periods/timeouts/valid ranges, limit-switch debounce -- these
-// are wiring/hardware-spec facts, not "turn the knob" values, and mixing
+// numbers, servo PWM endpoints, communication/protocol constants, timing
+// -- these are wiring/hardware-spec facts, not "turn the knob" values, and mixing
 // them in here would make them easier to change by accident.
 //
 // Other branches (e.g. Chassis) have their own TuningConstants.h following
@@ -42,41 +40,11 @@ namespace Angle {
 
 constexpr bool INVERTED = false;
 
-constexpr double kP = 0.0;
-constexpr double kI = 0.0;
-constexpr double kD = 0.0;
-constexpr double kIZone = 0.0;
-constexpr double kFF = 0.0;
-
-// Keep position control disabled until both mechanical limits are measured.
-constexpr bool POSITION_LIMITS_CALIBRATED = false;
-constexpr long MIN_POSITION_COUNTS = 0;
-constexpr long MAX_POSITION_COUNTS = 0;
-constexpr bool FORWARD_SOFT_LIMIT_ENABLED = false;
-constexpr bool REVERSE_SOFT_LIMIT_ENABLED = false;
-
 }
 
 namespace Rotate {
 
 constexpr bool INVERTED = false;
-
-constexpr double kP = 0.0;
-constexpr double kI = 0.0;
-constexpr double kD = 0.0;
-constexpr double kIZone = 0.0;
-constexpr double kFF = 0.0;
-
-// Position control remains disabled until all three potentiometer points are measured.
-constexpr bool POSITION_CALIBRATED = false;
-constexpr int LEFT_POSITION_RAW = 0;
-constexpr int CENTER_POSITION_RAW = 0;
-constexpr int RIGHT_POSITION_RAW = 0;
-constexpr double LEFT_POSITION_DEGREES = 0.0;
-constexpr double CENTER_POSITION_DEGREES = 0.0;
-constexpr double RIGHT_POSITION_DEGREES = 0.0;
-constexpr bool FORWARD_SOFT_LIMIT_ENABLED = false;
-constexpr bool REVERSE_SOFT_LIMIT_ENABLED = false;
 
 // Vision-follow (RotateControlMode::VISION_FOLLOW), PIDF on image-space tx
 // (src/Control/VisionFollowController.h). These are the gains Jeremy tuned
@@ -104,21 +72,11 @@ constexpr double VISION_MAX_INTEGRAL_COMMAND = 0.12;
 // (Jeremy, 2026-10-13: 5 px).
 constexpr double VISION_READY_TOLERANCE_PX = 5.0;
 
-constexpr double PROFILE_CRUISE_COMMAND = 1.0;
-constexpr double PROFILE_MINIMUM_APPROACH_RATIO = 0.10;
-constexpr double PROFILE_DECELERATION_FRACTION = 0.20;
-
 }
 
 namespace Flywheel {
 
 constexpr bool INVERTED = false;
-
-constexpr double kP = 0.0;
-constexpr double kI = 0.0;
-constexpr double kD = 0.0;
-constexpr double kIZone = 0.0;
-constexpr double kFF = 0.0;
 
 // Auto-fire sequence (Auto::update()). No RPM/tachometer feedback exists for
 // this Falcon 500 (PWM command path is one-way) -- SHOOT_COMMAND/SPIN_UP_MS
@@ -208,18 +166,6 @@ static_assert(Rotate::VISION_MAX_INTEGRAL_COMMAND >= 0.0 &&
               "Vision-follow integral limit must fit inside the command limit");
 static_assert(Rotate::VISION_kIZONE_PX >= 0.0 && Rotate::VISION_READY_TOLERANCE_PX > 0.0,
               "Vision-follow pixel windows must be non-negative");
-static_assert(Rotate::PROFILE_DECELERATION_FRACTION > 0.0 &&
-              Rotate::PROFILE_DECELERATION_FRACTION <= 1.0,
-              "Invalid rotate deceleration fraction");
-static_assert(Rotate::PROFILE_MINIMUM_APPROACH_RATIO >= 0.0 &&
-              Rotate::PROFILE_MINIMUM_APPROACH_RATIO <= 1.0,
-              "Invalid rotate minimum approach ratio");
-static_assert(!Rotate::POSITION_CALIBRATED ||
-                  Rotate::LEFT_POSITION_RAW < Rotate::CENTER_POSITION_RAW,
-              "Rotate left calibration must be below center");
-static_assert(!Rotate::POSITION_CALIBRATED ||
-                  Rotate::CENTER_POSITION_RAW < Rotate::RIGHT_POSITION_RAW,
-              "Rotate center calibration must be below right");
 static_assert(OperatorMode::SEMI_AUTO_THRESHOLD < OperatorMode::FULL_MANUAL_THRESHOLD,
               "Operator mode thresholds must be ordered");
 static_assert(ShotTable::TABLE_COUNT >= 2, "Shot table needs at least two entries to interpolate");

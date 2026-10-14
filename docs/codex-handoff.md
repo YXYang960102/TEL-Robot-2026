@@ -2817,3 +2817,109 @@ His decisions:
 - About 20 bench-profile `#ifdef`s in Shooter/Dribbler.
 - Superseded `tools/stm32_elrs_ground_bridge` and
   `stm32_elrs_bidirectional_test`.
+
+## 2026-10-14 — Claude Code: shooter head has no sensors — encoder, potentiometer and limit-switch code removed
+
+**User Request:** "POSITION_SENSOR_PIN = A3 / LEFT_LIMIT_PIN = 43 / RIGHT_LIMIT_PIN = 42 這些也不用了，發射頭上面都沒有任何sensor了，總共只有三個馬達，水平、仰角、飛輪，水平角度PIDF都是靠鏡頭來做"
+(these aren't used either; the shooter head has no sensors at all, only
+three motors, and turret aiming is done by the camera).
+
+Jeremy's answers:
+- Also remove the AS5600 elevation encoder and the elevation closed loop.
+- Delete the old `mega_shooter_keyboard_test` bench entirely.
+- **Keep** the `POSITION_SERVO` switch for a continuous-rotation elevation
+  servo.
+
+**Discussion Result / Why:** each of those three pins led into a whole
+subsystem that can never run on this robot:
+- **A3** fed rotate potentiometer position control: two target modes, a
+  position PIDF, soft limits, and raw→degree conversion. That conversion
+  was the source of the long-standing divide-by-zero warning, since it was
+  never calibrated.
+- **42/43** fed the limit-switch debounce/read/direction-block machinery.
+- The **AS5600** fed elevation homing, the closed loop and soft limits.
+
+The only consumer of most of it was the old keyboard bench, which existed
+to test exactly these sensors.
+
+**Changed:**
+- `Shooter.h/.cpp`, rewritten small. There are three outputs and no inputs:
+  - `RotateControlMode {DISABLED, MANUAL_OPEN_LOOP, VISION_FOLLOW}`.
+  - `AngleControlMode {DISABLED, MANUAL_OPEN_LOOP}`.
+  - The public API is what Auto, ManualControl, Telemetry and the host
+    stubs use, so callers are unchanged. Removed the unused
+    `set*Action`/`Action` enums, the angle target/homing functions, the
+    rotate target functions, and the sensor/limit getters.
+  - Behavior kept:
+    - Positional elevation jog: hold the target, detach on disable.
+    - Continuous elevation (`POSITION_SERVO = false`) is attached at init
+      and sent neutral on disable.
+    - Vision-follow is the same `VisionFollowController`.
+    - Flywheel open loop with the time-based spin-up proxy.
+  - **`isReady()` used to be hard-coded `false`**, which is why the
+    Dashboard's "shooter ready" always showed NO. It now returns
+    `rotateReady && flywheelReady`, the same two conditions Auto checks.
+  - The roughly 11 bench-profile `#ifdef`s collapsed into two constexprs:
+    - `DRIVES_AXES` is false only in drive+conveyor.
+    - `DRIVES_FLYWHEEL` is false in drive+conveyor; the axes profile adds
+      the flywheel flag.
+  - All three outputs preload neutral before `attach`.
+- `ShooterConstants.h`: pins, PWM endpoints and `VISION_FOLLOW` only.
+  Removed: encoder, pot, limit switches, soft limits, angle/rotate/flywheel
+  position PIDF, the closed-loop constants, and the unused
+  `Legacy::HALF_AUTO_VERTICAL`.
+- `TuningConstants.h`: Angle/Rotate/Flywheel keep only `INVERTED`, plus
+  `VISION_*` and `SHOOT_COMMAND`/`SPIN_UP_MS`. Calibration placeholders,
+  zero PIDF gains, `PROFILE_*` and their asserts are removed.
+- `ActuatorConfig.h`: only `ServoMotorConfig` remains.
+- Deleted:
+  - `src/Sensors/` (AS5600Encoder, AnalogPositionSensor)
+  - `lib/Seeed_Arduino_AS5600/`
+  - `src/Control/DirectionalLimit.h` + test
+  - `src/Control/PositionDecelerationProfile.h` + test
+  - `src/Bench/ShooterKeyboardTest.cpp`, `ShooterBenchConstants.h`
+  - `tools/shooter_keyboard_test/index.html`
+  - the `mega_shooter_keyboard_test` env
+- `platformio.ini`:
+  - `mega_vision_rotate_test` is now standalone (it used to extend the
+    keyboard env).
+  - Dropped the `-I src/Sensors` include.
+  - Dropped the unused `Ultrasonic` and `br3ttb/PID` lib_deps, which
+    nothing in src includes.
+- **Vision-follow bench** (`mega_vision_rotate_test`): the D43/D42 limit
+  inputs, `applyLimits`, `noLimits` and `E_NO_LIMITS` are removed.
+  - Telemetry goes from **`$VROTATE,6`** = v5 without the left/right-limit
+    and no-limits fields.
+  - The page drops the "no limits" checkbox, sends plain `E`, and its
+    warning now says there are no limit switches.
+  - `analyze_vision_rotate_log.py` now parses by per-version field layout,
+    accepting v4/v5/v6 and rejecting count mismatches.
+  - The tools README is rewritten for the vision bench only.
+- Dashboard: `ROTATE_MODE_NAMES` / `ANGLE_MODE_NAMES` now match the new
+  enums.
+- Auto: a comment naming the removed `isAngleReady()` is updated.
+
+**Evidence:**
+- All 7 PIO envs build. A clean rebuild of production and manual_axes
+  shows **no compiler warnings**; the rotate divide-by-zero and the vendor
+  AS5600 warnings are gone.
+- Production uses RAM 1864 B and Flash 23934 B.
+- All host and page tests pass: vision_follow, vision bench (new case:
+  `E_NO_LIMITS` is now `BAD_COMMAND`), pidf, shot_table, servo_jog, rcmap,
+  manual_control (three variants), conveyor (two), ground, dashboard page
+  and control tests, and the vision page (v6; v4/v5 lines rejected).
+- The analyzer was checked on a mixed v4/v5/v6 log: 3 well-formed lines
+  matched, 3 malformed lines rejected.
+- `git diff --check` is clean. Not run on hardware.
+
+**Impact:**
+- The vision page and the bench firmware must come from the same commit
+  (v6).
+- Production behavior is unchanged except:
+  - nothing reads the floating A3/42/43 inputs any more;
+  - "shooter ready" can now become true.
+
+**Next Test:** re-flash `mega_manual_axes_test` and confirm W/S/A/D, R, the
+arrows, the Falcon slider, Enter and Space behave as before. Re-flash
+`mega_vision_rotate_test` and confirm the page connects (v6) and follows
+without the checkbox.
