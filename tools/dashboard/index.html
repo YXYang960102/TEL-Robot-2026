@@ -788,8 +788,10 @@
     let flywheelRatio = 0;
     const heldKeys = new Set();
 
-    const ROTATE_MODE_NAMES = ["disabled", "manual", "profiled", "closed", "vision"];
-    const ANGLE_MODE_NAMES = ["disabled", "manual", "closed"];
+    // Must match src/Shooter/Shooter.h's enums (no sensors on the shooter
+    // head since 2026-10-14: no profiled/closed-loop modes any more).
+    const ROTATE_MODE_NAMES = ["disabled", "manual", "vision"];
+    const ANGLE_MODE_NAMES = ["disabled", "manual"];
 
     function setConnection(online) {
       connection.className = online ? "status ok" : "status";

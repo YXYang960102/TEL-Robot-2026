@@ -61,11 +61,8 @@ void Auto::update() {
     fireButtonWasDown = fireButtonDown;
 
     const bool wantsToShoot = Dribbler::getShootRemaining() > 0;
-    // Deliberately NOT gated on Shooter::isAngleReady() -- elevation
-    // closed-loop can never arm yet (Angle::POSITION_LIMITS_CALIBRATED is
-    // hardcoded false pending real mechanical-limit calibration). Wire
-    // isAngleReady() in here once that calibration is done; see
-    // docs/codex-handoff.md 2026-10-06.
+    // Not gated on elevation: it has no sensor (manual position jog only),
+    // so there is no "elevation reached" signal to wait for.
     const bool canAutoFire =
         mode != OperatorMode::FULL_MANUAL && visionHealthy && wantsToShoot;
 

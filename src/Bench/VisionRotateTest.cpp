@@ -17,14 +17,10 @@ uint32_t lastHeartbeat = 0;
 int lastTx = 0, lastTy = 0, lastDistance = 0, lastTargetId = 0;
 bool lastValid = false;
 
-// Existing active-high limit wiring: disconnected inputs are pulled HIGH and
-// block movement. Never bridge a limit just to make the motor move.
 using namespace VisionRotateBenchConstants;
 static_assert(SIGNAL_PIN == A5, "This bench requires Arduino Mega A5");
 
 void applyOutput() {
-    state.applyLimits(digitalRead(LEFT_LIMIT_PIN) == HIGH,
-                      digitalRead(RIGHT_LIMIT_PIN) == HIGH);
     rotateServo.writeMicroseconds(state.pulse());
 }
 
@@ -50,8 +46,6 @@ bool parseVisionLine(const char* s) {
 }
 
 void setup() {
-    pinMode(LEFT_LIMIT_PIN, INPUT_PULLUP);
-    pinMode(RIGHT_LIMIT_PIN, INPUT_PULLUP);
     rotateServo.writeMicroseconds(NEUTRAL_US);
     rotateServo.attach(SIGNAL_PIN, 1000, 2000);
     applyOutput();
@@ -125,14 +119,12 @@ void loop() {
     }
     if (uint32_t(now - lastTelemetry) >= TELEMETRY_MS) {
         lastTelemetry = now;
-        // v5 (2026-10-13) = v4 + the I term appended as the last field, so
-        // every v4 field keeps its position.
-        Serial.print(F("$VROTATE,5,"));
+        // v6 (2026-10-14): enabled,pulse,stopReason,tx,ty,distance,targetId,
+        // valid,msSinceVision,dtMs,P,D,rawOut,saturated,I. Same as v5 minus
+        // the D43/D42 limit and no-limits fields (no limit switches exist).
+        Serial.print(F("$VROTATE,6,"));
         Serial.print(state.enabled ? 1 : 0); Serial.print(',');
         Serial.print(state.pulse()); Serial.print(',');
-        Serial.print(digitalRead(LEFT_LIMIT_PIN) == HIGH ? 1 : 0); Serial.print(',');
-        Serial.print(digitalRead(RIGHT_LIMIT_PIN) == HIGH ? 1 : 0); Serial.print(',');
-        Serial.print(state.noLimits ? 1 : 0); Serial.print(',');
         Serial.print(state.stopReason); Serial.print(',');
         Serial.print(lastTx); Serial.print(',');
         Serial.print(lastTy); Serial.print(',');

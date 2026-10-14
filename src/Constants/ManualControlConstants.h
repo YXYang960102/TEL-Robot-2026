@@ -4,8 +4,7 @@
 #include <stdint.h>
 
 // Operator control (src/IO/ManualControl.cpp): wired USB Dashboard and the
-// wireless ELRS path share these. Timeout/buffer values match the existing
-// bench convention (ShooterBenchConstants).
+// wireless ELRS path share these.
 namespace ManualControlConstants {
 
 // Wired: no command line for this long while the wired side owns the robot

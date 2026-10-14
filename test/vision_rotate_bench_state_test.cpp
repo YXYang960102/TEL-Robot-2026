@@ -256,32 +256,17 @@ int main() {
         assert(!strcmp(s.stopReason, "TIMEOUT"));
     }
 
-    // LIMIT, with and without noLimits bypass. direction is set directly
-    // here (it's public) rather than via onVision(), since
-    // VisionRotateBenchConstants::kP is tuned live on the bench (not a
-    // fixed value this test should depend on) -- applyLimits() itself
-    // doesn't care how direction got set, so this tests its own logic in
-    // isolation from whatever the PIDF gains happen to be tuned to live.
+    // No limit switches any more (2026-10-14): the old E_NO_LIMITS command
+    // is just an unknown command now, and a re-enable clears a stale
+    // direction from a prior session.
     {
         VisionRotateBenchState s;
-        s.command("E", 200);
-        s.direction = 1;
-        s.applyLimits(false, true);
-        assert(!s.enabled && !s.noLimits);
-
-        s.command("E_NO_LIMITS", 300);
-        s.direction = 1;
-        s.applyLimits(false, true);
-        assert(s.enabled && s.noLimits);
-    }
-
-    // E clears any stale noLimits/direction from a prior session.
-    {
-        VisionRotateBenchState s;
-        s.command("E_NO_LIMITS", 0);
+        assert(!s.command("E_NO_LIMITS", 0) && !s.enabled);
+        assert(!strcmp(s.stopReason, "BAD_COMMAND"));
+        s.command("E", 100);
         s.direction = 1;
         s.command("E", 800);
-        assert(s.enabled && !s.noLimits && s.direction == 0);
+        assert(s.enabled && s.direction == 0);
     }
 
     // BAD_COMMAND.
@@ -293,7 +278,7 @@ int main() {
     }
 
     // Explicit "X" stop clears a nonzero direction (set directly here, same
-    // reason as the LIMIT tests above -- gains are tuned live, not fixed).
+    // reason: gains are tuned live, not fixed).
     {
         VisionRotateBenchState s;
         s.command("E", 0);

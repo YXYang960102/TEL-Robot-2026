@@ -16,8 +16,8 @@
 // assuming either one is right.
 namespace VisionRotateBenchConstants {
 constexpr uint8_t SIGNAL_PIN = 59; // Mega A5 is digital pin 59.
-constexpr uint8_t LEFT_LIMIT_PIN = 43;
-constexpr uint8_t RIGHT_LIMIT_PIN = 42;
+// No limit switches (Jeremy, 2026-10-14: the shooter head has no sensors);
+// the D43/D42 inputs and the E_NO_LIMITS mode were removed.
 constexpr int NEUTRAL_US = 1500;
 constexpr uint32_t COMMAND_TIMEOUT_MS = 250; // USB (browser tab) watchdog
 constexpr uint32_t TELEMETRY_MS = 100;
