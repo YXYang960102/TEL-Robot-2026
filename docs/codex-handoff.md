@@ -2717,3 +2717,8 @@ Examples:
 the first enable before trusting Auto: target to the right → turret turns
 right, pulse below 1500. Then check that it settles at center like the
 bench.
+
+
+## 2026-10-14 — Codex To Claude：dev合併main
+
+Jeremy明確要求先把現在dev合併main。fetch後本機/遠端dev皆a5030ef，本機/遠端main一致，工作目錄clean。main執行git merge --no-ff dev產生2b05374，無衝突，合併後tree與dev完全相同。追加本紀錄後推送main；沒有改dev功能或Pages部署來源（仍dev）。Dashboard control/page與vision_follow_controller host測試皆過；Mega production/manual_axes PIO皆SUCCESS，既有rotateRawToDegrees未校準端點造成division-by-zero warning仍存在，未修復。未上傳/未實機；完整pin gate仍false，Dashboard overrun/隊友瀏覽器無回應仍未解決。本次只是分支整合，不宣稱正式功能驗收。保留所有歷史，沒有force push。當前checkout留在main。
