@@ -7,7 +7,7 @@
 
 /* STM32F401 RM0368 register map + Cortex-M4 core registers. Bare-metal,
    register-level only (no HAL), adapted from the hardware-confirmed
-   tools/stm32_elrs_bidirectional_test bench rig (see docs/codex-handoff.md
+   stm32_elrs_bidirectional_test bench rig (retired 2026-10-14, still in git history) (see docs/codex-handoff.md
    for its RF confirmation). That rig put both ES900TX and ES900RX on one
    board for a desk loopback test; this is the real robot-side half of the
    split deployment: USART2/PA2-PA3 still talks to ES900RX exactly as

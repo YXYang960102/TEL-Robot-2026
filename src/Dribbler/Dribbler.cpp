@@ -1,5 +1,7 @@
 #include "Dribbler.h"
 
+#include "../Constants/BuildProfile.h"
+
 using namespace DribblerConstants;
 
 Servo Dribbler::conveyorEsc;
@@ -30,9 +32,9 @@ void Dribbler::init() {
     // never glitches active during boot. (Before this runs the pin floats:
     // the tower side should have a pull-down.)
     writeLine(false);
-#ifndef TEL_DRIVE_CONVEYOR_ONLY
-    pinMode(Tower::TRIGGER_PIN, OUTPUT);
-#endif
+    if (BuildProfile::DRIVES_FEED_TOWER) {
+        pinMode(Tower::TRIGGER_PIN, OUTPUT);
+    }
     writeLine(false);
     pulseActive = false;
     everTriggered = false;
@@ -62,9 +64,9 @@ void Dribbler::stop() {
 }
 
 bool Dribbler::requestFeed() {
-#ifdef TEL_DRIVE_CONVEYOR_ONLY
-    return false; // Tower not configured for this bench.
-#endif
+    if (!BuildProfile::DRIVES_FEED_TOWER) {
+        return false; // Tower not wired on this bench.
+    }
     if (isBusy()) {
         return false;
     }
@@ -104,9 +106,8 @@ void Dribbler::setFeedAllowed(bool allowed) {
 }
 
 void Dribbler::writeLine(bool active) {
-#ifdef TEL_DRIVE_CONVEYOR_ONLY
-    (void)active;
-    return;
-#endif
+    if (!BuildProfile::DRIVES_FEED_TOWER) {
+        return;
+    }
     digitalWrite(Tower::TRIGGER_PIN, active == Tower::TRIGGER_ACTIVE_HIGH ? HIGH : LOW);
 }

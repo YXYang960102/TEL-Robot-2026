@@ -17,7 +17,7 @@ extern "C" {
 
 namespace {
 
-// Same 100 Hz cadence as tools/stm32_elrs_bidirectional_test, whose CRSF
+// Same 100 Hz cadence as the retired stm32_elrs_bidirectional_test bench, whose CRSF
 // link to the TX module on this exact board/pin is hardware-confirmed.
 constexpr uint32_t RC_PERIOD_MS = 10;
 constexpr uint32_t RF_REPORT_PERIOD_MS = 250;

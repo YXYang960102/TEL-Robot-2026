@@ -139,9 +139,10 @@ typedef enum {
 
 const char *rcmap_event_name(uint16_t code);
 
-/* Status packed into the fields of a standard CRSF Battery frame -- the
- * one telemetry type already proven to cross this ELRS link end to end
- * (tools/stm32_elrs_bidirectional_test). voltage = 0xA5 marker in the high
+/* Status packed into the fields of a standard CRSF Battery frame -- a
+ * telemetry type ELRS relays from a flight controller as-is. NOT yet
+ * verified end to end on this link (the earlier bench may only have shown
+ * LINK_STATISTICS frames; see docs/codex-handoff.md). voltage = 0xA5 marker in the high
  * byte + flags in the low byte; current = last event code; capacity =
  * 24-bit event sequence number; remaining = rolling counter from the
  * bridge so the ground can tell fresh status from a repeated stale one. */

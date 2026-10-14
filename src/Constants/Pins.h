@@ -6,26 +6,25 @@
 // ShooterConstants.h. While false, Enable is refused, so provisional pins
 // can never be driven just because a comment says "provisional".
 //
+// The partial-hardware wired benches (BuildProfile.h) confirm only the
+// outputs they drive, so Enable is allowed there.
+//
 // TEL_HOST_TEST_PIN_TABLE_CONFIRMED exists only so the host test
 // (test/manual_control_test.cpp) can exercise the armed paths; it is a hard
 // compile error in any Arduino build, so firmware can't bypass the gate.
+#include "BuildProfile.h"
+#include "DribblerConstants.h"
+
 #if defined(TEL_HOST_TEST_PIN_TABLE_CONFIRMED)
 #if defined(ARDUINO)
 #error "TEL_HOST_TEST_PIN_TABLE_CONFIRMED is for host tests only"
 #endif
 constexpr bool PIN_TABLE_CONFIRMED = TEL_HOST_TEST_PIN_TABLE_CONFIRMED;
-#elif defined(TEL_DRIVE_CONVEYOR_ONLY)
-#ifndef TEL_WIRED_MANUAL_ONLY
-#error "Partial pin confirmation is restricted to wired manual testing"
-#endif
-// Only drive/conveyor outputs exist in this test profile.
-constexpr bool PIN_TABLE_CONFIRMED = true;
 #else
-constexpr bool PIN_TABLE_CONFIRMED = false;
-#include "DribblerConstants.h"
+constexpr bool PIN_TABLE_CONFIRMED = BuildProfile::PARTIAL_HARDWARE_BENCH;
+#endif
 static_assert(!PIN_TABLE_CONFIRMED || DribblerConstants::Conveyor::CONFIGURED,
               "Configure horizontal conveyor ESC signal before enabling outputs");
-#endif
 
 // Where each pin lives: every motor/sensor pin is defined exactly once, in
 // its subsystem's Constants file (ChassisConstants.h, DribblerConstants.h,
@@ -42,9 +41,3 @@ static_assert(!PIN_TABLE_CONFIRMED || DribblerConstants::Conveyor::CONFIGURED,
 // but which Serial port this link uses is still a signal-wiring decision,
 // so it's kept here with the rest of them. See src/IO/MechLink.h.
 #define MECH_LINK_SERIAL_PORT Serial2
-
-#ifdef TEL_MANUAL_FLYWHEEL_TEST
-#ifndef TEL_MANUAL_AXES_TEST
-#error "Flywheel bench requires manual axes profile"
-#endif
-#endif
