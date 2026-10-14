@@ -28,39 +28,20 @@ constexpr bool EXTERNAL_ENCODER_ENABLED = false;
 // Provisional command travel, not calibrated mechanical limits.
 constexpr double POSITION_INITIAL_US = 1500.0;
 constexpr double POSITION_RATE_US_PER_SECOND = 1000.0;
-constexpr uint8_t LEFT_SIGNAL_PIN = 24;
-constexpr uint8_t RIGHT_SIGNAL_PIN = 26;
+constexpr uint8_t ANGLE_PIN = 24; // elevation servo signal
 
 constexpr int MIN_PULSE_US = 1000;
 constexpr int NEUTRAL_US = 1500;
 constexpr int MAX_PULSE_US = 2000;
-constexpr ServoMotorConfig LEFT_MOTOR(
-    LEFT_INVERTED,
-    MIN_PULSE_US,
-    NEUTRAL_US,
-    MAX_PULSE_US);
-constexpr ServoMotorConfig RIGHT_MOTOR(
-    RIGHT_INVERTED,
+constexpr ServoMotorConfig MOTOR(
+    INVERTED,
     MIN_PULSE_US,
     NEUTRAL_US,
     MAX_PULSE_US);
 
-// Legacy all_robot_017 wiring: HIGH means the beam input is triggered.
-constexpr uint8_t UP_LIMIT_PIN = 52;
-constexpr uint8_t DOWN_LIMIT_PIN = 53;
-constexpr bool LIMIT_TRIGGERED_HIGH = true;
-constexpr bool LIMIT_USE_INTERNAL_PULLUP = false;
-constexpr unsigned long LIMIT_DEBOUNCE_MS = 8;
-constexpr DigitalLimitSwitchConfig UP_LIMIT_SWITCH(
-    UP_LIMIT_PIN,
-    LIMIT_TRIGGERED_HIGH,
-    LIMIT_USE_INTERNAL_PULLUP,
-    LIMIT_DEBOUNCE_MS);
-constexpr DigitalLimitSwitchConfig DOWN_LIMIT_SWITCH(
-    DOWN_LIMIT_PIN,
-    LIMIT_TRIGGERED_HIGH,
-    LIMIT_USE_INTERNAL_PULLUP,
-    LIMIT_DEBOUNCE_MS);
+// No elevation limit switches are installed (Jeremy, 2026-10-14). The
+// legacy all_robot_017 up/down inputs on D52/D53 were removed: unwired and
+// without a pull-up they floated and could randomly block one direction.
 
 constexpr int ENCODER_COUNTS_PER_REV = 4096;
 constexpr int ENCODER_HALF_COUNTS_PER_REV = ENCODER_COUNTS_PER_REV / 2;

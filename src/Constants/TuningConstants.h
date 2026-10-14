@@ -40,8 +40,7 @@ constexpr double MAX_COMMAND = 1.0;
 
 namespace Angle {
 
-constexpr bool LEFT_INVERTED = false;
-constexpr bool RIGHT_INVERTED = true;
+constexpr bool INVERTED = false;
 
 constexpr double kP = 0.0;
 constexpr double kI = 0.0;

@@ -2722,3 +2722,102 @@ bench.
 ## 2026-10-14 — Codex To Claude：dev合併main
 
 Jeremy明確要求先把現在dev合併main。fetch後本機/遠端dev皆a5030ef，本機/遠端main一致，工作目錄clean。main執行git merge --no-ff dev產生2b05374，無衝突，合併後tree與dev完全相同。追加本紀錄後推送main；沒有改dev功能或Pages部署來源（仍dev）。Dashboard control/page與vision_follow_controller host測試皆過；Mega production/manual_axes PIO皆SUCCESS，既有rotateRawToDegrees未校準端點造成division-by-zero warning仍存在，未修復。未上傳/未實機；完整pin gate仍false，Dashboard overrun/隊友瀏覽器無回應仍未解決。本次只是分支整合，不宣稱正式功能驗收。保留所有歷史，沒有force push。當前checkout留在main。
+## 2026-10-14 — Claude Code: cleanup batch 1 — pins in one place, single elevation servo, elevation limits removed
+
+**User Request:** Jeremy had three asks:
+- Why is there a `RIGHT_SIGNAL_PIN` when the elevation now needs one motor?
+- What are `UP_LIMIT_PIN = 52` / `DOWN_LIMIT_PIN = 53`? They aren't used.
+- "我改pin就想改一個地方就好，爲什麼還要去改Pins.h？這個安全協定把它拿掉"
+  (I want to change a pin in one place; drop the extra Pins.h check).
+
+Mid-change he added: rename the elevation pin to `Angle_PIN`. The code uses
+`ANGLE_PIN`, following the project's all-caps constant convention.
+
+His decisions:
+- Keep an automatic "no two outputs on one pin" check, since it never needs
+  a second edit.
+- Leave the `PIN_TABLE_CONFIRMED` Enable gate untouched.
+- Push dev and main.
+
+**Discussion Result / Why:**
+- **`RIGHT_SIGNAL_PIN` (26)** and friends were leftovers from the old
+  two-servo elevation. The second output had already been removed; the
+  constants, `RIGHT_MOTOR`, `RIGHT_INVERTED`, `rightAnglePulseUs` and a
+  getter that always returned 0 were not.
+- **D52/D53 were a real production bug**:
+  - They are legacy all_robot_017 elevation up/down limit inputs.
+  - Production configured them as `INPUT` with no pull-up, but no switches
+    are installed, so the pins float.
+  - `limitAngleCommand()` used them through `DirectionalLimit`, so a
+    floating HIGH could randomly block one elevation direction.
+  - The rotate axis already had `LIMIT_SWITCHES_INSTALLED = false`; the
+    angle axis did not.
+  - The wired manual profiles skip sensor init, which is why this was never
+    seen on the bench.
+- **Pins.h held two more copies of pins:**
+  - the bench "must equal 48/46/45, 24/23, 25" static_asserts, which forced
+    a second edit;
+  - unused legacy `#define PIN_ESC_HORI 23 / PIN_ESC_VER 24 / PIN_FALCON 25 /
+    PIN_SAFE 28 / PIN_POT A3`, referenced nowhere.
+
+**Changed:**
+- `TuningConstants::Angle`: `LEFT_INVERTED` / `RIGHT_INVERTED` become
+  `INVERTED` (= false, unchanged).
+- `ShooterConstants::Angle`:
+  - `LEFT_SIGNAL_PIN` / `RIGHT_SIGNAL_PIN` become `ANGLE_PIN = 24`.
+  - `LEFT_MOTOR` / `RIGHT_MOTOR` become `MOTOR`.
+  - The up/down limit pins, the `LIMIT_*` constants and the
+    `UP/DOWN_LIMIT_SWITCH` configs are removed.
+- `Shooter.h/.cpp`:
+  - `angleLeftServo` becomes `angleServo`.
+  - `leftAnglePulseUs` becomes `anglePulseUs`; `rightAnglePulseUs` is
+    removed.
+  - `getLeftAnglePulseUs()` becomes `getAnglePulseUs()`;
+    `getRightAnglePulseUs()` is removed.
+  - The angle limit-switch states, getters, init and update calls are
+    removed.
+  - `limitAngleCommand()` no longer applies switch limits. Encoder soft
+    limits are unchanged and still off until calibrated.
+  - Rotate limit handling is untouched.
+- `ShooterKeyboardTest.cpp` bench: prints a fixed 0 in the three removed
+  fields, so the shooter_keyboard_test page's columns don't shift.
+- `Pins.h`:
+  - Removed the bench pin-equality asserts, the unused `PIN_*` defines, and
+    the chassis/conveyor collision asserts (superseded, see below).
+  - Kept the Enable gate, `MECH_LINK_SERIAL_PORT`, and the "flywheel
+    profile requires the axes profile" `#error`.
+  - The header comment now says where pins live.
+- `main.cpp`: one constexpr pin check, written in C++11 recursive style for
+  the AVR toolchain. It covers chassis L/R, conveyor, tower trigger,
+  elevation, turret and flywheel:
+  - all of them must be distinct;
+  - none may sit on a hardware serial pin (0/1, 14–19).
+
+  Nothing in it repeats a pin value.
+
+**Evidence:**
+- All 8 PIO envs build.
+- All host and page tests pass: vision_follow, vision bench, pidf,
+  directional_limit, position_profile, shot_table, servo_jog, rcmap,
+  manual_control (three variants), conveyor (two), ground, and 3 node
+  tests. `git diff --check` is clean.
+- Behavior checks, each reverted afterwards:
+  - (A) Elevation 24 → 30, edited only in ShooterConstants:
+    `mega_manual_axes_test` builds.
+  - (B) Elevation = 25 (the flywheel pin): production fails with "Two
+    outputs share a pin".
+  - (C) Elevation = 17 (Serial2): fails with "An output is on a hardware
+    serial pin".
+- Not run on hardware. The only production behavior change is that the
+  elevation is no longer blockable by floating D52/D53.
+
+**Not in this batch (listed for Jeremy, needs his direction):**
+- Semi-auto fire confirm reads `MechLink::fireChannel`, which is always
+  released, so semi-auto never fires.
+- Dead AS5600 elevation encoder / counts closed loop.
+- Uncalibrated rotate pot (A3) position control and its divide-by-zero
+  warning.
+- `Vision::getXPred()` is computed but unused.
+- About 20 bench-profile `#ifdef`s in Shooter/Dribbler.
+- Superseded `tools/stm32_elrs_ground_bridge` and
+  `stm32_elrs_bidirectional_test`.

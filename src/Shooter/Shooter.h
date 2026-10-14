@@ -69,8 +69,6 @@ public:
     static bool isAngleHomed();
     static bool isAngleReady();
     static bool areAngleSoftLimitsActive();
-    static bool isAngleUpLimitTriggered();
-    static bool isAngleDownLimitTriggered();
     static bool isRotateLeftLimitTriggered();
     static bool isRotateRightLimitTriggered();
     static bool isRotatePositionSensorValid();
@@ -92,8 +90,7 @@ public:
     static long getAngleTargetCounts();
     static double getAngleDegrees();
     static int getAngleErrorCounts();
-    static int getLeftAnglePulseUs();
-    static int getRightAnglePulseUs();
+    static int getAnglePulseUs();
     static int getRotatePulseUs();
     static int getFlywheelPulseUs();
     // The open-loop command actually driving the flywheel, 0.0-1.0. Added
@@ -158,7 +155,7 @@ private:
         double maximumCommand);
     static double rotateRawToDegrees(double raw);
 
-    static Servo angleLeftServo;
+    static Servo angleServo;
 
     static Servo rotateServo;
     static Servo flywheelOutput;
@@ -186,14 +183,11 @@ private:
     static unsigned long lastRotateControlMs;
     static unsigned long angleReadySinceMs;
     static unsigned long rotateReadySinceMs;
-    static int leftAnglePulseUs;
-    static int rightAnglePulseUs;
+    static int anglePulseUs;
     static int rotatePulseUs;
     static int flywheelPulseUs;
     static unsigned long flywheelSpinStartMs;
     static bool flywheelReady;
-    static DebouncedLimitSwitchState angleUpLimitState;
-    static DebouncedLimitSwitchState angleDownLimitState;
     static DebouncedLimitSwitchState rotateLeftLimitState;
     static DebouncedLimitSwitchState rotateRightLimitState;
 };
