@@ -23,7 +23,7 @@
  *   CH1  left drive      1000..2000 us  = -1..+1
  *   CH2  right drive     1000..2000 us  = -1..+1
  *   CH3  flywheel        1000..2000 us  = 0..1 open-loop ratio (not RPM)
- *   CH4  operator mode   2000 = FULL_MANUAL (only value sent for now)
+ *   CH4  operator mode   2000 / 1750 / 1500 = FULL_MANUAL / SEMI_AUTO / FULL_AUTO
  *   CH5  arm             1000 = disarmed, 2000 = enable requested
  *   CH6  rotate jog      1000/1500/2000 = -1/0/+1
  *   CH7  angle jog       1000/1500/2000 = -1/0/+1
@@ -59,7 +59,32 @@ extern "C" {
 #define RCMAP_CHANNEL_COUNT 10u
 
 #define RCMAP_COUNTER_LEVELS 6u
+/* Operator mode on CH4 (a full-resolution channel). Ids match the
+ * firmware's OperatorMode enum order. The ground sends exactly the *_US
+ * values; the robot decodes with thresholds halfway between them. */
+#define RCMAP_MODE_FULL_AUTO 0u
+#define RCMAP_MODE_SEMI_AUTO 1u
+#define RCMAP_MODE_FULL_MANUAL 2u
+#define RCMAP_MODE_FULL_AUTO_US 1500
+#define RCMAP_MODE_SEMI_AUTO_US 1750
 #define RCMAP_MODE_FULL_MANUAL_US 2000
+#define RCMAP_MODE_FULL_AUTO_MIN_US 1250
+#define RCMAP_MODE_SEMI_AUTO_MIN_US 1625
+#define RCMAP_MODE_FULL_MANUAL_MIN_US 1875
+
+/* Fail-safe: anything that isn't clearly an auto level (including 0 from a
+ * zero-initialized command, or a value below 1250 us) reads as manual. */
+static inline uint8_t rcmap_mode_from_us(int us) {
+    if (us >= RCMAP_MODE_FULL_MANUAL_MIN_US) return RCMAP_MODE_FULL_MANUAL;
+    if (us >= RCMAP_MODE_SEMI_AUTO_MIN_US) return RCMAP_MODE_SEMI_AUTO;
+    if (us >= RCMAP_MODE_FULL_AUTO_MIN_US) return RCMAP_MODE_FULL_AUTO;
+    return RCMAP_MODE_FULL_MANUAL;
+}
+static inline int rcmap_mode_to_us(uint8_t mode) {
+    return mode == RCMAP_MODE_FULL_AUTO ? RCMAP_MODE_FULL_AUTO_US
+         : mode == RCMAP_MODE_SEMI_AUTO ? RCMAP_MODE_SEMI_AUTO_US
+         : RCMAP_MODE_FULL_MANUAL_US; /* anything unknown = manual */
+}
 
 typedef struct {
     float left;            /* -1..1 */
@@ -71,7 +96,7 @@ typedef struct {
     int8_t angle;          /* -1, 0, +1 */
     uint8_t feed_counter;  /* 0..5 */
     uint8_t lmode_counter; /* 0..5 */
-    int mode_us;           /* raw CH4 */
+    int mode_us;           /* CH4; encode sends rcmap_mode_to_us(rcmap_mode_from_us(mode_us)) */
 } rcmap_command;
 
 /* Fills ch_us[16]; channels beyond RCMAP_CHANNEL_COUNT are set to 1500. */
@@ -134,6 +159,11 @@ typedef enum {
     RCMAP_EVENT_EVENT_SKIPPED,
     RCMAP_EVENT_CONVEYOR_ON,
     RCMAP_EVENT_CONVEYOR_OFF,
+    RCMAP_EVENT_MODE_FULL_MANUAL,
+    RCMAP_EVENT_MODE_SEMI_AUTO,
+    RCMAP_EVENT_MODE_FULL_AUTO,
+    RCMAP_EVENT_FIRE_NOT_READY,
+    RCMAP_EVENT_ENABLE_REJECTED_NOT_MANUAL,
     RCMAP_EVENT_COUNT
 } rcmap_event;
 
@@ -147,6 +177,20 @@ const char *rcmap_event_name(uint16_t code);
  * 24-bit event sequence number; remaining = rolling counter from the
  * bridge so the ground can tell fresh status from a repeated stale one. */
 #define RCMAP_STATUS_MARKER 0xA5u
+
+/* The 16-bit "event code" field also carries the current operator mode in
+ * its top 4 bits, stored as mode + 1 so that 0 means "not reported" (older
+ * robot firmware). Event codes stay far below 0x1000. The robot bridge
+ * forwards the 16 bits unchanged, so it needed no change for this. */
+#define RCMAP_MODE_UNKNOWN 0xFFu
+static inline uint16_t rcmap_status_code(uint16_t event, uint8_t mode) {
+    return (uint16_t)((event & 0x0FFFu) | ((uint16_t)((mode + 1u) & 0x0Fu) << 12));
+}
+static inline uint16_t rcmap_status_code_event(uint16_t code) { return code & 0x0FFFu; }
+static inline uint8_t rcmap_status_code_mode(uint16_t code) {
+    const uint8_t stored = (uint8_t)(code >> 12);
+    return stored == 0u ? RCMAP_MODE_UNKNOWN : (uint8_t)(stored - 1u);
+}
 
 typedef struct {
     uint8_t flags;

@@ -593,7 +593,7 @@
           <div class="metric"><div class="label">target id / 目標編號</div><div class="value" id="targetId">--</div></div>
           <div class="metric"><div class="label">valid / 有效目標</div><div class="value" id="valid">--</div></div>
           <div class="metric" id="shooterReadyCard"><div class="label">shooter ready / 發射準備</div><div class="value" id="shooterReady">--</div></div>
-          <div class="metric"><div class="label">balls left / 剩餘送球</div><div class="value" id="shootRemaining">--</div></div>
+          <div class="metric"><div class="label">operator mode / 操作模式</div><div class="value" id="operatorMode">--</div></div>
           <div class="metric"><div class="label">warn bits / 警告碼</div><div class="value" id="warnBits">--</div></div>
         </div>
       </section>
@@ -605,7 +605,7 @@
         </div>
         <div class="stream-controls">
           <button id="enableControl" disabled>Enable / 啟用輸出</button>
-          <span class="label">W/S/A/D 底盤・R 水平輸送帶開關・F 觸發送球塔・方向鍵 旋轉/俯仰・L 手動/視覺切換・Enter 停用・Space 停用並斷線</span>
+          <span class="label">W/S/A/D 底盤・R 水平輸送帶開關・F 發射・M 模式（全手動→半自動→全自動）・方向鍵 旋轉/俯仰・L 手動/視覺切換・Enter 停用・Space 停用並斷線</span>
         </div>
         <div class="grid">
           <div class="metric"><div class="label">left / right pulse / 左右輪脈衝</div><div class="value" id="chassisPulses">--</div></div>
@@ -716,7 +716,7 @@
   </main>
 
   <script>
-    const ids = ["tx", "ty", "distance", "targetId", "valid", "shooterReady", "shootRemaining", "warnBits", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm"];
+    const ids = ["tx", "ty", "distance", "targetId", "valid", "shooterReady", "operatorMode", "warnBits", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm"];
     const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     const connectButton = document.getElementById("connect");
     const demoButton = document.getElementById("demo");
@@ -771,12 +771,16 @@
     // slower than wired; 3 s is generous for both.
     const ENABLE_PENDING_TIMEOUT_MS = 3000;
     const OWNER_NAMES = ["none / 無", "wired / 有線", "wireless / 無線"];
+    const MODE_FULL_MANUAL = 2;
+    const MODE_NAMES = { 0: "FULL AUTO / 全自動", 1: "SEMI AUTO / 半自動", 2: "FULL MANUAL / 全手動" };
+    const MODE_EVENTS = { MODE_FULL_AUTO: 0, MODE_SEMI_AUTO: 1, MODE_FULL_MANUAL: 2 };
     const DISARM_EVENTS = ["OUTPUTS_DISABLED", "COMMAND_TIMEOUT", "DISABLED_RC_LINK_LOST", "DISABLED_CORRUPT_COMMAND"];
     const ENABLE_REJECT_EVENTS = ["ENABLE_REJECTED_PINS_UNCONFIRMED", "ENABLE_REJECTED_OTHER_SOURCE"];
     // Ground-station events that mean it already released the arm channel.
     const GROUND_RELEASE_EVENTS = ["PC_TIMEOUT", "ENABLE_RELEASED", "RELEASED_CORRUPT_COMMAND", "COMMAND_TOO_LONG"];
     const encoder = new TextEncoder();
     let controlArmed = false;
+    let operatorMode = 2; // MODE_FULL_MANUAL
     let enablePending = false;
     let enablePendingSince = 0;
     // "robot" once a TEL line arrives (Mega USB), "ground" once a ground
@@ -807,14 +811,35 @@
     function setControlArmed(armed) {
       controlArmed = armed;
       if (armed) enablePending = false;
-      controlArmedBadge.textContent = armed ? "enabled / 已啟用" : enablePending ? "enabling / 啟用中" : "disabled / 未啟用";
-      enableButton.textContent = armed ? "Enabled / 輸出已啟用" : enablePending ? "Enabling… / 等待機器人確認" : "Enable / 啟用輸出";
-      flywheelSlider.disabled = !armed;
       if (!armed) {
+        // The firmware drops back to full manual on every disarm.
+        operatorMode = MODE_FULL_MANUAL;
         tankLeft = 0; tankRight = 0; rotateAxis = 0; angleAxis = 0;
         heldKeys.clear();
         setFlywheelSlider(0);
       }
+      updateControlUi();
+    }
+
+    // 0 full auto / 1 semi auto / 2 full manual (src/IO/OperatorMode.h).
+    // Reported by TEL slot 13 (USB), $WIRELESS field 10 (ground station)
+    // and the MODE_* events; the robot is the source of truth.
+    function setOperatorMode(mode) {
+      if (!(mode in MODE_NAMES) || mode === operatorMode) return;
+      operatorMode = mode;
+      // The firmware zeroes the flywheel on every mode change.
+      setFlywheelSlider(0);
+      updateControlUi();
+    }
+
+    function updateControlUi() {
+      const modeName = MODE_NAMES[operatorMode];
+      controlArmedBadge.textContent = controlArmed ? `enabled / 已啟用 · ${modeName}`
+        : enablePending ? "enabling / 啟用中" : "disabled / 未啟用";
+      enableButton.textContent = controlArmed ? "Enabled / 輸出已啟用" : enablePending ? "Enabling… / 等待機器人確認" : "Enable / 啟用輸出";
+      el.operatorMode.textContent = modeName;
+      // In the auto modes the shot table sets the flywheel, not the slider.
+      flywheelSlider.disabled = !controlArmed || operatorMode !== MODE_FULL_MANUAL;
     }
 
     // The firmware zeroes the flywheel on every disarm (Enter, Space,
@@ -1177,7 +1202,8 @@
         ch3: Number(p[10]),
         ch8: Number(p[11]),
         shooterReady: Number(p[12]) === 1,
-        shootRemaining: Number(p[13]),
+        // Slot 13 = operator mode + 1 (0 from older firmware = not reported).
+        operatorMode: Number(p[13]) - 1,
         warn: Number(p[14]),
         robotX: p.length > 15 ? Number(p[15]) : NaN,
         robotY: p.length > 16 ? Number(p[16]) : NaN,
@@ -1219,7 +1245,7 @@
       el.shooterReady.textContent = data.shooterReady ? "YES" : "NO";
       shooterReadyCard.classList.toggle("state-ok", data.shooterReady);
       shooterReadyCard.classList.toggle("state-bad", !data.shooterReady);
-      el.shootRemaining.textContent = data.shootRemaining;
+      setOperatorMode(data.operatorMode); // ignores -1 (not reported)
       el.warnBits.textContent = data.warn;
       el.ch0.textContent = data.ch0;
       el.ch1.textContent = data.ch1;
@@ -1392,6 +1418,7 @@
         // OUTPUTS_ENABLED -- only an enable this page asked for arms it.
         if (eventName === "OUTPUTS_ENABLED" && enablePending) setControlArmed(true);
         if (DISARM_EVENTS.includes(eventName)) setControlArmed(false);
+        if (eventName in MODE_EVENTS && controlArmed) setOperatorMode(MODE_EVENTS[eventName]);
         if (ENABLE_REJECT_EVENTS.includes(eventName) && enablePending) failEnable(eventName);
         appendControlLog(eventName);
         return;
@@ -1641,7 +1668,7 @@
     function handleWirelessStatus(line) {
       const p = line.trim().split(",").map(Number);
       if (p.length < 9) return;
-      const [, fresh, armed, owner, pins, feedBusy, rotateManual, , ageMs] = p;
+      const [, fresh, armed, owner, pins, feedBusy, rotateManual, , ageMs, mode] = p;
       if (!fresh) {
         // No auto-stop here: the robot disarms itself on RC loss. This only
         // tells the operator they are driving without feedback.
@@ -1657,6 +1684,7 @@
       const wirelessOwned = armed === 1 && owner === 2;
       if (controlArmed && !wirelessOwned) setControlArmed(false);
       else if (!controlArmed && enablePending && wirelessOwned) setControlArmed(true);
+      if (controlArmed && Number.isInteger(mode) && mode >= 0) setOperatorMode(mode);
     }
 
     enableButton.addEventListener("click", async () => {
@@ -1671,7 +1699,7 @@
     });
 
     flywheelSlider.addEventListener("input", async () => {
-      if (!controlArmed) {
+      if (!controlArmed || operatorMode !== MODE_FULL_MANUAL) {
         setFlywheelSlider(0);
         return;
       }
@@ -1720,7 +1748,7 @@
         await sendAllAxesIfChanged();
         return;
       }
-      if ((key === "f" || key === "l" || key === "r") && !event.repeat) {
+      if ((key === "f" || key === "l" || key === "r" || key === "m") && !event.repeat) {
         event.preventDefault();
         await sendControl(key.toUpperCase());
       }

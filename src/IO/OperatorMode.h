@@ -1,18 +1,21 @@
 #pragma once
 
-// Top-level mode selected by the operator's keypad over the ELRS/CRSF
-// mechanism link (MechLink; see src/IO/MechLink.h -- this no longer goes
-// through SBUS). Rotate's vision-follow logic treats FULL_AUTO and
-// SEMI_AUTO identically — both auto-aim continuously. Semi-auto only
-// changes whether firing needs an explicit button press before it
-// executes; that trigger/flywheel logic doesn't exist yet and is out of
-// scope here. Only FULL_MANUAL disables auto-aim and hands the axis back
-// to direct keypad/joystick control.
-enum class OperatorMode { FULL_AUTO, SEMI_AUTO, FULL_MANUAL };
+#include <stdint.h>
 
-class OperatorModeSelector {
-public:
-    // Loss of RC signal always resolves to FULL_MANUAL — losing the link
-    // must never leave an axis armed for autonomous motion.
-    static OperatorMode current();
+#include "RcControlMap.h"
+
+// Operator mode, chosen with M (wired Dashboard) or CH4 (wireless ground
+// station) while armed; src/IO/ManualControl.cpp owns it and Auto reads it.
+//   FULL_MANUAL: the operator drives everything (F fires the tower directly).
+//   SEMI_AUTO:   turret follows the camera, flywheel from the shot table;
+//                F fires once the turret is locked and the flywheel is up.
+//   FULL_AUTO:   same aiming, and it fires by itself whenever ready.
+// Chassis and elevation stay with the operator in every mode. Disarm, link
+// loss and every new Enable go back to FULL_MANUAL.
+//
+// Values match the RCMAP_MODE_* ids carried on CH4 and in the status uplink.
+enum class OperatorMode : uint8_t {
+    FULL_AUTO = RCMAP_MODE_FULL_AUTO,
+    SEMI_AUTO = RCMAP_MODE_SEMI_AUTO,
+    FULL_MANUAL = RCMAP_MODE_FULL_MANUAL
 };

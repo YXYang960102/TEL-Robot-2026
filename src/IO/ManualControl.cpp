@@ -37,6 +37,8 @@ double ManualControl::flywheelCommand = 0.0;
 // start driving the turret toward whatever Vision locks onto the instant
 // outputs are enabled, with no explicit per-axis operator action.
 bool ManualControl::rotateManualActive = true;
+OperatorMode ManualControl::operatorMode = OperatorMode::FULL_MANUAL;
+bool ManualControl::fireRequested = false;
 
 unsigned long ManualControl::eventSeq = 0;
 uint16_t ManualControl::lastEventCode = RCMAP_EVENT_NONE;
@@ -65,9 +67,7 @@ void ManualControl::update() {
     readIncomingLines();
     processWirelessFrame();
 
-    if (owner == Owner::NONE) {
-        Dribbler::setFeedAllowed(false);
-    } else {
+    if (owner != Owner::NONE) {
         applyOutputs();
     }
     sendStatusIfDue();
@@ -95,6 +95,20 @@ bool ManualControl::didTimeOut() {
 
 double ManualControl::getFlywheelCommand() {
     return flywheelCommand;
+}
+
+OperatorMode ManualControl::getOperatorMode() {
+    return owner == Owner::NONE ? OperatorMode::FULL_MANUAL : operatorMode;
+}
+
+bool ManualControl::takeFireRequest() {
+    const bool requested = fireRequested;
+    fireRequested = false;
+    return requested;
+}
+
+void ManualControl::reportEvent(rcmap_event event) {
+    sendEvent(event);
 }
 
 // ---------------------------------------------------------------- wired
@@ -163,7 +177,8 @@ void ManualControl::processCommand(char* command) {
     const bool isRotate = strncmp(command, "ROT,", 4) == 0;
     const bool isAngle = strncmp(command, "ANG,", 4) == 0;
     const bool isFlywheel = strncmp(command, "FLY,", 4) == 0;
-    const bool isSingle = command[1] == '\0' && (command[0] == 'F' || command[0] == 'L' || command[0] == 'R');
+    const bool isSingle = command[1] == '\0' &&
+        (command[0] == 'F' || command[0] == 'L' || command[0] == 'R' || command[0] == 'M');
 
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle) {
         sendEvent(RCMAP_EVENT_UNKNOWN_COMMAND);
@@ -215,7 +230,9 @@ void ManualControl::processCommand(char* command) {
         Dribbler::setConveyor(!Dribbler::isConveyorOn());
         sendEvent(Dribbler::isConveyorOn() ? RCMAP_EVENT_CONVEYOR_ON : RCMAP_EVENT_CONVEYOR_OFF);
     } else if (command[0] == 'F') {
-        triggerFeed();
+        handleFire();
+    } else if (command[0] == 'M') {
+        cycleOperatorMode();
     } else {
         toggleRotateMode();
     }
@@ -274,8 +291,16 @@ void ManualControl::processWirelessFrame() {
     if (falling && owner == Owner::WIRELESS) {
         disarm(RCMAP_EVENT_OUTPUTS_DISABLED);
     }
+    const uint8_t frameMode = rcmap_mode_from_us(c.mode_us);
     if (rising) {
-        requestEnable(Owner::WIRELESS);
+        // An Enable must never start in an auto mode: the ground station
+        // resets CH4 to manual when it raises the arm channel, so anything
+        // else here is stale or corrupt.
+        if (frameMode != RCMAP_MODE_FULL_MANUAL) {
+            sendEvent(RCMAP_EVENT_ENABLE_REJECTED_NOT_MANUAL);
+        } else {
+            requestEnable(Owner::WIRELESS);
+        }
     }
 
     // Counters always track, so presses made while not owning the robot
@@ -293,7 +318,8 @@ void ManualControl::processWirelessFrame() {
         rotateManualCommand = c.rotate;
         angleManualCommand = c.angle;
         flywheelCommand = c.flywheel;
-        if (feed == RCMAP_COUNTER_EVENT) triggerFeed();
+        setOperatorMode(static_cast<OperatorMode>(frameMode));
+        if (feed == RCMAP_COUNTER_EVENT) handleFire();
         if (lmode == RCMAP_COUNTER_EVENT) toggleRotateMode();
         if (feed == RCMAP_COUNTER_SKIPPED || lmode == RCMAP_COUNTER_SKIPPED) {
             sendEvent(RCMAP_EVENT_EVENT_SKIPPED);
@@ -319,7 +345,6 @@ void ManualControl::requestEnable(Owner source) {
     clearCommands();
     Shooter::stopAll();
     Dribbler::stop();
-    Dribbler::setFeedAllowed(false);
     Chassis::setOutputsEnabled(true);
     Shooter::setOutputsEnabled(true);
     owner = source;
@@ -355,7 +380,6 @@ void ManualControl::disarm(rcmap_event reason) {
     Chassis::setOutputsEnabled(false);
     Shooter::setOutputsEnabled(false);
     Dribbler::stop();
-    Dribbler::setFeedAllowed(false);
     sendEvent(reason);
 }
 
@@ -366,6 +390,9 @@ void ManualControl::clearCommands() {
     angleManualCommand = 0.0;
     flywheelCommand = 0.0;
     rotateManualActive = true;
+    // Disarm and every Enable start over in full manual, with no stale F.
+    operatorMode = OperatorMode::FULL_MANUAL;
+    fireRequested = false;
 }
 
 void ManualControl::triggerFeed() {
@@ -373,6 +400,44 @@ void ManualControl::triggerFeed() {
     // honestly report. Busy = still inside the tower's lockout; refused,
     // never queued.
     sendEvent(Dribbler::requestFeed() ? RCMAP_EVENT_FEED_TRIGGER_SENT : RCMAP_EVENT_FEED_BUSY);
+}
+
+void ManualControl::handleFire() {
+    if (operatorMode == OperatorMode::FULL_MANUAL) {
+        triggerFeed();
+    } else {
+        // Auto decides whether the shot can go now (semi-auto: only when the
+        // turret is locked and the flywheel is up; it reports FIRE_NOT_READY
+        // otherwise). Full-auto fires by itself, so the request is harmless.
+        fireRequested = true;
+    }
+}
+
+void ManualControl::cycleOperatorMode() {
+    if (ManualControlConstants::WIRED_MANUAL_ONLY) {
+        // Wired benches have no camera/auto path: stay manual, like L.
+        sendEvent(RCMAP_EVENT_MODE_FULL_MANUAL);
+        return;
+    }
+    setOperatorMode(operatorMode == OperatorMode::FULL_MANUAL ? OperatorMode::SEMI_AUTO
+                    : operatorMode == OperatorMode::SEMI_AUTO  ? OperatorMode::FULL_AUTO
+                                                               : OperatorMode::FULL_MANUAL);
+}
+
+void ManualControl::setOperatorMode(OperatorMode mode) {
+    if (mode == operatorMode) {
+        return;
+    }
+    operatorMode = mode;
+    // Whoever had the turret/flywheel before the switch gives them up from
+    // zero: leaving auto must not jump the flywheel back to an old slider
+    // value, and entering it must not carry a manual jog.
+    rotateManualCommand = 0.0;
+    flywheelCommand = 0.0;
+    fireRequested = false;
+    sendEvent(mode == OperatorMode::FULL_MANUAL ? RCMAP_EVENT_MODE_FULL_MANUAL
+              : mode == OperatorMode::SEMI_AUTO ? RCMAP_EVENT_MODE_SEMI_AUTO
+                                                : RCMAP_EVENT_MODE_FULL_AUTO);
 }
 
 void ManualControl::toggleRotateMode() {
@@ -392,6 +457,12 @@ void ManualControl::applyOutputs() {
         tankLeftCommand * CHASSIS_MANUAL_SCALE,
         tankRightCommand * CHASSIS_MANUAL_SCALE);
 
+    // Elevation has no sensor, so it stays with the operator in every mode.
+    Shooter::setAngleOpenLoop(angleManualCommand * ANGLE_MANUAL_SCALE);
+
+    if (operatorMode != OperatorMode::FULL_MANUAL) {
+        return; // turret and flywheel belong to Auto (runs right after this)
+    }
     if (rotateManualActive) {
         Shooter::setRotateOpenLoop(rotateManualCommand * ROTATE_MANUAL_SCALE);
     } else if (Vision::isConnected() && Vision::isVisionReady()) {
@@ -399,9 +470,7 @@ void ManualControl::applyOutputs() {
     } else {
         Shooter::disableRotate();
     }
-    Shooter::setAngleOpenLoop(angleManualCommand * ANGLE_MANUAL_SCALE);
     Shooter::setFlywheelOpenLoop(flywheelCommand);
-    Dribbler::setFeedAllowed(false); // manual feeding goes through triggerFeed() only
 }
 
 uint8_t ManualControl::statusFlags() {
@@ -422,7 +491,8 @@ void ManualControl::sendStatusIfDue() {
         return;
     }
     lastStatusMs = now;
-    MechLink::sendStatus(statusFlags(), eventSeq, lastEventCode);
+    MechLink::sendStatus(statusFlags(), eventSeq,
+                         rcmap_status_code(lastEventCode, static_cast<uint8_t>(getOperatorMode())));
 }
 
 void ManualControl::sendEvent(rcmap_event event) {

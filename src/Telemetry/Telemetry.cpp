@@ -61,7 +61,10 @@ void Telemetry::update() {
     Serial.print(",");
     Serial.print(Shooter::isReady() ? 1 : 0);
     Serial.print(",");
-    Serial.print(Dribbler::getShootRemaining());
+    // Slot 13 (was the retired shot-queue count, always 0): operator mode
+    // + 1 -- 1 = full auto, 2 = semi auto, 3 = full manual (OperatorMode.h).
+    // The +1 keeps an older firmware's 0 from reading as "full auto".
+    Serial.print(static_cast<int>(ManualControl::getOperatorMode()) + 1);
     Serial.print(",");
     Serial.print(warn);
     Serial.print(",");

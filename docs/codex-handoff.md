@@ -2995,3 +2995,164 @@ has no mode command. Semi-auto fire confirm reads `MechLink::fireChannel`,
 which is always released. So Auto, the shot table and the vision-ready gate
 cannot be started from the PC. This needs Jeremy's choice of mode key and
 fire-confirm key.
+
+## 2026-10-14 — Claude Code: operator modes — M switches full manual / semi auto / full auto, F fires
+
+**User Request:** item 1 of the second cleanup list. Jeremy: "用M鍵 / 發射都是F" (M switches
+modes, F always fires). He then chose:
+- **Full auto fires by itself** whenever it is ready; F is needed only in
+  semi-auto.
+- **M can be pressed any time while armed, and disarm returns to full
+  manual.** Enter, Space, link loss and timeout all go back to manual, and
+  a new Enable never starts in auto.
+- **The flywheel follows the shot table** by camera distance in the auto
+  modes.
+
+**Discussion Result / Why:** the auto path was dead in three places, not
+only "missing a key":
+1. `Auto::update()` returned whenever `ManualControl::isActive()`, but
+   outputs exist only while armed. So Auto could only run when every
+   output was disabled.
+2. It waited for `Dribbler::getShootRemaining() > 0`, which nothing ever
+   set. It was zeroed at boot.
+3. The mode came only from wireless CH4, which the ground always sent as
+   2000 (manual). The wired path had no mode command, and the semi-auto
+   confirm read `MechLink::fireChannel`, which was hard-wired to released.
+
+**New ownership while armed:**
+
+| | FULL_MANUAL | SEMI_AUTO / FULL_AUTO |
+|---|---|---|
+| chassis, elevation, conveyor | ManualControl | ManualControl |
+| turret | ManualControl (arrows / L) | Auto: vision-follow PIDF |
+| flywheel | ManualControl (slider) | Auto: shot table (`SHOOT_COMMAND` 0.8 with no target) |
+| F | fires the tower directly | a fire request taken by Auto |
+
+ManualControl still owns Enable, the watchdogs and link-loss handling in
+every mode.
+
+**Changed:**
+- `RcControlMap.{h,c}` (shared):
+  - CH4 levels: 2000 / 1750 / 1500 = full manual / semi auto / full auto.
+  - `rcmap_mode_from_us` is **fail-safe**: ≥1875 manual, ≥1625 semi,
+    ≥1250 auto, and anything below 1250 (including 0) is **manual**.
+  - `rcmap_encode` now sends the command's mode; previously it was always
+    2000.
+  - Status: the 16-bit event-code field carries **mode+1 in its top 4
+    bits**, so 0 means not reported and older firmware never reads as
+    "full auto". The robot bridge forwards those 16 bits unchanged, and
+    **its image sha256 is unchanged (`99b017a4…`), so no reflash is
+    needed**.
+  - New events, appended to the end of the list: `MODE_FULL_MANUAL`,
+    `MODE_SEMI_AUTO`, `MODE_FULL_AUTO`, `FIRE_NOT_READY`,
+    `ENABLE_REJECTED_NOT_MANUAL`.
+- `OperatorMode.h`: the enum values are now the `RCMAP_MODE_*` ids. The
+  `OperatorModeSelector` and `OperatorMode.cpp` are removed.
+- `ManualControl`:
+  - Owns `operatorMode`. Wired `M` (armed owner only) cycles the mode;
+    while disarmed it gets `REJECTED_DISARMED`. Wireless takes the level
+    from CH4 while the wireless side is the owner.
+  - On the wired-manual benches, M stays manual (like L).
+  - Every mode change zeroes the manual turret and flywheel commands and
+    any pending F.
+  - `clearCommands()` (used by Enable and disarm) resets the mode to manual.
+  - A **wireless Enable whose CH4 isn't manual is refused**
+    (`ENABLE_REJECTED_NOT_MANUAL`).
+  - `applyOutputs()` skips the turret and flywheel outside full manual.
+  - New public API: `getOperatorMode()` (manual when disarmed),
+    `takeFireRequest()` and `reportEvent()`.
+  - The status line uses `rcmap_status_code(event, mode)`.
+- `Auto`, rewritten:
+  - Runs only when `getOperatorMode() != FULL_MANUAL`, which implies armed.
+  - With a camera: turret vision-follow, flywheel from the shot table.
+  - States are SPINNING_UP → READY (`Shooter::isReady()`: turret locked ≤5
+    px for 100 ms and flywheel spun up) → fire one `Dribbler::requestFeed()`
+    → COOLDOWN (`Auto::COOLDOWN_MS` 300; the tower's 1000 ms lockout also
+    applies).
+  - Full auto fires whenever READY. Semi-auto fires only on F while READY;
+    otherwise it reports `FIRE_NOT_READY` and the press is not queued.
+  - With no camera link, the turret is disabled, the flywheel is 0, and F
+    gets `FIRE_NOT_READY`.
+- `Dribbler`: removed the dead shot queue and feed gate (`setShootRequest`,
+  `getShootRemaining`, `setFeedAllowed`, `DribblerConstants::Request`).
+  `main.cpp` no longer calls it.
+- `MechLink`: removed `fireChannel`.
+- `TuningConstants`: removed `Auto::FEED_DURATION_MS`,
+  `FIRE_BUTTON_THRESHOLD` and the `OperatorMode` thresholds, which moved to
+  RcControlMap. `Auto::COOLDOWN_MS` is re-documented.
+- Telemetry slot 13 (formerly the always-0 shot-queue count) is now
+  **mode+1**: 1 full auto, 2 semi, 3 manual, 0 not reported.
+- Ground station:
+  - `M` cycles CH4 and zeroes the flywheel channel; `$GROUND_EVENT,MODE_*`.
+  - `release()` (X, PC timeout, oversize) and `E` reset CH4 to manual.
+  - Disarmed M gets `REJECTED_NOT_ENABLED`.
+  - `RobotStatusTracker` masks the event from the code, and `$WIRELESS`
+    gains a 10th field, `mode` (-1 = not reported).
+  - README protocol table updated.
+- Dashboard:
+  - M key: one press, no auto-repeat.
+  - A mode metric replaces the old "balls left", and the control badge
+    shows the mode.
+  - The Falcon slider is disabled and ignored outside full manual and
+    resets to 0 on a mode change.
+  - The mode comes from TEL slot 13 (minus 1), `$WIRELESS` field 10, and
+    the `MODE_*` events.
+  - Disarm shows full manual. The hint text documents M.
+
+**Evidence:**
+- All 7 Mega envs build. The production clean build shows **no warnings**
+  (RAM 1977 B, Flash 24210 B).
+- The ground STM32 `pio run` succeeds.
+- Bridge `build.py` passes and the image is unchanged (path-dependent dist
+  artifacts restored).
+- Host tests, all passing. The manual_control build now includes the real
+  `Auto.cpp`, with stubs for `Shooter::isReady`, `Vision::isValid` and
+  `getDistance`.
+  - `manual_control`, three variants. New cases:
+    - wired M cycle, disarmed refusal, reset on X, Enable and watchdog;
+    - the slider ignored in auto;
+    - semi-auto F refused until ready, then exactly one shot, then refused
+      during cooldown, and no shot without F;
+    - full auto: ~2–3 shots in 2.5 s paced by the tower lockout, none
+      without lock, none after M back to manual;
+    - no camera: no turret, no flywheel, no shots;
+    - shot-table flywheel at 5 m;
+    - wireless CH4 mode follow, F via Auto, arm low resets to manual,
+      Enable with CH4 = auto refused;
+    - status mode bits;
+    - on the wired-manual bench, M stays manual.
+  - `rc_control_map`: mode levels and boundaries, the fail-safe low values,
+    encode/decode, status packing including old-firmware → unknown, a
+    Battery round trip, and every event having a name.
+  - `ground`: the M cycle and resets, mode in `$WIRELESS`, event masking,
+    and old-firmware → -1.
+  - The rest: conveyor (two variants), vision_follow, vision bench, pidf,
+    shot_table, servo_jog, crsf, tel_chunk_split, and the three node
+    tests. The page test adds M, the mode display, the slider lock,
+    old-firmware slot 13 = 0 not shown as "FULL AUTO", and the
+    `$WIRELESS` mode.
+- **Mutation checks** (each reverted):
+  - Letting semi-auto fire without F fails `testSemiAutoFiresOnlyWhenReady`.
+  - Removing the mode reset on disarm/Enable fails `testModeKeyWired`.
+- `git diff --check` is clean. **Not run on hardware.**
+
+**Impact / not verified:**
+- Behavior in full manual is unchanged.
+- The auto modes cannot run on hardware yet: the production pin gate is
+  still false and the wired benches lock M to manual.
+- Production firmware, the ground firmware and the Dashboard should be
+  updated together. Mismatched versions show the mode as unknown; they
+  never show it as "full auto".
+- The Battery-frame uplink is still unverified on hardware.
+- Shot-table values and `SHOOT_COMMAND` are placeholders.
+- The elevation stays manual in auto, since it has no sensor; the shot
+  table's angle is not applied.
+
+**Next Test** (once the pin gate is open, wheels and turret clear, no balls
+first):
+1. M cycles and the Dashboard shows each mode.
+2. Semi auto: the turret follows, the flywheel spins to the table value,
+   F before lock gives `FIRE_NOT_READY`, F after lock fires once.
+3. Full auto fires about once per second while locked.
+4. Enter, Space and pulling the USB cable each stop it and return to full
+   manual.

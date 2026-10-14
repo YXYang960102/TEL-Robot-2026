@@ -5,21 +5,17 @@
 #include "../Constants/TuningConstants.h"
 #include "../Control/ShotTableLookup.h"
 #include "../Dribbler/Dribbler.h"
-#include "../IO/MechLink.h"
-#include "../IO/OperatorMode.h"
 #include "../IO/ManualControl.h"
+#include "../IO/OperatorMode.h"
 #include "../Shooter/Shooter.h"
 #include "../Vision/Vision.h"
 
 Auto::FireState Auto::fireState = Auto::FireState::IDLE;
 unsigned long Auto::fireStateEnteredMs = 0;
-bool Auto::fireButtonWasDown = false;
 
 void Auto::init() {
     fireState = FireState::IDLE;
     fireStateEnteredMs = millis();
-    fireButtonWasDown = false;
-    Dribbler::setFeedAllowed(false);
 }
 
 void Auto::enterFireState(FireState next) {
@@ -28,109 +24,75 @@ void Auto::enterFireState(FireState next) {
 }
 
 void Auto::update() {
-    if (ManualControlConstants::WIRED_MANUAL_ONLY) return;
-    // While an operator (wired Dashboard or the wireless ground station,
-    // src/IO/ManualControl.cpp) has the robot armed, it is the sole owner of
-    // every output. Stay entirely out of its way (no Rotate arbitration, no
-    // flywheel zeroing, no feed-gate writes) instead of overwriting its
-    // commands every tick.
-    if (ManualControl::isActive()) {
+    const OperatorMode mode = ManualControl::getOperatorMode();
+    // getOperatorMode() is FULL_MANUAL whenever disarmed (and always on the
+    // wired-manual benches), so this also covers "nobody armed".
+    if (mode == OperatorMode::FULL_MANUAL) {
+        ManualControl::takeFireRequest(); // never let a stale F carry over
         enterFireState(FireState::IDLE);
         return;
     }
 
-    const OperatorMode mode = OperatorModeSelector::current();
+    const bool firePressed = ManualControl::takeFireRequest();
     const bool visionHealthy = Vision::isConnected() && Vision::isVisionReady();
-
-    // Rotate: full-auto and semi-auto both auto-aim continuously (they only
-    // differ on whether firing needs a button press, handled below).
-    // Full-manual, or a vision link that isn't actually healthy, disables
-    // the axis.
-    if (mode == OperatorMode::FULL_MANUAL || !visionHealthy) {
+    if (!visionHealthy) {
+        // No camera: nothing to aim at. Hold the turret, spin down.
         Shooter::disableRotate();
-    } else {
-        Shooter::setRotateVisionFollow();
-    }
-
-    // Momentary fire-confirm button (semi-auto only), edge-detected so a
-    // held button fires once, not every loop. Provisional channel/threshold,
-    // same caveat as OperatorMode's mode channel -- the real keypad doesn't
-    // exist yet.
-    const bool fireButtonDown = MechLink::fireChannel >= TuningConstants::Auto::FIRE_BUTTON_THRESHOLD;
-    const bool fireButtonPressed = fireButtonDown && !fireButtonWasDown;
-    fireButtonWasDown = fireButtonDown;
-
-    const bool wantsToShoot = Dribbler::getShootRemaining() > 0;
-    // Not gated on elevation: it has no sensor (manual position jog only),
-    // so there is no "elevation reached" signal to wait for.
-    const bool canAutoFire =
-        mode != OperatorMode::FULL_MANUAL && visionHealthy && wantsToShoot;
-
-    if (!canAutoFire) {
-        Dribbler::setFeedAllowed(false);
         Shooter::setFlywheelOpenLoop(0.0);
         enterFireState(FireState::IDLE);
+        if (firePressed) ManualControl::reportEvent(RCMAP_EVENT_FIRE_NOT_READY);
         return;
     }
 
-    // Distance-based shot table lookup, computed once per loop instead of
-    // each state case re-deriving the same fixed SHOOT_COMMAND. Falls back
-    // to the fixed command when the camera isn't actually locked onto a
-    // valid target (canAutoFire only requires visionHealthy == the Orin
-    // link being alive, not that it currently sees a target). angleDegrees
-    // is computed but intentionally not driven anywhere yet -- Angle's
-    // closed-loop calibration isn't done, see the comment above canAutoFire.
+    Shooter::setRotateVisionFollow();
+
+    // Flywheel from the shot table when the camera has a target (distance
+    // in mm -> m); otherwise the fixed SHOOT_COMMAND so it is already
+    // spinning when a target appears.
     double flywheelCommand = TuningConstants::Flywheel::SHOOT_COMMAND;
     if (Vision::isValid()) {
-        const ShotTableLookup::Result shot = ShotTableLookup::lookup(
-            Vision::getDistance() / 1000.0,  // mm -> m
+        flywheelCommand = ShotTableLookup::lookup(
+            Vision::getDistance() / 1000.0,
             TuningConstants::ShotTable::TABLE,
-            TuningConstants::ShotTable::TABLE_COUNT);
-        flywheelCommand = shot.flywheelCommand;
+            TuningConstants::ShotTable::TABLE_COUNT).flywheelCommand;
+    }
+    Shooter::setFlywheelOpenLoop(flywheelCommand);
+
+    // Turret locked on the target (|tx| <= 5 px for 100 ms) and flywheel
+    // commanded at shoot speed long enough to be spun up.
+    const bool ready = Shooter::isReady();
+    bool fired = false;
+
+    if (fireState == FireState::IDLE) {
+        enterFireState(FireState::SPINNING_UP);
+    }
+    if (fireState == FireState::COOLDOWN &&
+        millis() - fireStateEnteredMs >= TuningConstants::Auto::COOLDOWN_MS) {
+        enterFireState(FireState::SPINNING_UP);
+    }
+    if (fireState == FireState::SPINNING_UP && ready) {
+        enterFireState(FireState::READY); // a ready shooter can fire this same loop
+    }
+    if (fireState == FireState::READY) {
+        if (!ready) {
+            enterFireState(FireState::SPINNING_UP); // lost lock or spun down
+        } else if (mode == OperatorMode::FULL_AUTO || firePressed) {
+            if (Dribbler::requestFeed()) {
+                ManualControl::reportEvent(RCMAP_EVENT_FEED_TRIGGER_SENT);
+                enterFireState(FireState::COOLDOWN);
+                fired = true;
+            } else if (firePressed) {
+                // Tower still in its own lockout. Full-auto just retries next
+                // loop without reporting every attempt.
+                ManualControl::reportEvent(RCMAP_EVENT_FEED_BUSY);
+                fired = true; // the press was answered
+            }
+        }
     }
 
-    switch (fireState) {
-        case FireState::IDLE:
-            Dribbler::setFeedAllowed(false);
-            Shooter::setFlywheelOpenLoop(flywheelCommand);
-            enterFireState(FireState::SPINNING_UP);
-            break;
-
-        case FireState::SPINNING_UP:
-            Dribbler::setFeedAllowed(false);
-            Shooter::setFlywheelOpenLoop(flywheelCommand);
-            if (Shooter::isRotateReady() && Shooter::isFlywheelReady()) {
-                enterFireState(FireState::READY_TO_FIRE);
-            }
-            break;
-
-        case FireState::READY_TO_FIRE:
-            Shooter::setFlywheelOpenLoop(flywheelCommand);
-            if (!Shooter::isRotateReady() || !Shooter::isFlywheelReady()) {
-                // Lost lock or spun down -- go back and wait again.
-                enterFireState(FireState::SPINNING_UP);
-                break;
-            }
-            if (mode == OperatorMode::FULL_AUTO || fireButtonPressed) {
-                Dribbler::setFeedAllowed(true);
-                enterFireState(FireState::FEEDING);
-            }
-            break;
-
-        case FireState::FEEDING:
-            Shooter::setFlywheelOpenLoop(flywheelCommand);
-            if (millis() - fireStateEnteredMs >= TuningConstants::Auto::FEED_DURATION_MS) {
-                Dribbler::setFeedAllowed(false);
-                enterFireState(FireState::COOLDOWN);
-            }
-            break;
-
-        case FireState::COOLDOWN:
-            Dribbler::setFeedAllowed(false);
-            Shooter::setFlywheelOpenLoop(flywheelCommand);
-            if (millis() - fireStateEnteredMs >= TuningConstants::Auto::COOLDOWN_MS) {
-                enterFireState(FireState::IDLE);
-            }
-            break;
+    // Semi-auto F while not ready (still aiming / spinning up / cooling
+    // down) is refused, not queued: the operator presses again.
+    if (firePressed && !fired && mode == OperatorMode::SEMI_AUTO) {
+        ManualControl::reportEvent(RCMAP_EVENT_FIRE_NOT_READY);
     }
 }

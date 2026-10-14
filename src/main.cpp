@@ -62,12 +62,6 @@ void setup() {
     Chassis::init();
     Telemetry::init();
     Auto::init();
-
-    // Shooting stays disarmed until something actually requests shots.
-    // Previously defaulted to 3 -- now that Auto::update() auto-fires
-    // whenever a shot is queued and the axis is locked+spun-up, leaving
-    // this nonzero would auto-fire on every boot with no operator action.
-    Dribbler::setShootRequest(0);
 }
 
 void loop() {

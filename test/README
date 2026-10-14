@@ -27,15 +27,17 @@ Host tests used in this repo (run from the repo root):
   # Mega, the robot STM32 bridge and the ground STM32.
   gcc -std=c11 -Wall -Wextra -Werror test/rc_control_map_test.c src/IO/RcControlMap.c -lm -o /tmp/t && /tmp/t
 
-  # Operator control firmware path: real ManualControl.cpp + Dribbler.cpp on
-  # fake Arduino pins/time/Serial (test/host_stubs/). Wired + wireless,
-  # control authority, feed-tower trigger. Build both variants.
+  # Operator control firmware path: real ManualControl.cpp + Auto.cpp +
+  # Dribbler.cpp on fake Arduino pins/time/Serial (test/host_stubs/). Wired +
+  # wireless, control authority, feed-tower trigger, operator modes (M,
+  # semi-auto F, full-auto firing). Build both variants (and the wired-manual
+  # bench variant: add -DTEL_WIRED_MANUAL_ONLY -Wno-unused-function).
   gcc -c src/IO/RcControlMap.c -o /tmp/rcmap.o
   g++ -std=c++17 -Wall -Wextra -Werror -I test/host_stubs -DTEL_HOST_TEST_PIN_TABLE_CONFIRMED=true \
-      test/manual_control_test.cpp test/host_stubs/host_stubs.cpp src/IO/ManualControl.cpp src/Dribbler/Dribbler.cpp \
+      test/manual_control_test.cpp test/host_stubs/host_stubs.cpp src/IO/ManualControl.cpp src/Auto/Auto.cpp src/Dribbler/Dribbler.cpp \
       /tmp/rcmap.o -o /tmp/t && /tmp/t
   g++ -std=c++17 -Wall -Wextra -Werror -I test/host_stubs \
-      test/manual_control_test.cpp test/host_stubs/host_stubs.cpp src/IO/ManualControl.cpp src/Dribbler/Dribbler.cpp \
+      test/manual_control_test.cpp test/host_stubs/host_stubs.cpp src/IO/ManualControl.cpp src/Auto/Auto.cpp src/Dribbler/Dribbler.cpp \
       /tmp/rcmap.o -o /tmp/t && /tmp/t
 
   # Ground STM32 command/status logic (tools/stm32_ground_control).
