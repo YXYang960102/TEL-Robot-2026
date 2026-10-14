@@ -36,12 +36,6 @@ constexpr unsigned long PULSE_MS = 100;
 constexpr unsigned long COOLDOWN_MS = 1000;
 }
 
-namespace Request {
-// Only used by Auto's auto-fire sequence (src/Auto/Auto.cpp).
-constexpr int MIN_COUNT = 0;
-constexpr int MAX_COUNT = 12;
-}
-
 static_assert(Tower::COOLDOWN_MS >= Tower::PULSE_MS,
               "The lockout has to cover at least the pulse itself");
 

@@ -399,5 +399,56 @@ async function emergencyStopViaEnter() {
   assert.deepEqual([...writes], ['E', 'X']);
   assert.equal(run('enablePending'), false);
 
+  // ---------------- operator modes (M) ----------------
+  connectFakePort();
+  run('setConnection(true)');
+  clock.t = 30000;
+  await arm();
+  writes.length = 0;
+  await windowHandlers.keydown(key('m'));
+  await windowHandlers.keydown(key('m', { repeat: true }));
+  assert.deepEqual([...writes], ['M']);               // one press, no auto-repeat
+  // The robot confirms; the page shows it and locks the Falcon slider
+  // (the shot table drives the flywheel in the auto modes).
+  event('MODE_SEMI_AUTO');
+  assert.match(elements.controlArmedBadge.textContent, /半自動/);
+  assert.match(elements.operatorMode.textContent, /SEMI AUTO/);
+  assert.equal(elements.flywheelSlider.disabled, true);
+  writes.length = 0;
+  elements.flywheelSlider.value = '60';
+  await elements.flywheelSlider.handlers.input();
+  assert.equal(writes.length, 0);
+  assert.equal(elements.flywheelSlider.value, '0');
+  // F is still sent as-is (the robot decides: fire now or FIRE_NOT_READY).
+  await windowHandlers.keydown(key('f'));
+  assert.equal(last(), 'F');
+  event('MODE_FULL_AUTO');
+  assert.match(elements.operatorMode.textContent, /FULL AUTO/);
+  event('MODE_FULL_MANUAL');
+  assert.equal(elements.flywheelSlider.disabled, false);
+  // TEL slot 13 is mode + 1: 2 = semi auto; 0 (older firmware) is ignored.
+  const telMode = (slot13) => ['TEL', 1, 0, 0, 0, 0, 0, 1500, 1500, 1500, 1500, 1500, 0, slot13, 1,
+    'NaN', 'NaN', 'NaN', 1, 1500, 1500, 1, 0, 0, 0, 0, 1500, 0.0].join(',');
+  line(telMode(2));
+  assert.match(elements.operatorMode.textContent, /SEMI AUTO/);
+  line(telMode(0));
+  assert.match(elements.operatorMode.textContent, /SEMI AUTO/);   // not "FULL AUTO"
+  // Any disarm drops the page back to full manual, like the firmware.
+  await windowHandlers.keydown(key('Enter'));
+  assert.equal(armed(), false);
+  assert.match(elements.operatorMode.textContent, /FULL MANUAL/);
+  // Ground station: $WIRELESS field 10 carries the mode (-1 = not reported).
+  connectFakePort();
+  run('setConnection(true)');
+  clock.t = 40000;
+  await elements.enableControl.handlers.click();
+  line('$WIRELESS,1,1,2,1,0,1,1,50,2');
+  assert.equal(armed(), true);
+  assert.match(elements.operatorMode.textContent, /FULL MANUAL/);
+  line('$WIRELESS,1,1,2,1,0,1,1,50,0');
+  assert.match(elements.operatorMode.textContent, /FULL AUTO/);
+  line('$WIRELESS,1,1,2,1,0,1,1,50,-1');
+  assert.match(elements.operatorMode.textContent, /FULL AUTO/);   // unknown: unchanged
+
   console.log('dashboard page control behavior tests passed');
 })().catch((e) => { console.error(e); process.exitCode = 1; });

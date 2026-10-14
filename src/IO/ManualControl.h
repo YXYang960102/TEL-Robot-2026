@@ -3,14 +3,15 @@
 #include <Arduino.h>
 
 #include "../Constants/ManualControlConstants.h"
+#include "OperatorMode.h"
 #include "RcControlMap.h"
 
 // Operator control of the robot, from two sources that share one set of
 // rules:
 //   - Wired: line protocol on USB `Serial` from tools/dashboard/index.html
-//     (E/X/K, T,<l>,<r>, ROT,<d>, ANG,<d>, FLY,<0..1>, F, L).
+//     (E/X/K, T,<l>,<r>, ROT,<d>, ANG,<d>, FLY,<0..1>, F, L, R, M).
 //   - Wireless: CRSF channels from the ELRS link via MechLink, decoded with
-//     RcControlMap (arm level on CH5, axes, F/L event counters).
+//     RcControlMap (arm level on CH5, axes, F/L event counters, mode on CH4).
 //
 // Control authority: exactly one source owns the robot while armed. Enable
 // from the other source is refused (ENABLE_REJECTED_OTHER_SOURCE), and its
@@ -23,7 +24,12 @@
 // After an RF dropout the edge detector re-arms only once it sees CH5 low
 // again, so recovering the link never re-enables on its own.
 //
-// While armed (either source), Auto::update() stays out of the way.
+// Operator mode (OperatorMode.h): M cycles FULL_MANUAL -> SEMI_AUTO ->
+// FULL_AUTO while armed (wireless: CH4 level). It is FULL_MANUAL whenever
+// disarmed and at every Enable; a wireless Enable whose CH4 isn't manual is
+// refused. In the auto modes this class still owns safety, the chassis,
+// elevation and conveyor, but leaves the turret and flywheel to Auto, and
+// F becomes a fire request that Auto takes (takeFireRequest()).
 class ManualControl {
 public:
     enum class Owner : uint8_t { NONE = 0, WIRED, WIRELESS };
@@ -37,6 +43,13 @@ public:
     static bool isConnected();
     static bool didTimeOut();
     static double getFlywheelCommand();
+
+    // FULL_MANUAL while disarmed.
+    static OperatorMode getOperatorMode();
+    // True once per F press made in an auto mode (cleared by reading it).
+    static bool takeFireRequest();
+    // Lets Auto report what it did on the same "$EVENT" / status channel.
+    static void reportEvent(rcmap_event event);
 
 private:
     // Wired line protocol
@@ -56,6 +69,9 @@ private:
     static void clearCommands();
     static void triggerFeed();
     static void toggleRotateMode();
+    static void cycleOperatorMode();
+    static void setOperatorMode(OperatorMode mode);
+    static void handleFire();
     static void applyOutputs();
     static void sendStatusIfDue();
     static void sendEvent(rcmap_event event);
@@ -83,6 +99,8 @@ private:
     static double angleManualCommand;
     static double flywheelCommand;
     static bool rotateManualActive; // L: false = vision-follow, true = manual jog
+    static OperatorMode operatorMode;
+    static bool fireRequested;
 
     static unsigned long eventSeq;
     static uint16_t lastEventCode;

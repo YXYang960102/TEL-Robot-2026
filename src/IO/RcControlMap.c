@@ -38,7 +38,7 @@ void rcmap_encode(const rcmap_command *c, int ch_us[16]) {
     ch_us[RCMAP_CH_LEFT] = axis_to_us(c->left);
     ch_us[RCMAP_CH_RIGHT] = axis_to_us(c->right);
     ch_us[RCMAP_CH_FLYWHEEL] = 1000 + round_float(clamp_float(c->flywheel, 0.0f, 1.0f) * 1000.0f);
-    ch_us[RCMAP_CH_MODE] = RCMAP_MODE_FULL_MANUAL_US;
+    ch_us[RCMAP_CH_MODE] = rcmap_mode_to_us(rcmap_mode_from_us(c->mode_us));
     ch_us[RCMAP_CH_CONVEYOR] = c->armed && c->conveyor ? 2000 : 1000;
     ch_us[RCMAP_CH_ARM] = c->armed ? 2000 : 1000;
     ch_us[RCMAP_CH_ROTATE] = dir_to_us(c->rotate);
@@ -136,6 +136,11 @@ static const char *const event_names[RCMAP_EVENT_COUNT] = {
     "EVENT_SKIPPED",
     "CONVEYOR_ON",
     "CONVEYOR_OFF",
+    "MODE_FULL_MANUAL",
+    "MODE_SEMI_AUTO",
+    "MODE_FULL_AUTO",
+    "FIRE_NOT_READY",
+    "ENABLE_REJECTED_NOT_MANUAL",
 };
 
 const char *rcmap_event_name(uint16_t code) {

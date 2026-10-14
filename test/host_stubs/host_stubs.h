@@ -23,6 +23,9 @@ struct Recorder {
 };
 
 extern Recorder rec;
-extern bool visionReady;
+extern bool visionReady;      // Vision::isConnected()/isVisionReady()
+extern bool visionValid;      // Vision::isValid() (a target is locked)
+extern double visionDistanceMm;
+extern bool shooterReady;     // Shooter::isReady() (turret locked && flywheel up)
 
 }

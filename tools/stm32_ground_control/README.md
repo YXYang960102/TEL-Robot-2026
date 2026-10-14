@@ -37,6 +37,8 @@ The PC sends exactly what it sends to the Mega over a wired link:
 | `K` | Heartbeat. |
 | `T,<l>,<r>` `ROT,<d>` `ANG,<d>` `FLY,<0..1>` | Set those channels. Only accepted while enabled; otherwise prints `REJECTED_NOT_ENABLED`. |
 | `F` / `L` | Steps the feed / L-mode counter channel (CH8 / CH9) up by one of its 6 levels. The robot acts exactly once per step. |
+| `R` | Toggles the conveyor channel (CH10). |
+| `M` | Cycles the operator mode on CH4: 2000 full manual → 1750 semi auto → 1500 full auto → back. Zeroes the flywheel channel. Prints `$GROUND_EVENT,MODE_<name>`. `E`, `X` and a PC timeout put CH4 back to full manual (the robot refuses an Enable whose CH4 isn't manual). |
 
 Safety rules:
 - If no line arrives for 250 ms while enabled, the board releases the arm channel and prints `$GROUND_EVENT,PC_TIMEOUT`.
@@ -46,12 +48,12 @@ Safety rules:
 
 The board sends to the PC:
 - `$EVENT,<name>`: a robot event (the same names the Mega prints over USB), relayed through the status uplink.
-- `$WIRELESS,<fresh>,<armed>,<owner 0/1/2>,<pins>,<feedBusy>,<rotateManual>,<rcLink>,<ageMs>`: every 250 ms.
+- `$WIRELESS,<fresh>,<armed>,<owner 0/1/2>,<pins>,<feedBusy>,<rotateManual>,<rcLink>,<ageMs>,<mode>`: every 250 ms. `mode` is the robot's operator mode (0 full auto, 1 semi auto, 2 full manual, -1 not reported by older robot firmware), carried in the top bits of the status event code.
 - `$RFLINK,<fresh>,<uplinkLQ>,<downlinkLQ>,<rssi>`: every 250 ms, from the TX module's link statistics.
 
 Channel table: `src/IO/RcControlMap.h`.
 
-CH4 is fixed at 2000 (FULL_MANUAL). The old `stm32_elrs_bidirectional_test` firmware (removed from the repo 2026-10-14) sent 1000 on CH4, which production reads as FULL_AUTO. **If a ground board still has that old firmware on it, reflash it with this one before running the robot firmware.**
+CH4 starts at 2000 (FULL_MANUAL) and only `M` changes it. The old `stm32_elrs_bidirectional_test` firmware (removed from the repo 2026-10-14) sent 1000 on CH4, which production reads as FULL_AUTO. **If a ground board still has that old firmware on it, reflash it with this one before running the robot firmware.**
 
 ## Flashing (Jeremy runs these; Claude never flashes)
 

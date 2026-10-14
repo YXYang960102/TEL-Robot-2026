@@ -19,8 +19,6 @@ bool Dribbler::pulseActive = false;
 bool Dribbler::everTriggered = false;
 unsigned long Dribbler::pulseStartMs = 0;
 unsigned long Dribbler::triggerCount = 0;
-int Dribbler::shootRemaining = 0;
-bool Dribbler::feedAllowed = false;
 
 void Dribbler::init() {
     setConveyor(false);
@@ -39,8 +37,6 @@ void Dribbler::init() {
     pulseActive = false;
     everTriggered = false;
     triggerCount = 0;
-    shootRemaining = 0;
-    feedAllowed = false;
 }
 
 void Dribbler::update() {
@@ -48,19 +44,12 @@ void Dribbler::update() {
         writeLine(false);
         pulseActive = false;
     }
-
-    if (feedAllowed && shootRemaining > 0 && !isBusy()) {
-        if (requestFeed()) {
-            shootRemaining--;
-        }
-    }
 }
 
 void Dribbler::stop() {
     setConveyor(false);
     writeLine(false);
     pulseActive = false;
-    shootRemaining = 0;
 }
 
 bool Dribbler::requestFeed() {
@@ -91,18 +80,6 @@ bool Dribbler::isBusy() {
 
 unsigned long Dribbler::getTriggerCount() {
     return triggerCount;
-}
-
-void Dribbler::setShootRequest(int count) {
-    shootRemaining = constrain(count, Request::MIN_COUNT, Request::MAX_COUNT);
-}
-
-int Dribbler::getShootRemaining() {
-    return shootRemaining;
-}
-
-void Dribbler::setFeedAllowed(bool allowed) {
-    feedAllowed = allowed;
 }
 
 void Dribbler::writeLine(bool active) {

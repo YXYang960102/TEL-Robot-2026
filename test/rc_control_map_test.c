@@ -138,12 +138,73 @@ static void test_event_names_and_status(void) {
     assert(!rcmap_status_from_battery(124, 0, 0, 100, &back));
 }
 
+static void test_operator_mode(void) {
+    /* The three levels the ground sends decode to themselves. */
+    assert(rcmap_mode_from_us(RCMAP_MODE_FULL_MANUAL_US) == RCMAP_MODE_FULL_MANUAL);
+    assert(rcmap_mode_from_us(RCMAP_MODE_SEMI_AUTO_US) == RCMAP_MODE_SEMI_AUTO);
+    assert(rcmap_mode_from_us(RCMAP_MODE_FULL_AUTO_US) == RCMAP_MODE_FULL_AUTO);
+    /* Fail-safe: 0, garbage-low and the neutral idle of other channels are
+     * not auto; boundaries sit halfway between the sent levels. */
+    assert(rcmap_mode_from_us(0) == RCMAP_MODE_FULL_MANUAL);
+    assert(rcmap_mode_from_us(1000) == RCMAP_MODE_FULL_MANUAL);
+    assert(rcmap_mode_from_us(1249) == RCMAP_MODE_FULL_MANUAL);
+    assert(rcmap_mode_from_us(1250) == RCMAP_MODE_FULL_AUTO);
+    assert(rcmap_mode_from_us(1624) == RCMAP_MODE_FULL_AUTO);
+    assert(rcmap_mode_from_us(1625) == RCMAP_MODE_SEMI_AUTO);
+    assert(rcmap_mode_from_us(1874) == RCMAP_MODE_SEMI_AUTO);
+    assert(rcmap_mode_from_us(1875) == RCMAP_MODE_FULL_MANUAL);
+    assert(rcmap_mode_to_us(99) == RCMAP_MODE_FULL_MANUAL_US);
+
+    /* Encode sends one of the three exact levels; a zero-initialized
+     * command sends manual. */
+    rcmap_command c;
+    memset(&c, 0, sizeof c);
+    int ch[16];
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_MODE] == RCMAP_MODE_FULL_MANUAL_US);
+    c.mode_us = 1530;
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_MODE] == RCMAP_MODE_FULL_AUTO_US);
+    rcmap_command back;
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &back));
+    assert(rcmap_mode_from_us(back.mode_us) == RCMAP_MODE_FULL_AUTO);
+
+    /* Status code: event in the low 12 bits, mode + 1 in the top 4. */
+    for (uint8_t m = 0; m <= RCMAP_MODE_FULL_MANUAL; m++) {
+        const uint16_t code = rcmap_status_code(RCMAP_EVENT_FIRE_NOT_READY, m);
+        assert(rcmap_status_code_event(code) == RCMAP_EVENT_FIRE_NOT_READY);
+        assert(rcmap_status_code_mode(code) == m);
+    }
+    /* A bare event code (older robot firmware) has no mode. */
+    assert(rcmap_status_code_mode(RCMAP_EVENT_OUTPUTS_ENABLED) == RCMAP_MODE_UNKNOWN);
+    assert(rcmap_status_code_event(RCMAP_EVENT_OUTPUTS_ENABLED) == RCMAP_EVENT_OUTPUTS_ENABLED);
+
+    /* It survives the Battery-frame round trip. */
+    rcmap_status st;
+    memset(&st, 0, sizeof st);
+    st.event_code = rcmap_status_code(RCMAP_EVENT_MODE_SEMI_AUTO, RCMAP_MODE_SEMI_AUTO);
+    uint16_t v, cur; uint32_t cap; uint8_t rem;
+    rcmap_status_to_battery(&st, &v, &cur, &cap, &rem);
+    rcmap_status out;
+    assert(rcmap_status_from_battery(v, cur, cap, rem, &out));
+    assert(rcmap_status_code_mode(out.event_code) == RCMAP_MODE_SEMI_AUTO);
+
+    /* Every event code has a name (the table and the enum stay in step). */
+    for (uint16_t e = 0; e < RCMAP_EVENT_COUNT; e++) {
+        assert(rcmap_event_name(e) != NULL && rcmap_event_name(e)[0] != '\0');
+    }
+    assert(strcmp(rcmap_event_name(RCMAP_EVENT_MODE_FULL_AUTO), "MODE_FULL_AUTO") == 0);
+    assert(strcmp(rcmap_event_name(RCMAP_EVENT_ENABLE_REJECTED_NOT_MANUAL),
+                  "ENABLE_REJECTED_NOT_MANUAL") == 0);
+}
+
 int main(void) {
     test_round_trip();
     test_elrs_hybrid_values();
     test_invalid_frames();
     test_counter_rules();
     test_event_names_and_status();
+    test_operator_mode();
     printf("rc_control_map host tests: all asserts passed\n");
     return 0;
 }

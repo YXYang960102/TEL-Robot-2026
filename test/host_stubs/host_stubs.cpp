@@ -1,7 +1,8 @@
 // Fake Arduino core + recording stand-ins for the subsystems ManualControl
-// drives (Chassis/Shooter/Vision) and for MechLink (the test injects RC
-// frames directly and reads back status lines). Dribbler is NOT stubbed:
-// the real src/Dribbler/Dribbler.cpp runs against the fake pins here.
+// and Auto drive (Chassis/Shooter/Vision) and for MechLink (the test injects
+// RC frames directly and reads back status lines). Dribbler and Auto are NOT
+// stubbed: the real src/Dribbler/Dribbler.cpp and src/Auto/Auto.cpp run
+// against the fake pins here.
 #include "host_stubs.h"
 
 #include "../../src/Chassis/Chassis.h"
@@ -16,6 +17,9 @@ int digitalOut[128] = {};
 int analogOut[128] = {};
 Recorder rec;
 bool visionReady = false;
+bool visionValid = false;
+double visionDistanceMm = 0.0;
+bool shooterReady = false;
 }
 
 HostSerial Serial;
@@ -59,14 +63,17 @@ void Shooter::disableRotate() {
 void Shooter::setAngleOpenLoop(double command) { rec.angleCommand = command; }
 void Shooter::setFlywheelOpenLoop(double command) { rec.flywheelCommand = command; }
 
+bool Shooter::isReady() { return hoststub::shooterReady; }
+
 bool Vision::isConnected() { return hoststub::visionReady; }
 bool Vision::isVisionReady() { return hoststub::visionReady; }
+bool Vision::isValid() { return hoststub::visionValid; }
+double Vision::getDistance() { return hoststub::visionDistanceMm; }
 
 int MechLink::channels[RCMAP_CHANNEL_COUNT];
 unsigned long MechLink::frameCount = 0;
 bool MechLink::signalLost = true;
 int MechLink::modeChannel = RCMAP_MODE_FULL_MANUAL_US;
-int MechLink::fireChannel = 1000;
 
 void MechLink::sendStatus(uint8_t flags, unsigned long eventSeq, uint16_t eventCode) {
     rec.statusCount++;

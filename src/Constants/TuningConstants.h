@@ -5,8 +5,8 @@
 // Centralizes the parameters that actually get changed at competition --
 // motor direction, flywheel speed, vision-follow tuning -- in one place, organized by mechanism namespace
 // (mirrors ShooterConstants.h's own Angle/Rotate/Flywheel grouping, plus
-// Auto/OperatorMode/ShotTable). ShooterConstants.h, AutoConstants.h (now
-// retired into Auto below), and OperatorMode.h pull their tunable values
+// Auto/ShotTable). ShooterConstants.h and AutoConstants.h (now retired
+// into Auto below) pull their tunable values
 // from here via `using namespace` so there is exactly one place to edit
 // each one.
 //
@@ -90,29 +90,10 @@ constexpr uint32_t SPIN_UP_MS = 1500;
 
 namespace Auto {
 
-// How long Dribbler::setFeedAllowed(true) stays on to push one ball into the
-// spinning flywheel. No working ball sensor exists to confirm this directly
-// (see Dribbler.cpp) -- this is a time-based approximation, same spirit as
-// Flywheel::SPIN_UP_MS.
-constexpr uint32_t FEED_DURATION_MS = 500;
-
-// Pause after a completed feed before the sequence can start again, so one
-// queued shot can't immediately re-trigger itself.
+// Minimum time from one auto shot to the next (src/Auto/Auto.cpp). The
+// feed tower's own lockout (DribblerConstants::Tower::COOLDOWN_MS, 1000 ms)
+// also applies, so the real full-auto rate is whichever is longer.
 constexpr uint32_t COOLDOWN_MS = 300;
-
-// MechLink::fireChannel threshold for the semi-auto fire-confirm button
-// (momentary, edge-triggered in Auto::update()).
-constexpr int FIRE_BUTTON_THRESHOLD = 1500;
-
-}
-
-namespace OperatorMode {
-
-// MechLink::modeChannel thresholds (1500-2000 split into thirds): the real
-// keypad doesn't exist yet -- re-measure its actual output against these
-// once it's built and update here; nothing else needs to change.
-constexpr int SEMI_AUTO_THRESHOLD = 1667;
-constexpr int FULL_MANUAL_THRESHOLD = 1833;
 
 }
 
@@ -165,8 +146,6 @@ static_assert(Rotate::VISION_MAX_INTEGRAL_COMMAND >= 0.0 &&
               "Vision-follow integral limit must fit inside the command limit");
 static_assert(Rotate::VISION_kIZONE_PX >= 0.0 && Rotate::VISION_READY_TOLERANCE_PX > 0.0,
               "Vision-follow pixel windows must be non-negative");
-static_assert(OperatorMode::SEMI_AUTO_THRESHOLD < OperatorMode::FULL_MANUAL_THRESHOLD,
-              "Operator mode thresholds must be ordered");
 static_assert(ShotTable::TABLE_COUNT >= 2, "Shot table needs at least two entries to interpolate");
 
 }

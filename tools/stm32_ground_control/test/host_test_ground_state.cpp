@@ -125,7 +125,7 @@ static void testStatusTracker() {
     tr.reset(0);
     lines.clear();
     tr.tick(250, collect, nullptr);
-    assert(lines.back() == "$WIRELESS,0,0,0,0,0,0,0,0"); // nothing heard yet
+    assert(lines.back() == "$WIRELESS,0,0,0,0,0,0,0,0,-1"); // nothing heard yet
     // First status: baseline only, its old event is not replayed.
     tr.onStatus(status(RCMAP_STATUS_PINS_CONFIRMED | RCMAP_STATUS_RC_LINK_OK, 5,
                        RCMAP_EVENT_OUTPUTS_DISABLED), 300, collect, nullptr);
@@ -140,11 +140,72 @@ static void testStatusTracker() {
                 450, collect, nullptr);
     assert(lines.empty());
     tr.tick(500, collect, nullptr);
-    assert(lines.back() == "$WIRELESS,1,1,2,0,0,0,0,50");
+    // A status code without the packed mode (older robot firmware) reports
+    // mode -1, never "full auto".
+    assert(lines.back() == "$WIRELESS,1,1,2,0,0,0,0,50,-1");
     // Status goes stale: reported as not fresh with everything zeroed.
     tr.tick(1500, collect, nullptr);
     assert(lines.back().rfind("$WIRELESS,0,0,0,0,0,0,0,", 0) == 0);
     assert(!tr.fresh(1500));
+
+    // Mode rides in the top bits of the code: the event name is still
+    // decoded correctly and $WIRELESS reports the mode.
+    lines.clear();
+    tr.onStatus(status(RCMAP_STATUS_ARMED | RCMAP_STATUS_OWNER_WIRELESS, 7,
+                       rcmap_status_code(RCMAP_EVENT_MODE_SEMI_AUTO, RCMAP_MODE_SEMI_AUTO)),
+                1600, collect, nullptr);
+    assert(saw("$EVENT,MODE_SEMI_AUTO"));
+    tr.tick(1760, collect, nullptr);        // reports every 250 ms (last at 1500)
+    assert(lines.back() == "$WIRELESS,1,1,2,0,0,0,0,160,1");
+    tr.onStatus(status(RCMAP_STATUS_ARMED | RCMAP_STATUS_OWNER_WIRELESS, 8,
+                       rcmap_status_code(RCMAP_EVENT_FEED_TRIGGER_SENT, RCMAP_MODE_FULL_AUTO)),
+                1800, collect, nullptr);
+    assert(saw("$EVENT,FEED_TRIGGER_SENT"));
+    tr.tick(2020, collect, nullptr);
+    assert(lines.back() == "$WIRELESS,1,1,2,0,0,0,0,220,0");
+}
+
+static int ch4(const GroundCommandState& st) {
+    int ch[16];
+    rcmap_encode(&st.command(), ch);
+    return ch[RCMAP_CH_MODE];
+}
+
+static void testModeKey() {
+    GroundCommandState st;
+    st.reset(0);
+    lines.clear();
+    assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+    send(st, "M", 1);                       // not enabled: refused, no change
+    assert(saw("$GROUND_EVENT,REJECTED_NOT_ENABLED"));
+    assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+
+    send(st, "E", 2);
+    send(st, "FLY,0.7", 3);
+    send(st, "M", 4);
+    assert(saw("$GROUND_EVENT,MODE_SEMI_AUTO"));
+    assert(ch4(st) == RCMAP_MODE_SEMI_AUTO_US);
+    assert(st.command().flywheel == 0.0f);  // zeroed on a mode change, like the robot
+    send(st, "M", 5);
+    assert(saw("$GROUND_EVENT,MODE_FULL_AUTO") && ch4(st) == RCMAP_MODE_FULL_AUTO_US);
+    send(st, "M", 6);
+    assert(saw("$GROUND_EVENT,MODE_FULL_MANUAL") && ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+
+    // X, a PC timeout, and a fresh E all put CH4 back to manual, so the
+    // robot (which refuses an Enable that isn't manual) always starts manual.
+    send(st, "M", 7);
+    send(st, "X", 8);
+    assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+    send(st, "E", 9);
+    send(st, "M", 10);
+    send(st, "M", 11);
+    assert(ch4(st) == RCMAP_MODE_FULL_AUTO_US);
+    st.tick(11 + GroundCommandState::PC_TIMEOUT_MS + 1, collect, nullptr);
+    assert(saw("$GROUND_EVENT,PC_TIMEOUT") && ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+    send(st, "E", 400);
+    send(st, "M", 401);
+    send(st, "E", 402);
+    assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
 }
 
 static void testConveyor() {
@@ -167,6 +228,7 @@ int main() {
     testPcWatchdog();
     testInputHardening();
     testStatusTracker();
+    testModeKey();
     printf("ground control host tests: all asserts passed\n");
     return 0;
 }

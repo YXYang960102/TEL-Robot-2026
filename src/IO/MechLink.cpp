@@ -10,9 +10,6 @@ namespace {
 // forwards every 20 ms while RF is up and goes silent when it drops.
 constexpr unsigned long LINE_TIMEOUT_MS = 200;
 constexpr size_t LINE_MAX_CHARS = 80;
-// Fire-confirm "released" (below TuningConstants::Auto::FIRE_BUTTON_THRESHOLD).
-constexpr int FIRE_RELEASED_US = 1000;
-
 char rx[LINE_MAX_CHARS];
 size_t rxLength = 0;
 bool rxDiscarding = false;
@@ -24,7 +21,6 @@ int MechLink::channels[RCMAP_CHANNEL_COUNT];
 unsigned long MechLink::frameCount = 0;
 bool MechLink::signalLost = true;
 int MechLink::modeChannel = RCMAP_MODE_FULL_MANUAL_US;
-int MechLink::fireChannel = FIRE_RELEASED_US;
 
 void MechLink::init() {
     MECH_LINK_SERIAL_PORT.begin(115200);
@@ -85,7 +81,6 @@ void MechLink::parseLine() {
         channels[i] = values[i];
     }
     modeChannel = values[RCMAP_CH_MODE];
-    fireChannel = FIRE_RELEASED_US;
     frameCount++;
     lastValidLineMs = millis();
     everReceivedLine = true;
@@ -101,7 +96,6 @@ void MechLink::setSafe() {
     channels[RCMAP_CH_FEED_COUNTER] = 1000;
     channels[RCMAP_CH_LMODE_COUNTER] = 1000;
     modeChannel = RCMAP_MODE_FULL_MANUAL_US;
-    fireChannel = FIRE_RELEASED_US;
 }
 
 void MechLink::sendStatus(uint8_t flags, unsigned long eventSeq, uint16_t eventCode) {

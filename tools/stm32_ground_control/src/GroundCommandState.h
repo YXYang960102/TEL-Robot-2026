@@ -7,7 +7,7 @@
 
 // Ground-station side of wireless control: turns the PC Dashboard's line
 // protocol (the same one the Mega speaks over USB: E, X, K, T,<l>,<r>,
-// ROT,<d>, ANG,<d>, FLY,<0..1>, F, L) into the RC channel state
+// ROT,<d>, ANG,<d>, FLY,<0..1>, F, L, R, M) into the RC channel state
 // (rcmap_command) that goes out over ELRS, and turns the robot's status
 // coming back (rcmap_status in Battery frames) into lines for the PC.
 //
@@ -49,8 +49,9 @@ public:
     // baseline, so an old event isn't replayed on connect).
     void onStatus(const rcmap_status& s, uint32_t nowMs, GroundEmitFn emit, void* ctx);
     // Every REPORT_PERIOD_MS: "$WIRELESS,<fresh>,<armed>,<owner>,<pins>,
-    // <feedBusy>,<rotateManual>,<rcLink>,<ageMs>" where owner is 0 none,
-    // 1 wired, 2 wireless.
+    // <feedBusy>,<rotateManual>,<rcLink>,<ageMs>,<mode>" where owner is 0
+    // none, 1 wired, 2 wireless, and mode is 0 full auto, 1 semi auto,
+    // 2 full manual, -1 not reported.
     void tick(uint32_t nowMs, GroundEmitFn emit, void* ctx);
 
     bool fresh(uint32_t nowMs) const;

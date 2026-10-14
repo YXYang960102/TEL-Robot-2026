@@ -48,6 +48,9 @@ void GroundCommandState::release() {
     cmd.flywheel = 0.0f;
     cmd.rotate = 0;
     cmd.angle = 0;
+    // Back to full manual: the robot refuses an Enable whose CH4 isn't
+    // manual, and every release ends any auto mode.
+    cmd.mode_us = RCMAP_MODE_FULL_MANUAL_US;
 }
 
 void GroundCommandState::rxByte(char c, uint32_t nowMs, GroundEmitFn emit, void* ctx) {
@@ -102,7 +105,8 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
     const bool isRotate = strncmp(line, "ROT,", 4) == 0;
     const bool isAngle = strncmp(line, "ANG,", 4) == 0;
     const bool isFlywheel = strncmp(line, "FLY,", 4) == 0;
-    const bool isSingle = line[1] == '\0' && (line[0] == 'F' || line[0] == 'L' || line[0] == 'R');
+    const bool isSingle = line[1] == '\0' &&
+        (line[0] == 'F' || line[0] == 'L' || line[0] == 'R' || line[0] == 'M');
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle) {
         emitLine(emit, ctx, "$GROUND_EVENT,UNKNOWN_COMMAND");
         return;
@@ -151,6 +155,17 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
         cmd.conveyor = !cmd.conveyor;
     } else if (line[0] == 'F') {
         cmd.feed_counter = static_cast<uint8_t>((cmd.feed_counter + 1u) % RCMAP_COUNTER_LEVELS);
+    } else if (line[0] == 'M') {
+        // Same cycle as the Mega's wired M: manual -> semi -> full -> manual.
+        const uint8_t mode = rcmap_mode_from_us(cmd.mode_us);
+        const uint8_t next = mode == RCMAP_MODE_FULL_MANUAL ? RCMAP_MODE_SEMI_AUTO
+                           : mode == RCMAP_MODE_SEMI_AUTO   ? RCMAP_MODE_FULL_AUTO
+                                                            : RCMAP_MODE_FULL_MANUAL;
+        cmd.mode_us = rcmap_mode_to_us(next);
+        cmd.flywheel = 0.0f; // the robot zeroes it on a mode change too
+        emitLine(emit, ctx, next == RCMAP_MODE_FULL_MANUAL ? "$GROUND_EVENT,MODE_FULL_MANUAL"
+                          : next == RCMAP_MODE_SEMI_AUTO   ? "$GROUND_EVENT,MODE_SEMI_AUTO"
+                                                           : "$GROUND_EVENT,MODE_FULL_AUTO");
     } else {
         cmd.lmode_counter = static_cast<uint8_t>((cmd.lmode_counter + 1u) % RCMAP_COUNTER_LEVELS);
     }
@@ -175,9 +190,10 @@ void RobotStatusTracker::onStatus(const rcmap_status& s, uint32_t nowMs, GroundE
     last = s;
     haveStatus = true;
     lastStatusMs = nowMs;
-    if (newEvent && s.event_code != RCMAP_EVENT_NONE) {
+    const uint16_t event = rcmap_status_code_event(s.event_code);
+    if (newEvent && event != RCMAP_EVENT_NONE) {
         char text[64];
-        snprintf(text, sizeof(text), "$EVENT,%s", rcmap_event_name(s.event_code));
+        snprintf(text, sizeof(text), "$EVENT,%s", rcmap_event_name(event));
         emitLine(emit, ctx, text);
     }
 }
@@ -192,8 +208,10 @@ void RobotStatusTracker::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
     const bool isFresh = fresh(nowMs);
     const uint8_t f = isFresh ? last.flags : 0;
     const int owner = (f & RCMAP_STATUS_OWNER_WIRED) ? 1 : ((f & RCMAP_STATUS_OWNER_WIRELESS) ? 2 : 0);
+    // Operator mode: 0 full auto, 1 semi, 2 full manual, -1 not reported.
+    const uint8_t mode = isFresh ? rcmap_status_code_mode(last.event_code) : RCMAP_MODE_UNKNOWN;
     char text[96];
-    snprintf(text, sizeof(text), "$WIRELESS,%d,%d,%d,%d,%d,%d,%d,%lu",
+    snprintf(text, sizeof(text), "$WIRELESS,%d,%d,%d,%d,%d,%d,%d,%lu,%d",
              isFresh ? 1 : 0,
              (f & RCMAP_STATUS_ARMED) ? 1 : 0,
              owner,
@@ -201,6 +219,7 @@ void RobotStatusTracker::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
              (f & RCMAP_STATUS_FEED_BUSY) ? 1 : 0,
              (f & RCMAP_STATUS_ROTATE_MANUAL) ? 1 : 0,
              (f & RCMAP_STATUS_RC_LINK_OK) ? 1 : 0,
-             haveStatus ? static_cast<unsigned long>(nowMs - lastStatusMs) : 0UL);
+             haveStatus ? static_cast<unsigned long>(nowMs - lastStatusMs) : 0UL,
+             mode == RCMAP_MODE_UNKNOWN ? -1 : static_cast<int>(mode));
     emitLine(emit, ctx, text);
 }

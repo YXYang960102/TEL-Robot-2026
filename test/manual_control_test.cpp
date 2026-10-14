@@ -1,12 +1,13 @@
 // Host regression test for operator control: compiles the REAL
-// src/IO/ManualControl.cpp, src/Dribbler/Dribbler.cpp and
+// src/IO/ManualControl.cpp, src/Auto/Auto.cpp, src/Dribbler/Dribbler.cpp and
 // src/IO/RcControlMap.c against fake Arduino time/pins/Serial
 // (test/host_stubs/), with Chassis/Shooter/Vision replaced by recorders and
 // MechLink replaced by a stub the test feeds RC frames into.
 //
 // Covers the wired USB path (everything Codex's reviews of e4a70a5/afed238
 // asked for), the wireless ELRS path, control authority between the two,
-// and the feed-tower trigger pulse.
+// the feed-tower trigger pulse, and the operator modes (M / semi-auto F /
+// full-auto firing).
 //
 // Build twice (see test/README):
 //   with -DTEL_HOST_TEST_PIN_TABLE_CONFIRMED=true  -> full armed-path suite
@@ -19,10 +20,13 @@
 
 #include "host_stubs/host_stubs.h"
 
+#include "../src/Auto/Auto.h"
 #include "../src/Constants/DribblerConstants.h"
+#include "../src/Constants/TuningConstants.h"
 #include "../src/Dribbler/Dribbler.h"
 #include "../src/IO/ManualControl.h"
 #include "../src/IO/MechLink.h"
+#include "../src/Control/ShotTableLookup.h"
 #include "../src/IO/RcControlMap.h"
 
 using hoststub::digitalOut;
@@ -41,12 +45,16 @@ void reset() {
     for (int& v : digitalOut) v = 0;
     rec = hoststub::Recorder{};
     hoststub::visionReady = false;
+    hoststub::visionValid = false;
+    hoststub::visionDistanceMm = 0.0;
+    hoststub::shooterReady = false;
     MechLink::signalLost = true;
     MechLink::frameCount = 0;
     wireless = rcmap_command{};
     Serial.input.clear();
     Serial.output.clear();
     ManualControl::init();
+    Auto::init();
     Dribbler::init();
     nowMs += DribblerConstants::Tower::COOLDOWN_MS; // start outside any lockout
 }
@@ -60,10 +68,11 @@ void rcFrame() {
     MechLink::signalLost = false;
 }
 
-// One main-loop tick in production order (ManualControl before Dribbler).
+// One main-loop tick in production order (ManualControl, Auto, Dribbler).
 void step(unsigned long ms = 10) {
     nowMs += ms;
     ManualControl::update();
+    Auto::update();
     Dribbler::update();
 }
 
@@ -410,13 +419,6 @@ void testAuthority() {
     assert(!ManualControl::isArmed());
 }
 
-void testAutoStepsAsideWhileArmed() {
-    reset();
-    assert(!ManualControl::isActive());
-    armWireless();
-    assert(ManualControl::isActive());
-}
-
 // ---------------------------------------------------------------- uplink
 
 void testStatusUplink() {
@@ -430,12 +432,183 @@ void testStatusUplink() {
     assert(rec.statusFlags & RCMAP_STATUS_ARMED);
     assert(rec.statusFlags & RCMAP_STATUS_OWNER_WIRELESS);
     assert(rec.statusFlags & RCMAP_STATUS_RC_LINK_OK);
-    assert(rec.statusCode == RCMAP_EVENT_OUTPUTS_ENABLED);
+    // The code field carries the event and, in its top bits, the mode.
+    assert(rcmap_status_code_event(rec.statusCode) == RCMAP_EVENT_OUTPUTS_ENABLED);
+    assert(rcmap_status_code_mode(rec.statusCode) == RCMAP_MODE_FULL_MANUAL);
     const unsigned long seq = rec.statusSeq;
     wireless.feed_counter = 1;
     rcStep(120);
-    assert(rec.statusCode == RCMAP_EVENT_FEED_TRIGGER_SENT && rec.statusSeq == seq + 1);
+    assert(rcmap_status_code_event(rec.statusCode) == RCMAP_EVENT_FEED_TRIGGER_SENT &&
+           rec.statusSeq == seq + 1);
     assert(rec.statusFlags & RCMAP_STATUS_FEED_BUSY);
+    wireless.mode_us = RCMAP_MODE_SEMI_AUTO_US;
+    rcStep(120);
+    assert(rcmap_status_code_mode(rec.statusCode) == RCMAP_MODE_SEMI_AUTO);
+}
+
+// ----------------------------------------------------------- operator modes
+
+// Keep the wired session alive over `totalMs` while Auto runs.
+void runArmed(unsigned long totalMs) {
+    for (unsigned long t = 0; t < totalMs; t += 10) {
+        if (t % 50 == 0) send("K");
+        step(10);
+    }
+}
+
+unsigned long shotsDuring(unsigned long totalMs) {
+    const unsigned long before = Dribbler::getTriggerCount();
+    runArmed(totalMs);
+    return Dribbler::getTriggerCount() - before;
+}
+
+void testModeKeyWired() {
+    reset();
+    send("M"); step();
+    assert(saw("REJECTED_DISARMED"));                      // disarmed: refused
+    assert(ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
+
+    armWired();
+    send("FLY,0.6"); step();
+    assert(nearly(rec.flywheelCommand, 0.6));
+    send("M"); step();
+    assert(saw("MODE_SEMI_AUTO"));
+    assert(ManualControl::getOperatorMode() == OperatorMode::SEMI_AUTO);
+    send("M"); step();
+    assert(saw("MODE_FULL_AUTO") && ManualControl::getOperatorMode() == OperatorMode::FULL_AUTO);
+    send("M"); step();
+    assert(saw("MODE_FULL_MANUAL") && ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
+    // Leaving auto never jumps the flywheel back to the old slider value.
+    assert(rec.flywheelCommand == 0.0);
+
+    // Any disarm returns to manual, and a new Enable starts manual.
+    send("M"); step();
+    assert(ManualControl::getOperatorMode() == OperatorMode::SEMI_AUTO);
+    send("X"); step();
+    assert(ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
+    armWired();
+    assert(ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
+    send("M"); step();
+    runWithHeartbeat(0);
+    step(ManualControlConstants::COMMAND_TIMEOUT_MS + 20);  // watchdog
+    assert(!ManualControl::isArmed());
+    assert(ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
+}
+
+void testSemiAutoFiresOnlyWhenReady() {
+    reset();
+    hoststub::visionReady = true;
+    armWired();
+    send("M"); step();                                    // semi-auto
+    // Auto has the turret and flywheel; the slider is ignored.
+    assert(rec.rotateMode == "vision");
+    assert(nearly(rec.flywheelCommand, TuningConstants::Flywheel::SHOOT_COMMAND));
+    send("FLY,0.2"); step();
+    assert(nearly(rec.flywheelCommand, TuningConstants::Flywheel::SHOOT_COMMAND));
+    // The operator still drives the chassis and elevation.
+    send("T,1,1"); send("ANG,-1"); step();
+    assert(nearly(rec.chassisLeft, 1.0) && nearly(rec.angleCommand, -1.0));
+
+    // Not locked yet: F is refused, not queued.
+    Serial.output.clear();
+    send("F"); step();
+    assert(saw("FIRE_NOT_READY") && !triggerHigh());
+    runArmed(200);
+    assert(Dribbler::getTriggerCount() == 0);              // no late shot
+
+    // Locked and spun up: F fires exactly one ball.
+    hoststub::shooterReady = true;
+    step();
+    Serial.output.clear();
+    send("F"); step();
+    assert(saw("FEED_TRIGGER_SENT") && triggerHigh());
+    assert(Dribbler::getTriggerCount() == 1);
+    // Right after a shot: refused again (cooldown / tower lockout).
+    Serial.output.clear();
+    send("F"); step();
+    assert(saw("FIRE_NOT_READY") || saw("FEED_BUSY"));
+    assert(Dribbler::getTriggerCount() == 1);
+    // Without F, semi-auto never fires on its own.
+    assert(shotsDuring(3000) == 0);
+}
+
+void testFullAutoFiresByItself() {
+    reset();
+    hoststub::visionReady = true;
+    armWired();
+    send("M"); send("M"); step();                         // full auto
+    assert(ManualControl::getOperatorMode() == OperatorMode::FULL_AUTO);
+    assert(shotsDuring(500) == 0);                         // not ready: holds fire
+    hoststub::shooterReady = true;
+    // Fires whenever ready, paced by the tower's 1000 ms lockout (longer
+    // than Auto's own 300 ms cooldown): ~3 shots in 2.5 s.
+    const unsigned long shots = shotsDuring(2500);
+    assert(shots >= 2 && shots <= 3);
+    // Losing the lock stops it.
+    hoststub::shooterReady = false;
+    assert(shotsDuring(2000) == 0);
+    // Back to manual: Auto lets go, nothing fires by itself.
+    hoststub::shooterReady = true;
+    send("M"); step();
+    assert(ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
+    assert(shotsDuring(2500) == 0);
+}
+
+void testAutoWithoutCamera() {
+    reset();
+    hoststub::visionReady = false;
+    hoststub::shooterReady = true;
+    armWired();
+    send("M"); send("M"); step();                         // full auto, no camera
+    assert(rec.rotateMode == "disabled" && rec.flywheelCommand == 0.0);
+    assert(shotsDuring(2000) == 0);
+    send("M"); send("M"); step();                         // -> semi
+    Serial.output.clear();
+    send("F"); step();
+    assert(saw("FIRE_NOT_READY") && Dribbler::getTriggerCount() == 0);
+}
+
+void testShotTableDrivesFlywheel() {
+    reset();
+    hoststub::visionReady = true;
+    hoststub::visionValid = true;
+    hoststub::visionDistanceMm = 5000.0;  // 5 m
+    armWired();
+    send("M"); step();
+    const ShotTableLookup::Result expected = ShotTableLookup::lookup(
+        5.0, TuningConstants::ShotTable::TABLE, TuningConstants::ShotTable::TABLE_COUNT);
+    assert(nearly(rec.flywheelCommand, expected.flywheelCommand));
+}
+
+void testWirelessMode() {
+    reset();
+    hoststub::visionReady = true;
+    armWireless();
+    assert(ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
+    wireless.mode_us = RCMAP_MODE_SEMI_AUTO_US;
+    rcStep();
+    assert(saw("MODE_SEMI_AUTO") && ManualControl::getOperatorMode() == OperatorMode::SEMI_AUTO);
+    // F (counter step) in semi-auto goes through Auto: not ready -> refused.
+    Serial.output.clear();
+    wireless.feed_counter = 1;
+    rcStep();
+    assert(saw("FIRE_NOT_READY") && Dribbler::getTriggerCount() == 0);
+    hoststub::shooterReady = true;
+    rcStep();
+    wireless.feed_counter = 2;
+    rcStep();
+    assert(Dribbler::getTriggerCount() == 1);
+    // Arm low disarms and resets to manual.
+    wireless.armed = false;
+    rcStep();
+    assert(!ManualControl::isArmed() &&
+           ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
+    // An Enable whose CH4 still says auto is refused.
+    Serial.output.clear();
+    wireless.mode_us = RCMAP_MODE_FULL_AUTO_US;
+    wireless.armed = true;
+    rcStep();
+    assert(saw("ENABLE_REJECTED_NOT_MANUAL") && !ManualControl::isArmed());
 }
 
 #else
@@ -469,6 +642,10 @@ int main() {
     assert(nearly(rec.chassisLeft, 1.0) && nearly(rec.chassisRight, -1.0));
     assert(nearly(rec.rotateCommand, 1.0) && nearly(rec.angleCommand, -1.0));
     assert(nearly(rec.flywheelCommand, 0.6));
+    // No auto modes on the wired benches: M stays in full manual.
+    send("M"); step();
+    assert(saw("MODE_FULL_MANUAL") &&
+           ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
     send("X"); step(); assert(!ManualControl::isArmed());
     printf("wired manual profile: all asserts passed\n");
 #elif defined(TEL_HOST_TEST_PIN_TABLE_CONFIRMED)
@@ -487,8 +664,13 @@ int main() {
     testWirelessPressWhileDisarmedNotLatched();
     testWirelessInvalidFramesTimeOut();
     testAuthority();
-    testAutoStepsAsideWhileArmed();
     testStatusUplink();
+    testModeKeyWired();
+    testSemiAutoFiresOnlyWhenReady();
+    testFullAutoFiresByItself();
+    testAutoWithoutCamera();
+    testShotTableDrivesFlywheel();
+    testWirelessMode();
     printf("manual_control_test (pin table confirmed): all asserts passed\n");
 #else
     testEnableRefusedUntilPinTableConfirmed();

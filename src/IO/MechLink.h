@@ -30,11 +30,9 @@ public:
     // hasn't arrived for LINE_TIMEOUT_MS.
     static bool signalLost;
 
-    // OperatorMode / Auto inputs. modeChannel is CH4 (the ground sends
-    // FULL_MANUAL for now); there is no wireless fire-confirm channel, so
-    // fireChannel stays released.
+    // Raw CH4 (operator mode, see RcControlMap.h), for telemetry. FULL_MANUAL
+    // while signalLost. ManualControl decodes the mode from the frame itself.
     static int modeChannel;
-    static int fireChannel;
 
     static void sendStatus(uint8_t flags, unsigned long eventSeq, uint16_t eventCode);
 
