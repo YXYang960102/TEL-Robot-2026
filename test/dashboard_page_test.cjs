@@ -450,5 +450,10 @@ async function emergencyStopViaEnter() {
   line('$WIRELESS,1,1,2,1,0,1,1,50,-1');
   assert.match(elements.operatorMode.textContent, /FULL AUTO/);   // unknown: unchanged
 
+  // Slot 28 (appended): elevation pulse; older lines without it are fine.
+  line(['TEL', 1, 0, 0, 0, 0, 0, 1500, 1500, 1500, 1500, 1500, 0, 3, 1,
+    'NaN', 'NaN', 'NaN', 0, 1500, 1500, 0, 0, 0, 0, 0, 1500, 0.0, 2310].join(','));
+  assert.equal(elements.anglePulse.textContent, '2310 us');
+
   console.log('dashboard page control behavior tests passed');
 })().catch((e) => { console.error(e); process.exitCode = 1; });
