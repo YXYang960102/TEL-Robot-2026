@@ -104,9 +104,8 @@ assert.equal(rotateCommand(), -1);
 setKeys('arrowleft', 'arrowright');
 assert.equal(rotateCommand(), 0);
 
-// Elevation hold-to-move fallback (older firmware / wireless): up = +1,
-// down = -1. With angle-capable USB firmware the arrows send ANGS steps
-// instead -- covered by dashboard_page_test.cjs.
+// Elevation hold-to-move jog (arrows up/down, every firmware and the
+// radio): up = +1, down = -1.
 setKeys('arrowup');
 assert.equal(angleCommand(), 1);
 setKeys('arrowdown');

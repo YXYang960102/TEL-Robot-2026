@@ -66,8 +66,10 @@ bool Shooter::setAngleTargetDegrees(double degrees) {
     rec.angleTargetSets++;
     return true;
 }
-bool Shooter::stepAngleTargetDegrees(double delta) {
-    return setAngleTargetDegrees(rec.angleTargetDegrees + delta);
+bool Shooter::setAnglePulseUs(double pulseUs) {
+    rec.anglePulseUs = pulseUs;
+    rec.anglePulseSets++;
+    return true;
 }
 void Shooter::setFlywheelOpenLoop(double command) { rec.flywheelCommand = command; }
 

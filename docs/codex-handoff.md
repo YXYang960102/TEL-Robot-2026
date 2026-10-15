@@ -3295,3 +3295,60 @@ USB-connected Mega reports TEL slots 29–31.
 - Control test covers `angleCommand` again.
 - production and manual_axes builds pass (firmware is unchanged in this
   commit). Not run on hardware.
+
+## 2026-10-15 — Claude Code: shot table stores the elevation pulse; arrows back to hold-to-move
+
+**User Request:**
+- The camera is fixed on the turret, so it doesn't tilt with the elevation.
+  ty therefore gives no elevation feedback, and a ty-PIDF elevation is
+  impossible.
+- Jeremy approved: "射擊表的仰角欄從「角度」改成「脈寬（µs）」，自動模式直接用查到的脈寬"
+  (the shot table's elevation column becomes a pulse in µs, and auto uses
+  the looked-up pulse directly) and "dev 的上下鍵改回「按住移動」，拉條和數字框保留"
+  (on dev the arrows go back to hold-to-move; keep the slider and number
+  box).
+
+**Why:** the positional servo's pulse *is* its position. Test shots record
+the Dashboard's pulse directly, which needs no angle calibration and adds
+no conversion error.
+
+**Changed:**
+- `TuningConstants::ShotTable::Entry` is now
+  `{distanceMeters, flywheelCommand, elevationPulseUs}`.
+  - The table's elevation column holds placeholders (all 1500).
+  - **`ELEVATION_MEASURED = false`**: Auto applies the table pulse
+    (`Shooter::setAnglePulseUs`, new and clamped) only once it is true, so
+    placeholder pulses can never move the real elevation.
+  - `ManualControl::autoOwnsElevation()` uses the same flag.
+- `ShotTableLookup` now interpolates `elevationPulseUs`.
+- Removed `Angle::MECHANISM_CALIBRATED`, `STEP_DEGREES`,
+  `Shooter::stepAngleTargetDegrees`, and the wired `ANGS` command, which
+  is now `UNKNOWN_COMMAND`.
+- `ANGLE_MAP` stays only for the Dashboard's degree readout and the
+  slider/number box (`ANGT`).
+- Dashboard:
+  - ↑/↓ are back to the hold-to-move `ANG` jog on every firmware and over
+    the radio.
+  - The slider, number box and Set button (`ANGT`) are enabled only with
+    angle-capable USB firmware (TEL 29–31).
+  - The label shows the angle and the pulse.
+
+**Evidence:**
+- All 7 Mega envs and the ground board build.
+- `shot_table_lookup_test` was updated to pulses (interpolation 2.5 m →
+  1700 µs, 3.25 m → 1550 µs).
+- manual_control elevation test passes, covering:
+  - ANGT, bad input, and ANGS now unknown;
+  - the ANG jog unchanged;
+  - in auto with a target in view and the table unmeasured, **no
+    elevation pulse set**.
+- **Mutation:** forcing Auto to apply the table regardless fails that
+  test.
+- Dashboard page test covers: arrows are `ANG` with and without angle
+  telemetry, no `ANGS`, and the widgets' enable state.
+- All other host and page tests pass. Not run on hardware.
+
+**Next:**
+1. Test shots per distance: record the Dashboard pulse and the Falcon %,
+   and fill in `TABLE`.
+2. Set `ELEVATION_MEASURED = true`.

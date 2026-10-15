@@ -7,9 +7,9 @@
 // this class drives the turret (camera vision-follow), the flywheel (shot
 // table by distance) and decides when to fire the feed tower.
 //
-// Elevation: from the shot table too, once ShooterConstants::Angle is
-// calibrated in real elevation degrees (MECHANISM_CALIBRATED); until then
-// it stays with the operator.
+// Elevation: from the shot table too (measured servo pulses), once
+// TuningConstants::ShotTable::ELEVATION_MEASURED is set; until then it
+// stays with the operator.
 //
 //   SPINNING_UP --(turret locked && flywheel up)--> READY
 //   READY --(FULL_AUTO, or F in SEMI_AUTO)--> fire one ball --> COOLDOWN

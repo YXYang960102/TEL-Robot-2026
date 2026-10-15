@@ -56,11 +56,11 @@ void Auto::update() {
             TuningConstants::ShotTable::TABLE,
             TuningConstants::ShotTable::TABLE_COUNT);
         flywheelCommand = shot.flywheelCommand;
-        // Elevation from the table too, once the elevation map is in real
-        // elevation degrees (ShooterConstants::Angle::MECHANISM_CALIBRATED);
+        // Elevation from the table too (a measured servo pulse), once the
+        // table holds real measured pulses (ShotTable::ELEVATION_MEASURED);
         // until then the operator keeps the elevation. No target: hold.
-        if (ShooterConstants::Angle::MECHANISM_CALIBRATED) {
-            Shooter::setAngleTargetDegrees(shot.angleDegrees);
+        if (TuningConstants::ShotTable::ELEVATION_MEASURED) {
+            Shooter::setAnglePulseUs(shot.elevationPulseUs);
         }
     }
     Shooter::setFlywheelOpenLoop(flywheelCommand);

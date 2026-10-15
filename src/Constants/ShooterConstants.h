@@ -41,13 +41,12 @@ constexpr int MIN_PULSE_US = 500;
 constexpr int NEUTRAL_US = 1500;
 constexpr int MAX_PULSE_US = 2500;
 
-// Angle <-> pulse (2026-10-15, Jeremy): the positional servo holds an
-// absolute angle, so elevation is commanded as a target angle (Dashboard
-// slider/number, arrows step it). PROVISIONAL calibration = the servo's own
-// spec, 500 us = 0 deg .. 2500 us = 270 deg (servo angle, not elevation).
-// To switch to real elevation degrees: measure the pulse at two known
-// elevations (e.g. level and the highest stop), put them here as
-// CAL_A/CAL_B, and set MECHANISM_CALIBRATED = true.
+// Angle <-> pulse, for the Dashboard's degree readout and its slider /
+// number box (ANGT). The positional servo holds an absolute position, so a
+// pulse IS a position; Auto and the shot table work in pulses directly and
+// don't need this. PROVISIONAL = the servo's own spec, 500 us = 0 deg ..
+// 2500 us = 270 deg (servo angle, not elevation); measure two known
+// elevations and put them here as CAL_A/CAL_B to read real elevation.
 constexpr double CAL_A_PULSE_US = 500.0;
 constexpr double CAL_A_DEGREES = 0.0;
 constexpr double CAL_B_PULSE_US = 2500.0;
@@ -55,13 +54,7 @@ constexpr double CAL_B_DEGREES = 270.0;
 constexpr ServoAngleMap ANGLE_MAP{
     CAL_A_PULSE_US, CAL_A_DEGREES, CAL_B_PULSE_US, CAL_B_DEGREES,
     static_cast<double>(MIN_PULSE_US), static_cast<double>(MAX_PULSE_US)};
-// Arrow keys: one press = this many degrees (held = key-repeat rate).
-constexpr double STEP_DEGREES = 1.0;
-// Semi/full auto set the elevation from the shot table's angle only once
-// the map above is in real elevation degrees -- the table's angles are
-// elevation angles, and sending them as servo angles would aim nowhere
-// sensible. Until then the operator keeps the elevation in every mode.
-constexpr bool MECHANISM_CALIBRATED = false;
+
 constexpr ServoMotorConfig MOTOR(
     INVERTED,
     MIN_PULSE_US,

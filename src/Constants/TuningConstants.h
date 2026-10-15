@@ -99,41 +99,42 @@ constexpr uint32_t COOLDOWN_MS = 300;
 
 namespace ShotTable {
 
-// Distance (meters, measured from Vision) -> flywheel command -> target
-// elevation angle. flywheelCommand is an OPEN-LOOP COMMAND STRENGTH on the
-// same -1.0~1.0 scale Shooter::setFlywheelOpenLoop() already uses, NOT a
-// real RPM -- the flywheel (Falcon 500) has no speed feedback, so this
-// stores the actual actuator value to send, the same convention
-// all_robot_017's legacy half_automode_vertical_falconESC/angle tables
-// used (store real actuator values, not a fake RPM<->command conversion).
-// angleDegrees is computed but not yet driven to Angle anywhere -- Angle's
-// closed-loop calibration isn't done (see Angle::POSITION_LIMITS_CALIBRATED
-// above), so there's nowhere safe to send it yet.
+// Distance (meters, measured from Vision) -> flywheel command and
+// elevation servo pulse. Both are the actual actuator values to send:
+//   flywheelCommand   open-loop Falcon command 0..1 (no speed feedback,
+//                     so not an RPM)
+//   elevationPulseUs  the elevation servo's target pulse, as shown on the
+//                     Dashboard "elevation pulse" readout. The elevation is
+//                     a positional servo, so a pulse is a position; storing
+//                     the pulse (not an angle) needs no angle calibration.
+// Fill it from test shots: at each distance, adjust until it scores and
+// copy the Dashboard's pulse and the Falcon % here.
 //
-// All entries below are placeholder values (no real shots have been
-// measured). Re-measure and fill in real numbers before relying on this at
-// competition -- it exists so the lookup/interpolation code has something
-// concrete to run against, not because these numbers are correct.
+// PLACEHOLDERS: no real shots have been measured. The flywheel column is a
+// guess; the elevation column is all neutral (1500 us) and is NOT applied
+// until ELEVATION_MEASURED is set true -- placeholder pulses must never
+// move the real elevation. Until then the operator keeps the elevation in
+// every mode.
 struct Entry {
     double distanceMeters;
     double flywheelCommand;
-    double angleDegrees;
+    double elevationPulseUs;
 };
-
+constexpr bool ELEVATION_MEASURED = false;
 constexpr Entry TABLE[] = {
-    {2.0, 0.70, 15.0},
-    {2.5, 0.72, 17.0},
-    {3.0, 0.75, 19.0},
-    {3.5, 0.78, 21.0},
-    {4.0, 0.80, 23.0},
-    {4.5, 0.82, 25.0},
-    {5.0, 0.84, 27.0},
-    {5.5, 0.86, 29.0},
-    {6.0, 0.88, 31.0},
-    {6.5, 0.90, 33.0},
-    {7.0, 0.92, 35.0},
-    {7.5, 0.94, 37.0},
-    {8.0, 0.96, 39.0},
+    {2.0, 0.70, 1500.0},
+    {2.5, 0.72, 1500.0},
+    {3.0, 0.75, 1500.0},
+    {3.5, 0.78, 1500.0},
+    {4.0, 0.80, 1500.0},
+    {4.5, 0.82, 1500.0},
+    {5.0, 0.84, 1500.0},
+    {5.5, 0.86, 1500.0},
+    {6.0, 0.88, 1500.0},
+    {6.5, 0.90, 1500.0},
+    {7.0, 0.92, 1500.0},
+    {7.5, 0.94, 1500.0},
+    {8.0, 0.96, 1500.0},
 };
 constexpr int TABLE_COUNT = sizeof(TABLE) / sizeof(TABLE[0]);
 

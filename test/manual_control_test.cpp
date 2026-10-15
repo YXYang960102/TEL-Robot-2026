@@ -588,22 +588,30 @@ void testElevationTargetCommands() {
     armWired();
     send("ANGT,47.5"); step();
     assert(nearly(rec.angleTargetDegrees, 47.5));
-    send("ANGS,1"); step();
-    assert(nearly(rec.angleTargetDegrees, 47.5 + ShooterConstants::Angle::STEP_DEGREES));
-    send("ANGS,-3"); step();
-    assert(nearly(rec.angleTargetDegrees, 47.5 - 2 * ShooterConstants::Angle::STEP_DEGREES));
-    // Bad numbers are refused, not clamped into a move.
+    // Bad numbers are refused, not clamped into a move; the old step
+    // command no longer exists.
     const unsigned long sets = rec.angleTargetSets;
-    send("ANGT,nan"); send("ANGT,"); send("ANGS,abc"); step();
+    send("ANGT,nan"); send("ANGT,"); send("ANGT,abc"); step();
     assert(saw("BAD_COMMAND") && rec.angleTargetSets == sets);
-    // The commands keep the wired session alive like any other command.
-    for (int i = 0; i < 40; i++) { send("ANGS,0"); step(10); }
-    assert(ManualControl::isArmed());
-    // Until the elevation map is in real elevation degrees, the operator
-    // keeps the elevation in the auto modes too (Auto doesn't take it).
-    static_assert(!ShooterConstants::Angle::MECHANISM_CALIBRATED,
-                  "update this test when the elevation is calibrated");
+    send("ANGS,1"); step();
+    assert(saw("UNKNOWN_COMMAND") && rec.angleTargetSets == sets);
+    // The arrows' hold-to-move jog is unchanged: ANG -> open-loop jog.
+    send("ANG,1"); step();
+    assert(nearly(rec.angleCommand, 1.0 * ManualControlConstants::ANGLE_MANUAL_SCALE));
+    send("ANG,0"); step();
+    assert(nearly(rec.angleCommand, 0.0));
+
+    // The shot table's elevation pulses are placeholders until measured:
+    // in auto with a target in view, Auto must not move the elevation, and
+    // the operator keeps it.
+    static_assert(!TuningConstants::ShotTable::ELEVATION_MEASURED,
+                  "update this test when the shot table's elevation is measured");
+    hoststub::visionReady = true;
+    hoststub::visionValid = true;
+    hoststub::visionDistanceMm = 4000.0;
     send("M"); step();
+    runArmed(200);
+    assert(rec.anglePulseSets == 0);
     send("ANGT,100"); step();
     assert(nearly(rec.angleTargetDegrees, 100.0) && !saw("REJECTED_AUTO_MODE"));
 }

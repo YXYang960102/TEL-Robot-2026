@@ -6,6 +6,7 @@
 
 #include "../Chassis/Chassis.h"
 #include "../Constants/Pins.h"
+#include "../Constants/TuningConstants.h"
 #include "../Dribbler/Dribbler.h"
 #include "../Shooter/Shooter.h"
 #include "../Vision/Vision.h"
@@ -177,15 +178,13 @@ void ManualControl::processCommand(char* command) {
     const bool isRotate = strncmp(command, "ROT,", 4) == 0;
     const bool isAngle = strncmp(command, "ANG,", 4) == 0;
     const bool isFlywheel = strncmp(command, "FLY,", 4) == 0;
-    // Elevation as an absolute angle: ANGT,<deg> = go to, ANGS,<n> = step n
-    // arrow steps (n * Angle::STEP_DEGREES).
+    // Elevation as an absolute angle (Dashboard slider / number box):
+    // ANGT,<deg> = go to. The arrows still use the ANG hold-to-move jog.
     const bool isAngleTarget = strncmp(command, "ANGT,", 5) == 0;
-    const bool isAngleStep = strncmp(command, "ANGS,", 5) == 0;
     const bool isSingle = command[1] == '\0' &&
         (command[0] == 'F' || command[0] == 'L' || command[0] == 'R' || command[0] == 'M');
 
-    if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle &&
-        !isAngleTarget && !isAngleStep) {
+    if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle && !isAngleTarget) {
         sendEvent(RCMAP_EVENT_UNKNOWN_COMMAND);
         return;
     }
@@ -212,10 +211,9 @@ void ManualControl::processCommand(char* command) {
         tankRightCommand = right;
         return;
     }
-    if (isAngleTarget || isAngleStep) {
+    if (isAngleTarget) {
         double value = 0.0;
-        if (!parseValue(command + 5, isAngleStep ? -10.0 : -1000.0,
-                        isAngleStep ? 10.0 : 1000.0, value)) {
+        if (!parseValue(command + 5, -1000.0, 1000.0, value)) {
             sendEvent(RCMAP_EVENT_BAD_COMMAND);
             return;
         }
@@ -224,10 +222,9 @@ void ManualControl::processCommand(char* command) {
             sendEvent(RCMAP_EVENT_REJECTED_AUTO_MODE);
             return;
         }
-        const bool ok = isAngleTarget
-            ? Shooter::setAngleTargetDegrees(value)
-            : Shooter::stepAngleTargetDegrees(value * ShooterConstants::Angle::STEP_DEGREES);
-        if (!ok) sendEvent(RCMAP_EVENT_BAD_COMMAND); // continuous elevation: no angle
+        if (!Shooter::setAngleTargetDegrees(value)) {
+            sendEvent(RCMAP_EVENT_BAD_COMMAND); // continuous elevation: no angle
+        }
         return;
     }
     if (isRotate || isAngle || isFlywheel) {
@@ -438,7 +435,7 @@ void ManualControl::handleFire() {
 
 bool ManualControl::autoOwnsElevation() {
     return operatorMode != OperatorMode::FULL_MANUAL &&
-           ShooterConstants::Angle::MECHANISM_CALIBRATED;
+           TuningConstants::ShotTable::ELEVATION_MEASURED;
 }
 
 void ManualControl::cycleOperatorMode() {
@@ -487,7 +484,7 @@ void ManualControl::applyOutputs() {
 
     // Elevation: the operator's, unless Auto sets it from the shot table
     // (auto mode and a calibrated elevation map). The open-loop call also
-    // holds an absolute ANGT/ANGS target (zero jog = stay put).
+    // holds an absolute ANGT target (zero jog = stay put).
     if (!autoOwnsElevation()) {
         Shooter::setAngleOpenLoop(angleManualCommand * ANGLE_MANUAL_SCALE);
     }

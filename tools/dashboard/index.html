@@ -605,7 +605,7 @@
         </div>
         <div class="stream-controls">
           <button id="enableControl" disabled>Enable / 啟用輸出</button>
-          <span class="label">W/S/A/D 底盤・R 水平輸送帶開關・F 發射・M 模式（全手動→半自動→全自動）・←→ 水平・↑↓ 仰角每次 1°・L 手動/視覺切換・Enter 停用・Space 停用並斷線</span>
+          <span class="label">W/S/A/D 底盤・R 水平輸送帶開關・F 發射・M 模式（全手動→半自動→全自動）・←→ 水平・↑↓ 仰角（按住移動）・L 手動/視覺切換・Enter 停用・Space 停用並斷線</span>
         </div>
         <div class="grid">
           <div class="metric"><div class="label">left / right pulse / 左右輪脈衝</div><div class="value" id="chassisPulses">--</div></div>
@@ -624,7 +624,7 @@
           <input id="angleSlider" type="range" min="0" max="270" step="1" value="135" disabled aria-label="Elevation target angle">
           <input id="angleInput" type="number" step="0.5" placeholder="仰角 °" disabled style="width:90px" aria-label="Elevation target angle (degrees)">
           <button id="angleSet" disabled>設定仰角 / Set</button>
-          <span class="label" id="angleValue">仰角目標 --°（↑↓ 每次 1°；輸入角度後按「設定」，Enter 仍是停止）</span>
+          <span class="label" id="angleValue">仰角目標 --°（↑↓ 按住移動；輸入角度後按「設定」，Enter 仍是停止）</span>
         </div>
       </section>
 
@@ -800,12 +800,11 @@
     let linkKind = "unknown";
     let tankLeft = 0, tankRight = 0;
     let rotateAxis = 0, angleAxis = 0;
-    // Elevation control style. true = absolute target angle (ANGT/ANGS,
-    // slider, number box): only when the USB-connected Mega reports the
-    // angle fields (TEL slots 29-31). false = the older hold-to-move ANG
-    // jog: older firmware, and the wireless ground station (its CH7 can only
-    // carry up/stop/down). Lets this page (deployed from dev) work with
-    // whatever firmware a robot is running.
+    // Exact-angle widgets (slider / number box -> ANGT) only when the
+    // USB-connected Mega reports the angle fields (TEL slots 29-31): older
+    // firmware doesn't know ANGT, and the wireless ground station can only
+    // carry up/stop/down. The arrows' hold-to-move ANG jog works everywhere.
+    // Lets this page (deployed from dev) work with any robot's firmware.
     let absoluteElevation = false;
     let flywheelRatio = 0;
     const heldKeys = new Set();
@@ -1308,7 +1307,6 @@
         Number.isFinite(data.angleMinDeg) && Number.isFinite(data.angleMaxDeg);
       if (hasAngle !== absoluteElevation) {
         absoluteElevation = hasAngle;
-        heldKeys.delete("arrowup"); heldKeys.delete("arrowdown");
         updateControlUi();
       }
       if (hasAngle) {
@@ -1316,7 +1314,7 @@
         angleSlider.max = String(data.angleMaxDeg);
         // Don't yank the slider out from under the operator's hand.
         if (document.activeElement !== angleSlider) angleSlider.value = String(Math.round(data.angleTargetDeg));
-        angleValue.textContent = `仰角目標 ${data.angleTargetDeg.toFixed(1)}°（範圍 ${data.angleMinDeg.toFixed(0)}–${data.angleMaxDeg.toFixed(0)}°；↑↓ 每次 1°；輸入角度後按「設定」，Enter 仍是停止）`;
+        angleValue.textContent = `仰角目標 ${data.angleTargetDeg.toFixed(1)}° · ${data.anglePulseUs} us（範圍 ${data.angleMinDeg.toFixed(0)}–${data.angleMaxDeg.toFixed(0)}°；↑↓ 按住移動；輸入角度後按「設定」，Enter 仍是停止）`;
       }
       if (Number.isFinite(data.falconPulseUs) && Number.isFinite(data.falconRatioPct)) {
         el.falconPwm.textContent = `${data.falconPulseUs} us (${data.falconRatioPct.toFixed(1)}%)`;
@@ -1768,7 +1766,9 @@
       await sendControl(`FLY,${flywheelRatio.toFixed(2)}`);
     });
 
-    const MOVEMENT_KEYS = new Set(["w", "s", "a", "d", "arrowleft", "arrowright"]);
+    // Arrows up/down: the elevation's hold-to-move jog (ANG) on every
+    // firmware and on the radio; the slider / number box set an exact angle.
+    const MOVEMENT_KEYS = new Set(["w", "s", "a", "d", "arrowleft", "arrowright", "arrowup", "arrowdown"]);
     const NON_TEXT_INPUT_TYPES = new Set(["range", "checkbox", "radio", "button", "submit", "reset"]);
 
     // Only real text entry (the stream URL box, layout fields, etc.) is
@@ -1807,19 +1807,6 @@
         event.preventDefault();
         heldKeys.add(key);
         await sendAllAxesIfChanged();
-        return;
-      }
-      if (key === "arrowup" || key === "arrowdown") {
-        event.preventDefault();
-        if (absoluteElevation) {
-          // Each press (and each key-repeat while held) steps the absolute
-          // target by one step (1 deg); the servo holds it.
-          await sendControl(`ANGS,${key === "arrowup" ? 1 : -1}`);
-        } else {
-          // Older firmware / wireless: hold to move, release to stop.
-          heldKeys.add(key);
-          await sendAllAxesIfChanged();
-        }
         return;
       }
       if ((key === "f" || key === "l" || key === "r" || key === "m") && !event.repeat) {

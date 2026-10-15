@@ -36,7 +36,9 @@ public:
     // per ShooterConstants::Angle::ANGLE_MAP, clamped to its range). Returns
     // false on a continuous-rotation elevation, which has no position.
     static bool setAngleTargetDegrees(double degrees);
-    static bool stepAngleTargetDegrees(double deltaDegrees);
+    // Same, as the raw target pulse (us), clamped to Angle::MIN/MAX_PULSE_US.
+    // Auto uses this with the shot table's measured pulses.
+    static bool setAnglePulseUs(double pulseUs);
     static double getAngleTargetDegrees();
     static double getAngleMinDegrees();
     static double getAngleMaxDegrees();
