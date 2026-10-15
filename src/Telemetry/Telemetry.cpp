@@ -95,5 +95,9 @@ void Telemetry::update() {
     Serial.print(",");
     // Command ratio, not RPM -- this Falcon 500 has no speed feedback on
     // this PWM path (see Shooter.h's getFlywheelCommand() comment).
-    Serial.println(Shooter::getFlywheelCommand() * 100.0, 1);
+    Serial.print(Shooter::getFlywheelCommand() * 100.0, 1);
+    Serial.print(",");
+    // Slot 28 (appended 2026-10-15): elevation servo target pulse, for
+    // finding the mechanism's real end points.
+    Serial.println(Shooter::getAnglePulseUs());
 }

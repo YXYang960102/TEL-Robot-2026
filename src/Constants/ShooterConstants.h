@@ -26,13 +26,19 @@ constexpr uint8_t ANGLE_PIN = 24; // elevation servo signal
 // Set false only for a continuous-rotation unit: the command is then a
 // speed and disable sends neutral.
 constexpr bool POSITION_SERVO = true;
-// Provisional command travel, not calibrated mechanical limits.
 constexpr double POSITION_INITIAL_US = 1500.0;
 constexpr double POSITION_RATE_US_PER_SECOND = 1000.0;
 
-constexpr int MIN_PULSE_US = 1000;
+// Pulse travel. Widened 1000..2000 -> 500..2500 us on 2026-10-15 (Jeremy):
+// at 1000..2000 this servo only turned ~90 deg, while a servo tester
+// (500..2500 us) turns it ~270 deg. PROVISIONAL: these are the servo's
+// limits, not the elevation mechanism's. There is no limit switch, so
+// jog slowly the first time, note the pulse (Dashboard "elevation pulse")
+// at each real mechanical end, and narrow MIN/MAX to those values.
+// Both the jog target and Servo::attach() clamp to this range.
+constexpr int MIN_PULSE_US = 500;
 constexpr int NEUTRAL_US = 1500;
-constexpr int MAX_PULSE_US = 2000;
+constexpr int MAX_PULSE_US = 2500;
 constexpr ServoMotorConfig MOTOR(
     INVERTED,
     MIN_PULSE_US,

@@ -3160,3 +3160,42 @@ first):
 3. Full auto fires about once per second while locked.
 4. Enter, Space and pulling the USB cable each stop it and return to full
    manual.
+
+## 2026-10-15 — Claude Code: elevation servo pulse range 1000–2000 → 500–2500 µs (provisional)
+
+**User Request:** the elevation servo turns only ~90° under the program, ~180° under an
+older Arduino sketch, and ~270° on a standalone servo tester. Jeremy chose
+"先開到 500–2500 µs，慢慢測完再縮": open it to 500–2500 µs, then narrow it after
+measuring.
+
+**Why:**
+- `Angle::MIN/MAX_PULSE_US` were 1000/2000. Both the jog target and
+  `Servo::attach()` clamp to them.
+- The servo spans ~270° over 500–2500 µs, the tester's range. The old
+  sketch was most likely `servo.write(0..180)`, which is 544–2400 µs.
+
+**Changed:**
+- `ShooterConstants::Angle`: `MIN_PULSE_US` 500, `MAX_PULSE_US` 2500.
+  Neutral and the initial 1500 are unchanged, and so is the jog rate
+  (1000 µs/s, so the full range takes 2 s).
+- Checked in the AVR Servo source: `attach(pin, 500, 2500)` stores 11/−25
+  in its int8 fields → `SERVO_MIN()` 500, `SERVO_MAX()` 2500, so there is
+  no wrap.
+- TEL gains **slot 28 = elevation target pulse**, appended so older parsers
+  are unaffected. The Dashboard shows it as "elevation pulse / 仰角脈寬"
+  for finding the mechanism's ends.
+
+**Risk:** there is no elevation limit switch. If the mechanism travels less
+than the servo, the servo can drive into a hard stop and stall.
+These are the servo's limits, **not** the mechanism's; narrow MIN/MAX to
+the measured ends.
+
+**Evidence:**
+- production, manual_axes, wired_manual and drive_conveyor build.
+- Dashboard page test passes (new slot-28 case) and so does the control
+  test; servo_jog passes.
+- Not run on hardware.
+
+**Next Test:** run `mega_manual_axes_test` and jog up/down slowly. At each
+real mechanical end, before it binds, note the Dashboard pulse. Then set
+MIN/MAX to those values.

@@ -613,6 +613,7 @@
           <div class="metric"><div class="label">feed tower / 送球塔</div><div class="value" id="towerState">--</div><div class="subvalue">trigger pulses sent, no ball sensor / 已送觸發次數，無球感測</div></div>
           <div class="metric"><div class="label">wireless link / 無線狀態</div><div class="value" id="wirelessState">--</div><div class="subvalue" id="rfLinkState">ground station only / 僅接地面站時</div></div>
           <div class="metric"><div class="label">rotate / angle mode / 旋轉・俯仰模式</div><div class="value" id="shooterAxisMode">--</div></div>
+          <div class="metric"><div class="label">elevation pulse / 仰角脈寬</div><div class="value" id="anglePulse">--</div><div class="subvalue">500–2500 us, no limit switch / 無限位，量機構兩端</div></div>
           <div class="metric"><div class="label">Falcon PWM / 飛輪 PWM</div><div class="value" id="falconPwm">--</div><div class="subvalue">command ratio, not RPM / 指令佔比，非轉速</div></div>
         </div>
         <div class="stream-controls">
@@ -716,7 +717,7 @@
   </main>
 
   <script>
-    const ids = ["tx", "ty", "distance", "targetId", "valid", "shooterReady", "operatorMode", "warnBits", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm"];
+    const ids = ["tx", "ty", "distance", "targetId", "valid", "shooterReady", "operatorMode", "warnBits", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse"];
     const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     const connectButton = document.getElementById("connect");
     const demoButton = document.getElementById("demo");
@@ -1217,7 +1218,8 @@
         rotateMode: p.length > 24 ? Number(p[24]) : NaN,
         angleMode: p.length > 25 ? Number(p[25]) : NaN,
         falconPulseUs: p.length > 26 ? Number(p[26]) : NaN,
-        falconRatioPct: p.length > 27 ? Number(p[27]) : NaN
+        falconRatioPct: p.length > 27 ? Number(p[27]) : NaN,
+        anglePulseUs: p.length > 28 ? Number(p[28]) : NaN
       };
     }
 
@@ -1269,6 +1271,9 @@
       }
       if (Number.isFinite(data.rotateMode) && Number.isFinite(data.angleMode)) {
         el.shooterAxisMode.textContent = `${ROTATE_MODE_NAMES[data.rotateMode] ?? data.rotateMode} / ${ANGLE_MODE_NAMES[data.angleMode] ?? data.angleMode}`;
+      }
+      if (Number.isFinite(data.anglePulseUs)) {
+        el.anglePulse.textContent = `${data.anglePulseUs} us`;
       }
       if (Number.isFinite(data.falconPulseUs) && Number.isFinite(data.falconRatioPct)) {
         el.falconPwm.textContent = `${data.falconPulseUs} us (${data.falconRatioPct.toFixed(1)}%)`;
