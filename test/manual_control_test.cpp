@@ -22,6 +22,7 @@
 
 #include "../src/Auto/Auto.h"
 #include "../src/Constants/DribblerConstants.h"
+#include "../src/Constants/ShooterConstants.h"
 #include "../src/Constants/TuningConstants.h"
 #include "../src/Dribbler/Dribbler.h"
 #include "../src/IO/ManualControl.h"
@@ -580,6 +581,41 @@ void testShotTableDrivesFlywheel() {
     assert(nearly(rec.flywheelCommand, expected.flywheelCommand));
 }
 
+void testElevationTargetCommands() {
+    reset();
+    send("ANGT,90"); step();
+    assert(saw("REJECTED_DISARMED") && rec.angleTargetSets == 0);
+    armWired();
+    send("ANGT,47.5"); step();
+    assert(nearly(rec.angleTargetDegrees, 47.5));
+    // Bad numbers are refused, not clamped into a move; the old step
+    // command no longer exists.
+    const unsigned long sets = rec.angleTargetSets;
+    send("ANGT,nan"); send("ANGT,"); send("ANGT,abc"); step();
+    assert(saw("BAD_COMMAND") && rec.angleTargetSets == sets);
+    send("ANGS,1"); step();
+    assert(saw("UNKNOWN_COMMAND") && rec.angleTargetSets == sets);
+    // The arrows' hold-to-move jog is unchanged: ANG -> open-loop jog.
+    send("ANG,1"); step();
+    assert(nearly(rec.angleCommand, 1.0 * ManualControlConstants::ANGLE_MANUAL_SCALE));
+    send("ANG,0"); step();
+    assert(nearly(rec.angleCommand, 0.0));
+
+    // The shot table's elevation pulses are placeholders until measured:
+    // in auto with a target in view, Auto must not move the elevation, and
+    // the operator keeps it.
+    static_assert(!TuningConstants::ShotTable::ELEVATION_MEASURED,
+                  "update this test when the shot table's elevation is measured");
+    hoststub::visionReady = true;
+    hoststub::visionValid = true;
+    hoststub::visionDistanceMm = 4000.0;
+    send("M"); step();
+    runArmed(200);
+    assert(rec.anglePulseSets == 0);
+    send("ANGT,100"); step();
+    assert(nearly(rec.angleTargetDegrees, 100.0) && !saw("REJECTED_AUTO_MODE"));
+}
+
 void testWirelessMode() {
     reset();
     hoststub::visionReady = true;
@@ -671,6 +707,7 @@ int main() {
     testAutoWithoutCamera();
     testShotTableDrivesFlywheel();
     testWirelessMode();
+    testElevationTargetCommands();
     printf("manual_control_test (pin table confirmed): all asserts passed\n");
 #else
     testEnableRefusedUntilPinTableConfirmed();

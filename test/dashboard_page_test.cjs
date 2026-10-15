@@ -143,7 +143,9 @@ async function emergencyStopViaEnter() {
   }
   assert.deepEqual([...writes], ['R', 'F', 'L']);
 
-  // Arrows drive Rotate/Angle; release stops.
+  // Arrows: left/right turret, up/down elevation, both hold-to-move;
+  // release stops. With no angle telemetry yet (older firmware, or the
+  // wireless ground station) the exact-angle widgets are off.
   writes.length = 0;
   await windowHandlers.keydown(key('ArrowRight'));
   await windowHandlers.keydown(key('ArrowUp'));
@@ -151,6 +153,31 @@ async function emergencyStopViaEnter() {
   await windowHandlers.keyup(key('ArrowRight'));
   await windowHandlers.keyup(key('ArrowUp'));
   assert.deepEqual([...writes].slice(-2), ['ROT,0', 'ANG,0']);
+  assert.equal(elements.angleSlider.disabled, true);
+
+  // The Mega reports the angle fields (TEL slots 29-31): the exact-angle
+  // widgets turn on; the arrows stay the hold-to-move jog.
+  run('handleLine(' + JSON.stringify(['TEL', 1, 0, 0, 0, 0, 0, 1500, 1500, 1500, 1500, 1500, 0, 3, 1,
+    'NaN', 'NaN', 'NaN', 1, 1500, 1500, 1, 0, 0, 0, 0, 1500, 0.0, 1500, 135.0, 0.0, 270.0].join(',')) + ')');
+  assert.equal(elements.angleSlider.disabled, false);
+  writes.length = 0;
+  await windowHandlers.keydown(key('ArrowUp'));
+  await windowHandlers.keydown(key('ArrowUp', { repeat: true }));
+  assert.deepEqual([...writes], ['ANG,1']);              // held, not repeated
+  await windowHandlers.keyup(key('ArrowUp'));
+  assert.equal(last(), 'ANG,0');
+  assert.ok(!writes.some((w) => w.startsWith('ANGS')));
+  // Slider and number box send an absolute target.
+  elements.angleSlider.value = '90';
+  await elements.angleSlider.handlers.input();
+  assert.equal(last(), 'ANGT,90');
+  elements.angleInput.value = '47.5';
+  await elements.angleSet.handlers.click();
+  assert.equal(last(), 'ANGT,47.5');
+  writes.length = 0;
+  elements.angleInput.value = '';
+  await elements.angleSet.handlers.click();
+  assert.equal(writes.length, 0);                       // empty box: nothing sent
 
   // Typing in a real text box never drives the robot...
   writes.length = 0;
@@ -437,7 +464,9 @@ async function emergencyStopViaEnter() {
   await windowHandlers.keydown(key('Enter'));
   assert.equal(armed(), false);
   assert.match(elements.operatorMode.textContent, /FULL MANUAL/);
-  // Ground station: $WIRELESS field 10 carries the mode (-1 = not reported).
+  // Ground station: $WIRELESS turns the exact-angle widgets off (the radio
+  // carries only up/stop/down); the arrows' ANG jog is unchanged.
+  // $WIRELESS field 10 carries the mode (-1 = not reported).
   connectFakePort();
   run('setConnection(true)');
   clock.t = 40000;
@@ -449,11 +478,24 @@ async function emergencyStopViaEnter() {
   assert.match(elements.operatorMode.textContent, /FULL AUTO/);
   line('$WIRELESS,1,1,2,1,0,1,1,50,-1');
   assert.match(elements.operatorMode.textContent, /FULL AUTO/);   // unknown: unchanged
+  assert.equal(elements.angleSlider.disabled, true);
+  writes.length = 0;
+  await windowHandlers.keydown(key('ArrowUp'));
+  assert.equal(last(), 'ANG,1');
+  await windowHandlers.keyup(key('ArrowUp'));
+  assert.equal(last(), 'ANG,0');
 
   // Slot 28 (appended): elevation pulse; older lines without it are fine.
   line(['TEL', 1, 0, 0, 0, 0, 0, 1500, 1500, 1500, 1500, 1500, 0, 3, 1,
     'NaN', 'NaN', 'NaN', 0, 1500, 1500, 0, 0, 0, 0, 0, 1500, 0.0, 2310].join(','));
   assert.equal(elements.anglePulse.textContent, '2310 us');
+  // Slots 29-31: target angle and range -> label and slider limits.
+  line(['TEL', 1, 0, 0, 0, 0, 0, 1500, 1500, 1500, 1500, 1500, 0, 3, 1,
+    'NaN', 'NaN', 'NaN', 0, 1500, 1500, 0, 0, 0, 0, 0, 1500, 0.0, 2310, 243.5, 0.0, 270.0].join(','));
+  assert.equal(elements.anglePulse.textContent, '243.5° · 2310 us');
+  assert.equal(elements.angleSlider.max, '270');
+  assert.equal(elements.angleSlider.value, '244');
+  assert.match(elements.angleValue.textContent, /243\.5°/);
 
   console.log('dashboard page control behavior tests passed');
 })().catch((e) => { console.error(e); process.exitCode = 1; });

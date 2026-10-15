@@ -3199,3 +3199,160 @@ the measured ends.
 **Next Test:** run `mega_manual_axes_test` and jog up/down slowly. At each
 real mechanical end, before it binds, note the Dashboard pulse. Then set
 MIN/MAX to those values.
+
+## 2026-10-15 — Claude Code: elevation commanded as an absolute angle (branch claude/elevation-angle, not on dev yet)
+
+**User Request:** a teammate (何大工程師) pointed out the elevation is a
+positional servo, so it "should directly control a target angle" instead of
+the hold-to-move jog. Jeremy chose:
+- a Dashboard slider plus a number box, with the arrow keys as fine
+  adjustment;
+- auto modes take the elevation from the shot table;
+- servo degrees first, mechanism degrees once measured.
+
+Mid-way he asked to push only the 500–2500 µs version first (`eb78970`,
+pushed to dev). This work therefore sits on its own branch,
+`claude/elevation-angle`, until he approves it.
+
+**Changed:**
+- New pure `src/Control/ServoAngleMap.h`: a two-point linear degrees↔pulse
+  map with a pulse clamp, and an ascending min/max angle whichever way the
+  servo is mounted. Added `ServoPositionJog::set()` for an absolute,
+  clamped target; NaN keeps the old target.
+- `ShooterConstants::Angle`:
+  - `CAL_A`/`CAL_B` (provisional servo spec: 500 µs = 0°, 2500 µs = 270°)
+    form `ANGLE_MAP`.
+  - `STEP_DEGREES` = 1.
+  - **`MECHANISM_CALIBRATED = false`.** Auto applies the shot table's angle
+    only once this is true, because the table's angles are elevation
+    angles and would mean nothing as servo angles. Until then the operator
+    keeps the elevation in every mode.
+- `Shooter`: `setAngleTargetDegrees`, `stepAngleTargetDegrees` and
+  getters for the target and the min/max degrees. On a continuous-rotation
+  elevation they return false.
+- `ManualControl`:
+  - Wired `ANGT,<deg>` (go to) and `ANGS,<n>` (n steps). The usual
+    armed/owner checks apply, bad numbers get `BAD_COMMAND`, and both
+    refresh the watchdog.
+  - When Auto owns the elevation (auto mode and calibrated), they get
+    `REJECTED_AUTO_MODE` (new event, appended), and `applyOutputs` skips
+    the elevation.
+  - The old `ANG` jog command is still supported and is what wireless CH7
+    uses.
+- `Auto`: sets the elevation from `shot.angleDegrees` when calibrated and a
+  target is valid; otherwise it holds.
+- TEL appends slots 29–31: target °, min °, max °.
+- Dashboard:
+  - Elevation slider (its limits come from the TEL range), a number box
+    with a "設定仰角 / Set" button (Enter stays the stop key), and the
+    target ° shown alongside the pulse.
+  - **↑/↓ now send `ANGS,±1` per press and per key-repeat** instead of
+    holding `ANG`. The heartbeat no longer resends an angle axis.
+
+**Evidence:**
+- All 7 Mega envs and the ground board build. The bridge image is
+  unchanged.
+- New `test/servo_angle_map_test.cpp`: the provisional and an inverted
+  "real" calibration, the clamp, a round trip, `set()` and hold.
+- manual_control has a new elevation test: disarmed refusal, ANGT/ANGS
+  values, bad input refused, the watchdog kept alive, and the operator
+  keeping the elevation in auto while uncalibrated. All three variants
+  pass.
+- Dashboard page test (arrow steps, slider/box `ANGT`, an empty box sends
+  nothing, slots 29–31) and control test pass.
+- All other host tests pass. Not run on hardware.
+
+**Next:**
+1. Jeremy measures the elevation ends with `eb78970`.
+2. Then two known elevation points → `CAL_A`/`CAL_B` and `MIN`/`MAX`
+   pulses → `MECHANISM_CALIBRATED = true`.
+3. Then merge this branch.
+
+## 2026-10-15 — Claude Code: elevation angle merged into dev, with the Dashboard falling back to the jog for older firmware / wireless
+
+**User Request:** "合併到 main，然後dev改角度" (merge into main, then switch dev to the
+angle version).
+- main is at `49be790`, a merge of `eb78970` (500–2500 µs plus the pulse
+  display).
+- dev was fast-forwarded to `d19465f` (absolute elevation angle).
+
+**Found before pushing dev:** GitHub Pages deploys the Dashboard from dev,
+so the angle page would also be used against main's firmware.
+- That firmware doesn't know `ANGS`, so the arrows would have done nothing.
+- The ground station doesn't know `ANGT`/`ANGS` either, and its CH7
+  carries only up/stop/down, so wireless elevation would also have broken.
+
+**Changed (Dashboard only):** `absoluteElevation` is true only while the
+USB-connected Mega reports TEL slots 29–31.
+- When true: ↑/↓ send `ANGS,±1`, and the slider, number box and Set
+  button are enabled.
+- Otherwise (older firmware, or any `$WIRELESS` line from the ground
+  station): the previous hold-to-move `ANG,±1/0` jog is used, including the
+  heartbeat resend, and the angle widgets are disabled.
+- Disconnecting resets to the jog.
+- The `angleCommand`/`sendAngleIfChanged` jog path is restored for that
+  fallback.
+
+**Evidence:**
+- Page test covers: the jog without angle telemetry, ANGS after TEL slots
+  29–31, the slider and box, and the `$WIRELESS` switch back to the jog.
+- Control test covers `angleCommand` again.
+- production and manual_axes builds pass (firmware is unchanged in this
+  commit). Not run on hardware.
+
+## 2026-10-15 — Claude Code: shot table stores the elevation pulse; arrows back to hold-to-move
+
+**User Request:**
+- The camera is fixed on the turret, so it doesn't tilt with the elevation.
+  ty therefore gives no elevation feedback, and a ty-PIDF elevation is
+  impossible.
+- Jeremy approved: "射擊表的仰角欄從「角度」改成「脈寬（µs）」，自動模式直接用查到的脈寬"
+  (the shot table's elevation column becomes a pulse in µs, and auto uses
+  the looked-up pulse directly) and "dev 的上下鍵改回「按住移動」，拉條和數字框保留"
+  (on dev the arrows go back to hold-to-move; keep the slider and number
+  box).
+
+**Why:** the positional servo's pulse *is* its position. Test shots record
+the Dashboard's pulse directly, which needs no angle calibration and adds
+no conversion error.
+
+**Changed:**
+- `TuningConstants::ShotTable::Entry` is now
+  `{distanceMeters, flywheelCommand, elevationPulseUs}`.
+  - The table's elevation column holds placeholders (all 1500).
+  - **`ELEVATION_MEASURED = false`**: Auto applies the table pulse
+    (`Shooter::setAnglePulseUs`, new and clamped) only once it is true, so
+    placeholder pulses can never move the real elevation.
+  - `ManualControl::autoOwnsElevation()` uses the same flag.
+- `ShotTableLookup` now interpolates `elevationPulseUs`.
+- Removed `Angle::MECHANISM_CALIBRATED`, `STEP_DEGREES`,
+  `Shooter::stepAngleTargetDegrees`, and the wired `ANGS` command, which
+  is now `UNKNOWN_COMMAND`.
+- `ANGLE_MAP` stays only for the Dashboard's degree readout and the
+  slider/number box (`ANGT`).
+- Dashboard:
+  - ↑/↓ are back to the hold-to-move `ANG` jog on every firmware and over
+    the radio.
+  - The slider, number box and Set button (`ANGT`) are enabled only with
+    angle-capable USB firmware (TEL 29–31).
+  - The label shows the angle and the pulse.
+
+**Evidence:**
+- All 7 Mega envs and the ground board build.
+- `shot_table_lookup_test` was updated to pulses (interpolation 2.5 m →
+  1700 µs, 3.25 m → 1550 µs).
+- manual_control elevation test passes, covering:
+  - ANGT, bad input, and ANGS now unknown;
+  - the ANG jog unchanged;
+  - in auto with a target in view and the table unmeasured, **no
+    elevation pulse set**.
+- **Mutation:** forcing Auto to apply the table regardless fails that
+  test.
+- Dashboard page test covers: arrows are `ANG` with and without angle
+  telemetry, no `ANGS`, and the widgets' enable state.
+- All other host and page tests pass. Not run on hardware.
+
+**Next:**
+1. Test shots per distance: record the Dashboard pulse and the Falcon %,
+   and fill in `TABLE`.
+2. Set `ELEVATION_MEASURED = true`.

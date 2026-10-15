@@ -98,6 +98,13 @@ void Telemetry::update() {
     Serial.print(Shooter::getFlywheelCommand() * 100.0, 1);
     Serial.print(",");
     // Slot 28 (appended 2026-10-15): elevation servo target pulse, for
-    // finding the mechanism's real end points.
-    Serial.println(Shooter::getAnglePulseUs());
+    // finding the mechanism's real end points. Slots 29-31: the same target
+    // as an angle, and the reachable angle range (Dashboard slider limits).
+    Serial.print(Shooter::getAnglePulseUs());
+    Serial.print(",");
+    Serial.print(Shooter::getAngleTargetDegrees(), 1);
+    Serial.print(",");
+    Serial.print(Shooter::getAngleMinDegrees(), 1);
+    Serial.print(",");
+    Serial.println(Shooter::getAngleMaxDegrees(), 1);
 }

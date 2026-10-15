@@ -111,6 +111,30 @@ void Shooter::setAngleOpenLoop(double command) {
     angleMode = AngleControlMode::MANUAL_OPEN_LOOP;
 }
 
+bool Shooter::setAngleTargetDegrees(double degrees) {
+    return setAnglePulseUs(Angle::ANGLE_MAP.toPulse(degrees));
+}
+
+bool Shooter::setAnglePulseUs(double pulseUs) {
+    if (!Angle::POSITION_SERVO) return false;
+    anglePosition.set(pulseUs, Angle::MIN_PULSE_US, Angle::MAX_PULSE_US);
+    anglePulseUs = static_cast<int>(anglePosition.value() + 0.5);
+    angleMode = AngleControlMode::MANUAL_OPEN_LOOP; // updateAngle() writes it
+    return true;
+}
+
+double Shooter::getAngleTargetDegrees() {
+    return Angle::ANGLE_MAP.toDegrees(anglePosition.value());
+}
+
+double Shooter::getAngleMinDegrees() {
+    return Angle::ANGLE_MAP.minDegrees();
+}
+
+double Shooter::getAngleMaxDegrees() {
+    return Angle::ANGLE_MAP.maxDegrees();
+}
+
 void Shooter::setRotateOpenLoop(double command) {
     rotateManualCommand = constrain(command, -1.0, 1.0);
     rotateMode = RotateControlMode::MANUAL_OPEN_LOOP;

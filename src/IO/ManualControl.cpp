@@ -6,6 +6,7 @@
 
 #include "../Chassis/Chassis.h"
 #include "../Constants/Pins.h"
+#include "../Constants/TuningConstants.h"
 #include "../Dribbler/Dribbler.h"
 #include "../Shooter/Shooter.h"
 #include "../Vision/Vision.h"
@@ -177,10 +178,13 @@ void ManualControl::processCommand(char* command) {
     const bool isRotate = strncmp(command, "ROT,", 4) == 0;
     const bool isAngle = strncmp(command, "ANG,", 4) == 0;
     const bool isFlywheel = strncmp(command, "FLY,", 4) == 0;
+    // Elevation as an absolute angle (Dashboard slider / number box):
+    // ANGT,<deg> = go to. The arrows still use the ANG hold-to-move jog.
+    const bool isAngleTarget = strncmp(command, "ANGT,", 5) == 0;
     const bool isSingle = command[1] == '\0' &&
         (command[0] == 'F' || command[0] == 'L' || command[0] == 'R' || command[0] == 'M');
 
-    if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle) {
+    if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle && !isAngleTarget) {
         sendEvent(RCMAP_EVENT_UNKNOWN_COMMAND);
         return;
     }
@@ -205,6 +209,22 @@ void ManualControl::processCommand(char* command) {
         refreshWiredWatchdog();
         tankLeftCommand = left;
         tankRightCommand = right;
+        return;
+    }
+    if (isAngleTarget) {
+        double value = 0.0;
+        if (!parseValue(command + 5, -1000.0, 1000.0, value)) {
+            sendEvent(RCMAP_EVENT_BAD_COMMAND);
+            return;
+        }
+        refreshWiredWatchdog();
+        if (autoOwnsElevation()) {
+            sendEvent(RCMAP_EVENT_REJECTED_AUTO_MODE);
+            return;
+        }
+        if (!Shooter::setAngleTargetDegrees(value)) {
+            sendEvent(RCMAP_EVENT_BAD_COMMAND); // continuous elevation: no angle
+        }
         return;
     }
     if (isRotate || isAngle || isFlywheel) {
@@ -413,6 +433,11 @@ void ManualControl::handleFire() {
     }
 }
 
+bool ManualControl::autoOwnsElevation() {
+    return operatorMode != OperatorMode::FULL_MANUAL &&
+           TuningConstants::ShotTable::ELEVATION_MEASURED;
+}
+
 void ManualControl::cycleOperatorMode() {
     if (ManualControlConstants::WIRED_MANUAL_ONLY) {
         // Wired benches have no camera/auto path: stay manual, like L.
@@ -457,8 +482,12 @@ void ManualControl::applyOutputs() {
         tankLeftCommand * CHASSIS_MANUAL_SCALE,
         tankRightCommand * CHASSIS_MANUAL_SCALE);
 
-    // Elevation has no sensor, so it stays with the operator in every mode.
-    Shooter::setAngleOpenLoop(angleManualCommand * ANGLE_MANUAL_SCALE);
+    // Elevation: the operator's, unless Auto sets it from the shot table
+    // (auto mode and a calibrated elevation map). The open-loop call also
+    // holds an absolute ANGT target (zero jog = stay put).
+    if (!autoOwnsElevation()) {
+        Shooter::setAngleOpenLoop(angleManualCommand * ANGLE_MANUAL_SCALE);
+    }
 
     if (operatorMode != OperatorMode::FULL_MANUAL) {
         return; // turret and flywheel belong to Auto (runs right after this)

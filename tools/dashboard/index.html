@@ -605,7 +605,7 @@
         </div>
         <div class="stream-controls">
           <button id="enableControl" disabled>Enable / 啟用輸出</button>
-          <span class="label">W/S/A/D 底盤・R 水平輸送帶開關・F 發射・M 模式（全手動→半自動→全自動）・方向鍵 旋轉/俯仰・L 手動/視覺切換・Enter 停用・Space 停用並斷線</span>
+          <span class="label">W/S/A/D 底盤・R 水平輸送帶開關・F 發射・M 模式（全手動→半自動→全自動）・←→ 水平・↑↓ 仰角（按住移動）・L 手動/視覺切換・Enter 停用・Space 停用並斷線</span>
         </div>
         <div class="grid">
           <div class="metric"><div class="label">left / right pulse / 左右輪脈衝</div><div class="value" id="chassisPulses">--</div></div>
@@ -619,6 +619,12 @@
         <div class="stream-controls">
           <input id="flywheelSlider" type="range" min="0" max="100" step="1" value="0" disabled aria-label="Falcon command ratio">
           <span class="label" id="flywheelSliderValue">Falcon 指令 0%（Enter/Space/逾時自動歸零）</span>
+        </div>
+        <div class="stream-controls">
+          <input id="angleSlider" type="range" min="0" max="270" step="1" value="135" disabled aria-label="Elevation target angle">
+          <input id="angleInput" type="number" step="0.5" placeholder="仰角 °" disabled style="width:90px" aria-label="Elevation target angle (degrees)">
+          <button id="angleSet" disabled>設定仰角 / Set</button>
+          <span class="label" id="angleValue">仰角目標 --°（↑↓ 按住移動；輸入角度後按「設定」，Enter 仍是停止）</span>
         </div>
       </section>
 
@@ -725,6 +731,10 @@
     const controlArmedBadge = document.getElementById("controlArmedBadge");
     const flywheelSlider = document.getElementById("flywheelSlider");
     const flywheelSliderValue = document.getElementById("flywheelSliderValue");
+    const angleSlider = document.getElementById("angleSlider");
+    const angleInput = document.getElementById("angleInput");
+    const angleSetButton = document.getElementById("angleSet");
+    const angleValue = document.getElementById("angleValue");
     const layoutToggle = document.getElementById("layoutToggle");
     const layoutReset = document.getElementById("layoutReset");
     const dashboard = document.getElementById("dashboard");
@@ -790,6 +800,12 @@
     let linkKind = "unknown";
     let tankLeft = 0, tankRight = 0;
     let rotateAxis = 0, angleAxis = 0;
+    // Exact-angle widgets (slider / number box -> ANGT) only when the
+    // USB-connected Mega reports the angle fields (TEL slots 29-31): older
+    // firmware doesn't know ANGT, and the wireless ground station can only
+    // carry up/stop/down. The arrows' hold-to-move ANG jog works everywhere.
+    // Lets this page (deployed from dev) work with any robot's firmware.
+    let absoluteElevation = false;
     let flywheelRatio = 0;
     const heldKeys = new Set();
 
@@ -805,6 +821,7 @@
       if (!online) {
         enablePending = false;
         linkKind = "unknown";
+        absoluteElevation = false;
         setControlArmed(false);
       }
     }
@@ -841,6 +858,12 @@
       el.operatorMode.textContent = modeName;
       // In the auto modes the shot table sets the flywheel, not the slider.
       flywheelSlider.disabled = !controlArmed || operatorMode !== MODE_FULL_MANUAL;
+      // Elevation is an absolute target angle (positional servo). In an
+      // auto mode the robot answers REJECTED_AUTO_MODE if Auto owns it.
+      const angleEditable = controlArmed && absoluteElevation;
+      angleSlider.disabled = !angleEditable;
+      angleInput.disabled = !angleEditable;
+      angleSetButton.disabled = !angleEditable;
     }
 
     // The firmware zeroes the flywheel on every disarm (Enter, Space,
@@ -1219,7 +1242,10 @@
         angleMode: p.length > 25 ? Number(p[25]) : NaN,
         falconPulseUs: p.length > 26 ? Number(p[26]) : NaN,
         falconRatioPct: p.length > 27 ? Number(p[27]) : NaN,
-        anglePulseUs: p.length > 28 ? Number(p[28]) : NaN
+        anglePulseUs: p.length > 28 ? Number(p[28]) : NaN,
+        angleTargetDeg: p.length > 29 ? Number(p[29]) : NaN,
+        angleMinDeg: p.length > 30 ? Number(p[30]) : NaN,
+        angleMaxDeg: p.length > 31 ? Number(p[31]) : NaN
       };
     }
 
@@ -1273,7 +1299,22 @@
         el.shooterAxisMode.textContent = `${ROTATE_MODE_NAMES[data.rotateMode] ?? data.rotateMode} / ${ANGLE_MODE_NAMES[data.angleMode] ?? data.angleMode}`;
       }
       if (Number.isFinite(data.anglePulseUs)) {
-        el.anglePulse.textContent = `${data.anglePulseUs} us`;
+        el.anglePulse.textContent = Number.isFinite(data.angleTargetDeg)
+          ? `${data.angleTargetDeg.toFixed(1)}° · ${data.anglePulseUs} us`
+          : `${data.anglePulseUs} us`;
+      }
+      const hasAngle = Number.isFinite(data.angleTargetDeg) &&
+        Number.isFinite(data.angleMinDeg) && Number.isFinite(data.angleMaxDeg);
+      if (hasAngle !== absoluteElevation) {
+        absoluteElevation = hasAngle;
+        updateControlUi();
+      }
+      if (hasAngle) {
+        angleSlider.min = String(data.angleMinDeg);
+        angleSlider.max = String(data.angleMaxDeg);
+        // Don't yank the slider out from under the operator's hand.
+        if (document.activeElement !== angleSlider) angleSlider.value = String(Math.round(data.angleTargetDeg));
+        angleValue.textContent = `仰角目標 ${data.angleTargetDeg.toFixed(1)}° · ${data.anglePulseUs} us（範圍 ${data.angleMinDeg.toFixed(0)}–${data.angleMaxDeg.toFixed(0)}°；↑↓ 按住移動；輸入角度後按「設定」，Enter 仍是停止）`;
       }
       if (Number.isFinite(data.falconPulseUs) && Number.isFinite(data.falconRatioPct)) {
         el.falconPwm.textContent = `${data.falconPulseUs} us (${data.falconRatioPct.toFixed(1)}%)`;
@@ -1440,6 +1481,7 @@
       }
       if (line.startsWith("$WIRELESS,")) {
         linkKind = "ground";
+        if (absoluteElevation) { absoluteElevation = false; updateControlUi(); }
         handleWirelessStatus(line);
         return;
       }
@@ -1613,10 +1655,6 @@
       return (heldKeys.has("arrowright") ? 1 : 0) - (heldKeys.has("arrowleft") ? 1 : 0);
     }
 
-    function angleCommand() {
-      return (heldKeys.has("arrowup") ? 1 : 0) - (heldKeys.has("arrowdown") ? 1 : 0);
-    }
-
     async function sendTankIfChanged() {
       const [left, right] = tankCommand();
       if (left !== tankLeft || right !== tankRight) {
@@ -1625,12 +1663,8 @@
       }
     }
 
-    async function sendRotateIfChanged() {
-      const value = rotateCommand();
-      if (value !== rotateAxis) {
-        rotateAxis = value;
-        await sendControl(`ROT,${value}`);
-      }
+    function angleCommand() {
+      return (heldKeys.has("arrowup") ? 1 : 0) - (heldKeys.has("arrowdown") ? 1 : 0);
     }
 
     async function sendAngleIfChanged() {
@@ -1638,6 +1672,14 @@
       if (value !== angleAxis) {
         angleAxis = value;
         await sendControl(`ANG,${value}`);
+      }
+    }
+
+    async function sendRotateIfChanged() {
+      const value = rotateCommand();
+      if (value !== rotateAxis) {
+        rotateAxis = value;
+        await sendControl(`ROT,${value}`);
       }
     }
 
@@ -1703,6 +1745,18 @@
       await sendControl("E");
     });
 
+    angleSlider.addEventListener("input", async () => {
+      if (!controlArmed) return;
+      await sendControl(`ANGT,${Number(angleSlider.value)}`);
+    });
+
+    angleSetButton.addEventListener("click", async () => {
+      angleSetButton.blur();
+      const degrees = Number(angleInput.value);
+      if (!controlArmed || angleInput.value === "" || !Number.isFinite(degrees)) return;
+      await sendControl(`ANGT,${degrees}`);
+    });
+
     flywheelSlider.addEventListener("input", async () => {
       if (!controlArmed || operatorMode !== MODE_FULL_MANUAL) {
         setFlywheelSlider(0);
@@ -1712,6 +1766,8 @@
       await sendControl(`FLY,${flywheelRatio.toFixed(2)}`);
     });
 
+    // Arrows up/down: the elevation's hold-to-move jog (ANG) on every
+    // firmware and on the radio; the slider / number box set an exact angle.
     const MOVEMENT_KEYS = new Set(["w", "s", "a", "d", "arrowleft", "arrowright", "arrowup", "arrowdown"]);
     const NON_TEXT_INPUT_TYPES = new Set(["range", "checkbox", "radio", "button", "submit", "reset"]);
 

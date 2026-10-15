@@ -67,7 +67,6 @@ function tank() {
 setKeys();
 assert.deepEqual(tank(), [0, 0]);
 assert.equal(rotateCommand(), 0);
-assert.equal(angleCommand(), 0);
 
 // W alone: both wheels forward.
 setKeys('w');
@@ -105,7 +104,8 @@ assert.equal(rotateCommand(), -1);
 setKeys('arrowleft', 'arrowright');
 assert.equal(rotateCommand(), 0);
 
-// Angle axis: up = +1, down = -1.
+// Elevation hold-to-move jog (arrows up/down, every firmware and the
+// radio): up = +1, down = -1.
 setKeys('arrowup');
 assert.equal(angleCommand(), 1);
 setKeys('arrowdown');

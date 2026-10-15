@@ -141,6 +141,7 @@ static const char *const event_names[RCMAP_EVENT_COUNT] = {
     "MODE_FULL_AUTO",
     "FIRE_NOT_READY",
     "ENABLE_REJECTED_NOT_MANUAL",
+    "REJECTED_AUTO_MODE",
 };
 
 const char *rcmap_event_name(uint16_t code) {

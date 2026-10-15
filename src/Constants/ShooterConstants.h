@@ -4,6 +4,7 @@
 
 #include "../Control/ActuatorConfig.h"
 #include "../Control/PidfController.h"
+#include "../Control/ServoAngleMap.h"
 #include "../Control/VisionFollowController.h"
 #include "TuningConstants.h"
 
@@ -39,6 +40,21 @@ constexpr double POSITION_RATE_US_PER_SECOND = 1000.0;
 constexpr int MIN_PULSE_US = 500;
 constexpr int NEUTRAL_US = 1500;
 constexpr int MAX_PULSE_US = 2500;
+
+// Angle <-> pulse, for the Dashboard's degree readout and its slider /
+// number box (ANGT). The positional servo holds an absolute position, so a
+// pulse IS a position; Auto and the shot table work in pulses directly and
+// don't need this. PROVISIONAL = the servo's own spec, 500 us = 0 deg ..
+// 2500 us = 270 deg (servo angle, not elevation); measure two known
+// elevations and put them here as CAL_A/CAL_B to read real elevation.
+constexpr double CAL_A_PULSE_US = 500.0;
+constexpr double CAL_A_DEGREES = 0.0;
+constexpr double CAL_B_PULSE_US = 2500.0;
+constexpr double CAL_B_DEGREES = 270.0;
+constexpr ServoAngleMap ANGLE_MAP{
+    CAL_A_PULSE_US, CAL_A_DEGREES, CAL_B_PULSE_US, CAL_B_DEGREES,
+    static_cast<double>(MIN_PULSE_US), static_cast<double>(MAX_PULSE_US)};
+
 constexpr ServoMotorConfig MOTOR(
     INVERTED,
     MIN_PULSE_US,
@@ -102,6 +118,9 @@ constexpr ServoMotorConfig MOTOR(
 }
 
 static_assert(Angle::MIN_PULSE_US < Angle::NEUTRAL_US, "Invalid angle minimum PWM");
+static_assert(Angle::CAL_A_PULSE_US != Angle::CAL_B_PULSE_US &&
+                  Angle::CAL_A_DEGREES != Angle::CAL_B_DEGREES,
+              "Elevation calibration needs two distinct points");
 static_assert(Angle::NEUTRAL_US < Angle::MAX_PULSE_US, "Invalid angle maximum PWM");
 static_assert(Rotate::MIN_PULSE_US < Rotate::NEUTRAL_US, "Invalid rotate minimum PWM");
 static_assert(Rotate::NEUTRAL_US < Rotate::MAX_PULSE_US, "Invalid rotate maximum PWM");

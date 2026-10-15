@@ -16,6 +16,10 @@ struct Recorder {
     double rotateCommand = 0.0;
     double angleCommand = 0.0;
     double flywheelCommand = 0.0;
+    double angleTargetDegrees = 135.0; // ANGT (stub keeps no clamp)
+    unsigned long angleTargetSets = 0;
+    double anglePulseUs = 0.0;         // Auto's shot-table pulse
+    unsigned long anglePulseSets = 0;
     unsigned long statusCount = 0;
     uint8_t statusFlags = 0;
     unsigned long statusSeq = 0;
