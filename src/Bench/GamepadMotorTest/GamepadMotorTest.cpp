@@ -8,8 +8,8 @@
 //
 // It speaks just enough of the production wired protocol for the
 // Dashboard's Enable handshake, watchdog and readouts to work unchanged:
-//   E / X / K, T,<left>,<right>; FLY/ROT/ANG/F/L/R/M are accepted (they
-//   keep the link alive) but drive nothing here.
+//   E / X / K, T,<left>,<right>, ROT,<d>; FLY/ANG/F/L/R/M are accepted
+//   (they keep the link alive) but drive nothing here.
 //   $EVENT,OUTPUTS_ENABLED / OUTPUTS_DISABLED / COMMAND_TIMEOUT /
 //   REJECTED_DISARMED / BAD_COMMAND / UNKNOWN_COMMAND, and a TEL line in
 //   the production field layout (armed in slot 18, the A5 pulse in slot 19,
@@ -20,6 +20,10 @@
 // +1 -> 2000 us, A / stick left -> -1 -> 1000 us, centered -> 1500 us
 // (full +-500 us, Jeremy 2026-10-16). Forward/back alone (W/S, stick Y)
 // gives turn 0 and does not move this motor.
+//
+// The keyboard arrows left/right (ROT,-1 / ROT,1, the turret keys on the
+// real robot) drive it too (Jeremy 2026-10-16): while ROT is non-zero it
+// wins over the stick / A-D turn; ROT,0 hands it back.
 #include <Arduino.h>
 #include <Servo.h>
 #include <math.h>
@@ -37,7 +41,8 @@ constexpr size_t MAX_LINE_LENGTH = 32;
 
 Servo motor;
 bool armed = false;
-double turn = 0.0;
+double turn = 0.0;    // from T (stick X / A-D)
+double rotateKey = 0.0;  // from ROT (arrows left/right)
 int pulseUs = NEUTRAL_US;
 unsigned long lastCommandMs = 0;
 unsigned long lastTelemetryMs = 0;
@@ -51,13 +56,15 @@ void event(const char* name) {
 }
 
 void writeMotor() {
-    pulseUs = armed ? NEUTRAL_US + static_cast<int>(lround(turn * SPAN_US)) : NEUTRAL_US;
+    const double command = rotateKey != 0.0 ? rotateKey : turn;
+    pulseUs = armed ? NEUTRAL_US + static_cast<int>(lround(command * SPAN_US)) : NEUTRAL_US;
     motor.writeMicroseconds(pulseUs);
 }
 
 void disarm(const char* reason) {
     armed = false;
     turn = 0.0;
+    rotateKey = 0.0;
     writeMotor();
     event(reason);
 }
@@ -75,6 +82,7 @@ void handleLine(char* text) {
     if (strcmp(text, "E") == 0) {
         armed = true;
         turn = 0.0;
+        rotateKey = 0.0;
         lastCommandMs = millis();
         writeMotor();
         event("OUTPUTS_ENABLED");
@@ -85,8 +93,9 @@ void handleLine(char* text) {
         return;
     }
     const bool isTank = strncmp(text, "T,", 2) == 0;
-    const bool known = isTank || strcmp(text, "K") == 0 ||
-        strncmp(text, "FLY,", 4) == 0 || strncmp(text, "ROT,", 4) == 0 ||
+    const bool isRotate = strncmp(text, "ROT,", 4) == 0;
+    const bool known = isTank || isRotate || strcmp(text, "K") == 0 ||
+        strncmp(text, "FLY,", 4) == 0 ||
         strncmp(text, "ANG", 3) == 0 ||
         (text[1] == '\0' && strchr("FLRM", text[0]) != nullptr);
     if (!known) {
@@ -107,6 +116,14 @@ void handleLine(char* text) {
             return;
         }
         turn = (right - left) / 2.0;
+    }
+    if (isRotate) {
+        double value = 0.0;
+        if (!parseValue(text + 4, value)) {
+            event("BAD_COMMAND");
+            return;
+        }
+        rotateKey = value;
     }
     lastCommandMs = millis();
     writeMotor();

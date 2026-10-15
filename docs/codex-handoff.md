@@ -3429,3 +3429,26 @@ started:**
 
 Note that a turret "home" is impossible without a turret position sensor;
 only the elevation can home, to a fixed pulse.
+
+## 2026-10-16 — Claude Code: gamepad bench — arrows left/right also drive A5
+
+**Hardware result:** Jeremy reports **the gamepad works**, driving the A5
+motor through `mega_gamepad_motor_test`. This is the first hardware
+confirmation of the Dashboard's gamepad path.
+
+**User Request:** let the keyboard's ←/→ control the motor too. Jeremy
+approved the plan.
+
+**Changed (bench firmware only):**
+- `GamepadMotorTest.cpp` now parses `ROT,<d>`, which the Dashboard's ←/→
+  send (they are the turret keys on the real robot).
+- While ROT is non-zero it wins over the T-turn from the stick or A/D;
+  `ROT,0` hands control back. E and any disarm clear it.
+- The Dashboard and production firmware are unchanged.
+
+**Evidence:**
+- The `gamepad_motor_test` host test adds these cases: → 2000, ← 1000,
+  arrow overrides the stick, release goes back to the stick (1750), a bad
+  ROT value is refused, and X / E clear a held arrow.
+- The env builds and the page test passes. The ←/→ path itself has not
+  been run on hardware.

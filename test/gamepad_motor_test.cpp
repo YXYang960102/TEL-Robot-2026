@@ -60,6 +60,22 @@ int main() {
     send("T,-4,4"); tick();       // out of range clamps
     assert(pulse() == 2000);
 
+    // Arrows left/right (ROT) drive it too and win while held.
+    send("T,0,0"); tick();
+    assert(pulse() == 1500);
+    send("ROT,1"); tick();        // arrow right
+    assert(pulse() == 2000);
+    send("ROT,-1"); tick();       // arrow left
+    assert(pulse() == 1000);
+    send("T,-0.5,0.5"); tick();   // stick right while the arrow is held
+    assert(pulse() == 1000);      // arrow still wins
+    send("ROT,0"); tick();        // arrow released: back to the stick
+    assert(pulse() == 1750);
+    send("ROT,abc"); tick();
+    assert(saw("BAD_COMMAND") && pulse() == 1750);
+    send("T,-4,4"); tick();
+    assert(pulse() == 2000);
+
     // Telemetry in the production layout: 28 fields, armed, pulse, owner.
     tick(100);
     std::vector<std::string> tel = lastTel();
@@ -87,6 +103,12 @@ int main() {
     assert(pulse() == 2000);
     send(std::string(80, '9')); tick();   // oversized line: stop
     assert(saw("DISABLED_CORRUPT_COMMAND") && pulse() == 1500);
+
+    // A held arrow is cleared by a stop and does not come back on Enable.
+    send("E"); send("ROT,1"); tick();
+    assert(pulse() == 2000);
+    send("X"); send("E"); tick();
+    assert(pulse() == 1500);
 
     // X stops.
     send("E"); send("T,-1,1"); tick();
