@@ -54,6 +54,9 @@ Host tests used in this repo (run from the repo root):
   # Single positional elevation servo: target slew, hold, clamp, stalled loop.
   g++ -std=c++17 -Wall -Wextra -Werror test/servo_position_jog_test.cpp -o /tmp/servo-jog && /tmp/servo-jog
 
+  # Single-motor gamepad bench (env mega_gamepad_motor_test, A5).
+  g++ -std=c++17 -Wall -Wextra -Werror -I test/host_stubs test/gamepad_motor_test.cpp test/host_stubs/host_stubs.cpp -o /tmp/t && /tmp/t
+
   # Elevation angle <-> pulse map with the real ShooterConstants calibration.
   g++ -std=c++17 -Wall -Wextra -Werror test/servo_angle_map_test.cpp -o /tmp/t && /tmp/t
 
