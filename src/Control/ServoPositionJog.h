@@ -14,6 +14,12 @@ public:
         if (target > maxUs) target = maxUs;
         return target;
     }
+    // Absolute target (e.g. "go to 45 deg"), clamped like step().
+    double set(double targetUs, double minUs, double maxUs) {
+        if (!(targetUs == targetUs)) return target; // NaN: keep the old target
+        target = targetUs < minUs ? minUs : (targetUs > maxUs ? maxUs : targetUs);
+        return target;
+    }
     double value() const { return target; }
 private:
     double target;

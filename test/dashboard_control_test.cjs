@@ -1,5 +1,5 @@
 // Focused host test for tools/dashboard/index.html's wired-control command
-// functions (tankCommand/rotateCommand/angleCommand), added for the
+// functions (tankCommand/rotateCommand), added for the
 // 2026-10-11 dev integration (docs/codex-handoff.md).
 //
 // The dashboard page itself (1600+ lines: canvas field/chart drawing,
@@ -43,12 +43,11 @@ const heldKeys = new Set();
 const src = [
   extractFunction('tankCommand'),
   extractFunction('rotateCommand'),
-  extractFunction('angleCommand'),
 ].join('\n');
 
 const ctx = vm.createContext({ heldKeys, Math });
-vm.runInContext(`${src}\nresult = { tankCommand, rotateCommand, angleCommand };`, ctx);
-const { tankCommand, rotateCommand, angleCommand } = ctx.result;
+vm.runInContext(`${src}\nresult = { tankCommand, rotateCommand };`, ctx);
+const { tankCommand, rotateCommand } = ctx.result;
 
 function setKeys(...keys) {
   heldKeys.clear();
@@ -67,7 +66,6 @@ function tank() {
 setKeys();
 assert.deepEqual(tank(), [0, 0]);
 assert.equal(rotateCommand(), 0);
-assert.equal(angleCommand(), 0);
 
 // W alone: both wheels forward.
 setKeys('w');
@@ -105,10 +103,7 @@ assert.equal(rotateCommand(), -1);
 setKeys('arrowleft', 'arrowright');
 assert.equal(rotateCommand(), 0);
 
-// Angle axis: up = +1, down = -1.
-setKeys('arrowup');
-assert.equal(angleCommand(), 1);
-setKeys('arrowdown');
-assert.equal(angleCommand(), -1);
+// (Elevation is no longer a held axis: arrows up/down send ANGS steps --
+// covered by dashboard_page_test.cjs.)
 
 console.log('dashboard wired-control command functions: all asserts passed');

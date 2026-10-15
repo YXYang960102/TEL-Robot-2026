@@ -51,10 +51,17 @@ void Auto::update() {
     // spinning when a target appears.
     double flywheelCommand = TuningConstants::Flywheel::SHOOT_COMMAND;
     if (Vision::isValid()) {
-        flywheelCommand = ShotTableLookup::lookup(
+        const ShotTableLookup::Result shot = ShotTableLookup::lookup(
             Vision::getDistance() / 1000.0,
             TuningConstants::ShotTable::TABLE,
-            TuningConstants::ShotTable::TABLE_COUNT).flywheelCommand;
+            TuningConstants::ShotTable::TABLE_COUNT);
+        flywheelCommand = shot.flywheelCommand;
+        // Elevation from the table too, once the elevation map is in real
+        // elevation degrees (ShooterConstants::Angle::MECHANISM_CALIBRATED);
+        // until then the operator keeps the elevation. No target: hold.
+        if (ShooterConstants::Angle::MECHANISM_CALIBRATED) {
+            Shooter::setAngleTargetDegrees(shot.angleDegrees);
+        }
     }
     Shooter::setFlywheelOpenLoop(flywheelCommand);
 

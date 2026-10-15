@@ -9,7 +9,8 @@
 // Operator control of the robot, from two sources that share one set of
 // rules:
 //   - Wired: line protocol on USB `Serial` from tools/dashboard/index.html
-//     (E/X/K, T,<l>,<r>, ROT,<d>, ANG,<d>, FLY,<0..1>, F, L, R, M).
+//     (E/X/K, T,<l>,<r>, ROT,<d>, ANG,<d>, ANGT,<deg>, ANGS,<steps>,
+//     FLY,<0..1>, F, L, R, M).
 //   - Wireless: CRSF channels from the ELRS link via MechLink, decoded with
 //     RcControlMap (arm level on CH5, axes, F/L event counters, mode on CH4).
 //
@@ -72,6 +73,7 @@ private:
     static void cycleOperatorMode();
     static void setOperatorMode(OperatorMode mode);
     static void handleFire();
+    static bool autoOwnsElevation();
     static void applyOutputs();
     static void sendStatusIfDue();
     static void sendEvent(rcmap_event event);

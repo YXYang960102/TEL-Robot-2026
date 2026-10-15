@@ -61,6 +61,14 @@ void Shooter::disableRotate() {
     rec.rotateCommand = 0.0;
 }
 void Shooter::setAngleOpenLoop(double command) { rec.angleCommand = command; }
+bool Shooter::setAngleTargetDegrees(double degrees) {
+    rec.angleTargetDegrees = degrees;
+    rec.angleTargetSets++;
+    return true;
+}
+bool Shooter::stepAngleTargetDegrees(double delta) {
+    return setAngleTargetDegrees(rec.angleTargetDegrees + delta);
+}
 void Shooter::setFlywheelOpenLoop(double command) { rec.flywheelCommand = command; }
 
 bool Shooter::isReady() { return hoststub::shooterReady; }

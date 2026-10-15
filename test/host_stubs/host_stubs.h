@@ -16,6 +16,8 @@ struct Recorder {
     double rotateCommand = 0.0;
     double angleCommand = 0.0;
     double flywheelCommand = 0.0;
+    double angleTargetDegrees = 135.0; // ANGT/ANGS (stub keeps no clamp)
+    unsigned long angleTargetSets = 0;
     unsigned long statusCount = 0;
     uint8_t statusFlags = 0;
     unsigned long statusSeq = 0;

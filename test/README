@@ -54,5 +54,8 @@ Host tests used in this repo (run from the repo root):
   # Single positional elevation servo: target slew, hold, clamp, stalled loop.
   g++ -std=c++17 -Wall -Wextra -Werror test/servo_position_jog_test.cpp -o /tmp/servo-jog && /tmp/servo-jog
 
+  # Elevation angle <-> pulse map with the real ShooterConstants calibration.
+  g++ -std=c++17 -Wall -Wextra -Werror test/servo_angle_map_test.cpp -o /tmp/t && /tmp/t
+
   # Single-wire conveyor ESC: pin, stop, run and emergency stop pulses.
   g++ -std=c++17 -Wall -Wextra -Werror -I test/host_stubs test/conveyor_esc_test.cpp test/host_stubs/host_stubs.cpp src/Dribbler/Dribbler.cpp -o /tmp/conveyor-esc-test && /tmp/conveyor-esc-test

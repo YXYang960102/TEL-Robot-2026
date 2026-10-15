@@ -177,10 +177,15 @@ void ManualControl::processCommand(char* command) {
     const bool isRotate = strncmp(command, "ROT,", 4) == 0;
     const bool isAngle = strncmp(command, "ANG,", 4) == 0;
     const bool isFlywheel = strncmp(command, "FLY,", 4) == 0;
+    // Elevation as an absolute angle: ANGT,<deg> = go to, ANGS,<n> = step n
+    // arrow steps (n * Angle::STEP_DEGREES).
+    const bool isAngleTarget = strncmp(command, "ANGT,", 5) == 0;
+    const bool isAngleStep = strncmp(command, "ANGS,", 5) == 0;
     const bool isSingle = command[1] == '\0' &&
         (command[0] == 'F' || command[0] == 'L' || command[0] == 'R' || command[0] == 'M');
 
-    if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle) {
+    if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle &&
+        !isAngleTarget && !isAngleStep) {
         sendEvent(RCMAP_EVENT_UNKNOWN_COMMAND);
         return;
     }
@@ -205,6 +210,24 @@ void ManualControl::processCommand(char* command) {
         refreshWiredWatchdog();
         tankLeftCommand = left;
         tankRightCommand = right;
+        return;
+    }
+    if (isAngleTarget || isAngleStep) {
+        double value = 0.0;
+        if (!parseValue(command + 5, isAngleStep ? -10.0 : -1000.0,
+                        isAngleStep ? 10.0 : 1000.0, value)) {
+            sendEvent(RCMAP_EVENT_BAD_COMMAND);
+            return;
+        }
+        refreshWiredWatchdog();
+        if (autoOwnsElevation()) {
+            sendEvent(RCMAP_EVENT_REJECTED_AUTO_MODE);
+            return;
+        }
+        const bool ok = isAngleTarget
+            ? Shooter::setAngleTargetDegrees(value)
+            : Shooter::stepAngleTargetDegrees(value * ShooterConstants::Angle::STEP_DEGREES);
+        if (!ok) sendEvent(RCMAP_EVENT_BAD_COMMAND); // continuous elevation: no angle
         return;
     }
     if (isRotate || isAngle || isFlywheel) {
@@ -413,6 +436,11 @@ void ManualControl::handleFire() {
     }
 }
 
+bool ManualControl::autoOwnsElevation() {
+    return operatorMode != OperatorMode::FULL_MANUAL &&
+           ShooterConstants::Angle::MECHANISM_CALIBRATED;
+}
+
 void ManualControl::cycleOperatorMode() {
     if (ManualControlConstants::WIRED_MANUAL_ONLY) {
         // Wired benches have no camera/auto path: stay manual, like L.
@@ -457,8 +485,12 @@ void ManualControl::applyOutputs() {
         tankLeftCommand * CHASSIS_MANUAL_SCALE,
         tankRightCommand * CHASSIS_MANUAL_SCALE);
 
-    // Elevation has no sensor, so it stays with the operator in every mode.
-    Shooter::setAngleOpenLoop(angleManualCommand * ANGLE_MANUAL_SCALE);
+    // Elevation: the operator's, unless Auto sets it from the shot table
+    // (auto mode and a calibrated elevation map). The open-loop call also
+    // holds an absolute ANGT/ANGS target (zero jog = stay put).
+    if (!autoOwnsElevation()) {
+        Shooter::setAngleOpenLoop(angleManualCommand * ANGLE_MANUAL_SCALE);
+    }
 
     if (operatorMode != OperatorMode::FULL_MANUAL) {
         return; // turret and flywheel belong to Auto (runs right after this)

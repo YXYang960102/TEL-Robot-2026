@@ -3195,3 +3195,71 @@ the measured ends.
 **Next Test:** run `mega_manual_axes_test` and jog up/down slowly. At each
 real mechanical end, before it binds, note the Dashboard pulse. Then set
 MIN/MAX to those values.
+
+## 2026-10-15 — Claude Code: elevation commanded as an absolute angle (branch claude/elevation-angle, not on dev yet)
+
+**User Request:** a teammate (何大工程師) pointed out the elevation is a
+positional servo, so it "should directly control a target angle" instead of
+the hold-to-move jog. Jeremy chose:
+- a Dashboard slider plus a number box, with the arrow keys as fine
+  adjustment;
+- auto modes take the elevation from the shot table;
+- servo degrees first, mechanism degrees once measured.
+
+Mid-way he asked to push only the 500–2500 µs version first (`eb78970`,
+pushed to dev). This work therefore sits on its own branch,
+`claude/elevation-angle`, until he approves it.
+
+**Changed:**
+- New pure `src/Control/ServoAngleMap.h`: a two-point linear degrees↔pulse
+  map with a pulse clamp, and an ascending min/max angle whichever way the
+  servo is mounted. Added `ServoPositionJog::set()` for an absolute,
+  clamped target; NaN keeps the old target.
+- `ShooterConstants::Angle`:
+  - `CAL_A`/`CAL_B` (provisional servo spec: 500 µs = 0°, 2500 µs = 270°)
+    form `ANGLE_MAP`.
+  - `STEP_DEGREES` = 1.
+  - **`MECHANISM_CALIBRATED = false`.** Auto applies the shot table's angle
+    only once this is true, because the table's angles are elevation
+    angles and would mean nothing as servo angles. Until then the operator
+    keeps the elevation in every mode.
+- `Shooter`: `setAngleTargetDegrees`, `stepAngleTargetDegrees` and
+  getters for the target and the min/max degrees. On a continuous-rotation
+  elevation they return false.
+- `ManualControl`:
+  - Wired `ANGT,<deg>` (go to) and `ANGS,<n>` (n steps). The usual
+    armed/owner checks apply, bad numbers get `BAD_COMMAND`, and both
+    refresh the watchdog.
+  - When Auto owns the elevation (auto mode and calibrated), they get
+    `REJECTED_AUTO_MODE` (new event, appended), and `applyOutputs` skips
+    the elevation.
+  - The old `ANG` jog command is still supported and is what wireless CH7
+    uses.
+- `Auto`: sets the elevation from `shot.angleDegrees` when calibrated and a
+  target is valid; otherwise it holds.
+- TEL appends slots 29–31: target °, min °, max °.
+- Dashboard:
+  - Elevation slider (its limits come from the TEL range), a number box
+    with a "設定仰角 / Set" button (Enter stays the stop key), and the
+    target ° shown alongside the pulse.
+  - **↑/↓ now send `ANGS,±1` per press and per key-repeat** instead of
+    holding `ANG`. The heartbeat no longer resends an angle axis.
+
+**Evidence:**
+- All 7 Mega envs and the ground board build. The bridge image is
+  unchanged.
+- New `test/servo_angle_map_test.cpp`: the provisional and an inverted
+  "real" calibration, the clamp, a round trip, `set()` and hold.
+- manual_control has a new elevation test: disarmed refusal, ANGT/ANGS
+  values, bad input refused, the watchdog kept alive, and the operator
+  keeping the elevation in auto while uncalibrated. All three variants
+  pass.
+- Dashboard page test (arrow steps, slider/box `ANGT`, an empty box sends
+  nothing, slots 29–31) and control test pass.
+- All other host tests pass. Not run on hardware.
+
+**Next:**
+1. Jeremy measures the elevation ends with `eb78970`.
+2. Then two known elevation points → `CAL_A`/`CAL_B` and `MIN`/`MAX`
+   pulses → `MECHANISM_CALIBRATED = true`.
+3. Then merge this branch.

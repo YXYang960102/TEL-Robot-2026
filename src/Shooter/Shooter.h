@@ -32,6 +32,14 @@ public:
 
     // Manual control (-1..1; flywheel 0..1)
     static void setAngleOpenLoop(double command);
+    // Elevation as an absolute target angle (positional servo only; degrees
+    // per ShooterConstants::Angle::ANGLE_MAP, clamped to its range). Returns
+    // false on a continuous-rotation elevation, which has no position.
+    static bool setAngleTargetDegrees(double degrees);
+    static bool stepAngleTargetDegrees(double deltaDegrees);
+    static double getAngleTargetDegrees();
+    static double getAngleMinDegrees();
+    static double getAngleMaxDegrees();
     static void setRotateOpenLoop(double command);
     static void setFlywheelOpenLoop(double command);
     static void disableRotate();
