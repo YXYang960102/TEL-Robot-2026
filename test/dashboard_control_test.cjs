@@ -1,5 +1,5 @@
 // Focused host test for tools/dashboard/index.html's wired-control command
-// functions (tankCommand/rotateCommand), added for the
+// functions (tankCommand/rotateCommand/angleCommand), added for the
 // 2026-10-11 dev integration (docs/codex-handoff.md).
 //
 // The dashboard page itself (1600+ lines: canvas field/chart drawing,
@@ -43,11 +43,12 @@ const heldKeys = new Set();
 const src = [
   extractFunction('tankCommand'),
   extractFunction('rotateCommand'),
+  extractFunction('angleCommand'),
 ].join('\n');
 
 const ctx = vm.createContext({ heldKeys, Math });
-vm.runInContext(`${src}\nresult = { tankCommand, rotateCommand };`, ctx);
-const { tankCommand, rotateCommand } = ctx.result;
+vm.runInContext(`${src}\nresult = { tankCommand, rotateCommand, angleCommand };`, ctx);
+const { tankCommand, rotateCommand, angleCommand } = ctx.result;
 
 function setKeys(...keys) {
   heldKeys.clear();
@@ -103,7 +104,12 @@ assert.equal(rotateCommand(), -1);
 setKeys('arrowleft', 'arrowright');
 assert.equal(rotateCommand(), 0);
 
-// (Elevation is no longer a held axis: arrows up/down send ANGS steps --
-// covered by dashboard_page_test.cjs.)
+// Elevation hold-to-move fallback (older firmware / wireless): up = +1,
+// down = -1. With angle-capable USB firmware the arrows send ANGS steps
+// instead -- covered by dashboard_page_test.cjs.
+setKeys('arrowup');
+assert.equal(angleCommand(), 1);
+setKeys('arrowdown');
+assert.equal(angleCommand(), -1);
 
 console.log('dashboard wired-control command functions: all asserts passed');

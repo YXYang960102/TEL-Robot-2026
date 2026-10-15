@@ -799,7 +799,14 @@
     // wired X would disarm a wireless operator, so only the ground gets it).
     let linkKind = "unknown";
     let tankLeft = 0, tankRight = 0;
-    let rotateAxis = 0;
+    let rotateAxis = 0, angleAxis = 0;
+    // Elevation control style. true = absolute target angle (ANGT/ANGS,
+    // slider, number box): only when the USB-connected Mega reports the
+    // angle fields (TEL slots 29-31). false = the older hold-to-move ANG
+    // jog: older firmware, and the wireless ground station (its CH7 can only
+    // carry up/stop/down). Lets this page (deployed from dev) work with
+    // whatever firmware a robot is running.
+    let absoluteElevation = false;
     let flywheelRatio = 0;
     const heldKeys = new Set();
 
@@ -815,6 +822,7 @@
       if (!online) {
         enablePending = false;
         linkKind = "unknown";
+        absoluteElevation = false;
         setControlArmed(false);
       }
     }
@@ -825,7 +833,7 @@
       if (!armed) {
         // The firmware drops back to full manual on every disarm.
         operatorMode = MODE_FULL_MANUAL;
-        tankLeft = 0; tankRight = 0; rotateAxis = 0;
+        tankLeft = 0; tankRight = 0; rotateAxis = 0; angleAxis = 0;
         heldKeys.clear();
         setFlywheelSlider(0);
       }
@@ -853,9 +861,10 @@
       flywheelSlider.disabled = !controlArmed || operatorMode !== MODE_FULL_MANUAL;
       // Elevation is an absolute target angle (positional servo). In an
       // auto mode the robot answers REJECTED_AUTO_MODE if Auto owns it.
-      angleSlider.disabled = !controlArmed;
-      angleInput.disabled = !controlArmed;
-      angleSetButton.disabled = !controlArmed;
+      const angleEditable = controlArmed && absoluteElevation;
+      angleSlider.disabled = !angleEditable;
+      angleInput.disabled = !angleEditable;
+      angleSetButton.disabled = !angleEditable;
     }
 
     // The firmware zeroes the flywheel on every disarm (Enter, Space,
@@ -1295,7 +1304,14 @@
           ? `${data.angleTargetDeg.toFixed(1)}° · ${data.anglePulseUs} us`
           : `${data.anglePulseUs} us`;
       }
-      if (Number.isFinite(data.angleTargetDeg) && Number.isFinite(data.angleMinDeg) && Number.isFinite(data.angleMaxDeg)) {
+      const hasAngle = Number.isFinite(data.angleTargetDeg) &&
+        Number.isFinite(data.angleMinDeg) && Number.isFinite(data.angleMaxDeg);
+      if (hasAngle !== absoluteElevation) {
+        absoluteElevation = hasAngle;
+        heldKeys.delete("arrowup"); heldKeys.delete("arrowdown");
+        updateControlUi();
+      }
+      if (hasAngle) {
         angleSlider.min = String(data.angleMinDeg);
         angleSlider.max = String(data.angleMaxDeg);
         // Don't yank the slider out from under the operator's hand.
@@ -1467,6 +1483,7 @@
       }
       if (line.startsWith("$WIRELESS,")) {
         linkKind = "ground";
+        if (absoluteElevation) { absoluteElevation = false; updateControlUi(); }
         handleWirelessStatus(line);
         return;
       }
@@ -1648,6 +1665,18 @@
       }
     }
 
+    function angleCommand() {
+      return (heldKeys.has("arrowup") ? 1 : 0) - (heldKeys.has("arrowdown") ? 1 : 0);
+    }
+
+    async function sendAngleIfChanged() {
+      const value = angleCommand();
+      if (value !== angleAxis) {
+        angleAxis = value;
+        await sendControl(`ANG,${value}`);
+      }
+    }
+
     async function sendRotateIfChanged() {
       const value = rotateCommand();
       if (value !== rotateAxis) {
@@ -1754,6 +1783,7 @@
     async function sendAllAxesIfChanged() {
       await sendTankIfChanged();
       await sendRotateIfChanged();
+      await sendAngleIfChanged();
     }
 
     window.addEventListener("keydown", async (event) => {
@@ -1779,11 +1809,17 @@
         await sendAllAxesIfChanged();
         return;
       }
-      // Elevation: each press (and each key-repeat while held) steps the
-      // absolute target by one step (1 deg); the servo holds it.
       if (key === "arrowup" || key === "arrowdown") {
         event.preventDefault();
-        await sendControl(`ANGS,${key === "arrowup" ? 1 : -1}`);
+        if (absoluteElevation) {
+          // Each press (and each key-repeat while held) steps the absolute
+          // target by one step (1 deg); the servo holds it.
+          await sendControl(`ANGS,${key === "arrowup" ? 1 : -1}`);
+        } else {
+          // Older firmware / wireless: hold to move, release to stop.
+          heldKeys.add(key);
+          await sendAllAxesIfChanged();
+        }
         return;
       }
       if ((key === "f" || key === "l" || key === "r" || key === "m") && !event.repeat) {
@@ -1831,6 +1867,7 @@
       let sent = false;
       if (tankLeft !== 0 || tankRight !== 0) { await sendControl(`T,${tankLeft},${tankRight}`); sent = true; }
       if (rotateAxis !== 0) { await sendControl(`ROT,${rotateAxis}`); sent = true; }
+      if (angleAxis !== 0) { await sendControl(`ANG,${angleAxis}`); sent = true; }
       if (flywheelRatio !== 0) { await sendControl(`FLY,${flywheelRatio.toFixed(2)}`); sent = true; }
       if (!sent) await sendControl("K");
     }

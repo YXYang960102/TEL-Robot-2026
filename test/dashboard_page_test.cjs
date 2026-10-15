@@ -143,20 +143,32 @@ async function emergencyStopViaEnter() {
   }
   assert.deepEqual([...writes], ['R', 'F', 'L']);
 
-  // Left/right drive the turret (held); release stops. Up/down step the
-  // elevation's absolute target: one ANGS per press, and key-repeat while
-  // held keeps stepping; release sends nothing (the servo holds the angle).
+  // Left/right drive the turret (held); release stops. With no angle
+  // telemetry yet (older firmware, or the wireless ground station), up/down
+  // are the old hold-to-move elevation jog, and the angle widgets are off.
   writes.length = 0;
   await windowHandlers.keydown(key('ArrowRight'));
   await windowHandlers.keydown(key('ArrowUp'));
-  await windowHandlers.keydown(key('ArrowUp', { repeat: true }));
-  assert.deepEqual([...writes], ['ROT,1', 'ANGS,1', 'ANGS,1']);
+  assert.deepEqual([...writes], ['ROT,1', 'ANG,1']);
   await windowHandlers.keyup(key('ArrowRight'));
   await windowHandlers.keyup(key('ArrowUp'));
-  assert.deepEqual([...writes].slice(-1), ['ROT,0']);
+  assert.deepEqual([...writes].slice(-2), ['ROT,0', 'ANG,0']);
+  assert.equal(elements.angleSlider.disabled, true);
+
+  // The Mega reports the angle fields (TEL slots 29-31): absolute mode.
+  // One ANGS per press and per key-repeat; release sends nothing (the
+  // servo holds the angle).
+  run('handleLine(' + JSON.stringify(['TEL', 1, 0, 0, 0, 0, 0, 1500, 1500, 1500, 1500, 1500, 0, 3, 1,
+    'NaN', 'NaN', 'NaN', 1, 1500, 1500, 1, 0, 0, 0, 0, 1500, 0.0, 1500, 135.0, 0.0, 270.0].join(',')) + ')');
+  assert.equal(elements.angleSlider.disabled, false);
   writes.length = 0;
+  await windowHandlers.keydown(key('ArrowUp'));
+  await windowHandlers.keydown(key('ArrowUp', { repeat: true }));
+  assert.deepEqual([...writes], ['ANGS,1', 'ANGS,1']);
+  await windowHandlers.keyup(key('ArrowUp'));
+  assert.equal(writes.length, 2);
   await windowHandlers.keydown(key('ArrowDown'));
-  assert.deepEqual([...writes], ['ANGS,-1']);
+  assert.equal(last(), 'ANGS,-1');
   // Slider and number box send an absolute target.
   elements.angleSlider.value = '90';
   await elements.angleSlider.handlers.input();
@@ -454,7 +466,9 @@ async function emergencyStopViaEnter() {
   await windowHandlers.keydown(key('Enter'));
   assert.equal(armed(), false);
   assert.match(elements.operatorMode.textContent, /FULL MANUAL/);
-  // Ground station: $WIRELESS field 10 carries the mode (-1 = not reported).
+  // Ground station: $WIRELESS switches the elevation back to the jog (the
+  // radio carries only up/stop/down), so arrows send ANG again.
+  // $WIRELESS field 10 carries the mode (-1 = not reported).
   connectFakePort();
   run('setConnection(true)');
   clock.t = 40000;
@@ -466,6 +480,12 @@ async function emergencyStopViaEnter() {
   assert.match(elements.operatorMode.textContent, /FULL AUTO/);
   line('$WIRELESS,1,1,2,1,0,1,1,50,-1');
   assert.match(elements.operatorMode.textContent, /FULL AUTO/);   // unknown: unchanged
+  assert.equal(elements.angleSlider.disabled, true);
+  writes.length = 0;
+  await windowHandlers.keydown(key('ArrowUp'));
+  assert.equal(last(), 'ANG,1');
+  await windowHandlers.keyup(key('ArrowUp'));
+  assert.equal(last(), 'ANG,0');
 
   // Slot 28 (appended): elevation pulse; older lines without it are fine.
   line(['TEL', 1, 0, 0, 0, 0, 0, 1500, 1500, 1500, 1500, 1500, 0, 3, 1,

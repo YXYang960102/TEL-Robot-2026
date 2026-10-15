@@ -3263,3 +3263,35 @@ pushed to dev). This work therefore sits on its own branch,
 2. Then two known elevation points → `CAL_A`/`CAL_B` and `MIN`/`MAX`
    pulses → `MECHANISM_CALIBRATED = true`.
 3. Then merge this branch.
+
+## 2026-10-15 — Claude Code: elevation angle merged into dev, with the Dashboard falling back to the jog for older firmware / wireless
+
+**User Request:** "合併到 main，然後dev改角度" (merge into main, then switch dev to the
+angle version).
+- main is at `49be790`, a merge of `eb78970` (500–2500 µs plus the pulse
+  display).
+- dev was fast-forwarded to `d19465f` (absolute elevation angle).
+
+**Found before pushing dev:** GitHub Pages deploys the Dashboard from dev,
+so the angle page would also be used against main's firmware.
+- That firmware doesn't know `ANGS`, so the arrows would have done nothing.
+- The ground station doesn't know `ANGT`/`ANGS` either, and its CH7
+  carries only up/stop/down, so wireless elevation would also have broken.
+
+**Changed (Dashboard only):** `absoluteElevation` is true only while the
+USB-connected Mega reports TEL slots 29–31.
+- When true: ↑/↓ send `ANGS,±1`, and the slider, number box and Set
+  button are enabled.
+- Otherwise (older firmware, or any `$WIRELESS` line from the ground
+  station): the previous hold-to-move `ANG,±1/0` jog is used, including the
+  heartbeat resend, and the angle widgets are disabled.
+- Disconnecting resets to the jog.
+- The `angleCommand`/`sendAngleIfChanged` jog path is restored for that
+  fallback.
+
+**Evidence:**
+- Page test covers: the jog without angle telemetry, ANGS after TEL slots
+  29–31, the slider and box, and the `$WIRELESS` switch back to the jog.
+- Control test covers `angleCommand` again.
+- production and manual_axes builds pass (firmware is unchanged in this
+  commit). Not run on hardware.
