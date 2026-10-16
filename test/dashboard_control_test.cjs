@@ -3,7 +3,7 @@
 // 1-9 -- control table v2, 2026-10-16).
 //
 // The dashboard page itself (canvas field/chart drawing, draggable panel
-// layout, MJPEG stream) is exercised as a whole in dashboard_page_test.cjs;
+// layout) is exercised as a whole in dashboard_page_test.cjs;
 // this extracts just the pure functions by source text and evaluates them
 // in isolation against a fake `heldKeys` Set, where the easy-to-get-wrong
 // mappings live: the arrow signs and Jeremy's hole numbering (columns left

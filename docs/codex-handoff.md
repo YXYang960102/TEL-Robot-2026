@@ -3985,3 +3985,31 @@ Fixes, if needed:
 older ground station rejects as `UNKNOWN_COMMAND`. In that case the robot
 just stays in full manual, which is safe. The Dashboard, the Mega and the
 ground station should all be updated together.
+
+## 2026-10-16 — Claude Code: Dashboard realtime trace and vision stream panels removed
+
+**User Request:** Jeremy asked to remove "即時曲線" (the realtime trace) and
+"串流" (the vision stream).
+
+**Changed (`tools/dashboard/index.html` only):**
+- Removed the `data-panel="stream"` panel: MJPEG URL box, image, status,
+  the `tel-dashboard-stream-url-v1` localStorage key, and the `.stream-frame`
+  / `.stream-placeholder` CSS.
+- Removed the `data-panel="trace"` panel: `#chart` canvas, `drawChart()`,
+  `drawLine()`, and the 180-frame `history`.
+- `.stream-controls` stays, because the control panel's slider / button
+  rows use it.
+- `applyLayout()` now keeps only the panels that still exist. Without this,
+  a previously saved layout would keep the removed panels' space at the
+  bottom of the page.
+- The tx / ty / distance readouts, the field view, the log and the other
+  panels are unchanged.
+
+**Evidence:**
+- The Dashboard page and control tests pass. The test's "text box" is now
+  the elevation angle input, and a new assertion checks that the two panels
+  are gone.
+- In a real browser:
+  - demo mode updates the readouts with no console errors;
+  - editing the layout with an old saved layout containing stream / trace
+    prunes them correctly.

@@ -1,7 +1,7 @@
 // Behavior test for tools/dashboard/index.html's keyboard control (wired
 // through the Mega's USB, or wireless through the ground STM32),
 // loading the WHOLE page script in a vm with a permissive DOM stub (canvas,
-// layout and stream code just hits no-op proxies). Covers the page-side
+// and layout code just hits no-op proxies). Covers the page-side
 // items from Codex's review of e4a70a5: key-repeat suppression, release
 // handling when focus has moved into a text box, Enter/Space, the Falcon
 // slider path, and resync/reset on firmware-reported disarm. Plus the
@@ -51,7 +51,8 @@ function makeElement(id, tagName = 'DIV', type = '') {
 const elements = {};
 const getElement = (id) => (elements[id] ??= makeElement(id, id === 'flywheelSlider' ? 'INPUT' : 'DIV', id === 'flywheelSlider' ? 'range' : ''));
 elements.flywheelSlider = makeElement('flywheelSlider', 'INPUT', 'range');
-elements.streamUrl = makeElement('streamUrl', 'INPUT', 'url');
+// A real text box on the page (the elevation angle number box).
+elements.angleInput = makeElement('angleInput', 'INPUT', 'number');
 
 const windowHandlers = {};
 const documentHandlers = {};
@@ -184,7 +185,7 @@ async function emergencyStopViaEnter() {
   // Typing in a real text box never drives the robot...
   writes.length = 0;
   for (const k of ['w', 'r', '5', 'm', 'ArrowUp']) {
-    await windowHandlers.keydown(key(k, { target: elements.streamUrl }));
+    await windowHandlers.keydown(key(k, { target: elements.angleInput }));
   }
   assert.equal(writes.length, 0);
   assert.equal(armed(), true);
@@ -193,13 +194,13 @@ async function emergencyStopViaEnter() {
   // keyup (Codex: otherwise the heartbeat keeps resending the old value).
   await windowHandlers.keydown(key('ArrowRight'));
   assert.equal(last(), 'ROT,1');
-  await windowHandlers.keyup(key('ArrowRight', { target: elements.streamUrl }));
+  await windowHandlers.keyup(key('ArrowRight', { target: elements.angleInput }));
   assert.equal(last(), 'ROT,0');
 
   // Focus jumping into a text box mid-hold also releases it.
   await windowHandlers.keydown(key('ArrowDown'));
   assert.equal(last(), 'ANG,-1');
-  await documentHandlers.focusin({ target: elements.streamUrl });
+  await documentHandlers.focusin({ target: elements.angleInput });
   assert.equal(last(), 'ANG,0');
 
   // Falcon slider -> FLY command, and resent by the heartbeat while non-zero.
@@ -269,14 +270,14 @@ async function emergencyStopViaEnter() {
   assert.equal(armed(), false);
 
   // Codex review afed238 [P1]: with the chassis and the Falcon running,
-  // focus moves into the stream URL box -- Enter there must still stop.
+  // focus moves into a text box -- Enter there must still stop.
   await arm();
   await windowHandlers.keydown(key('ArrowRight'));
   elements.flywheelSlider.value = '40';
   await elements.flywheelSlider.handlers.input();
-  await documentHandlers.focusin({ target: elements.streamUrl });
+  await documentHandlers.focusin({ target: elements.angleInput });
   writes.length = 0;
-  await windowHandlers.keydown(key('Enter', { target: elements.streamUrl }));
+  await windowHandlers.keydown(key('Enter', { target: elements.angleInput }));
   assert.equal(last(), 'X');
   assert.equal(armed(), false);
   assert.equal(run('flywheelRatio'), 0);
@@ -285,8 +286,8 @@ async function emergencyStopViaEnter() {
   assert.equal(writes.length, 0);  // no keepalive keeps anything alive
 
   // Disarmed: Enter/Space in a text box are ordinary typing again.
-  await windowHandlers.keydown(key('Enter', { target: elements.streamUrl }));
-  await windowHandlers.keydown(key(' ', { target: elements.streamUrl }));
+  await windowHandlers.keydown(key('Enter', { target: elements.angleInput }));
+  await windowHandlers.keydown(key(' ', { target: elements.angleInput }));
   assert.equal(writes.length, 0);
   assert.notEqual(run('port'), null);
 
@@ -294,7 +295,7 @@ async function emergencyStopViaEnter() {
   await arm();
   await windowHandlers.keydown(key('ArrowRight'));
   writes.length = 0;
-  await windowHandlers.keydown(key(' ', { target: elements.streamUrl }));
+  await windowHandlers.keydown(key(' ', { target: elements.angleInput }));
   assert.equal(writes[0], 'X');
   assert.equal(run('port'), null);
   assert.equal(armed(), false);
@@ -655,3 +656,7 @@ async function emergencyStopViaEnter() {
 
   console.log('dashboard page control behavior tests passed');
 })().catch((e) => { console.error(e); process.exitCode = 1; });
+
+// The realtime trace and the vision stream panels were removed (Jeremy,
+// 2026-10-16).
+assert.doesNotMatch(html, /data-panel="(trace|stream)"|id="(chart|streamUrl|streamImage)"/);
