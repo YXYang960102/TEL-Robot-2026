@@ -33,24 +33,36 @@ void emitLine(GroundEmitFn emit, void* ctx, const char* text) {
 void GroundCommandState::reset(uint32_t nowMs) {
     cmd = rcmap_command{};
     cmd.mode_us = RCMAP_MODE_FULL_MANUAL_US;
+    rotate = 0;
+    angle = 0;
     length = 0;
     discarding = false;
     lastPcMs = nowMs;
 }
 
 void GroundCommandState::release() {
-    // Arm off and every value neutral; event counters keep their level so
-    // the robot never sees a spurious step.
+    // Arm off and every motion neutral, fire / auto released. The selected
+    // target hole is a choice, not a motion, so it is kept.
     cmd.armed = false;
-    cmd.conveyor = false;
-    cmd.left = 0.0f;
-    cmd.right = 0.0f;
-    cmd.flywheel = 0.0f;
-    cmd.rotate = 0;
-    cmd.angle = 0;
+    cmd.forward = 0.0f;
+    cmd.turn = 0.0f;
+    cmd.fire = false;
+    cmd.auto_path = RCMAP_AUTO_NONE;
+    rotate = 0;
+    angle = 0;
+    updateNudge();
     // Back to full manual: the robot refuses an Enable whose CH4 isn't
     // manual, and every release ends any auto mode.
     cmd.mode_us = RCMAP_MODE_FULL_MANUAL_US;
+}
+
+void GroundCommandState::updateNudge() {
+    // One direction at a time on the radio; elevation wins if both are held.
+    cmd.nudge = angle > 0 ? RCMAP_NUDGE_UP
+              : angle < 0 ? RCMAP_NUDGE_DOWN
+              : rotate < 0 ? RCMAP_NUDGE_LEFT
+              : rotate > 0 ? RCMAP_NUDGE_RIGHT
+                           : RCMAP_NUDGE_CENTER;
 }
 
 void GroundCommandState::rxByte(char c, uint32_t nowMs, GroundEmitFn emit, void* ctx) {
@@ -104,10 +116,13 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
     const bool isTank = strncmp(line, "T,", 2) == 0;
     const bool isRotate = strncmp(line, "ROT,", 4) == 0;
     const bool isAngle = strncmp(line, "ANG,", 4) == 0;
-    const bool isFlywheel = strncmp(line, "FLY,", 4) == 0;
-    const bool isSingle = line[1] == '\0' &&
-        (line[0] == 'F' || line[0] == 'L' || line[0] == 'R' || line[0] == 'M');
-    if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle) {
+    // No radio channel (table v2): accepted so the Dashboard's heartbeat
+    // keeps the link alive, but nothing is sent for them.
+    const bool isNoChannel = strncmp(line, "FLY,", 4) == 0 || strncmp(line, "ANGT,", 5) == 0;
+    const bool isTarget = strncmp(line, "TGT,", 4) == 0;
+    const bool isAutoPath = strncmp(line, "AUTO,", 5) == 0;
+    const bool isSingle = line[1] == '\0' && (line[0] == 'F' || line[0] == 'M');
+    if (!isTank && !isRotate && !isAngle && !isNoChannel && !isTarget && !isAutoPath && !isSingle) {
         emitLine(emit, ctx, "$GROUND_EVENT,UNKNOWN_COMMAND");
         return;
     }
@@ -133,45 +148,73 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
             return;
         }
         lastPcMs = nowMs;
-        cmd.left = left;
-        cmd.right = right;
+        cmd.forward = (left + right) / 2.0f;
+        cmd.turn = (right - left) / 2.0f;
         return;
     }
-    if (isRotate || isAngle || isFlywheel) {
+    if (isRotate || isAngle) {
         float v = 0.0f;
-        if (!parseValue(line + 4, isFlywheel ? 0.0f : -1.0f, 1.0f, v)) {
+        if (!parseValue(line + 4, -1.0f, 1.0f, v)) {
             emitLine(emit, ctx, "$GROUND_EVENT,BAD_COMMAND");
             return;
         }
         lastPcMs = nowMs;
-        if (isRotate) cmd.rotate = toDirection(v);
-        else if (isAngle) cmd.angle = toDirection(v);
-        else cmd.flywheel = v;
+        if (isRotate) rotate = toDirection(v);
+        else angle = toDirection(v);
+        updateNudge();
+        return;
+    }
+    if (isTarget || isAutoPath) {
+        const char* digits = line + (isTarget ? 4 : 5);
+        char* end = nullptr;
+        const long n = strtol(digits, &end, 10);
+        const long minimum = isTarget ? 0 : 1;
+        const long maximum = isTarget ? RCMAP_TARGET_MAX : RCMAP_AUTO_PATHS;
+        if (end == digits || *end != '\0' || n < minimum || n > maximum) {
+            emitLine(emit, ctx, "$GROUND_EVENT,BAD_COMMAND");
+            return;
+        }
+        lastPcMs = nowMs;
+        if (isTarget) {
+            cmd.target = static_cast<uint8_t>(n);
+        } else if (cmd.auto_path == RCMAP_AUTO_NONE) {
+            // A new press only after the previous pulse ended (the robot
+            // needs to see "none" between presses).
+            cmd.auto_path = static_cast<uint8_t>(n);
+            autoStartMs = nowMs;
+        }
         return;
     }
 
     lastPcMs = nowMs;
-    if (line[0] == 'R') {
-        cmd.conveyor = !cmd.conveyor;
-    } else if (line[0] == 'F') {
-        cmd.feed_counter = static_cast<uint8_t>((cmd.feed_counter + 1u) % RCMAP_COUNTER_LEVELS);
-    } else if (line[0] == 'M') {
+    if (isNoChannel) {
+        return;
+    }
+    if (line[0] == 'F') {
+        if (!cmd.fire) {
+            cmd.fire = true;
+            fireStartMs = nowMs;
+        }
+    } else {
         // Same cycle as the Mega's wired M: manual -> semi -> full -> manual.
         const uint8_t mode = rcmap_mode_from_us(cmd.mode_us);
         const uint8_t next = mode == RCMAP_MODE_FULL_MANUAL ? RCMAP_MODE_SEMI_AUTO
                            : mode == RCMAP_MODE_SEMI_AUTO   ? RCMAP_MODE_FULL_AUTO
                                                             : RCMAP_MODE_FULL_MANUAL;
         cmd.mode_us = rcmap_mode_to_us(next);
-        cmd.flywheel = 0.0f; // the robot zeroes it on a mode change too
         emitLine(emit, ctx, next == RCMAP_MODE_FULL_MANUAL ? "$GROUND_EVENT,MODE_FULL_MANUAL"
                           : next == RCMAP_MODE_SEMI_AUTO   ? "$GROUND_EVENT,MODE_SEMI_AUTO"
                                                            : "$GROUND_EVENT,MODE_FULL_AUTO");
-    } else {
-        cmd.lmode_counter = static_cast<uint8_t>((cmd.lmode_counter + 1u) % RCMAP_COUNTER_LEVELS);
     }
 }
 
 void GroundCommandState::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
+    if (cmd.fire && nowMs - fireStartMs >= FIRE_PULSE_MS) {
+        cmd.fire = false;
+    }
+    if (cmd.auto_path != RCMAP_AUTO_NONE && nowMs - autoStartMs >= AUTO_PULSE_MS) {
+        cmd.auto_path = RCMAP_AUTO_NONE;
+    }
     if (cmd.armed && nowMs - lastPcMs > PC_TIMEOUT_MS) {
         release();
         emitLine(emit, ctx, "$GROUND_EVENT,PC_TIMEOUT");

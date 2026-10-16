@@ -8,18 +8,9 @@
 // feed one ball. The tower gives no feedback (as far as known), so the
 // Mega can only ever say "trigger sent", never "one ball went out".
 //
-// Robot total: six controlled motors (two chassis, one horizontal conveyor,
-// flywheel, elevation, turret). The tower adds only a trigger output.
+// The horizontal conveyor is driven by the tower side too (2026-10-16), so
+// the Mega no longer has a conveyor output (the old D45 ESC was removed).
 namespace DribblerConstants {
-
-// Single RC-pulse ESC signal, confirmed by Jeremy (2026-10-11).
-// Provisional bidirectional calibration: 1500 us stop, 1750 us run (0.5).
-namespace Conveyor {
-constexpr uint8_t SIGNAL_PIN = 45;
-constexpr int STOP_PULSE_US = 1500;
-constexpr int RUN_PULSE_US = 1750;
-constexpr bool CONFIGURED = SIGNAL_PIN != 255;
-}
 
 namespace Tower {
 // PROVISIONAL pin -- the real pin table hasn't been confirmed yet.
@@ -40,6 +31,3 @@ static_assert(Tower::COOLDOWN_MS >= Tower::PULSE_MS,
               "The lockout has to cover at least the pulse itself");
 
 }
-
-static_assert(DribblerConstants::Conveyor::SIGNAL_PIN != DribblerConstants::Tower::TRIGGER_PIN,
-              "Conveyor and tower outputs must use distinct pins");

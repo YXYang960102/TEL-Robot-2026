@@ -3,7 +3,7 @@
 // Semi-auto / full-auto shooting (OperatorMode.h). Runs right after
 // ManualControl::update() each loop, and only while an operator has the
 // robot armed in SEMI_AUTO or FULL_AUTO: ManualControl keeps safety
-// (Enable, watchdogs, link loss), the chassis, elevation and conveyor;
+// (Enable, watchdogs, link loss), the chassis and elevation;
 // this class drives the turret (camera vision-follow), the flywheel (shot
 // table by distance) and decides when to fire the feed tower.
 //

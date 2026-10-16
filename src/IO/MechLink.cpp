@@ -90,11 +90,13 @@ void MechLink::setSafe() {
     for (uint8_t i = 0; i < RCMAP_CHANNEL_COUNT; i++) {
         channels[i] = 1500;
     }
-    channels[RCMAP_CH_ARM] = 1000;
-    channels[RCMAP_CH_FLYWHEEL] = 1000;
+    // Released / none / manual: what the ground sends when idle.
+    channels[RCMAP_CH_TARGET] = 1000;
     channels[RCMAP_CH_MODE] = RCMAP_MODE_FULL_MANUAL_US;
-    channels[RCMAP_CH_FEED_COUNTER] = 1000;
-    channels[RCMAP_CH_LMODE_COUNTER] = 1000;
+    channels[RCMAP_CH_FIRE] = 1000;
+    channels[RCMAP_CH_ARM] = 1000;
+    channels[RCMAP_CH_NUDGE] = 1000;
+    channels[RCMAP_CH_AUTO] = 1000;
     modeChannel = RCMAP_MODE_FULL_MANUAL_US;
 }
 

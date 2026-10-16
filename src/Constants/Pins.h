@@ -23,8 +23,6 @@ constexpr bool PIN_TABLE_CONFIRMED = TEL_HOST_TEST_PIN_TABLE_CONFIRMED;
 #else
 constexpr bool PIN_TABLE_CONFIRMED = BuildProfile::PARTIAL_HARDWARE_BENCH;
 #endif
-static_assert(!PIN_TABLE_CONFIRMED || DribblerConstants::Conveyor::CONFIGURED,
-              "Configure horizontal conveyor ESC signal before enabling outputs");
 
 // Where each pin lives: every motor/sensor pin is defined exactly once, in
 // its subsystem's Constants file (ChassisConstants.h, DribblerConstants.h,

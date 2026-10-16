@@ -7,9 +7,16 @@
 
 // Ground-station side of wireless control: turns the PC Dashboard's line
 // protocol (the same one the Mega speaks over USB: E, X, K, T,<l>,<r>,
-// ROT,<d>, ANG,<d>, FLY,<0..1>, F, L, R, M) into the RC channel state
-// (rcmap_command) that goes out over ELRS, and turns the robot's status
-// coming back (rcmap_status in Battery frames) into lines for the PC.
+// ROT,<d>, ANG,<d>, TGT,<0..9>, AUTO,<1..4>, F, M; FLY and ANGT are
+// accepted but have no radio channel) into the RC channel state
+// (rcmap_command, table v2) that goes out over ELRS, and turns the robot's
+// status coming back (rcmap_status in Battery frames) into lines for the PC.
+//
+//   T,<l>,<r>   -> forward = (l + r) / 2, turn = (r - l) / 2 (CH1/CH2)
+//   ROT / ANG   -> nudge (CH7), held while non-zero; elevation wins if both
+//   F           -> fire (CH5) high for FIRE_PULSE_MS
+//   TGT,<n>     -> target hole (CH3), kept until changed
+//   AUTO,<n>    -> auto path (CH8) for AUTO_PULSE_MS, then none
 //
 // No Arduino here, so it runs unchanged in the host test.
 using GroundEmitFn = void (*)(void* ctx, const char* line);
@@ -18,11 +25,16 @@ class GroundCommandState {
 public:
     static constexpr uint32_t PC_TIMEOUT_MS = 250;
     static constexpr size_t MAX_LINE_LENGTH = 24;
+    // The robot acts on the rising edge; holding the level this long makes
+    // sure it is seen (CH5 is in every packet; CH8 is round-robin).
+    static constexpr uint32_t FIRE_PULSE_MS = 100;
+    static constexpr uint32_t AUTO_PULSE_MS = 200;
 
     void reset(uint32_t nowMs);
     void rxByte(char c, uint32_t nowMs, GroundEmitFn emit, void* ctx);
     // Watchdog: no line from the PC for PC_TIMEOUT_MS while an enable is
-    // requested -> release the arm channel and zero everything.
+    // requested -> release the arm channel and zero everything. Also ends
+    // the fire / auto-path pulses.
     void tick(uint32_t nowMs, GroundEmitFn emit, void* ctx);
 
     const rcmap_command& command() const { return cmd; }
@@ -31,7 +43,13 @@ private:
     void processLine(uint32_t nowMs, GroundEmitFn emit, void* ctx);
     void release();
 
+    void updateNudge();
+
     rcmap_command cmd{};
+    int8_t rotate = 0;
+    int8_t angle = 0;
+    uint32_t fireStartMs = 0;
+    uint32_t autoStartMs = 0;
     char line[MAX_LINE_LENGTH]{};
     size_t length = 0;
     bool discarding = false;

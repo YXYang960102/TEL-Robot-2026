@@ -3452,3 +3452,172 @@ approved the plan.
   ROT value is refused, and X / E clear a held arrow.
 - The env builds and the page test passes. The ←/→ path itself has not
   been run on hardware.
+
+## 2026-10-16 — Claude Code: control table v2, phase 1 (channels + keys + fire)
+
+**User Request:** implement the team's competition control table in
+phases. Jeremy approved "分階段：先通道＋按鍵＋發射".
+
+The spec:
+- One stick: Y = forward/back, X = turn.
+- Fire: the flight stick's top button (Xbox Y for now).
+- Keyboard:
+  - Enter = disable; Space = stop and disconnect.
+  - 1–9 = the 3×3 holes: 1 left-bottom, 2 left-mid, 3 left-top,
+    4 mid-bottom, 5 center, 6 mid-top, 7 right-bottom, 8 right-mid,
+    9 right-top.
+  - Arrows = elevation / turret fine adjust.
+  - M = mode.
+  - Q W E R = auto paths left 1, left 2, right 1, right 2.
+
+**Discussion Result (Jeremy's answers):**
+- Arm stays, moved to CH6.
+- Hole selection is recorded only. AI aiming at the chosen hole is phase 2,
+  and a turret AS5600 is coming later.
+- QWER: only the trigger flow for now.
+- Flywheel: no wireless flywheel channel. Phase 2 drives it from the 3×3
+  hole, using a shot table of hole + distance → elevation and flywheel.
+- The Mega conveyor output (D45) and the R key are removed; the tower side
+  drives the conveyor.
+- Auto paths run "once": both once per Enable **and** a record since boot
+  shown on the Dashboard.
+- M order stays full manual → semi auto → full auto.
+
+**Why the channels are laid out this way:** ELRS Hybrid mode sends CH1–4 at
+full resolution every packet and CH5 as a 2-position switch every packet.
+CH6 and above are 6-position values, sent round robin. So:
+- the 10-level hole goes in CH3;
+- fire goes in CH5, so a 100 ms press can't be missed;
+- the 5-level nudge and auto-path channels go in CH7 and CH8.
+
+`RCMAP_CHANNEL_COUNT` stays 10, so the robot bridge's `RC,…` line is
+unchanged. Its image is unchanged too: sha 99b017a4…, rebuilt and
+compared.
+
+**Changed:**
+- `src/IO/RcControlMap.{h,c}`: channel table v2.
+
+  | CH | Function | Encoding |
+  |----|----------|----------|
+  | CH1 | forward | continuous |
+  | CH2 | turn | continuous |
+  | CH3 | hole | 1000+100k (k 0–9), ±40 µs |
+  | CH4 | mode | 2000 / 1750 / 1500 |
+  | CH5 | fire | ≥1750 µs = on |
+  | CH6 | arm | ≥1750 µs = on |
+  | CH7 | nudge | 1000+200k (center/up/down/left/right), ±90 µs |
+  | CH8 | auto | 1000+200k (none/1–4), ±90 µs |
+
+  - The tolerances cover ELRS's 988/1193/1398/1602/1807 steps.
+  - A frame with a value between levels is rejected, never guessed.
+  - The counter API is removed. New events: `TARGET_SELECTED`,
+    `AUTO_PATH_STARTED`, `AUTO_PATH_REJECTED`. `EVENT_SKIPPED` and
+    `CONVEYOR_*` are kept as retired slots, so the codes don't shift.
+- `src/IO/ManualControl.{h,cpp}`:
+  - Wired commands added: `TGT,<0..9>` and `AUTO,<1..4>`. `R` and `L` are
+    removed and are now `UNKNOWN_COMMAND`. In full manual the turret is
+    always manual.
+  - Wireless decode:
+    - Arm, fire and auto act only on their edge (auto from none to a
+      path).
+    - Arcade becomes tank: left = fwd − turn, right = fwd + turn (the
+      Dashboard's polarity).
+    - Nudge drives an angle or rotate jog.
+    - No wireless flywheel.
+    - An RF outage re-arms all three edge detectors, so nothing held
+      through it is replayed.
+  - `AUTO` is refused (`AUTO_PATH_REJECTED`) for an invalid path, on the
+    wired-only benches, and when a path has already run in this Enable.
+  - The used-path mask is kept until reboot.
+- Conveyor removed:
+  - Gone from `DribblerConstants`, `Dribbler`, the Pins assert and the
+    pincheck.
+  - `test/conveyor_esc_test.cpp` deleted.
+  - Env `mega_drive_conveyor_test` renamed to `mega_drive_test`, and flag
+    `TEL_DRIVE_CONVEYOR_ONLY` to `TEL_DRIVE_ONLY`.
+- `MechLink` failsafe values are v2: hole, fire, arm, nudge and auto =
+  1000; mode = 2000 (manual).
+- Telemetry: TEL slots 7–11 are now forward, turn, mode, arm and fire.
+  Appended slots: 32 = hole, 33 = auto path this Enable, 34 = paths-used
+  mask (bit n = path n).
+- Ground STM32 (`GroundCommandState`):
+  - `T` becomes forward = (l+r)/2, turn = (r−l)/2.
+  - ROT / ANG become nudge; elevation wins if both are held.
+  - `F` holds fire for 100 ms.
+  - `TGT` sets the hole, which is held after the key is released.
+  - `AUTO` sends the path for 200 ms; a press during that pulse is
+    ignored.
+  - FLY / ANGT are accepted but have no channel.
+- Dashboard:
+  - Keys 1–9 send `TGT,n`; Q W E R send `AUTO,1..4`; neither
+    auto-repeats.
+  - **The keyboard no longer drives or fires.** WASD, F, R and L are
+    removed (W/E/R/Q are now auto-path keys). The stick drives and its
+    button fires. Arrows, M, Enter and Space are unchanged.
+  - New cards: "target hole", with a 3×3 grid drawn left column = 1–3
+    from the bottom, and "auto path" (this Enable + used).
+  - On USB the cards come from TEL 32–34. Through the ground station there
+    is no such telemetry, so the page shows what it sent once the robot's
+    event comes back. Its record is labelled "本頁送出紀錄" (page-sent
+    record), not "since boot".
+  - The MechLink table relabelled.
+- Benches: the ELRS link bench prints the v2 fields. The gamepad bench
+  accepts TGT / AUTO and no longer lists L / R.
+- Docs: the ground README protocol table and test/README.
+
+**Calculation (examples):**
+- Hole 7: CH3 = 1000 + 100·7 = 1700 µs → CRSF (1700−1500)·8/5 + 992 =
+  1312.
+- Nudge LEFT (k=3): 1600 µs, which ELRS 6-position sends as 1602
+  (error 2 ≤ 90).
+- Stick full right with no forward: turn = +1 → left = −1, right = +1,
+  the same as `T,-1,1`.
+
+**Impact:**
+- Ground and robot must be flashed together: v1 and v2 channel tables are
+  incompatible, so a v1 ground's frames are rejected as corrupt and the
+  robot watchdog disarms it.
+- The Dashboard must be the new version for keys 1–9 / QWER.
+- Unchanged: the wired protocol's T / ROT / ANG / ANGT / FLY / F / M, the
+  M order, Auto's behavior, and the PIN_TABLE_CONFIRMED gate.
+
+**Evidence:**
+- All 8 PIO envs build. The ground pio build passes. The bridge
+  `build.py` sha is unchanged and its dist artifacts were restored.
+- `manual_control_test` was rewritten for v2 and passes in three
+  variants: confirmed, unconfirmed gate, and wired-manual (the
+  wired-manual one needs `TEL_HOST_TEST_PIN_TABLE_CONFIRMED`; this is
+  older behavior and test/README now says so). Coverage includes:
+  - TGT / AUTO refused while disarmed, bad values, same hole twice gives no
+    second event;
+  - one auto path per Enable, the mask kept after X / E and cleared only by
+    init;
+  - the wired-only bench refuses AUTO;
+  - forward/turn mix and clamping, all four nudge directions, no wireless
+    flywheel;
+  - fire held = one shot, fire held through an outage is not replayed,
+    fire while disarmed does not latch;
+  - wireless target and auto edges, auto held through an outage does not
+    start;
+  - a corrupt CH3 times out; authority for fire / auto.
+- The rc_control_map, ground host test, gamepad, Dashboard page/control
+  tests and every other host test pass. A browser check of the cards
+  looked right.
+- **Nothing was run on hardware.**
+
+**Next Test:**
+1. Flash the ground and the robot Mega together (`mega_elrs_link_test`
+   first).
+2. With the motors off, press the stick button, 1–9 and QWER. Expect
+   `FEED_TRIGGER_SENT`, `TARGET_SELECTED` and `AUTO_PATH_STARTED`, and the
+   second QWER in an Enable should give `REJECTED`.
+3. Then, wheels off the ground, check the stick direction and the
+   arrows.
+
+**Phase 2 (not started):**
+- Semi-auto AI lock on the chosen hole (Orin protocol, with Codex/YOLO).
+- Per-hole shot table (hole + distance → elevation and flywheel).
+- Fine-adjust offsets stored on the Mega, cleared on a hole change.
+- The auto paths themselves (need localization).
+- The flight stick's real fire-button index.
+- The turret AS5600.

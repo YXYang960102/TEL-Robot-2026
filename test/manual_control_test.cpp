@@ -5,9 +5,10 @@
 // MechLink replaced by a stub the test feeds RC frames into.
 //
 // Covers the wired USB path (everything Codex's reviews of e4a70a5/afed238
-// asked for), the wireless ELRS path, control authority between the two,
-// the feed-tower trigger pulse, and the operator modes (M / semi-auto F /
-// full-auto firing).
+// asked for), the wireless ELRS path (channel table v2: forward/turn, fire
+// edge, 3x3 target, nudge, auto-path edge), control authority between the
+// two, the feed-tower trigger pulse, the operator modes (M / semi-auto F /
+// full-auto firing), and the phase-1 target / auto-path records.
 //
 // Build twice (see test/README):
 //   with -DTEL_HOST_TEST_PIN_TABLE_CONFIRMED=true  -> full armed-path suite
@@ -126,7 +127,7 @@ bool saw(const std::string& event) {
 
 void testWiredRefusedWhileDisarmed() {
     reset();
-    for (const char* c : {"R", "F", "L", "T,1,1", "ROT,1", "ANG,1", "FLY,0.5"}) {
+    for (const char* c : {"F", "T,1,1", "ROT,1", "ANG,1", "FLY,0.5", "TGT,5", "AUTO,1"}) {
         Serial.output.clear();
         send(c);
         step();
@@ -136,29 +137,21 @@ void testWiredRefusedWhileDisarmed() {
     assert(!ManualControl::isArmed() && !triggerHigh());
     assert(nearly(rec.chassisLeft, 0.0) && nearly(rec.flywheelCommand, 0.0));
     assert(Dribbler::getTriggerCount() == 0);
+    assert(ManualControl::getTarget() == RCMAP_TARGET_NONE);
+    assert(ManualControl::getAutoPathsUsedMask() == 0);
 }
 
-void testConveyorIndependent() {
+// R (conveyor) and L (vision-follow toggle) were retired with table v2.
+void testRetiredKeys() {
     reset();
     armWired();
-    send("R");
-    step();
-    assert(Dribbler::isConveyorOn() && saw("CONVEYOR_ON"));
-    send("F"); step();
-    assert(triggerHigh() && Dribbler::isConveyorOn());
-    send("R"); step();
-    assert(!Dribbler::isConveyorOn() && triggerHigh());
-    send("R"); step();
-    send("X"); step();
-    assert(!Dribbler::isConveyorOn() && !triggerHigh());
-    armWired(); send("R"); step(); step(300);
-    assert(!Dribbler::isConveyorOn());
-    reset(); wireless.armed = false; rcStep();
-    wireless.armed = true; rcStep();
-    wireless.conveyor = true; rcStep(); rcStep();
-    assert(Dribbler::isConveyorOn());
-    MechLink::signalLost = true; step();
-    assert(!Dribbler::isConveyorOn());
+    for (const char* c : {"R", "L"}) {
+        Serial.output.clear();
+        send(c);
+        step();
+        assert(saw("UNKNOWN_COMMAND") && ManualControl::isArmed());
+    }
+    assert(rec.rotateMode == "manual");
 }
 
 void testEnableDisableDrivesEverySubsystem() {
@@ -209,7 +202,8 @@ void testWiredScalingAndParsing() {
     assert(nearly(rec.chassisLeft, CHASSIS_MANUAL_SCALE) && nearly(rec.chassisRight, -CHASSIS_MANUAL_SCALE));
     assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, ROTATE_MANUAL_SCALE));
     assert(nearly(rec.angleCommand, -ANGLE_MANUAL_SCALE) && nearly(rec.flywheelCommand, 1.0));
-    for (const char* bad : {"FLY,nan", "FLY,inf", "ROT,-1e999", "T,2", "T,1,1,1", "FLY,abc"}) {
+    for (const char* bad : {"FLY,nan", "FLY,inf", "ROT,-1e999", "T,2", "T,1,1,1", "FLY,abc",
+                            "TGT,10", "TGT,-1", "TGT,", "TGT,5x", "AUTO,0", "AUTO,5", "AUTO,"}) {
         Serial.output.clear();
         send(bad);
         ManualControl::update();
@@ -217,8 +211,10 @@ void testWiredScalingAndParsing() {
     }
     step();
     assert(nearly(rec.flywheelCommand, 1.0)); // bad values changed nothing
+    assert(ManualControl::getTarget() == RCMAP_TARGET_NONE);
+    assert(ManualControl::getAutoPathThisEnable() == RCMAP_AUTO_NONE);
     Serial.output.clear();
-    send("Q");
+    send("Q"); // the Dashboard maps the Q key to AUTO,1; a bare Q is unknown
     step();
     assert(saw("UNKNOWN_COMMAND"));
 }
@@ -238,20 +234,58 @@ void testWiredOversizedLine() {
     assert(Dribbler::getTriggerCount() == 0);
 }
 
-void testLToggle() {
+// ------------------------------------------------- target / auto-path keys
+
+void testTargetSelection() {
     reset();
     armWired();
-    send("ROT,1");
-    send("L");
+    send("TGT,5");
     step();
-    assert(saw("ROTATE_VISION_FOLLOW") && rec.rotateMode == "disabled"); // vision not ready
-    hoststub::visionReady = true;
-    send("K");
+    assert(saw("TARGET_SELECTED") && ManualControl::getTarget() == 5);
+    // Same hole again: no new event.
+    Serial.output.clear();
+    send("TGT,5");
     step();
-    assert(rec.rotateMode == "vision");
-    send("L");
+    assert(!saw("TARGET_SELECTED") && ManualControl::getTarget() == 5);
+    send("TGT,9");
     step();
-    assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, 0.0));
+    assert(saw("TARGET_SELECTED") && ManualControl::getTarget() == 9);
+    send("TGT,0");
+    step();
+    assert(ManualControl::getTarget() == RCMAP_TARGET_NONE);
+    // Phase 1 only records it: nothing moves.
+    assert(nearly(rec.chassisLeft, 0.0) && nearly(rec.rotateCommand, 0.0) &&
+           Dribbler::getTriggerCount() == 0);
+}
+
+void testAutoPathOncePerEnable() {
+    reset();
+    armWired();
+    send("AUTO,1");
+    step();
+    assert(saw("AUTO_PATH_STARTED") && ManualControl::getAutoPathThisEnable() == 1);
+    assert(ManualControl::getAutoPathsUsedMask() == (1u << 1));
+    // A second path (or the same one) in the same Enable: refused.
+    Serial.output.clear();
+    send("AUTO,2");
+    send("AUTO,1");
+    step();
+    assert(saw("AUTO_PATH_REJECTED") && !saw("AUTO_PATH_STARTED"));
+    assert(ManualControl::getAutoPathThisEnable() == 1 &&
+           ManualControl::getAutoPathsUsedMask() == (1u << 1));
+    // A new Enable allows one more; the since-boot record is kept.
+    send("X");
+    step();
+    assert(ManualControl::getAutoPathsUsedMask() == (1u << 1));
+    armWired();
+    assert(ManualControl::getAutoPathThisEnable() == RCMAP_AUTO_NONE);
+    send("AUTO,4");
+    step();
+    assert(saw("AUTO_PATH_STARTED") && ManualControl::getAutoPathThisEnable() == 4);
+    assert(ManualControl::getAutoPathsUsedMask() == ((1u << 1) | (1u << 4)));
+    // Only a reboot clears the record.
+    ManualControl::init();
+    assert(ManualControl::getAutoPathsUsedMask() == 0);
 }
 
 // ------------------------------------------------------------- feed tower
@@ -314,57 +348,82 @@ void testWirelessEnableNeedsEdge() {
 void testWirelessCommands() {
     reset();
     armWireless();
-    wireless.left = 1.0f;
-    wireless.right = -1.0f;
-    wireless.rotate = 1;
-    wireless.angle = -1;
-    wireless.flywheel = 0.5f;
-    rcStep();
     using namespace ManualControlConstants;
-    assert(nearly(rec.chassisLeft, CHASSIS_MANUAL_SCALE) && nearly(rec.chassisRight, -CHASSIS_MANUAL_SCALE));
-    assert(nearly(rec.rotateCommand, ROTATE_MANUAL_SCALE) && nearly(rec.angleCommand, -ANGLE_MANUAL_SCALE));
-    assert(nearly(rec.flywheelCommand, 0.5));
+    // Stick Y forward: both sides forward.
+    wireless.forward = 1.0f;
+    rcStep();
+    assert(nearly(rec.chassisLeft, CHASSIS_MANUAL_SCALE) && nearly(rec.chassisRight, CHASSIS_MANUAL_SCALE));
+    // Stick X right: spin right (left back, right forward), as the Dashboard's T,-1,1.
+    wireless.forward = 0.0f;
+    wireless.turn = 1.0f;
+    rcStep();
+    assert(nearly(rec.chassisLeft, -CHASSIS_MANUAL_SCALE) && nearly(rec.chassisRight, CHASSIS_MANUAL_SCALE));
+    // Both full: clamped, not over-driven.
+    wireless.forward = 1.0f;
+    rcStep();
+    assert(nearly(rec.chassisLeft, 0.0) && nearly(rec.chassisRight, CHASSIS_MANUAL_SCALE));
+    wireless.forward = 0.0f;
+    wireless.turn = 0.0f;
+    // Nudge: one direction at a time, hold-to-move.
+    wireless.nudge = RCMAP_NUDGE_UP;
+    rcStep();
+    assert(nearly(rec.angleCommand, ANGLE_MANUAL_SCALE) && nearly(rec.rotateCommand, 0.0));
+    wireless.nudge = RCMAP_NUDGE_DOWN;
+    rcStep();
+    assert(nearly(rec.angleCommand, -ANGLE_MANUAL_SCALE));
+    wireless.nudge = RCMAP_NUDGE_RIGHT;
+    rcStep();
+    assert(nearly(rec.rotateCommand, ROTATE_MANUAL_SCALE) && nearly(rec.angleCommand, 0.0));
+    wireless.nudge = RCMAP_NUDGE_LEFT;
+    rcStep();
+    assert(nearly(rec.rotateCommand, -ROTATE_MANUAL_SCALE));
+    wireless.nudge = RCMAP_NUDGE_CENTER;
+    rcStep();
+    assert(nearly(rec.rotateCommand, 0.0) && nearly(rec.angleCommand, 0.0));
+    // No wireless flywheel channel in table v2.
+    assert(nearly(rec.flywheelCommand, 0.0));
     // Arm released by the ground: disarm.
     wireless.armed = false;
     rcStep();
     assert(saw("OUTPUTS_DISABLED") && !ManualControl::isArmed() && !rec.chassisEnabled);
 }
 
-void testWirelessCountersNoRepeatNoReplay() {
+void testWirelessFireEdgeNoRepeatNoReplay() {
     reset();
     armWireless();
-    wireless.feed_counter = (wireless.feed_counter + 1) % RCMAP_COUNTER_LEVELS;
-    runWireless(200); // the same level repeats in every frame
+    wireless.fire = true;
+    runWireless(200); // held: the same "on" repeats in every frame
     assert(Dribbler::getTriggerCount() == 1);
-    wireless.lmode_counter = 1;
-    runWireless(100);
-    assert(saw("ROTATE_VISION_FOLLOW"));
+    wireless.fire = false;
+    runWireless(DribblerConstants::Tower::COOLDOWN_MS);
+    wireless.fire = true;
+    rcStep();
+    assert(Dribbler::getTriggerCount() == 2);
 
-    // Presses during an RF outage are not replayed after it.
+    // Fire held through an RF outage is not replayed after it.
     MechLink::signalLost = true;
     step(300);
     assert(saw("DISABLED_RC_LINK_LOST") && !ManualControl::isArmed());
-    wireless.feed_counter = (wireless.feed_counter + 1) % RCMAP_COUNTER_LEVELS;
-    runWireless(200);
-    assert(Dribbler::getTriggerCount() == 1);
     // ...and recovering the link does not re-enable on its own, even with
     // the ground still holding Enable.
+    runWireless(200);
     assert(!ManualControl::isArmed());
     armWireless();
     runWireless(DribblerConstants::Tower::COOLDOWN_MS);
-    wireless.feed_counter = (wireless.feed_counter + 2) % RCMAP_COUNTER_LEVELS; // jump of 2
-    rcStep();
-    assert(saw("EVENT_SKIPPED") && Dribbler::getTriggerCount() == 1);
-    wireless.feed_counter = (wireless.feed_counter + 1) % RCMAP_COUNTER_LEVELS;
-    rcStep();
     assert(Dribbler::getTriggerCount() == 2);
+    // A fresh release + press fires.
+    wireless.fire = false;
+    rcStep();
+    wireless.fire = true;
+    rcStep();
+    assert(Dribbler::getTriggerCount() == 3);
 }
 
 void testWirelessPressWhileDisarmedNotLatched() {
     reset();
     wireless.armed = false;
     rcStep();
-    wireless.feed_counter = 1;
+    wireless.fire = true;
     rcStep();
     assert(saw("REJECTED_DISARMED"));
     armWireless();
@@ -372,12 +431,46 @@ void testWirelessPressWhileDisarmedNotLatched() {
     assert(Dribbler::getTriggerCount() == 0);
 }
 
+void testWirelessTargetAndAutoPath() {
+    reset();
+    armWireless();
+    wireless.target = 7;
+    runWireless(100); // repeated every frame: one event
+    assert(ManualControl::getTarget() == 7);
+    assert(Serial.output.find("$EVENT,TARGET_SELECTED\n") ==
+           Serial.output.rfind("$EVENT,TARGET_SELECTED\n"));
+    wireless.auto_path = 3;
+    runWireless(200); // the ground's 200 ms pulse: starts once
+    assert(saw("AUTO_PATH_STARTED") && ManualControl::getAutoPathThisEnable() == 3);
+    assert(!saw("AUTO_PATH_REJECTED"));
+    wireless.auto_path = RCMAP_AUTO_NONE;
+    rcStep();
+    Serial.output.clear();
+    wireless.auto_path = 4;
+    rcStep();
+    assert(saw("AUTO_PATH_REJECTED") && ManualControl::getAutoPathThisEnable() == 3);
+    assert(ManualControl::getAutoPathsUsedMask() == (1u << 3));
+
+    // An auto press held through a link outage does not start after it.
+    MechLink::signalLost = true;
+    step(300);
+    armWireless();
+    runWireless(200);
+    assert(!saw("AUTO_PATH_STARTED") && ManualControl::getAutoPathThisEnable() == RCMAP_AUTO_NONE);
+    wireless.auto_path = RCMAP_AUTO_NONE;
+    rcStep();
+    wireless.auto_path = 1;
+    rcStep();
+    assert(saw("AUTO_PATH_STARTED") && ManualControl::getAutoPathThisEnable() == 1);
+    assert(ManualControl::getAutoPathsUsedMask() == ((1u << 1) | (1u << 3)));
+}
+
 void testWirelessInvalidFramesTimeOut() {
     reset();
     armWireless();
     for (int i = 0; i < 20; i++) {
         rcFrame();
-        MechLink::channels[RCMAP_CH_FEED_COUNTER] = 1100; // between counter levels
+        MechLink::channels[RCMAP_CH_TARGET] = 1150; // between target levels
         step(20);
     }
     assert(saw("COMMAND_TIMEOUT") && !ManualControl::isArmed());
@@ -394,9 +487,15 @@ void testAuthority() {
     wireless.armed = true;
     rcStep();
     assert(saw("ENABLE_REJECTED_OTHER_SOURCE") && ManualControl::getOwner() == Owner::WIRED);
-    wireless.feed_counter = 1;
+    wireless.fire = true;
     rcStep();
     assert(saw("REJECTED_NOT_OWNER") && Dribbler::getTriggerCount() == 0);
+    Serial.output.clear();
+    wireless.auto_path = 2;
+    rcStep();
+    assert(saw("REJECTED_NOT_OWNER") && ManualControl::getAutoPathsUsedMask() == 0);
+    wireless.fire = false;
+    wireless.auto_path = RCMAP_AUTO_NONE;
     // The ground's idle (arm low) never stops the wired session.
     wireless.armed = false;
     send("K");
@@ -437,7 +536,7 @@ void testStatusUplink() {
     assert(rcmap_status_code_event(rec.statusCode) == RCMAP_EVENT_OUTPUTS_ENABLED);
     assert(rcmap_status_code_mode(rec.statusCode) == RCMAP_MODE_FULL_MANUAL);
     const unsigned long seq = rec.statusSeq;
-    wireless.feed_counter = 1;
+    wireless.fire = true;
     rcStep(120);
     assert(rcmap_status_code_event(rec.statusCode) == RCMAP_EVENT_FEED_TRIGGER_SENT &&
            rec.statusSeq == seq + 1);
@@ -624,14 +723,15 @@ void testWirelessMode() {
     wireless.mode_us = RCMAP_MODE_SEMI_AUTO_US;
     rcStep();
     assert(saw("MODE_SEMI_AUTO") && ManualControl::getOperatorMode() == OperatorMode::SEMI_AUTO);
-    // F (counter step) in semi-auto goes through Auto: not ready -> refused.
+    // Fire (CH5 edge) in semi-auto goes through Auto: not ready -> refused.
     Serial.output.clear();
-    wireless.feed_counter = 1;
+    wireless.fire = true;
     rcStep();
     assert(saw("FIRE_NOT_READY") && Dribbler::getTriggerCount() == 0);
     hoststub::shooterReady = true;
+    wireless.fire = false;
     rcStep();
-    wireless.feed_counter = 2;
+    wireless.fire = true;
     rcStep();
     assert(Dribbler::getTriggerCount() == 1);
     // Arm low disarms and resets to manual.
@@ -672,8 +772,13 @@ int main() {
     reset();
     wireless.armed = false; rcStep(); wireless.armed = true; rcStep();
     assert(!ManualControl::isArmed());
-    armWired(); send("L"); step();
+    armWired();
     assert(rec.rotateMode == "manual");
+    // Target is recorded; auto paths don't exist on the wired benches.
+    send("TGT,3"); step();
+    assert(saw("TARGET_SELECTED") && ManualControl::getTarget() == 3);
+    send("AUTO,1"); step();
+    assert(saw("AUTO_PATH_REJECTED") && ManualControl::getAutoPathsUsedMask() == 0);
     send("T,1,-1"); send("ROT,1"); send("ANG,-1"); send("FLY,0.6"); step();
     assert(nearly(rec.chassisLeft, 1.0) && nearly(rec.chassisRight, -1.0));
     assert(nearly(rec.rotateCommand, 1.0) && nearly(rec.angleCommand, -1.0));
@@ -686,18 +791,20 @@ int main() {
     printf("wired manual profile: all asserts passed\n");
 #elif defined(TEL_HOST_TEST_PIN_TABLE_CONFIRMED)
     testWiredRefusedWhileDisarmed();
-    testConveyorIndependent();
+    testRetiredKeys();
     testEnableDisableDrivesEverySubsystem();
     testWiredWatchdog();
     testWiredScalingAndParsing();
     testWiredOversizedLine();
-    testLToggle();
+    testTargetSelection();
+    testAutoPathOncePerEnable();
     testFeedPulseAndLockout();
     testDisarmCutsPulse();
     testWirelessEnableNeedsEdge();
     testWirelessCommands();
-    testWirelessCountersNoRepeatNoReplay();
+    testWirelessFireEdgeNoRepeatNoReplay();
     testWirelessPressWhileDisarmedNotLatched();
+    testWirelessTargetAndAutoPath();
     testWirelessInvalidFramesTimeOut();
     testAuthority();
     testStatusUplink();

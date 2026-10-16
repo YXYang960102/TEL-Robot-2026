@@ -13,11 +13,11 @@
 // Uplink: sends the same "ST,..." status the production firmware sends,
 // every 100 ms, with "armed" mirroring the arm channel (so the Dashboard's
 // Enable handshake completes against this sketch even though nothing is
-// actually enabled). Each F press (feed counter +1) and each arm change bumps
-// the event sequence, so the ground station should print
-// "$EVENT,FEED_TRIGGER_SENT" / "$EVENT,OUTPUTS_ENABLED" /
-// "$EVENT,OUTPUTS_DISABLED" -- that proves the Battery-frame telemetry
-// path end to end before any motor is wired.
+// actually enabled). Each fire press (CH5 low->high), auto-path press and
+// arm change bumps the event sequence, so the ground station should print
+// "$EVENT,FEED_TRIGGER_SENT" / "$EVENT,AUTO_PATH_STARTED" /
+// "$EVENT,OUTPUTS_ENABLED" / "$EVENT,OUTPUTS_DISABLED" -- that proves the
+// Battery-frame telemetry path end to end before any motor is wired.
 #include <Arduino.h>
 
 #include "../../IO/MechLink.h"
@@ -34,13 +34,13 @@ unsigned long lastPrintMs = 0;
 unsigned long lastStatusMs = 0;
 unsigned long lastFrame = 0;
 unsigned long badFrames = 0;
-unsigned long feedEvents = 0;
-unsigned long skippedEvents = 0;
+unsigned long fireEvents = 0;
 
 rcmap_command cmd{};
 bool cmdValid = false;
 bool armedPrev = false;
-rcmap_counter feedCounter;
+bool firePrev = true;   // a press needs a release first (also after a dropout)
+uint8_t autoPrev = 0xFF;
 
 unsigned long eventSeq = 0;
 uint16_t lastEventCode = RCMAP_EVENT_NONE;
@@ -64,22 +64,22 @@ void printState(unsigned long now) {
     }
     Serial.print(F(",valid="));
     Serial.print(cmdValid ? 1 : 0);
-    Serial.print(F(",L="));
-    Serial.print(cmd.left, 2);
-    Serial.print(F(",R="));
-    Serial.print(cmd.right, 2);
-    Serial.print(F(",fly="));
-    Serial.print(cmd.flywheel, 2);
+    Serial.print(F(",fwd="));
+    Serial.print(cmd.forward, 2);
+    Serial.print(F(",turn="));
+    Serial.print(cmd.turn, 2);
+    Serial.print(F(",target="));
+    Serial.print(cmd.target);
     Serial.print(F(",arm="));
     Serial.print(cmd.armed ? 1 : 0);
-    Serial.print(F(",rot="));
-    Serial.print(cmd.rotate);
-    Serial.print(F(",ang="));
-    Serial.print(cmd.angle);
+    Serial.print(F(",fire="));
+    Serial.print(cmd.fire ? 1 : 0);
+    Serial.print(F(",nudge="));
+    Serial.print(cmd.nudge);
+    Serial.print(F(",auto="));
+    Serial.print(cmd.auto_path);
     Serial.print(F(",F="));
-    Serial.print(feedEvents);
-    Serial.print(F(",skipped="));
-    Serial.print(skippedEvents);
+    Serial.print(fireEvents);
     Serial.print(F(",bad="));
     Serial.println(badFrames);
 }
@@ -89,7 +89,6 @@ void printState(unsigned long now) {
 void setup() {
     Serial.begin(115200);
     MechLink::init();
-    rcmap_counter_reset(&feedCounter);
     stateSinceMs = millis();
     Serial.println(F("$ELRS_BOOT mega_elrs_link_test: MechLink on Serial2 D16/D17 @115200, no outputs"));
     Serial.println(F("$ELRS_BOOT link=LOST until the first valid RC line arrives"));
@@ -107,10 +106,11 @@ void loop() {
         lastLost = MechLink::signalLost;
         stateSinceMs = now;
         if (MechLink::signalLost) {
-            // Same rule as production: after a reconnect the first counter
-            // level is only a baseline. (The "armed" reported here is just
-            // the arm channel level -- this sketch enables nothing.)
-            rcmap_counter_reset(&feedCounter);
+            // Same rule as production: after a reconnect fire/auto must be
+            // seen released before they count. (The "armed" reported here
+            // is just the arm channel level -- this sketch enables nothing.)
+            firePrev = true;
+            autoPrev = 0xFF;
             armedPrev = false;
             cmdValid = false;
         }
@@ -128,14 +128,15 @@ void loop() {
                 recordEvent(cmd.armed ? RCMAP_EVENT_OUTPUTS_ENABLED : RCMAP_EVENT_OUTPUTS_DISABLED);
                 armedPrev = cmd.armed;
             }
-            const int r = rcmap_counter_update(&feedCounter, cmd.feed_counter);
-            if (r == RCMAP_COUNTER_EVENT) {
-                feedEvents++;
+            if (cmd.fire && !firePrev) {
+                fireEvents++;
                 recordEvent(RCMAP_EVENT_FEED_TRIGGER_SENT);
-            } else if (r == RCMAP_COUNTER_SKIPPED) {
-                skippedEvents++;
-                recordEvent(RCMAP_EVENT_EVENT_SKIPPED);
             }
+            firePrev = cmd.fire;
+            if (cmd.auto_path != RCMAP_AUTO_NONE && autoPrev == RCMAP_AUTO_NONE) {
+                recordEvent(RCMAP_EVENT_AUTO_PATH_STARTED);
+            }
+            autoPrev = cmd.auto_path;
         }
     }
 

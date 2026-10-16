@@ -1,19 +1,13 @@
-// Focused host test for tools/dashboard/index.html's wired-control command
-// functions (tankCommand/rotateCommand/angleCommand), added for the
-// 2026-10-11 dev integration (docs/codex-handoff.md).
+// Focused host test for tools/dashboard/index.html's pure control-key
+// functions (rotateCommand/angleCommand for the arrows, targetForKey for
+// 1-9, autoPathForKey for Q W E R -- control table v2, 2026-10-16).
 //
-// The dashboard page itself (1600+ lines: canvas field/chart drawing,
-// draggable/resizable panel layout persisted to localStorage, MJPEG stream
-// handling) is not loaded wholesale in a VM here the way the smaller
-// vision_rotate.html bench page is in vision_rotate_page_test.cjs -- most
-// of that code runs at top-level load time and depends on a real
-// canvas/ResizeObserver/localStorage environment that isn't worth mocking
-// for what this round actually needs verified. Instead this extracts just
-// the three pure command functions by source text and evaluates them in
-// isolation against a fake `heldKeys` Set, which is where the one
-// genuinely easy-to-get-wrong piece of logic lives: the A/D polarity
-// Jeremy specified (A = left wheel forward + right wheel backward, the
-// opposite of the usual "nose" convention) and the combined-key clamping.
+// The dashboard page itself (canvas field/chart drawing, draggable panel
+// layout, MJPEG stream) is exercised as a whole in dashboard_page_test.cjs;
+// this extracts just the pure functions by source text and evaluates them
+// in isolation against a fake `heldKeys` Set, where the easy-to-get-wrong
+// mappings live: the arrow signs and Jeremy's hole numbering (columns left
+// to right, each from the bottom up).
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -41,60 +35,25 @@ function extractFunction(name) {
 
 const heldKeys = new Set();
 const src = [
-  extractFunction('tankCommand'),
   extractFunction('rotateCommand'),
   extractFunction('angleCommand'),
+  extractFunction('targetForKey'),
+  extractFunction('autoPathForKey'),
 ].join('\n');
 
-const ctx = vm.createContext({ heldKeys, Math });
-vm.runInContext(`${src}\nresult = { tankCommand, rotateCommand, angleCommand };`, ctx);
-const { tankCommand, rotateCommand, angleCommand } = ctx.result;
+const ctx = vm.createContext({ heldKeys, Math, Number });
+vm.runInContext(`${src}\nresult = { rotateCommand, angleCommand, targetForKey, autoPathForKey };`, ctx);
+const { rotateCommand, angleCommand, targetForKey, autoPathForKey } = ctx.result;
 
 function setKeys(...keys) {
   heldKeys.clear();
   keys.forEach((k) => heldKeys.add(k));
 }
 
-// tankCommand() returns an array from the vm context's own Array realm;
-// cross-realm arrays trip up assert.deepEqual's reference checks even when
-// structurally identical, so pull values out into plain local arrays first.
-function tank() {
-  const [left, right] = tankCommand();
-  return [left, right];
-}
-
 // Neutral: nothing held.
 setKeys();
-assert.deepEqual(tank(), [0, 0]);
 assert.equal(rotateCommand(), 0);
-
-// W alone: both wheels forward.
-setKeys('w');
-assert.deepEqual(tank(), [1, 1]);
-
-// S alone: both wheels backward.
-setKeys('s');
-assert.deepEqual(tank(), [-1, -1]);
-
-// A alone: Jeremy's explicit polarity -- left wheel forward, right wheel
-// backward (opposite the usual "nose points left" convention). This is
-// the one sign that must NOT get silently flipped.
-setKeys('a');
-assert.deepEqual(tank(), [1, -1]);
-
-// D alone: mirror of A.
-setKeys('d');
-assert.deepEqual(tank(), [-1, 1]);
-
-// W+A combined: forward bias plus the A pivot, clamped to [-1, 1].
-setKeys('w', 'a');
-assert.deepEqual(tank(), [1, 0]);
-
-// Opposing keys cancel (W+S, A+D).
-setKeys('w', 's');
-assert.deepEqual(tank(), [0, 0]);
-setKeys('a', 'd');
-assert.deepEqual(tank(), [0, 0]);
+assert.equal(angleCommand(), 0);
 
 // Rotate axis: right arrow = +1, left arrow = -1, both held = 0.
 setKeys('arrowright');
@@ -111,4 +70,13 @@ assert.equal(angleCommand(), 1);
 setKeys('arrowdown');
 assert.equal(angleCommand(), -1);
 
-console.log('dashboard wired-control command functions: all asserts passed');
+// Keys 1-9 -> holes 1-9; anything else -> 0 (not a hole key). The hole
+// layout itself (1 left-bottom ... 9 right-top) is the firmware's number.
+for (let n = 1; n <= 9; n++) assert.equal(targetForKey(String(n)), n);
+for (const k of ['0', '10', 'q', '', 'enter', ' ']) assert.equal(targetForKey(k), 0, k);
+
+// Q W E R -> auto paths 1-4 (left 1, left 2, right 1, right 2).
+assert.deepEqual(['q', 'w', 'e', 'r'].map(autoPathForKey), [1, 2, 3, 4]);
+for (const k of ['', 'a', 's', 'd', 'f', 'm', 'qw', 'enter', 'arrowup']) assert.equal(autoPathForKey(k), 0, k);
+
+console.log('dashboard control key functions: all asserts passed');

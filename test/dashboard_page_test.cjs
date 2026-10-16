@@ -6,8 +6,10 @@
 // handling when focus has moved into a text box, Enter/Space, the Falcon
 // slider path, and resync/reset on firmware-reported disarm. Plus the
 // wireless-round additions: enable is pending until the robot confirms,
-// the page only arms for an enable it asked for, R is gone, and the ground
-// station's $WIRELESS / $GROUND_EVENT / $RFLINK lines.
+// the page only arms for an enable it asked for, and the ground station's
+// $WIRELESS / $GROUND_EVENT / $RFLINK lines. Control table v2 (2026-10-16):
+// 1-9 -> TGT, Q W E R -> AUTO, no keyboard drive/fire (gamepad only), and
+// the target / auto-path readouts.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -101,9 +103,8 @@ async function emergencyStopViaEnter() {
 }
 
 (async () => {
-  // Disarmed by default: movement and F/L send nothing.
-  await windowHandlers.keydown(key('w'));
-  await windowHandlers.keydown(key('r'));
+  // Disarmed by default: arrows, holes and auto keys send nothing.
+  for (const k of ['ArrowUp', '5', 'q', 'm']) await windowHandlers.keydown(key(k));
   assert.equal(writes.length, 0);
   // Initial disabled state comes from the markup itself (not modeled by
   // the DOM stub), so check the source directly.
@@ -119,29 +120,22 @@ async function emergencyStopViaEnter() {
   assert.equal(armed(), true);
   assert.equal(elements.flywheelSlider.disabled, false);
 
-  // W press / auto-repeat / release.
+  // 1-9 / Q W E R: one line per press; held-key auto-repeat sends nothing.
   writes.length = 0;
-  await windowHandlers.keydown(key('w'));
-  await windowHandlers.keydown(key('w', { repeat: true }));
-  await windowHandlers.keydown(key('w', { repeat: true }));
-  assert.deepEqual([...writes], ['T,1,1']);
-  await windowHandlers.keyup(key('w'));
-  assert.equal(last(), 'T,0,0');
-
-  // A = left forward, right backward (Jeremy's explicit polarity).
-  await windowHandlers.keydown(key('a'));
-  assert.equal(last(), 'T,1,-1');
-  await windowHandlers.keyup(key('a'));
-
-  // R/F/L: single press sends once; held-key auto-repeat sends nothing.
-  // R controls the horizontal belt independently of the F tower pulse.
-  writes.length = 0;
-  for (const k of ['r', 'f', 'l']) {
+  for (const k of ['1', '5', '9', 'q', 'w', 'e', 'r']) {
     await windowHandlers.keydown(key(k));
     await windowHandlers.keydown(key(k, { repeat: true }));
     await windowHandlers.keydown(key(k, { repeat: true }));
   }
-  assert.deepEqual([...writes], ['R', 'F', 'L']);
+  assert.deepEqual([...writes], ['TGT,1', 'TGT,5', 'TGT,9', 'AUTO,1', 'AUTO,2', 'AUTO,3', 'AUTO,4']);
+  // No keyboard drive or fire any more (the stick does both), and the
+  // retired keys send nothing.
+  writes.length = 0;
+  for (const k of ['s', 'a', 'd', 'f', 'l', '0']) {
+    await windowHandlers.keydown(key(k));
+    await windowHandlers.keyup(key(k));
+  }
+  assert.equal(writes.length, 0);
 
   // Arrows: left/right turret, up/down elevation, both hold-to-move;
   // release stops. With no angle telemetry yet (older firmware, or the
@@ -181,7 +175,7 @@ async function emergencyStopViaEnter() {
 
   // Typing in a real text box never drives the robot...
   writes.length = 0;
-  for (const k of ['w', 'r', 'f', 'l', 'ArrowUp']) {
+  for (const k of ['w', 'r', '5', 'm', 'ArrowUp']) {
     await windowHandlers.keydown(key(k, { target: elements.streamUrl }));
   }
   assert.equal(writes.length, 0);
@@ -189,16 +183,16 @@ async function emergencyStopViaEnter() {
 
   // ...but a key held BEFORE focus moved there is still released by its
   // keyup (Codex: otherwise the heartbeat keeps resending the old value).
-  await windowHandlers.keydown(key('d'));
-  assert.equal(last(), 'T,-1,1');
-  await windowHandlers.keyup(key('d', { target: elements.streamUrl }));
-  assert.equal(last(), 'T,0,0');
+  await windowHandlers.keydown(key('ArrowRight'));
+  assert.equal(last(), 'ROT,1');
+  await windowHandlers.keyup(key('ArrowRight', { target: elements.streamUrl }));
+  assert.equal(last(), 'ROT,0');
 
   // Focus jumping into a text box mid-hold also releases it.
-  await windowHandlers.keydown(key('s'));
-  assert.equal(last(), 'T,-1,-1');
+  await windowHandlers.keydown(key('ArrowDown'));
+  assert.equal(last(), 'ANG,-1');
   await documentHandlers.focusin({ target: elements.streamUrl });
-  assert.equal(last(), 'T,0,0');
+  assert.equal(last(), 'ANG,0');
 
   // Falcon slider -> FLY command, and resent by the heartbeat while non-zero.
   elements.flywheelSlider.value = '40';
@@ -236,7 +230,7 @@ async function emergencyStopViaEnter() {
     await arm();
     elements.flywheelSlider.value = '50';
     await elements.flywheelSlider.handlers.input();
-    await windowHandlers.keydown(key('w'));
+    await windowHandlers.keydown(key('ArrowRight'));
     event(name);
     assert.equal(armed(), false, name);
     assert.equal(run('flywheelRatio'), 0, name);
@@ -269,7 +263,7 @@ async function emergencyStopViaEnter() {
   // Codex review afed238 [P1]: with the chassis and the Falcon running,
   // focus moves into the stream URL box -- Enter there must still stop.
   await arm();
-  await windowHandlers.keydown(key('f'));
+  await windowHandlers.keydown(key('ArrowRight'));
   elements.flywheelSlider.value = '40';
   await elements.flywheelSlider.handlers.input();
   await documentHandlers.focusin({ target: elements.streamUrl });
@@ -290,7 +284,7 @@ async function emergencyStopViaEnter() {
 
   // Same scenario with Space from the text box: stop, then disconnect.
   await arm();
-  await windowHandlers.keydown(key('w'));
+  await windowHandlers.keydown(key('ArrowRight'));
   writes.length = 0;
   await windowHandlers.keydown(key(' ', { target: elements.streamUrl }));
   assert.equal(writes[0], 'X');
@@ -322,10 +316,11 @@ async function emergencyStopViaEnter() {
   await elements.enableControl.handlers.click();
   assert.deepEqual([...writes], ['E']);
   assert.equal(run('enablePending'), true);
-  await windowHandlers.keydown(key('w'));
+  await windowHandlers.keydown(key('ArrowRight'));
+  await windowHandlers.keydown(key('5'));
   await run('sendHeartbeat()');
   assert.deepEqual([...writes], ['E', 'K']);
-  await windowHandlers.keyup(key('w'));
+  await windowHandlers.keyup(key('ArrowRight'));
 
   // Enter during pending cancels it.
   await windowHandlers.keydown(key('Enter'));
@@ -388,6 +383,26 @@ async function emergencyStopViaEnter() {
   assert.equal(armed(), true);
   assert.match(elements.controlOwner.textContent, /wireless/);
 
+  // No target/auto telemetry through the ground station: the page shows
+  // what it sent, once the robot's event comes back over the uplink.
+  assert.match(elements.targetHole.textContent, /none/);
+  assert.match(elements.autoPath.textContent, /not started/);
+  writes.length = 0;
+  await windowHandlers.keydown(key('7'));
+  assert.equal(last(), 'TGT,7');
+  assert.match(elements.targetHole.textContent, /none/);     // not confirmed yet
+  event('TARGET_SELECTED');
+  assert.equal(elements.targetHole.textContent, '7 · 右下');
+  await windowHandlers.keydown(key('e'));
+  assert.equal(last(), 'AUTO,3');
+  event('AUTO_PATH_STARTED');
+  assert.match(elements.autoPath.textContent, /^已啟動 右1 \(E\)/);
+  assert.match(elements.autoPathsUsed.textContent, /本頁送出紀錄：右1 \(E\)/);
+  await windowHandlers.keydown(key('q'));
+  event('AUTO_PATH_REJECTED');                                // once per Enable
+  assert.match(elements.autoPath.textContent, /右1/);
+  assert.doesNotMatch(elements.autoPathsUsed.textContent, /左1/);
+
   // Stale status: warn only, keep driving (the robot's own RC-loss
   // failsafe is what stops it).
   line('$WIRELESS,0,0,0,0,0,0,0,1500');
@@ -410,6 +425,9 @@ async function emergencyStopViaEnter() {
     line(`$GROUND_EVENT,${name}`);
     assert.equal(armed(), false, name);
   }
+  // A new Enable allows one more auto path; the record stays.
+  assert.match(elements.autoPath.textContent, /not started/);
+  assert.match(elements.autoPathsUsed.textContent, /右1/);
 
   // Ground link: a rejected or unconfirmed enable sends X so the ground
   // drops the arm channel it is still holding.
@@ -446,9 +464,9 @@ async function emergencyStopViaEnter() {
   await elements.flywheelSlider.handlers.input();
   assert.equal(writes.length, 0);
   assert.equal(elements.flywheelSlider.value, '0');
-  // F is still sent as-is (the robot decides: fire now or FIRE_NOT_READY).
-  await windowHandlers.keydown(key('f'));
-  assert.equal(last(), 'F');
+  // Hole keys still go out in the auto modes (semi-auto aims at the hole).
+  await windowHandlers.keydown(key('6'));
+  assert.equal(last(), 'TGT,6');
   event('MODE_FULL_AUTO');
   assert.match(elements.operatorMode.textContent, /FULL AUTO/);
   event('MODE_FULL_MANUAL');
@@ -497,6 +515,21 @@ async function emergencyStopViaEnter() {
   assert.equal(elements.angleSlider.value, '244');
   assert.match(elements.angleValue.textContent, /243\.5°/);
 
+  // Slots 32-34: target hole, auto path this Enable, paths used since boot.
+  const telTarget = (hole, path, mask) => ['TEL', 1, 0, 0, 0, 0, 0, 1500, 1500, 1500, 1500, 1500, 0, 3, 1,
+    'NaN', 'NaN', 'NaN', 0, 1500, 1500, 0, 0, 0, 0, 0, 1500, 0.0, 2310, 243.5, 0.0, 270.0, hole, path, mask].join(',');
+  line(telTarget(5, 1, (1 << 1) | (1 << 4)));
+  assert.equal(elements.targetHole.textContent, '5 · 中');
+  assert.match(elements.autoPath.textContent, /^已啟動 左1 \(Q\)/);
+  assert.equal(elements.autoPathsUsed.textContent, '開機後已用：左1 (Q)、右2 (R)');
+  line(telTarget(0, 0, 1 << 4));
+  assert.match(elements.targetHole.textContent, /none/);
+  assert.match(elements.autoPath.textContent, /not started/);
+  assert.equal(elements.autoPathsUsed.textContent, '開機後已用：右2 (R)');
+  // With the robot reporting, events no longer overwrite it from the page.
+  event('TARGET_SELECTED');
+  assert.match(elements.targetHole.textContent, /none/);
+
   // ---------------- gamepad (Gamepad API) ----------------
   connectFakePort();
   run('setConnection(true)');
@@ -542,11 +575,11 @@ async function emergencyStopViaEnter() {
   await poll();
   assert.equal(last(), 'T,0,0');
 
-  // The keyboard still works while the stick is centered.
+  // The stick is the only drive: W is the auto-path-2 key, not forward.
   await windowHandlers.keydown(key('w'));
-  assert.equal(last(), 'T,1,1');
+  assert.equal(last(), 'AUTO,2');
   await windowHandlers.keyup(key('w'));
-  assert.equal(last(), 'T,0,0');
+  assert.equal(last(), 'AUTO,2');
 
   // Fire (Xbox Y = button 3): one F per press, none while held.
   writes.length = 0;

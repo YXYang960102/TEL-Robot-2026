@@ -94,7 +94,7 @@ void Shooter::stopAll() {
 
 void Shooter::setOutputsEnabled(bool enabled) {
     if (!DRIVES_AXES) {
-        enabled = false; // drive+conveyor bench: the shooter never enables
+        enabled = false; // drive-only bench: the shooter never enables
     }
     outputsEnabled = enabled;
     if (!outputsEnabled) {

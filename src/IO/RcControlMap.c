@@ -2,18 +2,19 @@
 
 #define RCMAP_MIN_VALID_US 900
 #define RCMAP_MAX_VALID_US 2100
-#define RCMAP_ARM_ON_US 1750
-#define RCMAP_DIR_LOW_US 1250
-#define RCMAP_DIR_HIGH_US 1750
-#define RCMAP_COUNTER_BASE_US 1000
-#define RCMAP_COUNTER_STEP_US 200
-#define RCMAP_COUNTER_TOLERANCE_US 90
-#define RCMAP_FLYWHEEL_DEADBAND 0.02f
+#define RCMAP_SWITCH_ON_US 1750
+#define RCMAP_TARGET_BASE_US 1000
+#define RCMAP_TARGET_STEP_US 100
+#define RCMAP_TARGET_TOLERANCE_US 40
+#define RCMAP_LEVEL_BASE_US 1000
+#define RCMAP_LEVEL_STEP_US 200
+#define RCMAP_LEVEL_TOLERANCE_US 90 /* ELRS 6-pos sends 988/1193/1398/1602/1807 */
+#define RCMAP_FIVE_LEVELS 5u
 
 static float clamp_float(float v, float lo, float hi) {
     /* NaN fails both comparisons and would pass through, so test it
-       explicitly (v != v) and treat it as the neutral low bound. */
-    if (v != v) return lo < 0.0f ? 0.0f : lo;
+       explicitly (v != v) and treat it as neutral. */
+    if (v != v) return 0.0f < lo ? lo : (0.0f > hi ? hi : 0.0f);
     return v < lo ? lo : (v > hi ? hi : v);
 }
 
@@ -25,49 +26,36 @@ static int axis_to_us(float v) {
     return 1500 + round_float(clamp_float(v, -1.0f, 1.0f) * 500.0f);
 }
 
-static int dir_to_us(int8_t d) {
-    return d > 0 ? 2000 : (d < 0 ? 1000 : 1500);
-}
-
-static int counter_to_us(uint8_t level) {
-    return RCMAP_COUNTER_BASE_US + (int)(level % RCMAP_COUNTER_LEVELS) * RCMAP_COUNTER_STEP_US;
-}
-
-void rcmap_encode(const rcmap_command *c, int ch_us[16]) {
-    for (uint8_t i = 0; i < 16u; i++) ch_us[i] = 1500;
-    ch_us[RCMAP_CH_LEFT] = axis_to_us(c->left);
-    ch_us[RCMAP_CH_RIGHT] = axis_to_us(c->right);
-    ch_us[RCMAP_CH_FLYWHEEL] = 1000 + round_float(clamp_float(c->flywheel, 0.0f, 1.0f) * 1000.0f);
-    ch_us[RCMAP_CH_MODE] = rcmap_mode_to_us(rcmap_mode_from_us(c->mode_us));
-    ch_us[RCMAP_CH_CONVEYOR] = c->armed && c->conveyor ? 2000 : 1000;
-    ch_us[RCMAP_CH_ARM] = c->armed ? 2000 : 1000;
-    ch_us[RCMAP_CH_ROTATE] = dir_to_us(c->rotate);
-    ch_us[RCMAP_CH_ANGLE] = dir_to_us(c->angle);
-    ch_us[RCMAP_CH_FEED_COUNTER] = counter_to_us(c->feed_counter);
-    ch_us[RCMAP_CH_LMODE_COUNTER] = counter_to_us(c->lmode_counter);
-}
-
 static float us_to_axis(int us) {
     return clamp_float((float)(us - 1500) / 500.0f, -1.0f, 1.0f);
 }
 
-static int8_t us_to_dir(int us) {
-    if (us < RCMAP_DIR_LOW_US) return -1;
-    if (us > RCMAP_DIR_HIGH_US) return 1;
-    return 0;
+/* Nearest level k (0..levels-1) of base + step*k, within tolerance. */
+static bool us_to_level(int us, int base, int step, int tolerance, uint8_t levels, uint8_t *k_out) {
+    const int offset = us - base;
+    if (offset < -tolerance) return false;
+    const int k = (offset + step / 2) / step;
+    if (k < 0 || k >= (int)levels) return false;
+    const int nearest = base + k * step;
+    const int error = us > nearest ? us - nearest : nearest - us;
+    if (error > tolerance) return false;
+    *k_out = (uint8_t)k;
+    return true;
 }
 
-static bool us_to_counter(int us, uint8_t *level) {
-    const int offset = us - RCMAP_COUNTER_BASE_US;
-    const int k = (offset + RCMAP_COUNTER_STEP_US / 2) / RCMAP_COUNTER_STEP_US;
-    if (offset < -RCMAP_COUNTER_TOLERANCE_US || k < 0 || k >= (int)RCMAP_COUNTER_LEVELS) {
-        return false;
-    }
-    const int nearest = RCMAP_COUNTER_BASE_US + k * RCMAP_COUNTER_STEP_US;
-    const int error = us > nearest ? us - nearest : nearest - us;
-    if (error > RCMAP_COUNTER_TOLERANCE_US) return false;
-    *level = (uint8_t)k;
-    return true;
+void rcmap_encode(const rcmap_command *c, int ch_us[16]) {
+    for (uint8_t i = 0; i < 16u; i++) ch_us[i] = 1500;
+    ch_us[RCMAP_CH_FORWARD] = axis_to_us(c->forward);
+    ch_us[RCMAP_CH_TURN] = axis_to_us(c->turn);
+    const uint8_t target = c->target <= RCMAP_TARGET_MAX ? c->target : RCMAP_TARGET_NONE;
+    ch_us[RCMAP_CH_TARGET] = RCMAP_TARGET_BASE_US + (int)target * RCMAP_TARGET_STEP_US;
+    ch_us[RCMAP_CH_MODE] = rcmap_mode_to_us(rcmap_mode_from_us(c->mode_us));
+    ch_us[RCMAP_CH_FIRE] = c->fire ? 2000 : 1000;
+    ch_us[RCMAP_CH_ARM] = c->armed ? 2000 : 1000;
+    const uint8_t nudge = c->nudge < RCMAP_FIVE_LEVELS ? c->nudge : RCMAP_NUDGE_CENTER;
+    ch_us[RCMAP_CH_NUDGE] = RCMAP_LEVEL_BASE_US + (int)nudge * RCMAP_LEVEL_STEP_US;
+    const uint8_t path = c->auto_path <= RCMAP_AUTO_PATHS ? c->auto_path : RCMAP_AUTO_NONE;
+    ch_us[RCMAP_CH_AUTO] = RCMAP_LEVEL_BASE_US + (int)path * RCMAP_LEVEL_STEP_US;
 }
 
 bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
@@ -75,44 +63,24 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     for (uint8_t i = 0; i < RCMAP_CHANNEL_COUNT; i++) {
         if (ch_us[i] < RCMAP_MIN_VALID_US || ch_us[i] > RCMAP_MAX_VALID_US) return false;
     }
-    uint8_t feed, lmode;
-    if (!us_to_counter(ch_us[RCMAP_CH_FEED_COUNTER], &feed) ||
-        !us_to_counter(ch_us[RCMAP_CH_LMODE_COUNTER], &lmode)) {
+    uint8_t target, nudge, path;
+    if (!us_to_level(ch_us[RCMAP_CH_TARGET], RCMAP_TARGET_BASE_US, RCMAP_TARGET_STEP_US,
+                     RCMAP_TARGET_TOLERANCE_US, RCMAP_TARGET_MAX + 1u, &target) ||
+        !us_to_level(ch_us[RCMAP_CH_NUDGE], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
+                     RCMAP_LEVEL_TOLERANCE_US, RCMAP_FIVE_LEVELS, &nudge) ||
+        !us_to_level(ch_us[RCMAP_CH_AUTO], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
+                     RCMAP_LEVEL_TOLERANCE_US, RCMAP_FIVE_LEVELS, &path)) {
         return false;
     }
-
-    out->left = us_to_axis(ch_us[RCMAP_CH_LEFT]);
-    out->right = us_to_axis(ch_us[RCMAP_CH_RIGHT]);
-    float fly = clamp_float((float)(ch_us[RCMAP_CH_FLYWHEEL] - 1000) / 1000.0f, 0.0f, 1.0f);
-    out->flywheel = fly < RCMAP_FLYWHEEL_DEADBAND ? 0.0f : fly;
+    out->forward = us_to_axis(ch_us[RCMAP_CH_FORWARD]);
+    out->turn = us_to_axis(ch_us[RCMAP_CH_TURN]);
+    out->target = target;
     out->mode_us = ch_us[RCMAP_CH_MODE];
-    out->conveyor = ch_us[RCMAP_CH_CONVEYOR] >= RCMAP_ARM_ON_US;
-    out->armed = ch_us[RCMAP_CH_ARM] >= RCMAP_ARM_ON_US;
-    out->rotate = us_to_dir(ch_us[RCMAP_CH_ROTATE]);
-    out->angle = us_to_dir(ch_us[RCMAP_CH_ANGLE]);
-    out->feed_counter = feed;
-    out->lmode_counter = lmode;
+    out->fire = ch_us[RCMAP_CH_FIRE] >= RCMAP_SWITCH_ON_US;
+    out->armed = ch_us[RCMAP_CH_ARM] >= RCMAP_SWITCH_ON_US;
+    out->nudge = nudge;
+    out->auto_path = path;
     return true;
-}
-
-void rcmap_counter_reset(rcmap_counter *c) {
-    c->have_baseline = false;
-    c->level = 0;
-}
-
-int rcmap_counter_update(rcmap_counter *c, uint8_t level) {
-    level = (uint8_t)(level % RCMAP_COUNTER_LEVELS);
-    if (!c->have_baseline) {
-        c->have_baseline = true;
-        c->level = level;
-        return RCMAP_COUNTER_NONE;
-    }
-    const uint8_t delta =
-        (uint8_t)((level + RCMAP_COUNTER_LEVELS - c->level) % RCMAP_COUNTER_LEVELS);
-    c->level = level;
-    if (delta == 0u) return RCMAP_COUNTER_NONE;
-    if (delta == 1u) return RCMAP_COUNTER_EVENT;
-    return RCMAP_COUNTER_SKIPPED;
 }
 
 static const char *const event_names[RCMAP_EVENT_COUNT] = {
@@ -142,6 +110,9 @@ static const char *const event_names[RCMAP_EVENT_COUNT] = {
     "FIRE_NOT_READY",
     "ENABLE_REJECTED_NOT_MANUAL",
     "REJECTED_AUTO_MODE",
+    "TARGET_SELECTED",
+    "AUTO_PATH_STARTED",
+    "AUTO_PATH_REJECTED",
 };
 
 const char *rcmap_event_name(uint16_t code) {

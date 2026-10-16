@@ -1,6 +1,7 @@
 // Host test for GroundCommandState / RobotStatusTracker: PC line protocol
-// -> RC channel state, the ground-side PC watchdog, event counters, input
-// hardening (oversized lines, NaN), and robot status -> PC lines.
+// -> RC channel state (table v2: arcade drive, nudge, fire / auto pulses,
+// target hole, mode), the ground-side PC watchdog, input hardening
+// (oversized lines, NaN), and robot status -> PC lines.
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -23,56 +24,111 @@ static void send(GroundCommandState& st, const std::string& text, uint32_t now) 
     st.rxByte('\n', now, collect, nullptr);
 }
 
-static void encodeCheck(const rcmap_command& c, int expectArm, int expectLeft) {
+static rcmap_command onAir(const GroundCommandState& st) {
+    // What the robot decodes from this state.
     int ch[16];
-    rcmap_encode(&c, ch);
-    assert(ch[RCMAP_CH_ARM] == expectArm);
-    assert(ch[RCMAP_CH_LEFT] == expectLeft);
-    assert(ch[RCMAP_CH_MODE] == RCMAP_MODE_FULL_MANUAL_US);
+    rcmap_encode(&st.command(), ch);
+    rcmap_command d{};
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    return d;
 }
+
+static bool nearf(float a, float b) { return a - b < 0.01f && b - a < 0.01f; }
 
 static void testDefaultsAndEnable() {
     GroundCommandState st;
     st.reset(0);
-    encodeCheck(st.command(), 1000, 1500); // idle: disarmed, neutral
+    rcmap_command d = onAir(st);
+    assert(!d.armed && !d.fire && nearf(d.forward, 0) && nearf(d.turn, 0));
+    assert(d.nudge == RCMAP_NUDGE_CENTER && d.auto_path == RCMAP_AUTO_NONE && d.target == 0);
     send(st, "T,1,1", 10);
     assert(saw("$GROUND_EVENT,REJECTED_NOT_ENABLED"));
-    encodeCheck(st.command(), 1000, 1500);
+    assert(nearf(onAir(st).forward, 0));
 
     send(st, "E", 20);
     assert(st.command().armed && saw("$GROUND_EVENT,ENABLE_REQUESTED"));
-    send(st, "T,1,-1", 30);
-    send(st, "ROT,1", 30);
-    send(st, "ANG,-1", 30);
-    send(st, "FLY,0.4", 30);
-    const rcmap_command& c = st.command();
-    assert(c.left == 1.0f && c.right == -1.0f && c.rotate == 1 && c.angle == -1);
-    assert(c.flywheel > 0.39f && c.flywheel < 0.41f);
-    encodeCheck(c, 2000, 2000);
+    // Tank from the Dashboard -> arcade on the radio.
+    send(st, "T,1,1", 30);
+    d = onAir(st);
+    assert(nearf(d.forward, 1) && nearf(d.turn, 0));
+    send(st, "T,-1,1", 31);           // D / stick right
+    d = onAir(st);
+    assert(nearf(d.forward, 0) && nearf(d.turn, 1));
+    send(st, "T,0.3,0.9", 32);
+    d = onAir(st);
+    assert(nearf(d.forward, 0.6f) && nearf(d.turn, 0.3f));
 
     send(st, "X", 40);
-    assert(!st.command().armed && st.command().left == 0.0f && st.command().flywheel == 0.0f);
+    d = onAir(st);
+    assert(!d.armed && nearf(d.forward, 0) && nearf(d.turn, 0));
     assert(saw("$GROUND_EVENT,ENABLE_RELEASED"));
 }
 
-static void testCountersAdvanceOncePerPress() {
+static void testNudge() {
     GroundCommandState st;
     st.reset(0);
     send(st, "E", 0);
-    const uint8_t f0 = st.command().feed_counter;
-    send(st, "F", 1);
-    assert(st.command().feed_counter == (f0 + 1) % RCMAP_COUNTER_LEVELS);
-    for (int i = 0; i < 6; i++) send(st, "F", 2);
-    assert(st.command().feed_counter == (f0 + 7) % RCMAP_COUNTER_LEVELS);
-    send(st, "L", 3);
-    assert(st.command().lmode_counter == 1);
-    // Releasing keeps the counter level, so the robot never sees a step.
-    const uint8_t before = st.command().feed_counter;
-    send(st, "X", 4);
-    assert(st.command().feed_counter == before);
-    // F while not enabled is not sent at all.
-    send(st, "F", 5);
-    assert(st.command().feed_counter == before);
+    send(st, "ANG,1", 1);
+    assert(onAir(st).nudge == RCMAP_NUDGE_UP);
+    send(st, "ROT,-1", 2);           // both held: elevation wins
+    assert(onAir(st).nudge == RCMAP_NUDGE_UP);
+    send(st, "ANG,0", 3);
+    assert(onAir(st).nudge == RCMAP_NUDGE_LEFT);
+    send(st, "ROT,1", 4);
+    assert(onAir(st).nudge == RCMAP_NUDGE_RIGHT);
+    send(st, "ROT,0", 5);
+    assert(onAir(st).nudge == RCMAP_NUDGE_CENTER);
+    send(st, "ANG,-1", 6);
+    assert(onAir(st).nudge == RCMAP_NUDGE_DOWN);
+    send(st, "X", 7);                // release centers it
+    assert(onAir(st).nudge == RCMAP_NUDGE_CENTER);
+}
+
+static void testFirePulse() {
+    GroundCommandState st;
+    st.reset(0);
+    send(st, "F", 0);                // not enabled: nothing
+    assert(!onAir(st).fire);
+    send(st, "E", 10);
+    send(st, "F", 20);
+    assert(onAir(st).fire);
+    st.tick(119, collect, nullptr);  // held for the 100 ms pulse
+    assert(onAir(st).fire);
+    send(st, "F", 110);              // a press during the pulse doesn't extend it
+    st.tick(120, collect, nullptr);
+    assert(!onAir(st).fire);
+    send(st, "F", 130);              // next press: a new rising edge
+    assert(onAir(st).fire);
+    send(st, "X", 140);
+    assert(!onAir(st).fire);         // release ends it at once
+}
+
+static void testTargetAndAutoPath() {
+    GroundCommandState st;
+    st.reset(0);
+    send(st, "E", 0);
+    send(st, "TGT,5", 1);
+    assert(onAir(st).target == 5);
+    send(st, "TGT,9", 2);
+    assert(onAir(st).target == 9);
+    send(st, "TGT,0", 3);
+    assert(onAir(st).target == 0);
+    send(st, "TGT,7", 4);
+    send(st, "X", 5);                // release keeps the selection
+    assert(onAir(st).target == 7);
+    send(st, "E", 6);
+
+    send(st, "AUTO,2", 10);
+    assert(onAir(st).auto_path == 2);
+    send(st, "AUTO,3", 50);          // during the pulse: ignored
+    assert(onAir(st).auto_path == 2);
+    st.tick(10 + GroundCommandState::AUTO_PULSE_MS, collect, nullptr);
+    assert(onAir(st).auto_path == RCMAP_AUTO_NONE);
+    send(st, "AUTO,4", 300);
+    assert(onAir(st).auto_path == 4);
+    lines.clear();
+    for (const char* bad : {"TGT,10", "TGT,-1", "TGT,a", "AUTO,0", "AUTO,5", "AUTO,"}) send(st, bad, 301);
+    assert(saw("$GROUND_EVENT,BAD_COMMAND") && onAir(st).target == 7 && onAir(st).auto_path == 4);
 }
 
 static void testPcWatchdog() {
@@ -87,7 +143,7 @@ static void testPcWatchdog() {
     assert(st.command().armed);
     lines.clear();
     st.tick(1251, collect, nullptr); // 251 ms without a line
-    assert(!st.command().armed && st.command().left == 0.0f);
+    assert(!st.command().armed && nearf(onAir(st).forward, 0));
     assert(saw("$GROUND_EVENT,PC_TIMEOUT"));
 }
 
@@ -95,19 +151,25 @@ static void testInputHardening() {
     GroundCommandState st;
     st.reset(0);
     send(st, "E", 0);
-    send(st, "FLY,0.5", 0);
+    send(st, "T,0.5,0.5", 0);
     lines.clear();
-    for (const char* bad : {"FLY,nan", "FLY,inf", "T,1", "T,1,1,1", "T,a,1", "ROT,1e999", "Q"}) {
+    for (const char* bad : {"T,nan,1", "T,inf,1", "T,1", "T,1,1,1", "T,a,1", "ROT,1e999", "Q", "R", "L"}) {
         send(st, bad, 1);
     }
-    assert(st.command().flywheel > 0.49f && st.command().flywheel < 0.51f);
+    assert(nearf(onAir(st).forward, 0.5f));
     assert(saw("$GROUND_EVENT,BAD_COMMAND") && saw("$GROUND_EVENT,UNKNOWN_COMMAND"));
+    // FLY / ANGT have no radio channel: accepted (keep the link alive),
+    // nothing sent, no error.
+    lines.clear();
+    send(st, "FLY,0.4", 2);
+    send(st, "ANGT,90", 2);
+    assert(lines.empty());
     // Oversized line ending in a valid-looking command: dropped whole, and a
     // corrupt PC stream releases the enable.
     lines.clear();
     send(st, std::string(40, 'z') + "F", 2);
     assert(!st.command().armed && saw("$GROUND_EVENT,COMMAND_TOO_LONG"));
-    assert(st.command().feed_counter == 0);
+    assert(!onAir(st).fire);
     send(st, "E", 3); // next line parses normally
     assert(st.command().armed);
 }
@@ -181,11 +243,9 @@ static void testModeKey() {
     assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
 
     send(st, "E", 2);
-    send(st, "FLY,0.7", 3);
     send(st, "M", 4);
     assert(saw("$GROUND_EVENT,MODE_SEMI_AUTO"));
     assert(ch4(st) == RCMAP_MODE_SEMI_AUTO_US);
-    assert(st.command().flywheel == 0.0f);  // zeroed on a mode change, like the robot
     send(st, "M", 5);
     assert(saw("$GROUND_EVENT,MODE_FULL_AUTO") && ch4(st) == RCMAP_MODE_FULL_AUTO_US);
     send(st, "M", 6);
@@ -208,23 +268,11 @@ static void testModeKey() {
     assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
 }
 
-static void testConveyor() {
-    GroundCommandState st; st.reset(0);
-    send(st, "R", 1); assert(!st.command().conveyor);
-    send(st, "E", 2); send(st, "R", 3); assert(st.command().conveyor);
-    int ch[16]; rcmap_command decoded{};
-    rcmap_encode(&st.command(), ch);
-    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &decoded) && decoded.conveyor);
-    send(st, "F", 4); assert(st.command().conveyor);
-    send(st, "R", 5); assert(!st.command().conveyor);
-    send(st, "R", 6); st.tick(300, collect, nullptr); assert(!st.command().conveyor);
-    send(st, "E", 301); assert(!st.command().conveyor);
-}
-
 int main() {
-    testConveyor();
     testDefaultsAndEnable();
-    testCountersAdvanceOncePerPress();
+    testNudge();
+    testFirePulse();
+    testTargetAndAutoPath();
     testPcWatchdog();
     testInputHardening();
     testStatusTracker();

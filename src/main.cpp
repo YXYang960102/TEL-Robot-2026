@@ -21,7 +21,6 @@ namespace pincheck {
 constexpr uint8_t OUTPUTS[] = {
     ChassisConstants::LeftDrive::SIGNAL_PIN,
     ChassisConstants::RightDrive::SIGNAL_PIN,
-    DribblerConstants::Conveyor::SIGNAL_PIN,
     DribblerConstants::Tower::TRIGGER_PIN,
     ShooterConstants::Angle::ANGLE_PIN,
     ShooterConstants::Rotate::SIGNAL_PIN,
