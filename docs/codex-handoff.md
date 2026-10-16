@@ -3356,3 +3356,103 @@ no conversion error.
 1. Test shots per distance: record the Dashboard pulse and the Falcon %,
    and fill in `TABLE`.
 2. Set `ELEVATION_MEASURED = true`.
+
+## 2026-10-16 — Claude Code: gamepad support in the Dashboard + single-motor gamepad bench (A5)
+
+**User Request:** test whether an Xbox-protocol pad (a 冰原狼 Xbox-layout pad
+now; a flight stick at competition) together with the PC keyboard can
+drive motors.
+
+Jeremy's spec:
+- One stick: Y = forward/back, X = turn.
+- Fire is the flight stick's top button; on the Xbox pad it is Y for now.
+- Everything else stays on the keyboard. RT for the flywheel was dropped.
+- First test: a single continuous servo/ESC on **A5**, X axis = left/right
+  turn, at full ±500 µs.
+
+**Added:**
+- `src/Bench/GamepadMotorTest/GamepadMotorTest.cpp` and env
+  `mega_gamepad_motor_test`. It is standalone and drives only A5.
+  - It speaks the Dashboard's wired protocol: E/X/K/T. FLY/ROT/ANG/F/L/R/M
+    are accepted to keep the link alive but drive nothing.
+  - Events: OUTPUTS_ENABLED / DISABLED / COMMAND_TIMEOUT /
+    REJECTED_DISARMED / BAD_COMMAND / UNKNOWN_COMMAND /
+    DISABLED_CORRUPT_COMMAND.
+  - A TEL line in the production 28-field layout: armed in 18, the A5
+    pulse in 19, owner = wired in 21, mode+1 = 3.
+  - Motor pulse = 1500 + 500·(right − left)/2. That gives D or stick right
+    → 2000, A or stick left → 1000, and forward alone → 1500.
+  - 250 ms watchdog. The output is preloaded at 1500 before attach and
+    forced to 1500 when disarmed.
+- `test/gamepad_motor_test.cpp` compiles the bench .cpp as-is against
+  `test/host_stubs`. It covers: disarmed refusal; D, A, half, forward-only,
+  mixed and clamped turns; the 28-field TEL; keepalive via K/FLY; the
+  watchdog; bad and unknown input; an oversized line; and X.
+- Host stubs:
+  - `HostSerial` gains `begin` and int/long/char print overloads.
+  - `A5` is defined.
+  - The Servo stub's `attach(pin, min, max)` now records the pin.
+  - Leftovers from the removed sensors are dropped: the `A3` define and
+    `AS5600.h`.
+  - The stale WiredControl comment is updated.
+- Dashboard: Gamepad API polling every 20 ms. A "gamepad / 手把" metric
+  shows the profile, the pad id, the raw X/Y values and the indices of
+  pressed buttons, which is for mapping the flight stick later.
+  - Profiles:
+    - `standard` (Xbox layout): left stick axes 0/1, fire = button 3 (Y).
+    - `other` (flight stick): axes 0/1, fire = button 0, **provisional**.
+  - Deadzone 0.15 with rescale.
+  - Tank mix uses the keyboard's polarity: left = fwd − turn,
+    right = fwd + turn. Stick right equals D (`T,-1,1`).
+  - The stick wins while it is pushed; otherwise the keyboard drives.
+  - **After Enable the stick must return to center once before it drives.**
+    Unplugging the pad zeroes the drive, and disarm clears it.
+  - Fire sends one F per press.
+
+**Evidence:**
+- All 8 PIO envs build. The new bench uses RAM 536 B.
+- gamepad_motor host test passes. The Dashboard page test adds gamepad
+  cases: disarmed, center-first, analog and deadzone values, keyboard
+  fallback, fire edge, unplug, the flight-stick profile, and disarm.
+- All other host and page tests pass. Not run on hardware.
+
+**Future requirements from the teammate chat (2026-10-15/16), not
+started:**
+1. Flight-stick testing.
+2. CH5 is no longer needed (the conveyor tower runs itself). CH8 becomes a
+   2-value fire signal: one value at rest, another for 100 ms on fire. The
+   Mega outputs HIGH to the tower for 100 ms, and ball counting moves to
+   the tower side.
+3. Semi-auto target-box selection needs 9 values (keyboard numpad 3×3).
+4. Box-switch logic: fine-adjust offsets are stored on the Mega, each press
+   accumulates, and switching the box clears them.
+5. Key remap. On the stick: fire, forward/back/left/right, "head home",
+   and the two index-finger buttons.
+6. Manual uses preset values and semi-auto uses the AI's values. The
+   conveyor belt is controlled by the tower side.
+
+Note that a turret "home" is impossible without a turret position sensor;
+only the elevation can home, to a fixed pulse.
+
+## 2026-10-16 — Claude Code: gamepad bench — arrows left/right also drive A5
+
+**Hardware result:** Jeremy reports **the gamepad works**, driving the A5
+motor through `mega_gamepad_motor_test`. This is the first hardware
+confirmation of the Dashboard's gamepad path.
+
+**User Request:** let the keyboard's ←/→ control the motor too. Jeremy
+approved the plan.
+
+**Changed (bench firmware only):**
+- `GamepadMotorTest.cpp` now parses `ROT,<d>`, which the Dashboard's ←/→
+  send (they are the turret keys on the real robot).
+- While ROT is non-zero it wins over the T-turn from the stick or A/D;
+  `ROT,0` hands control back. E and any disarm clear it.
+- The Dashboard and production firmware are unchanged.
+
+**Evidence:**
+- The `gamepad_motor_test` host test adds these cases: → 2000, ← 1000,
+  arrow overrides the stick, release goes back to the stick (1750), a bad
+  ROT value is refused, and X / E clear a held arrow.
+- The env builds and the page test passes. The ←/→ path itself has not
+  been run on hardware.

@@ -605,12 +605,13 @@
         </div>
         <div class="stream-controls">
           <button id="enableControl" disabled>Enable / 啟用輸出</button>
-          <span class="label">W/S/A/D 底盤・R 水平輸送帶開關・F 發射・M 模式（全手動→半自動→全自動）・←→ 水平・↑↓ 仰角（按住移動）・L 手動/視覺切換・Enter 停用・Space 停用並斷線</span>
+          <span class="label">W/S/A/D 底盤・R 水平輸送帶開關・F 發射・M 模式（全手動→半自動→全自動）・←→ 水平・↑↓ 仰角（按住移動）・手把：搖桿 前後/轉向、Y（飛行搖桿上方鈕）發射・L 手動/視覺切換・Enter 停用・Space 停用並斷線</span>
         </div>
         <div class="grid">
           <div class="metric"><div class="label">left / right pulse / 左右輪脈衝</div><div class="value" id="chassisPulses">--</div></div>
           <div class="metric"><div class="label">control owner / 控制權</div><div class="value" id="controlOwner">--</div></div>
           <div class="metric"><div class="label">feed tower / 送球塔</div><div class="value" id="towerState">--</div><div class="subvalue">trigger pulses sent, no ball sensor / 已送觸發次數，無球感測</div></div>
+          <div class="metric"><div class="label">gamepad / 手把</div><div class="value" id="gamepadState">none / 未連接</div><div class="subvalue" id="gamepadInputs">按手把任一鍵讓瀏覽器偵測</div></div>
           <div class="metric"><div class="label">wireless link / 無線狀態</div><div class="value" id="wirelessState">--</div><div class="subvalue" id="rfLinkState">ground station only / 僅接地面站時</div></div>
           <div class="metric"><div class="label">rotate / angle mode / 旋轉・俯仰模式</div><div class="value" id="shooterAxisMode">--</div></div>
           <div class="metric"><div class="label">elevation pulse / 仰角脈寬</div><div class="value" id="anglePulse">--</div><div class="subvalue">500–2500 us, no limit switch / 無限位，量機構兩端</div></div>
@@ -723,7 +724,7 @@
   </main>
 
   <script>
-    const ids = ["tx", "ty", "distance", "targetId", "valid", "shooterReady", "operatorMode", "warnBits", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse"];
+    const ids = ["tx", "ty", "distance", "targetId", "valid", "shooterReady", "operatorMode", "warnBits", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse", "gamepadState", "gamepadInputs"];
     const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     const connectButton = document.getElementById("connect");
     const demoButton = document.getElementById("demo");
@@ -791,6 +792,9 @@
     const GROUND_RELEASE_EVENTS = ["PC_TIMEOUT", "ENABLE_RELEASED", "RELEASED_CORRUPT_COMMAND", "COMMAND_TOO_LONG"];
     const encoder = new TextEncoder();
     let controlArmed = false;
+    let gamepadDrive = null;         // [left, right] while the gamepad stick is pushed
+    let gamepadNeedsCenter = false;  // after Enable, until the stick is centered once
+    let gamepadFireWasDown = false;
     let operatorMode = 2; // MODE_FULL_MANUAL
     let enablePending = false;
     let enablePendingSince = 0;
@@ -828,11 +832,17 @@
 
     function setControlArmed(armed) {
       controlArmed = armed;
-      if (armed) enablePending = false;
+      if (armed) {
+        enablePending = false;
+        // A stick held off-center while enabling must not drive: wait for
+        // it to come back to center once.
+        gamepadNeedsCenter = true;
+      }
       if (!armed) {
         // The firmware drops back to full manual on every disarm.
         operatorMode = MODE_FULL_MANUAL;
         tankLeft = 0; tankRight = 0; rotateAxis = 0; angleAxis = 0;
+        gamepadDrive = null;
         heldKeys.clear();
         setFlywheelSlider(0);
       }
@@ -1655,8 +1665,85 @@
       return (heldKeys.has("arrowright") ? 1 : 0) - (heldKeys.has("arrowleft") ? 1 : 0);
     }
 
+    // Gamepad (browser Gamepad API: Xbox-style pads and flight sticks).
+    // One stick drives -- Y forward/back, X turn, analog -- plus one fire
+    // button (= F). Everything else stays on the keyboard (Jeremy,
+    // 2026-10-16). Pads with the browser's "standard" mapping (Xbox layout)
+    // use the left stick and Y; anything else (a flight stick) uses axes 0/1
+    // and button 0 until its real fire button is known -- the gamepad
+    // readout shows which button index is pressed.
+    const GAMEPAD_DEADZONE = 0.15;
+    const GAMEPAD_PROFILES = {
+      standard: { label: "Xbox", turnAxis: 0, forwardAxis: 1, fireButton: 3 },
+      other: { label: "flight stick", turnAxis: 0, forwardAxis: 1, fireButton: 0 },
+    };
+
+    function gamepadProfile(pad) {
+      return pad.mapping === "standard" ? GAMEPAD_PROFILES.standard : GAMEPAD_PROFILES.other;
+    }
+
+    // Deadzone, then rescale so just past the deadzone is ~0, not a jump.
+    function shapeAxis(value) {
+      if (!Number.isFinite(value) || Math.abs(value) < GAMEPAD_DEADZONE) return 0;
+      return Math.sign(value) * Math.min(1, (Math.abs(value) - GAMEPAD_DEADZONE) / (1 - GAMEPAD_DEADZONE));
+    }
+
+    // Same mixing as the keyboard: D (turn right) is T,-1,1 and A is
+    // T,1,-1 (Jeremy's polarity), so stick right = +turn -> left = fwd - turn.
+    function gamepadTank(pad) {
+      const profile = gamepadProfile(pad);
+      const forward = -shapeAxis(pad.axes[profile.forwardAxis]); // stick up is negative
+      const turn = shapeAxis(pad.axes[profile.turnAxis]);
+      if (forward === 0 && turn === 0) return null;
+      const round = (v) => Math.round(Math.max(-1, Math.min(1, v)) * 100) / 100;
+      return [round(forward - turn), round(forward + turn)];
+    }
+
+    function firstGamepad() {
+      const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()) : [];
+      return pads.find((pad) => pad && pad.connected) || null;
+    }
+
+    async function pollGamepad() {
+      const pad = firstGamepad();
+      if (!pad) {
+        el.gamepadState.textContent = "none / 未連接";
+        el.gamepadInputs.textContent = "按手把任一鍵讓瀏覽器偵測";
+        gamepadFireWasDown = false;
+        if (gamepadDrive !== null) {
+          // Unplugged mid-drive: back to the keyboard (zero if no key held).
+          gamepadDrive = null;
+          if (controlArmed) await sendTankIfChanged();
+        }
+        return;
+      }
+      const profile = gamepadProfile(pad);
+      const pressed = pad.buttons.map((b, i) => (b && b.pressed ? i : -1)).filter((i) => i >= 0);
+      el.gamepadState.textContent = `${profile.label} · ${pad.id.slice(0, 32)}`;
+      el.gamepadInputs.textContent =
+        `X ${(pad.axes[profile.turnAxis] ?? 0).toFixed(2)} · Y ${(pad.axes[profile.forwardAxis] ?? 0).toFixed(2)}` +
+        ` · 按鈕 [${pressed.join(",")}] · 發射=按鈕 ${profile.fireButton}`;
+
+      const fireDown = pressed.includes(profile.fireButton);
+      const fireEdge = fireDown && !gamepadFireWasDown;
+      gamepadFireWasDown = fireDown;
+      if (!controlArmed) {
+        gamepadDrive = null;
+        return;
+      }
+      let drive = gamepadTank(pad);
+      if (drive === null) gamepadNeedsCenter = false;
+      if (gamepadNeedsCenter) drive = null;
+      if (drive !== null || gamepadDrive !== null) {
+        gamepadDrive = drive;
+        await sendTankIfChanged();
+      }
+      if (fireEdge) await sendControl("F");
+    }
+
     async function sendTankIfChanged() {
-      const [left, right] = tankCommand();
+      // The stick wins while it is pushed; otherwise the keyboard.
+      const [left, right] = gamepadDrive ?? tankCommand();
       if (left !== tankLeft || right !== tankRight) {
         tankLeft = left; tankRight = right;
         await sendControl(`T,${left},${right}`);
@@ -1860,6 +1947,7 @@
     }
 
     setInterval(sendHeartbeat, CONTROL_HEARTBEAT_MS);
+    setInterval(pollGamepad, 20);
 
     updatePanelDensity();
     drawField();

@@ -1,9 +1,10 @@
 #pragma once
 
 // Minimal host-side stand-in for the Arduino core, just enough to compile
-// the real src/IO/WiredControl.cpp and src/Dribbler/Dribbler.cpp on a PC
-// (test/wired_control_test.cpp). Time, pin levels, and the USB Serial port
-// are all fake and driven by the test.
+// the real src/IO/ManualControl.cpp, src/Auto/Auto.cpp,
+// src/Dribbler/Dribbler.cpp and the gamepad motor bench on a PC (see
+// test/README). Time, pin levels, and the USB Serial port are all fake and
+// driven by the test.
 
 #include <math.h>
 #include <stddef.h>
@@ -18,7 +19,7 @@
 #define INPUT 0
 #define OUTPUT 1
 #define INPUT_PULLUP 2
-#define A3 57
+#define A5 59
 #define F(text) (text)
 
 template <typename T, typename Low, typename High>
@@ -49,6 +50,7 @@ public:
 
 class HostSerial {
 public:
+    void begin(unsigned long) {}
     int available() { return static_cast<int>(input.size()); }
     int read() {
         if (input.empty()) return -1;
@@ -58,6 +60,12 @@ public:
     }
     void print(const char* text) { output += text; }
     void println(const char* text) { output += text; output += "\n"; }
+    void print(char c) { output += c; }
+    void print(int v) { output += std::to_string(v); }
+    void print(long v) { output += std::to_string(v); }
+    void print(unsigned long v) { output += std::to_string(v); }
+    void println(int v) { print(v); output += "\n"; }
+    void println(unsigned long v) { print(v); output += "\n"; }
 
     void send(const std::string& text) {
         for (char c : text) input.push_back(c);

@@ -497,5 +497,90 @@ async function emergencyStopViaEnter() {
   assert.equal(elements.angleSlider.value, '244');
   assert.match(elements.angleValue.textContent, /243\.5°/);
 
+  // ---------------- gamepad (Gamepad API) ----------------
+  connectFakePort();
+  run('setConnection(true)');
+  clock.t = 50000;
+  let pads = [];
+  ctx.navigator.getGamepads = () => pads;
+  const pad = (mapping, axes, pressedButtons = []) => ({
+    connected: true, id: mapping === 'standard' ? 'Xbox 360 Controller' : 'Flight Stick', mapping, axes,
+    buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: pressedButtons.includes(i), value: 0 })),
+  });
+  const poll = () => run('pollGamepad()');
+
+  await poll();
+  assert.match(elements.gamepadState.textContent, /none/);
+
+  // Disarmed: the stick and fire button send nothing.
+  pads = [pad('standard', [1, 0, 0, 0], [3])];
+  writes.length = 0;
+  await poll();
+  assert.equal(writes.length, 0);
+  assert.match(elements.gamepadState.textContent, /Xbox/);
+  assert.match(elements.gamepadInputs.textContent, /按鈕 \[3\]/);
+
+  // Enabled with the stick already pushed: ignored until it is centered once.
+  pads = [pad('standard', [1, 0, 0, 0])];
+  await arm();
+  writes.length = 0;
+  await poll(); await poll();
+  assert.equal(writes.length, 0);
+  pads = [pad('standard', [0, 0, 0, 0])];
+  await poll();
+  // Stick right = turn right = same as D (T,-1,1); deadzone-rescaled analog.
+  pads = [pad('standard', [1, 0, 0, 0])];
+  await poll();
+  assert.equal(last(), 'T,-1,1');
+  pads = [pad('standard', [0.575, 0, 0, 0])];   // half way past the deadzone
+  await poll();
+  assert.equal(last(), 'T,-0.5,0.5');
+  pads = [pad('standard', [0, -1, 0, 0])];      // stick up = forward
+  await poll();
+  assert.equal(last(), 'T,1,1');
+  pads = [pad('standard', [0.1, -0.1, 0, 0])];  // inside the deadzone = stop
+  await poll();
+  assert.equal(last(), 'T,0,0');
+
+  // The keyboard still works while the stick is centered.
+  await windowHandlers.keydown(key('w'));
+  assert.equal(last(), 'T,1,1');
+  await windowHandlers.keyup(key('w'));
+  assert.equal(last(), 'T,0,0');
+
+  // Fire (Xbox Y = button 3): one F per press, none while held.
+  writes.length = 0;
+  pads = [pad('standard', [0, 0, 0, 0], [3])];
+  await poll(); await poll(); await poll();
+  pads = [pad('standard', [0, 0, 0, 0])];
+  await poll();
+  pads = [pad('standard', [0, 0, 0, 0], [3])];
+  await poll();
+  assert.deepEqual([...writes], ['F', 'F']);
+
+  // Unplugged while driving: the drive drops to zero.
+  pads = [pad('standard', [-1, 0, 0, 0])];
+  await poll();
+  assert.equal(last(), 'T,1,-1');
+  pads = [];
+  await poll();
+  assert.equal(last(), 'T,0,0');
+
+  // A non-standard pad (flight stick): axes 0/1, fire = button 0.
+  writes.length = 0;
+  pads = [pad('', [0, 0], [0])];
+  await poll();
+  assert.deepEqual([...writes], ['F']);
+  assert.match(elements.gamepadState.textContent, /flight stick/);
+
+  // Disarm clears the gamepad drive.
+  pads = [pad('', [0, -1])];
+  await poll();
+  assert.equal(last(), 'T,1,1');
+  await windowHandlers.keydown(key('Enter'));
+  writes.length = 0;
+  await poll();
+  assert.equal(writes.length, 0);
+
   console.log('dashboard page control behavior tests passed');
 })().catch((e) => { console.error(e); process.exitCode = 1; });
