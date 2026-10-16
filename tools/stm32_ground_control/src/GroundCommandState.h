@@ -66,12 +66,16 @@ public:
     void reset(uint32_t nowMs);
     // New status from a Battery frame. Emits "$EVENT,<name>" when the
     // robot's event sequence advanced (the first status only sets the
-    // baseline, so an old event isn't replayed on connect).
+    // baseline, so an old event isn't replayed on connect). An aim frame
+    // (RcControlMap.h) is kept apart and never touches the status.
     void onStatus(const rcmap_status& s, uint32_t nowMs, GroundEmitFn emit, void* ctx);
     // Every REPORT_PERIOD_MS: "$WIRELESS,<fresh>,<armed>,<owner>,<pins>,
     // <feedBusy>,<rotateManual>,<rcLink>,<ageMs>,<mode>" where owner is 0
     // none, 1 wired, 2 wireless, and mode is 0 full auto, 1 semi auto,
     // 2 full manual, -1 not reported.
+    // Then "$AIM,<fresh>,<distanceCm>,<elevationPulseUs>,<selectedId>,
+    // <targetId>,<valid>,<aimOffsetPx>" from the latest aim frame (fresh 0
+    // and zeros when none came within STALE_MS).
     void tick(uint32_t nowMs, GroundEmitFn emit, void* ctx);
 
     bool fresh(uint32_t nowMs) const;
@@ -81,5 +85,8 @@ private:
     rcmap_status last{};
     bool haveStatus = false;
     uint32_t lastStatusMs = 0;
+    rcmap_aim lastAim{};
+    bool haveAim = false;
+    uint32_t lastAimMs = 0;
     uint32_t lastReportMs = 0;
 };

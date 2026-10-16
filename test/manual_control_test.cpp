@@ -537,7 +537,7 @@ void testStatusUplink() {
     assert(rec.statusFlags & RCMAP_STATUS_PINS_CONFIRMED);
     assert(!(rec.statusFlags & RCMAP_STATUS_ARMED));
     armWireless();
-    step(120);
+    runWireless(220); // status goes out every other 100 ms slot
     assert(rec.statusFlags & RCMAP_STATUS_ARMED);
     assert(rec.statusFlags & RCMAP_STATUS_OWNER_WIRELESS);
     assert(rec.statusFlags & RCMAP_STATUS_RC_LINK_OK);
@@ -546,13 +546,57 @@ void testStatusUplink() {
     assert(rcmap_status_code_mode(rec.statusCode) == RCMAP_MODE_FULL_MANUAL);
     const unsigned long seq = rec.statusSeq;
     wireless.fire = true;
-    rcStep(120);
+    runWireless(220);
     assert(rcmap_status_code_event(rec.statusCode) == RCMAP_EVENT_FEED_TRIGGER_SENT &&
            rec.statusSeq == seq + 1);
     assert(rec.statusFlags & RCMAP_STATUS_FEED_BUSY);
     wireless.mode_us = RCMAP_MODE_SEMI_AUTO_US;
-    rcStep(120);
+    runWireless(220);
     assert(rcmap_status_code_mode(rec.statusCode) == RCMAP_MODE_SEMI_AUTO);
+}
+
+// Aim frames (2026-10-17): every other 100 ms status slot carries the
+// distance / elevation pulse / target for the wireless Dashboard.
+rcmap_aim lastAim() {
+    rcmap_status st = {};
+    st.flags = rec.aimFlags;
+    st.event_seq = rec.aimSeq;
+    st.event_code = rec.aimCode;
+    rcmap_aim a = {};
+    assert(rcmap_aim_from_status(&st, &a));
+    return a;
+}
+
+void testAimUplink() {
+    reset();
+    // Alternates status / aim, one line per 100 ms, status first.
+    step(100);
+    assert(rec.statusCount == 1 && rec.aimCount == 0);
+    step(100);
+    assert(rec.statusCount == 1 && rec.aimCount == 1);
+    for (int i = 0; i < 8; i++) step(100);
+    assert(rec.statusCount == 5 && rec.aimCount == 5);
+    // Nothing in view: no distance, not valid.
+    rcmap_aim a = lastAim();
+    assert(a.distance_cm == 0 && !a.valid && a.target_id == 0 && a.elevation_pulse_us == 1500);
+
+    hoststub::visionReady = true;
+    hoststub::visionValid = true;
+    hoststub::visionDistanceMm = 3524.0;   // -> 352 cm
+    hoststub::visionTargetId = 10;
+    hoststub::visionSelectedId = 10;      // key 1
+    hoststub::anglePulseUs = 1620;
+    armWired();
+    send("M"); step();                    // semi auto: arrows are fine-adjust
+    send("ROT,1"); step(); send("ROT,0"); step();
+    runWithHeartbeat(250);
+    a = lastAim();
+    assert(a.distance_cm == 352 && a.elevation_pulse_us == 1620);
+    assert(a.selected_id == 10 && a.target_id == 10 && a.valid);
+    assert(a.aim_offset_px == static_cast<int8_t>(TuningConstants::Auto::AIM_OFFSET_STEP_PX));
+    // The status frames in between are untouched by it.
+    assert(rec.statusFlags & RCMAP_STATUS_ARMED);
+    assert(!rcmap_status_is_aim(rec.statusCode));
 }
 
 // ----------------------------------------------------------- operator modes
@@ -994,6 +1038,7 @@ int main() {
     testFineAdjustWired();
     testFineAdjustWireless();
     testModeCommandAndTargetReset();
+    testAimUplink();
     printf("manual_control_test (pin table confirmed): all asserts passed\n");
 #else
     testEnableRefusedUntilPinTableConfirmed();

@@ -179,11 +179,76 @@ static void test_operator_mode(void) {
                   "ENABLE_REJECTED_NOT_MANUAL") == 0);
 }
 
+/* Aim frames: alternate with status in the same ST line / Battery frame. */
+static void test_aim_frames(void) {
+    /* A status code can never look like an aim frame: every event x mode. */
+    for (uint16_t e = 0; e < 0x1000u; e++) {
+        for (uint8_t m = 0; m <= RCMAP_MODE_FULL_MANUAL; m++) {
+            assert(!rcmap_status_is_aim(rcmap_status_code(e, m)));
+        }
+        assert(!rcmap_status_is_aim(e)); /* older firmware: no mode */
+    }
+
+    rcmap_aim a = {0};
+    a.distance_cm = 352;            /* 3.52 m */
+    a.elevation_pulse_us = 1620;
+    a.selected_id = 10;             /* key 1 */
+    a.target_id = 10;
+    a.valid = true;
+    a.aim_offset_px = -15;
+    uint8_t flags;
+    uint32_t seq;
+    uint16_t code;
+    rcmap_aim_to_status(&a, &flags, &seq, &code);
+    /* Within the robot bridge's ST-line field ranges (flags <= 255 is the
+     * type; seq <= 0xFFFFFF, code <= 65535). */
+    assert(seq <= 0xFFFFFFu);
+    assert(rcmap_status_is_aim(code));
+
+    /* Mega -> bridge (Battery) -> ground, exactly like a status frame. */
+    rcmap_status st = {0};
+    st.flags = flags;
+    st.event_seq = seq;
+    st.event_code = code;
+    st.rolling = 7;
+    uint16_t v, cur;
+    uint32_t cap;
+    uint8_t rem;
+    rcmap_status_to_battery(&st, &v, &cur, &cap, &rem);
+    rcmap_status got;
+    assert(rcmap_status_from_battery(v, cur, cap, rem, &got));
+    rcmap_aim back;
+    assert(rcmap_aim_from_status(&got, &back));
+    assert(back.distance_cm == 352 && back.elevation_pulse_us == 1620);
+    assert(back.selected_id == 10 && back.target_id == 10 && back.valid);
+    assert(back.aim_offset_px == -15);
+
+    /* Clamps and masks. */
+    a.distance_cm = 60000;
+    a.elevation_pulse_us = 9000;
+    a.selected_id = 0;
+    a.target_id = 0;
+    a.valid = false;
+    a.aim_offset_px = 127;
+    rcmap_aim_to_status(&a, &flags, &seq, &code);
+    st.flags = flags;
+    st.event_seq = seq;
+    st.event_code = code;
+    assert(rcmap_aim_from_status(&st, &back));
+    assert(back.distance_cm == 0x7FFFu && back.elevation_pulse_us == 0x0FFFu);
+    assert(!back.valid && back.selected_id == 0 && back.target_id == 0 && back.aim_offset_px == 127);
+
+    /* A status frame is not an aim frame. */
+    st.event_code = rcmap_status_code(RCMAP_EVENT_OUTPUTS_ENABLED, RCMAP_MODE_FULL_MANUAL);
+    assert(!rcmap_aim_from_status(&st, &back));
+}
+
 int main(void) {
     test_round_trip();
     test_elrs_hybrid_values();
     test_invalid_frames();
     test_event_names_and_status();
+    test_aim_frames();
     test_operator_mode();
     printf("rc_control_map host tests: all asserts passed\n");
     return 0;

@@ -127,6 +127,26 @@ void rcmap_status_to_battery(const rcmap_status *s, uint16_t *voltage, uint16_t 
     *remaining = s->rolling;
 }
 
+void rcmap_aim_to_status(const rcmap_aim *a, uint8_t *flags, uint32_t *seq, uint16_t *code) {
+    const uint16_t cm = a->distance_cm > 0x7FFFu ? 0x7FFFu : a->distance_cm;
+    const uint16_t pulse = a->elevation_pulse_us > 0x0FFFu ? 0x0FFFu : a->elevation_pulse_us;
+    *code = (uint16_t)(RCMAP_AIM_FRAME_BIT | cm);
+    *seq = (uint32_t)pulse | ((uint32_t)(a->selected_id & 0x0Fu) << 12) |
+           ((uint32_t)(a->target_id & 0x0Fu) << 16) | ((uint32_t)(a->valid ? 1u : 0u) << 20);
+    *flags = (uint8_t)a->aim_offset_px;
+}
+
+bool rcmap_aim_from_status(const rcmap_status *s, rcmap_aim *out) {
+    if (!rcmap_status_is_aim(s->event_code)) return false;
+    out->distance_cm = (uint16_t)(s->event_code & 0x7FFFu);
+    out->elevation_pulse_us = (uint16_t)(s->event_seq & 0x0FFFu);
+    out->selected_id = (uint8_t)((s->event_seq >> 12) & 0x0Fu);
+    out->target_id = (uint8_t)((s->event_seq >> 16) & 0x0Fu);
+    out->valid = ((s->event_seq >> 20) & 1u) != 0u;
+    out->aim_offset_px = (int8_t)s->flags;
+    return true;
+}
+
 bool rcmap_status_from_battery(uint16_t voltage, uint16_t current, uint32_t capacity,
                                uint8_t remaining, rcmap_status *out) {
     if ((voltage >> 8) != RCMAP_STATUS_MARKER) return false;

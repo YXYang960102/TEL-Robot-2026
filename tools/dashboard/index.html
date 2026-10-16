@@ -960,9 +960,45 @@
         ? data.distance / 1000 : null;
     }
 
+    // Orin depth distance, mm (DEPTH_DISTANCE_MODE "range": straight line
+    // camera -> hole). Shown in m, the shot table's unit; 0 / no valid
+    // target = nothing measured, not "0 m". From TEL (USB) or $AIM (radio).
+    function updateDistanceReadout(data) {
+      const meters = distanceMeters(data);
+      el.distance.textContent = meters === null ? "--" : `${meters.toFixed(2)} m`;
+      el.distanceRaw.textContent = meters === null
+        ? "看不到目標 / no target"
+        : `${data.distance.toFixed(0)} mm · 相機到洞口的直線距離，填射擊表用這個`;
+    }
+
+    // "$AIM,<fresh>,<distanceCm>,<elevationPulseUs>,<selectedId>,
+    // <targetId>,<valid>,<aimOffsetPx>" from the ground station: the robot's
+    // aim frame over the radio (2026-10-17). On the Mega's USB the TEL line
+    // carries all of this instead.
+    function handleAimStatus(line) {
+      const p = line.trim().split(",").map(Number);
+      if (p.length < 8 || p.slice(1).some((v) => !Number.isFinite(v))) return;
+      const [, fresh, distanceCm, pulseUs, selectedId, targetId, valid, aimOffsetPx] = p;
+      if (!fresh) {
+        el.distance.textContent = "--";
+        el.distanceRaw.textContent = "no robot aim data / 收不到機器人視覺資料";
+        el.aimState.textContent = "--";
+        return;
+      }
+      const data = {
+        valid: valid === 1, distance: distanceCm * 10, targetId, visionTargetId: selectedId,
+        aimOffsetPx, elevationOffsetUs: NaN,
+      };
+      updateDistanceReadout(data);
+      el.anglePulse.textContent = `${pulseUs} us`;
+      el.aimState.textContent = aimStateText(data);
+    }
+
     function aimStateText(data) {
       const signed = (v) => `${v > 0 ? "+" : ""}${v}`;
-      const offsets = `微調 水平 ${signed(data.aimOffsetPx)} px · 仰角 ${signed(data.elevationOffsetUs)} µs`;
+      // The wireless aim frame has no elevation offset (NaN): left out.
+      const offsets = `微調 水平 ${signed(data.aimOffsetPx)} px` +
+        (Number.isFinite(data.elevationOffsetUs) ? ` · 仰角 ${signed(data.elevationOffsetUs)} µs` : "");
       const meters = distanceMeters(data);
       const range = meters === null ? "" : ` ${meters.toFixed(2)} m`;
       if (data.visionTargetId === 0) {
@@ -1315,14 +1351,7 @@
     function updateMetrics(data) {
       el.tx.textContent = data.tx.toFixed(1);
       el.ty.textContent = data.ty.toFixed(1);
-      // Orin depth distance, mm on the wire (DEPTH_DISTANCE_MODE "range":
-      // straight line camera -> hole). Shown in m, the shot table's unit;
-      // 0 / no valid target = nothing measured, not "0 m".
-      const meters = distanceMeters(data);
-      el.distance.textContent = meters === null ? "--" : `${meters.toFixed(2)} m`;
-      el.distanceRaw.textContent = meters === null
-        ? "看不到目標 / no target"
-        : `${data.distance.toFixed(0)} mm · 相機到洞口的直線距離，填射擊表用這個`;
+      updateDistanceReadout(data);
       el.targetId.textContent = data.targetId;
       el.valid.textContent = data.valid ? "1" : "0";
       el.shooterReady.textContent = data.shooterReady ? "YES" : "NO";
@@ -1528,6 +1557,11 @@
         linkKind = "ground";
         if (absoluteElevation) { absoluteElevation = false; updateControlUi(); }
         handleWirelessStatus(line);
+        return;
+      }
+      if (line.startsWith("$AIM,")) {
+        linkKind = "ground";
+        handleAimStatus(line);
         return;
       }
       if (line.startsWith("$RFLINK,")) {

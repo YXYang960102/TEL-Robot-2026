@@ -241,10 +241,20 @@ void RobotStatusTracker::reset(uint32_t nowMs) {
     haveStatus = false;
     last = rcmap_status{};
     lastStatusMs = nowMs;
+    haveAim = false;
+    lastAim = rcmap_aim{};
+    lastAimMs = nowMs;
     lastReportMs = nowMs;
 }
 
 void RobotStatusTracker::onStatus(const rcmap_status& s, uint32_t nowMs, GroundEmitFn emit, void* ctx) {
+    rcmap_aim aim;
+    if (rcmap_aim_from_status(&s, &aim)) {
+        lastAim = aim;
+        haveAim = true;
+        lastAimMs = nowMs;
+        return;
+    }
     const bool newEvent = haveStatus && s.event_seq != last.event_seq;
     last = s;
     haveStatus = true;
@@ -280,5 +290,17 @@ void RobotStatusTracker::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
              (f & RCMAP_STATUS_RC_LINK_OK) ? 1 : 0,
              haveStatus ? static_cast<unsigned long>(nowMs - lastStatusMs) : 0UL,
              mode == RCMAP_MODE_UNKNOWN ? -1 : static_cast<int>(mode));
+    emitLine(emit, ctx, text);
+
+    const bool aimFresh = haveAim && nowMs - lastAimMs <= STALE_MS;
+    const rcmap_aim a = aimFresh ? lastAim : rcmap_aim{};
+    snprintf(text, sizeof(text), "$AIM,%d,%u,%u,%u,%u,%d,%d",
+             aimFresh ? 1 : 0,
+             static_cast<unsigned>(a.distance_cm),
+             static_cast<unsigned>(a.elevation_pulse_us),
+             static_cast<unsigned>(a.selected_id),
+             static_cast<unsigned>(a.target_id),
+             a.valid ? 1 : 0,
+             static_cast<int>(a.aim_offset_px));
     emitLine(emit, ctx, text);
 }

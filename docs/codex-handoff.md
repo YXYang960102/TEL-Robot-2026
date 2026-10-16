@@ -4222,3 +4222,83 @@ Orin are unchanged):**
   - the keyboard M / arrows are gone.
 - In a real browser the layout is right and the console has no errors.
 - Not run on hardware.
+
+## 2026-10-17 — Claude Code: aim frames on the wireless uplink (distance / elevation pulse over the radio)
+
+**User Request:** the Dashboard shows the camera distance and the elevation
+pulse only on the Mega's USB, because they live in the TEL line. Jeremy:
+"好，現在做" — make them show through the ground station too.
+
+**Why this design:**
+- The uplink stays on the CRSF **Battery** frame, chosen earlier because a
+  custom frame type may not survive ELRS.
+- The robot bridge forwards any `ST,<flags>,<seq>,<code>` line within its
+  field ranges (flags ≤ 255, seq ≤ 0xFFFFFF, code ≤ 65535), so the aim
+  data rides in those three fields and **the bridge needs no change**. The
+  rebuilt image sha is still 99b017a4….
+- One line per 100 ms keeps it safe with the bridge's "latest line every
+  100 ms" forwarding.
+
+**Changed:**
+- `RcControlMap.{h,c}`: aim frame codec.
+  - code: bit 15 = aim frame, bits 0–14 = distance in cm (0 = none).
+  - seq: bits 0–11 elevation pulse µs, 12–15 vision id sent to the Orin,
+    16–19 the frame's vision id, bit 20 valid.
+  - flags: aim offset px as int8.
+  - New functions `rcmap_aim_to_status()`, `rcmap_aim_from_status()`,
+    `rcmap_status_is_aim()`.
+  - A status code is at most 0x3FFF (12-bit event plus mode + 1 in bits
+    12–15), so the two kinds can never be confused. The test checks every
+    event × mode.
+- New `src/IO/AimUplink.{h,cpp}` builds the frame from:
+  - `Vision::isValid` / `getDistance` (mm → cm; 0 when invalid);
+  - `getSelectedTarget`, `getTargetId`;
+  - `Shooter::getAnglePulseUs`;
+  - `ManualControl::getAimOffsetPx`.
+- `ManualControl::sendStatusIfDue()` alternates the 100 ms slot: status,
+  aim, status, aim, starting with status. **Status and aim each now go out
+  every 200 ms**, well inside the ground's 1 s staleness window. Events
+  therefore reach the ground up to about 100 ms later.
+- Ground `RobotStatusTracker`:
+  - An aim frame is stored apart and never emits `$EVENT` or touches the
+    status / flags.
+  - `tick()` emits `$AIM,<fresh>,<distanceCm>,<elevationPulseUs>,
+    <selectedId>,<targetId>,<valid>,<aimOffsetPx>` after `$WIRELESS`.
+  - `fresh` is 0, with zeros, after 1 s without an aim frame.
+- Dashboard: `handleAimStatus()` fills the camera-distance card, the
+  elevation pulse readout and the target-hole line from `$AIM`.
+  `updateDistanceReadout()` is now shared with the TEL path. The radio
+  carries no elevation offset, so the target line omits it there.
+- `tools/stm32_elrs_robot_bridge`: test-only changes.
+  - The host test now proves the bridge parses an aim `ST` line, and that
+    it decodes back.
+  - `build.py` links `RcControlMap.c` into that host test.
+  - The firmware image is unchanged.
+
+**Compatibility:** an old ground with new Mega firmware would read aim frames
+as status, with garbage flags. **Flash the ground and the Mega together**;
+they are already being flashed together on 2026-10-17. An old Mega with the
+new ground just shows `$AIM,0,...`.
+
+**Evidence:**
+- All 8 Mega envs build (RAM 2594 B). The ground pio build passes. The
+  bridge `build.py` passes its host test and the sha is unchanged.
+- `rc_control_map_test`:
+  - aim round trip through the Battery frame;
+  - clamps;
+  - no status code ever looks like an aim frame.
+- `manual_control_test` new case `testAimUplink`:
+  - status-first alternation, 5 / 5 per second;
+  - content with and without a target;
+  - status frames unaffected.
+
+  `testStatusUplink` waits updated from 120 to 220 ms.
+- Ground `testAimFrames`:
+  - no `$EVENT`, flags untouched, the `$AIM` line, the next event still
+    reported;
+  - stale, and never heard.
+- Dashboard page test: `$AIM` seen / not seen / AI pick / stale /
+  malformed.
+- All other host and page tests pass.
+- **Not run on hardware.** The Battery-frame uplink itself is still
+  unproven over the air until the 2026-10-17 wireless test.

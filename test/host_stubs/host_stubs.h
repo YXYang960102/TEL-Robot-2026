@@ -25,6 +25,10 @@ struct Recorder {
     uint8_t statusFlags = 0;
     unsigned long statusSeq = 0;
     uint16_t statusCode = 0;
+    unsigned long aimCount = 0;        // aim frames (code bit 15), kept apart
+    uint8_t aimFlags = 0;
+    unsigned long aimSeq = 0;
+    uint16_t aimCode = 0;
 };
 
 extern Recorder rec;
@@ -32,6 +36,8 @@ extern bool visionReady;      // Vision::isConnected()/isVisionReady()
 extern bool visionValid;      // Vision::isValid() (a target is locked)
 extern double visionDistanceMm;
 extern int visionTargetId;    // Vision::getTargetId() (Orin vision id)
+extern uint8_t visionSelectedId; // Vision::getSelectedTarget()
+extern int anglePulseUs;      // Shooter::getAnglePulseUs()
 extern bool shooterReady;     // Shooter::isReady() (turret locked && flywheel up)
 
 }

@@ -14,6 +14,14 @@
 static std::vector<std::string> lines;
 static void collect(void*, const char* line) { lines.push_back(line); }
 
+// The latest "$WIRELESS" line (each report is "$WIRELESS" then "$AIM").
+static std::string lastWireless() {
+    for (auto it = lines.rbegin(); it != lines.rend(); ++it) {
+        if (it->rfind("$WIRELESS,", 0) == 0) return *it;
+    }
+    return "";
+}
+
 static bool saw(const std::string& s) {
     for (const auto& l : lines) if (l == s) return true;
     return false;
@@ -189,7 +197,7 @@ static void testStatusTracker() {
     tr.reset(0);
     lines.clear();
     tr.tick(250, collect, nullptr);
-    assert(lines.back() == "$WIRELESS,0,0,0,0,0,0,0,0,-1"); // nothing heard yet
+    assert(lastWireless() == "$WIRELESS,0,0,0,0,0,0,0,0,-1"); // nothing heard yet
     // First status: baseline only, its old event is not replayed.
     tr.onStatus(status(RCMAP_STATUS_PINS_CONFIRMED | RCMAP_STATUS_RC_LINK_OK, 5,
                        RCMAP_EVENT_OUTPUTS_DISABLED), 300, collect, nullptr);
@@ -206,10 +214,10 @@ static void testStatusTracker() {
     tr.tick(500, collect, nullptr);
     // A status code without the packed mode (older robot firmware) reports
     // mode -1, never "full auto".
-    assert(lines.back() == "$WIRELESS,1,1,2,0,0,0,0,50,-1");
+    assert(lastWireless() == "$WIRELESS,1,1,2,0,0,0,0,50,-1");
     // Status goes stale: reported as not fresh with everything zeroed.
     tr.tick(1500, collect, nullptr);
-    assert(lines.back().rfind("$WIRELESS,0,0,0,0,0,0,0,", 0) == 0);
+    assert(lastWireless().rfind("$WIRELESS,0,0,0,0,0,0,0,", 0) == 0);
     assert(!tr.fresh(1500));
 
     // Mode rides in the top bits of the code: the event name is still
@@ -220,19 +228,68 @@ static void testStatusTracker() {
                 1600, collect, nullptr);
     assert(saw("$EVENT,MODE_SEMI_AUTO"));
     tr.tick(1760, collect, nullptr);        // reports every 250 ms (last at 1500)
-    assert(lines.back() == "$WIRELESS,1,1,2,0,0,0,0,160,1");
+    assert(lastWireless() == "$WIRELESS,1,1,2,0,0,0,0,160,1");
     tr.onStatus(status(RCMAP_STATUS_ARMED | RCMAP_STATUS_OWNER_WIRELESS, 8,
                        rcmap_status_code(RCMAP_EVENT_FEED_TRIGGER_SENT, RCMAP_MODE_FULL_AUTO)),
                 1800, collect, nullptr);
     assert(saw("$EVENT,FEED_TRIGGER_SENT"));
     tr.tick(2020, collect, nullptr);
-    assert(lines.back() == "$WIRELESS,1,1,2,0,0,0,0,220,0");
+    assert(lastWireless() == "$WIRELESS,1,1,2,0,0,0,0,220,0");
 }
 
 static int ch4(const GroundCommandState& st) {
     int ch[16];
     rcmap_encode(&st.command(), ch);
     return ch[RCMAP_CH_MODE];
+}
+
+static void testAimFrames() {
+    RobotStatusTracker tr;
+    tr.reset(0);
+    lines.clear();
+    // A status frame first (baseline), then an aim frame: no $EVENT, the
+    // status flags are untouched, and $AIM carries the aim fields.
+    rcmap_status st{};
+    st.flags = RCMAP_STATUS_ARMED | RCMAP_STATUS_OWNER_WIRELESS;
+    st.event_seq = 5;
+    st.event_code = rcmap_status_code(RCMAP_EVENT_OUTPUTS_ENABLED, RCMAP_MODE_SEMI_AUTO);
+    tr.onStatus(st, 10, collect, nullptr);
+    rcmap_aim a{};
+    a.distance_cm = 352;
+    a.elevation_pulse_us = 1620;
+    a.selected_id = 10;
+    a.target_id = 10;
+    a.valid = true;
+    a.aim_offset_px = -15;
+    rcmap_status af{};
+    uint8_t flags;
+    uint32_t seq;
+    uint16_t code;
+    rcmap_aim_to_status(&a, &flags, &seq, &code);
+    af.flags = flags;
+    af.event_seq = seq;
+    af.event_code = code;
+    tr.onStatus(af, 20, collect, nullptr);
+    assert(lines.empty());                       // no $EVENT from an aim frame
+    assert(tr.flags() == st.flags);
+    tr.tick(300, collect, nullptr);
+    assert(saw("$WIRELESS,1,1,2,0,0,0,0,290,1"));   // status as before (mode semi)
+    assert(saw("$AIM,1,352,1620,10,10,1,-15"));
+    // The next status frame's event still reports normally.
+    st.event_seq = 6;
+    st.event_code = rcmap_status_code(RCMAP_EVENT_FEED_TRIGGER_SENT, RCMAP_MODE_SEMI_AUTO);
+    tr.onStatus(st, 310, collect, nullptr);
+    assert(saw("$EVENT,FEED_TRIGGER_SENT"));
+    // No aim frame for > STALE_MS: fresh 0 and zeros.
+    lines.clear();
+    tr.tick(20 + RobotStatusTracker::STALE_MS + 300, collect, nullptr);
+    assert(saw("$AIM,0,0,0,0,0,0,0"));
+    // Never any aim frame (older robot firmware): $AIM,0,...
+    RobotStatusTracker none;
+    none.reset(0);
+    lines.clear();
+    none.tick(300, collect, nullptr);
+    assert(saw("$AIM,0,0,0,0,0,0,0"));
 }
 
 static void testModeKey() {
@@ -296,6 +353,7 @@ int main() {
     testInputHardening();
     testStatusTracker();
     testModeKey();
+    testAimFrames();
     printf("ground control host tests: all asserts passed\n");
     return 0;
 }

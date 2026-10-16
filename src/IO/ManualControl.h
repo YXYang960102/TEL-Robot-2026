@@ -138,4 +138,5 @@ private:
     static unsigned long eventSeq;
     static uint16_t lastEventCode;
     static unsigned long lastStatusMs;
+    static bool statusSlotIsAim; // the status slots alternate status / aim
 };

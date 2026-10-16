@@ -202,6 +202,33 @@ void rcmap_status_to_battery(const rcmap_status *s, uint16_t *voltage, uint16_t 
 bool rcmap_status_from_battery(uint16_t voltage, uint16_t current, uint32_t capacity,
                                uint8_t remaining, rcmap_status *out);
 
+/* Aim frames (2026-10-17): the Mega alternates its 100 ms status slot
+ * between the status above and an aim frame, so the wireless Dashboard can
+ * show the camera distance and the elevation pulse. Same "ST,<flags>,
+ * <seq>,<code>" line and Battery frame -- the robot bridge forwards it
+ * unchanged (its field ranges: flags <= 255, seq <= 0xFFFFFF, code <=
+ * 65535), so the bridge firmware needed no change.
+ *   code  bit 15 = 1 (aim frame; a status code is at most 0x3FFF),
+ *         bits 0-14 = camera distance in cm (0 = none, max 32767)
+ *   seq   bits 0-11 elevation pulse us, 12-15 vision id sent to the Orin,
+ *         16-19 vision id of the frame in hand, 20 valid
+ *   flags aim offset px as int8 (+ = right) */
+#define RCMAP_AIM_FRAME_BIT 0x8000u
+typedef struct {
+    uint16_t distance_cm;
+    uint16_t elevation_pulse_us;
+    uint8_t selected_id;
+    uint8_t target_id;
+    bool valid;
+    int8_t aim_offset_px;
+} rcmap_aim;
+
+static inline bool rcmap_status_is_aim(uint16_t code) { return (code & RCMAP_AIM_FRAME_BIT) != 0u; }
+/* Out-of-range values are clamped (distance, pulse) or masked (ids). */
+void rcmap_aim_to_status(const rcmap_aim *a, uint8_t *flags, uint32_t *seq, uint16_t *code);
+/* False if s is not an aim frame. */
+bool rcmap_aim_from_status(const rcmap_status *s, rcmap_aim *out);
+
 #ifdef __cplusplus
 }
 #endif

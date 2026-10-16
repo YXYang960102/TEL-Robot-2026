@@ -36,10 +36,10 @@ Host tests used in this repo (run from the repo root):
   # to the first (pin-table-confirmed) command.
   gcc -c src/IO/RcControlMap.c -o /tmp/rcmap.o
   g++ -std=c++17 -Wall -Wextra -Werror -I test/host_stubs -DTEL_HOST_TEST_PIN_TABLE_CONFIRMED=true \
-      test/manual_control_test.cpp test/host_stubs/host_stubs.cpp src/IO/ManualControl.cpp src/Auto/Auto.cpp src/Dribbler/Dribbler.cpp \
+      test/manual_control_test.cpp test/host_stubs/host_stubs.cpp src/IO/ManualControl.cpp src/IO/AimUplink.cpp src/Auto/Auto.cpp src/Dribbler/Dribbler.cpp \
       /tmp/rcmap.o -o /tmp/t && /tmp/t
   g++ -std=c++17 -Wall -Wextra -Werror -I test/host_stubs -DTEL_HOST_TEST_PIN_TABLE_CONFIRMED=false \
-      test/manual_control_test.cpp test/host_stubs/host_stubs.cpp src/IO/ManualControl.cpp src/Auto/Auto.cpp src/Dribbler/Dribbler.cpp \
+      test/manual_control_test.cpp test/host_stubs/host_stubs.cpp src/IO/ManualControl.cpp src/IO/AimUplink.cpp src/Auto/Auto.cpp src/Dribbler/Dribbler.cpp \
       /tmp/rcmap.o -o /tmp/t && /tmp/t
 
   # Orin link (protocol v2): the REAL src/Vision/Vision.cpp on its own small

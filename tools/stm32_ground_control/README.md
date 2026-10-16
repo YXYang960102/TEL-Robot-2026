@@ -56,6 +56,7 @@ The board sends to the PC:
 - `$EVENT,<name>`: a robot event (the same names the Mega prints over USB), relayed through the status uplink.
 - `$WIRELESS,<fresh>,<armed>,<owner 0/1/2>,<pins>,<feedBusy>,<rotateManual>,<rcLink>,<ageMs>,<mode>`: every 250 ms. `mode` is the robot's operator mode (0 full auto, 1 semi auto, 2 full manual, -1 not reported by older robot firmware), carried in the top bits of the status event code.
 - `$RFLINK,<fresh>,<uplinkLQ>,<downlinkLQ>,<rssi>`: every 250 ms, from the TX module's link statistics.
+- `$AIM,<fresh>,<distanceCm>,<elevationPulseUs>,<selectedId>,<targetId>,<valid>,<aimOffsetPx>`: every 250 ms, from the robot's aim frames (2026-10-17). The Mega sends status and aim frames in turn, each every 200 ms, through the same Battery frame, and the robot bridge forwards them unchanged. This gives the Dashboard the camera distance, the elevation pulse and the lock state over the radio. `fresh` is 0, with zeros, when no aim frame arrived for 1 s, for example with older robot firmware.
 
 Channel table: `src/IO/RcControlMap.h`.
 

@@ -9,6 +9,7 @@
 #include "../Constants/TuningConstants.h"
 #include "../Dribbler/Dribbler.h"
 #include "../Shooter/Shooter.h"
+#include "AimUplink.h"
 #include "MechLink.h"
 
 using Owner = ManualControl::Owner;
@@ -46,6 +47,7 @@ int ManualControl::angleNudgePrev = 0;
 unsigned long ManualControl::eventSeq = 0;
 uint16_t ManualControl::lastEventCode = RCMAP_EVENT_NONE;
 unsigned long ManualControl::lastStatusMs = 0;
+bool ManualControl::statusSlotIsAim = false;
 
 void ManualControl::init() {
     commandLength = 0;
@@ -64,6 +66,7 @@ void ManualControl::init() {
     eventSeq = 0;
     lastEventCode = RCMAP_EVENT_NONE;
     lastStatusMs = millis();
+    statusSlotIsAim = false; // status first
 }
 
 void ManualControl::update() {
@@ -633,6 +636,16 @@ void ManualControl::sendStatusIfDue() {
         return;
     }
     lastStatusMs = now;
+    // Every other slot carries the aim frame (distance, elevation pulse,
+    // target) instead: status and aim each go out every 200 ms, well inside
+    // the ground's 1 s staleness window. One line per 100 ms, so the robot
+    // bridge (which forwards the latest line every 100 ms) passes both.
+    const bool aimSlot = statusSlotIsAim;
+    statusSlotIsAim = !statusSlotIsAim;
+    if (aimSlot) {
+        AimUplink::send();
+        return;
+    }
     MechLink::sendStatus(statusFlags(), eventSeq,
                          rcmap_status_code(lastEventCode, static_cast<uint8_t>(getOperatorMode())));
 }

@@ -20,6 +20,8 @@ bool visionReady = false;
 bool visionValid = false;
 double visionDistanceMm = 0.0;
 int visionTargetId = 8;       // the center hole, unless a test says otherwise
+uint8_t visionSelectedId = 0;
+int anglePulseUs = 1500;
 bool shooterReady = false;
 }
 
@@ -82,6 +84,8 @@ bool Vision::isVisionReady() { return hoststub::visionReady; }
 bool Vision::isValid() { return hoststub::visionValid; }
 double Vision::getDistance() { return hoststub::visionDistanceMm; }
 int Vision::getTargetId() { return hoststub::visionTargetId; }
+uint8_t Vision::getSelectedTarget() { return hoststub::visionSelectedId; }
+int Shooter::getAnglePulseUs() { return hoststub::anglePulseUs; }
 
 int MechLink::channels[RCMAP_CHANNEL_COUNT];
 unsigned long MechLink::frameCount = 0;
@@ -89,6 +93,13 @@ bool MechLink::signalLost = true;
 int MechLink::modeChannel = RCMAP_MODE_FULL_MANUAL_US;
 
 void MechLink::sendStatus(uint8_t flags, unsigned long eventSeq, uint16_t eventCode) {
+    if (eventCode & 0x8000u) { // aim frame (RcControlMap.h): recorded apart from status
+        rec.aimCount++;
+        rec.aimFlags = flags;
+        rec.aimSeq = eventSeq;
+        rec.aimCode = eventCode;
+        return;
+    }
     rec.statusCount++;
     rec.statusFlags = flags;
     rec.statusSeq = eventSeq;

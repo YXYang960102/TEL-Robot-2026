@@ -484,6 +484,25 @@ async function emergencyStopViaEnter() {
   assert.equal(writes.length, 2);
   elements.startMode.value = '2';
   elements.autoPathSelect.value = '0';
+  // $AIM (the robot's aim frame over the radio): distance, elevation pulse
+  // and the target line, without needing the Mega's USB.
+  line('$AIM,1,352,1620,10,10,1,-15');
+  assert.equal(elements.distance.textContent, '3.52 m');
+  assert.match(elements.distanceRaw.textContent, /^3520 mm/);
+  assert.equal(elements.anglePulse.textContent, '1620 us');
+  assert.equal(elements.aimState.textContent, '視覺 #10 已看到 ✓ 3.52 m · 微調 水平 -15 px');
+  line('$AIM,1,0,1620,10,0,0,0');
+  assert.equal(elements.distance.textContent, '--');
+  assert.equal(elements.aimState.textContent, '視覺 #10 看不到 · 微調 水平 0 px');
+  line('$AIM,1,410,1500,0,7,1,0');
+  assert.equal(elements.aimState.textContent, 'AI 自選 #7 4.10 m · 微調 水平 0 px');
+  line('$AIM,0,0,0,0,0,0,0');
+  assert.equal(elements.distance.textContent, '--');
+  assert.match(elements.distanceRaw.textContent, /收不到機器人視覺資料/);
+  line('$AIM,1,abc');                                         // malformed: ignored
+  assert.match(elements.distanceRaw.textContent, /收不到機器人視覺資料/);
+  assert.equal(run('linkKind'), 'ground');
+
   // LB (turret home) only explains that the AS5600 isn't there yet.
   writes.length = 0;
   await press(XB.LB);
