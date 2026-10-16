@@ -201,12 +201,17 @@ void ManualControl::processCommand(char* command) {
     const bool isAngleTarget = strncmp(command, "ANGT,", 5) == 0;
     // TGT,<0..9>: the 3x3 target hole (keys 1-9; 0 = none).
     const bool isTarget = strncmp(command, "TGT,", 4) == 0;
-    // AUTO,<1..4>: start auto path 1-4 (keys Q W E R).
+    // AUTO,<1..4>: start auto path 1-4 (the Dashboard's path menu sends it
+    // right after Enable).
     const bool isAutoPath = strncmp(command, "AUTO,", 5) == 0;
+    // MODE,<0..2>: go straight to an operator mode (0 full auto, 1 semi
+    // auto, 2 full manual) -- the Dashboard's mode menu, sent right after
+    // Enable. Enable itself still always starts in full manual.
+    const bool isModeSet = strncmp(command, "MODE,", 5) == 0;
     const bool isSingle = command[1] == '\0' && (command[0] == 'F' || command[0] == 'M');
 
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle && !isAngleTarget &&
-        !isTarget && !isAutoPath) {
+        !isTarget && !isAutoPath && !isModeSet) {
         sendEvent(RCMAP_EVENT_UNKNOWN_COMMAND);
         return;
     }
@@ -249,12 +254,14 @@ void ManualControl::processCommand(char* command) {
         }
         return;
     }
-    if (isTarget || isAutoPath) {
+    if (isTarget || isAutoPath || isModeSet) {
         const char* digits = command + (isTarget ? 4 : 5);
         char* end = nullptr;
         const long n = strtol(digits, &end, 10);
-        const long maximum = isTarget ? RCMAP_TARGET_MAX : RCMAP_AUTO_PATHS;
-        const long minimum = isTarget ? 0 : 1;
+        const long maximum = isTarget ? RCMAP_TARGET_MAX
+                           : isAutoPath ? RCMAP_AUTO_PATHS
+                                        : static_cast<long>(OperatorMode::FULL_MANUAL);
+        const long minimum = isAutoPath ? 1 : 0;
         if (end == digits || *end != '\0' || n < minimum || n > maximum) {
             sendEvent(RCMAP_EVENT_BAD_COMMAND);
             return;
@@ -262,8 +269,12 @@ void ManualControl::processCommand(char* command) {
         refreshWiredWatchdog();
         if (isTarget) {
             selectTarget(static_cast<uint8_t>(n));
-        } else {
+        } else if (isAutoPath) {
             requestAutoPath(static_cast<uint8_t>(n));
+        } else if (ManualControlConstants::WIRED_MANUAL_ONLY) {
+            sendEvent(RCMAP_EVENT_MODE_FULL_MANUAL); // benches stay manual, like M
+        } else {
+            setOperatorMode(static_cast<OperatorMode>(n));
         }
         return;
     }
@@ -404,6 +415,10 @@ void ManualControl::requestEnable(Owner source) {
     timedOut = false;
     // One auto path per Enable; the since-boot record (mask) is kept.
     autoPathThisEnable = RCMAP_AUTO_NONE;
+    // Every Enable starts on the Orin's own pick (Jeremy, 2026-10-16:
+    // semi-auto first locks whatever the AI picks, digit keys switch, 0 goes
+    // back). Silent: the Enable event already says what happened.
+    target = RCMAP_TARGET_NONE;
     refreshWiredWatchdog();
     lastValidWirelessMs = millis();
     sendEvent(RCMAP_EVENT_OUTPUTS_ENABLED);

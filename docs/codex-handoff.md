@@ -3903,3 +3903,85 @@ Fixes, if needed:
   wired-manual.
 - The gamepad and Dashboard page tests pass.
 - Not run on hardware.
+
+## 2026-10-16 — Claude Code: Dashboard mode / auto-path menus, MODE command, target reset per Enable
+
+**User Request:**
+- Add two mouse-driven menus to the Dashboard:
+  - **Mode**: picked before Enable, and the robot runs in that mode once
+    enabled. M can still switch modes at any time.
+  - **Auto path**: None / left 1 / left 2 / right 1 / right 2. This menu
+    replaces the QWER keys. None means no path runs.
+- Mode behavior:
+  - Full auto shoots on its own.
+  - Semi auto gives the chassis to the operator. The AI locks a target on
+    its own at first; a digit key switches the target, and the robot waits
+    for the fire signal.
+  - Full manual hands everything to the operator.
+- Jeremy chose "**every Enable resets the target to 0, and key 0 returns
+  to the AI's pick**".
+- Each step of an auto path has its own speed. The paths themselves will
+  come later.
+
+**Changed:**
+- Firmware `ManualControl`:
+  - New wired command `MODE,<0..2>` (0 full auto, 1 semi, 2 manual) sets
+    the mode directly. The wired benches stay in full manual, the same as
+    with M.
+  - `requestEnable` resets `target` to 0, so every Enable starts on the
+    Orin's own pick.
+  - **Enable itself still always starts in full manual.** That safety rule
+    is unchanged; the Dashboard sends `MODE` only after the robot confirms
+    Enable.
+- Ground `GroundCommandState`:
+  - `MODE,<n>` sets CH4 to that level and emits
+    `$GROUND_EVENT,MODE_*` (shared `emitModeEvent()`).
+  - `E` resets `cmd.target` to 0. CH3 is held on the ground, so without
+    this the robot would take the old hole straight back after re-enabling.
+- Dashboard:
+  - New "模式" and "自動路徑" menus under the Enable button.
+  - Once the robot confirms Enable (`setControlArmed`: `justEnabled`),
+    `applyStartMenus()` sends `MODE,n` (skipped for full manual) and then
+    `AUTO,n` (skipped for None). It also resets the local target and auto
+    display.
+  - Changing the mode menu while enabled sends `MODE,n` immediately. While
+    enabled, the mode menu follows the mode the robot reports; after a
+    disarm it keeps that value as the next start mode.
+  - Changing the path menu takes effect at the next Enable.
+  - Both menus drop focus after a change, so arrows, Enter and Space go
+    back to robot control.
+  - **QWER removed.** The 0 key sends `TGT,0`. Auto-path names are now
+    左一 / 左二 / 右一 / 右二.
+- Auto-path content (timed steps, a speed per step) is not done yet.
+  `AUTO` currently only triggers and records.
+
+**Evidence:**
+- All 8 Mega envs and the ground pio build pass.
+- `manual_control_test`, new case `testModeCommandAndTargetReset`:
+  - `MODE` 0/1/2;
+  - bad values;
+  - refused while disarmed;
+  - M still cycles from the current mode;
+  - the target is reset by Enable;
+  - 0 returns to the AI's pick;
+  - the wired-manual bench stays manual on `MODE`.
+- Ground host test:
+  - `MODE` levels;
+  - bad values;
+  - `MODE` while not enabled is refused;
+  - `E` resets the target.
+- Dashboard page test:
+  - the menus send `E` → `MODE,1` → `AUTO,3` after the confirmation;
+  - nothing is sent before the confirmation;
+  - the mode menu follows the reported mode;
+  - changing the mode menu while enabled sends `MODE`;
+  - changing the path menu sends nothing;
+  - QWER send nothing;
+  - 0 sends `TGT,0`.
+- A browser check of the layout looked right.
+- Not run on hardware.
+
+**Compatibility:** this Dashboard sends `MODE`, which older firmware or an
+older ground station rejects as `UNKNOWN_COMMAND`. In that case the robot
+just stays in full manual, which is safe. The Dashboard, the Mega and the
+ground station should all be updated together.

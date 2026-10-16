@@ -114,9 +114,11 @@ static void testTargetAndAutoPath() {
     send(st, "TGT,0", 3);
     assert(onAir(st).target == 0);
     send(st, "TGT,7", 4);
-    send(st, "X", 5);                // release keeps the selection
+    send(st, "X", 5);                // release keeps the selection...
     assert(onAir(st).target == 7);
-    send(st, "E", 6);
+    send(st, "E", 6);                // ...until the next Enable: back to the AI's pick
+    assert(onAir(st).target == 0);
+    send(st, "TGT,7", 7);
 
     send(st, "AUTO,2", 10);
     assert(onAir(st).auto_path == 2);
@@ -266,6 +268,23 @@ static void testModeKey() {
     send(st, "M", 401);
     send(st, "E", 402);
     assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+
+    // MODE,<n> (the Dashboard's mode menu): CH4 straight to that level.
+    lines.clear();
+    send(st, "MODE,0", 403);
+    assert(saw("$GROUND_EVENT,MODE_FULL_AUTO") && ch4(st) == RCMAP_MODE_FULL_AUTO_US);
+    send(st, "MODE,1", 404);
+    assert(saw("$GROUND_EVENT,MODE_SEMI_AUTO") && ch4(st) == RCMAP_MODE_SEMI_AUTO_US);
+    send(st, "MODE,2", 405);
+    assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+    send(st, "MODE,1", 406);
+    lines.clear();
+    for (const char* bad : {"MODE,3", "MODE,-1", "MODE,", "MODE,1x"}) send(st, bad, 407);
+    assert(saw("$GROUND_EVENT,BAD_COMMAND") && ch4(st) == RCMAP_MODE_SEMI_AUTO_US);
+    send(st, "X", 408);
+    lines.clear();
+    send(st, "MODE,0", 409);                // not enabled: refused
+    assert(saw("$GROUND_EVENT,REJECTED_NOT_ENABLED") && ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
 }
 
 int main() {

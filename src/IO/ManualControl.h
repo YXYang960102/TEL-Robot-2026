@@ -10,7 +10,7 @@
 // rules:
 //   - Wired: line protocol on USB `Serial` from tools/dashboard/index.html
 //     (E/X/K, T,<l>,<r>, ROT,<d>, ANG,<d>, ANGT,<deg>, FLY,<0..1>,
-//     TGT,<0..9>, AUTO,<1..4>, F, M).
+//     TGT,<0..9>, AUTO,<1..4>, MODE,<0..2>, F, M).
 //   - Wireless: CRSF channels from the ELRS link via MechLink, decoded with
 //     RcControlMap table v2 (forward/turn, target hole, mode, fire, arm,
 //     nudge, auto path).

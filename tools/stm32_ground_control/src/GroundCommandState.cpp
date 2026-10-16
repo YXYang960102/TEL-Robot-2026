@@ -42,7 +42,7 @@ void GroundCommandState::reset(uint32_t nowMs) {
 
 void GroundCommandState::release() {
     // Arm off and every motion neutral, fire / auto released. The selected
-    // target hole is a choice, not a motion, so it is kept.
+    // target hole is a choice, not a motion, so it is kept until the next E.
     cmd.armed = false;
     cmd.forward = 0.0f;
     cmd.turn = 0.0f;
@@ -98,6 +98,9 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
 
     if (strcmp(line, "E") == 0) {
         release();
+        // Every Enable starts on the Orin's own pick, like the robot (which
+        // resets it too -- but would take this held CH3 straight back).
+        cmd.target = RCMAP_TARGET_NONE;
         cmd.armed = true;
         lastPcMs = nowMs;
         emitLine(emit, ctx, "$GROUND_EVENT,ENABLE_REQUESTED");
@@ -121,8 +124,10 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
     const bool isNoChannel = strncmp(line, "FLY,", 4) == 0 || strncmp(line, "ANGT,", 5) == 0;
     const bool isTarget = strncmp(line, "TGT,", 4) == 0;
     const bool isAutoPath = strncmp(line, "AUTO,", 5) == 0;
+    const bool isModeSet = strncmp(line, "MODE,", 5) == 0;
     const bool isSingle = line[1] == '\0' && (line[0] == 'F' || line[0] == 'M');
-    if (!isTank && !isRotate && !isAngle && !isNoChannel && !isTarget && !isAutoPath && !isSingle) {
+    if (!isTank && !isRotate && !isAngle && !isNoChannel && !isTarget && !isAutoPath && !isModeSet &&
+        !isSingle) {
         emitLine(emit, ctx, "$GROUND_EVENT,UNKNOWN_COMMAND");
         return;
     }
@@ -164,12 +169,14 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
         updateNudge();
         return;
     }
-    if (isTarget || isAutoPath) {
+    if (isTarget || isAutoPath || isModeSet) {
         const char* digits = line + (isTarget ? 4 : 5);
         char* end = nullptr;
         const long n = strtol(digits, &end, 10);
-        const long minimum = isTarget ? 0 : 1;
-        const long maximum = isTarget ? RCMAP_TARGET_MAX : RCMAP_AUTO_PATHS;
+        const long minimum = isAutoPath ? 1 : 0;
+        const long maximum = isTarget ? RCMAP_TARGET_MAX
+                           : isAutoPath ? RCMAP_AUTO_PATHS
+                                        : RCMAP_MODE_FULL_MANUAL;
         if (end == digits || *end != '\0' || n < minimum || n > maximum) {
             emitLine(emit, ctx, "$GROUND_EVENT,BAD_COMMAND");
             return;
@@ -177,6 +184,11 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
         lastPcMs = nowMs;
         if (isTarget) {
             cmd.target = static_cast<uint8_t>(n);
+        } else if (isModeSet) {
+            // The Dashboard's mode menu: CH4 straight to that level.
+            const uint8_t mode = static_cast<uint8_t>(n);
+            cmd.mode_us = rcmap_mode_to_us(mode);
+            emitModeEvent(mode, emit, ctx);
         } else if (cmd.auto_path == RCMAP_AUTO_NONE) {
             // A new press only after the previous pulse ended (the robot
             // needs to see "none" between presses).
@@ -202,10 +214,14 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
                            : mode == RCMAP_MODE_SEMI_AUTO   ? RCMAP_MODE_FULL_AUTO
                                                             : RCMAP_MODE_FULL_MANUAL;
         cmd.mode_us = rcmap_mode_to_us(next);
-        emitLine(emit, ctx, next == RCMAP_MODE_FULL_MANUAL ? "$GROUND_EVENT,MODE_FULL_MANUAL"
-                          : next == RCMAP_MODE_SEMI_AUTO   ? "$GROUND_EVENT,MODE_SEMI_AUTO"
-                                                           : "$GROUND_EVENT,MODE_FULL_AUTO");
+        emitModeEvent(next, emit, ctx);
     }
+}
+
+void GroundCommandState::emitModeEvent(uint8_t mode, GroundEmitFn emit, void* ctx) {
+    emitLine(emit, ctx, mode == RCMAP_MODE_FULL_MANUAL ? "$GROUND_EVENT,MODE_FULL_MANUAL"
+                      : mode == RCMAP_MODE_SEMI_AUTO   ? "$GROUND_EVENT,MODE_SEMI_AUTO"
+                                                       : "$GROUND_EVENT,MODE_FULL_AUTO");
 }
 
 void GroundCommandState::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {

@@ -32,14 +32,15 @@ The PC sends exactly what it sends to the Mega over a wired link:
 
 | Line | Effect here |
 |------|-------------|
-| `E` | Arm channel (CH6) goes high and every axis goes neutral. Prints `$GROUND_EVENT,ENABLE_REQUESTED`. The robot enables on the low→high edge. |
+| `E` | Arm channel (CH6) goes high, every axis goes neutral, and the target hole goes back to 0 (the AI's own pick). Prints `$GROUND_EVENT,ENABLE_REQUESTED`. The robot enables on the low→high edge. |
 | `X` | Arm channel goes low and every axis goes neutral. Prints `$GROUND_EVENT,ENABLE_RELEASED`. |
 | `K` | Heartbeat. |
 | `T,<l>,<r>` | Becomes forward = (l+r)/2 on CH1 and turn = (r−l)/2 on CH2 (the robot mixes them back with the same polarity). |
 | `ROT,<d>` / `ANG,<d>` | The nudge channel (CH7): left/right or up/down while non-zero, center at 0. If both are held, elevation wins. |
 | `F` | Fire (CH5) goes high for 100 ms. The robot acts on the low→high edge, so one press is one shot. |
-| `TGT,<0..9>` | Target hole on CH3 (1 left-bottom … 9 right-top, 0 = none). It is held after the key is released. |
-| `AUTO,<1..4>` | Auto path on CH8 for 200 ms, then back to none. A press during the 200 ms is ignored. The robot allows one path per Enable. |
+| `TGT,<0..9>` | Target hole on CH3 (1 left-bottom … 9 right-top, 0 = the AI's own pick). It is held after the key is released, until the next `E`. |
+| `AUTO,<1..4>` | Auto path on CH8 for 200 ms, then back to none. A press during the 200 ms is ignored. The robot allows one path per Enable. The Dashboard sends it right after Enable from its path menu. |
+| `MODE,<0..2>` | Operator mode on CH4, straight to that level (0 full auto, 1 semi auto, 2 full manual). The Dashboard sends it right after Enable from its mode menu. |
 | `FLY,<0..1>` / `ANGT,<deg>` | Accepted, so the link stays alive, but sent nowhere: table v2 has no wireless flywheel channel or absolute elevation channel. |
 
 All of these are accepted only while enabled; otherwise the board prints `REJECTED_NOT_ENABLED`. `R` and `L` were retired with table v2 and are now `UNKNOWN`.

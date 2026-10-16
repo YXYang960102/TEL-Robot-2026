@@ -1,6 +1,6 @@
 // Focused host test for tools/dashboard/index.html's pure control-key
 // functions (rotateCommand/angleCommand for the arrows, targetForKey for
-// 1-9, autoPathForKey for Q W E R -- control table v2, 2026-10-16).
+// 1-9 -- control table v2, 2026-10-16).
 //
 // The dashboard page itself (canvas field/chart drawing, draggable panel
 // layout, MJPEG stream) is exercised as a whole in dashboard_page_test.cjs;
@@ -38,12 +38,11 @@ const src = [
   extractFunction('rotateCommand'),
   extractFunction('angleCommand'),
   extractFunction('targetForKey'),
-  extractFunction('autoPathForKey'),
 ].join('\n');
 
 const ctx = vm.createContext({ heldKeys, Math, Number });
-vm.runInContext(`${src}\nresult = { rotateCommand, angleCommand, targetForKey, autoPathForKey };`, ctx);
-const { rotateCommand, angleCommand, targetForKey, autoPathForKey } = ctx.result;
+vm.runInContext(`${src}\nresult = { rotateCommand, angleCommand, targetForKey };`, ctx);
+const { rotateCommand, angleCommand, targetForKey } = ctx.result;
 
 function setKeys(...keys) {
   heldKeys.clear();
@@ -74,9 +73,5 @@ assert.equal(angleCommand(), -1);
 // layout itself (1 left-bottom ... 9 right-top) is the firmware's number.
 for (let n = 1; n <= 9; n++) assert.equal(targetForKey(String(n)), n);
 for (const k of ['0', '10', 'q', '', 'enter', ' ']) assert.equal(targetForKey(k), 0, k);
-
-// Q W E R -> auto paths 1-4 (left 1, left 2, right 1, right 2).
-assert.deepEqual(['q', 'w', 'e', 'r'].map(autoPathForKey), [1, 2, 3, 4]);
-for (const k of ['', 'a', 's', 'd', 'f', 'm', 'qw', 'enter', 'arrowup']) assert.equal(autoPathForKey(k), 0, k);
 
 console.log('dashboard control key functions: all asserts passed');

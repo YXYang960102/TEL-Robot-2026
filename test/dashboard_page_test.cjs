@@ -8,7 +8,8 @@
 // wireless-round additions: enable is pending until the robot confirms,
 // the page only arms for an enable it asked for, and the ground station's
 // $WIRELESS / $GROUND_EVENT / $RFLINK lines. Control table v2 (2026-10-16):
-// 1-9 -> TGT, Q W E R -> AUTO, no keyboard drive/fire (gamepad only), and
+// 1-9 / 0 -> TGT, mode + auto-path menus applied after Enable, no keyboard
+// drive/fire (gamepad only), and
 // the target / auto-path readouts.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -76,6 +77,9 @@ const ctx = {
 };
 vm.createContext(ctx);
 vm.runInContext(script, ctx);
+// The menus' markup defaults (the DOM stub doesn't parse HTML).
+elements.startMode.value = '2';       // full manual
+elements.autoPathSelect.value = '0';  // None
 
 const writes = [];
 ctx.writes = writes;
@@ -104,7 +108,7 @@ async function emergencyStopViaEnter() {
 
 (async () => {
   // Disarmed by default: arrows, holes and auto keys send nothing.
-  for (const k of ['ArrowUp', '5', 'q', 'm']) await windowHandlers.keydown(key(k));
+  for (const k of ['ArrowUp', '5', '0', 'm']) await windowHandlers.keydown(key(k));
   assert.equal(writes.length, 0);
   // Initial disabled state comes from the markup itself (not modeled by
   // the DOM stub), so check the source directly.
@@ -122,16 +126,20 @@ async function emergencyStopViaEnter() {
 
   // 1-9 / Q W E R: one line per press; held-key auto-repeat sends nothing.
   writes.length = 0;
-  for (const k of ['1', '5', '9', 'q', 'w', 'e', 'r']) {
+  for (const k of ['1', '5', '9', '0']) {
     await windowHandlers.keydown(key(k));
     await windowHandlers.keydown(key(k, { repeat: true }));
     await windowHandlers.keydown(key(k, { repeat: true }));
   }
-  assert.deepEqual([...writes], ['TGT,1', 'TGT,5', 'TGT,9', 'AUTO,1', 'AUTO,2', 'AUTO,3', 'AUTO,4']);
+  assert.deepEqual([...writes], ['TGT,1', 'TGT,5', 'TGT,9', 'TGT,0']);   // 0 = back to the AI's pick
+  // Q W E R are no longer auto-path keys (the path is a menu now).
+  writes.length = 0;
+  for (const k of ['q', 'w', 'e', 'r']) await windowHandlers.keydown(key(k));
+  assert.equal(writes.length, 0);
   // No keyboard drive or fire any more (the stick does both), and the
   // retired keys send nothing.
   writes.length = 0;
-  for (const k of ['s', 'a', 'd', 'f', 'l', '0']) {
+  for (const k of ['s', 'a', 'd', 'f', 'l']) {
     await windowHandlers.keydown(key(k));
     await windowHandlers.keyup(key(k));
   }
@@ -374,14 +382,24 @@ async function emergencyStopViaEnter() {
   assert.match(elements.wirelessState.textContent, /disarmed/);
 
   // Robot confirms via $WIRELESS (even if the $EVENT was coalesced away).
+  // The menus picked before Enable go out right after the confirmation:
+  // the mode, then the auto path.
   clock.t = 10000;
   writes.length = 0;
+  elements.startMode.value = '1';                  // semi auto
+  elements.autoPathSelect.value = '3';             // right 1
   await elements.enableControl.handlers.click();
   line('$GROUND_EVENT,ENABLE_REQUESTED');
   assert.equal(armed(), false);
+  assert.deepEqual([...writes], ['E']);            // nothing before the robot confirms
   line('$WIRELESS,1,1,2,1,0,1,1,60');
   assert.equal(armed(), true);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual([...writes], ['E', 'MODE,1', 'AUTO,3']);
   assert.match(elements.controlOwner.textContent, /wireless/);
+  // The robot reports the mode: the menu follows it while enabled.
+  line('$WIRELESS,1,1,2,1,0,1,1,60,1');
+  assert.equal(elements.startMode.value, '1');
 
   // No target/auto telemetry through the ground station: the page shows
   // what it sent, once the robot's event comes back over the uplink.
@@ -393,15 +411,20 @@ async function emergencyStopViaEnter() {
   assert.match(elements.targetHole.textContent, /none/);     // not confirmed yet
   event('TARGET_SELECTED');
   assert.equal(elements.targetHole.textContent, '7 · 右下');
-  await windowHandlers.keydown(key('e'));
-  assert.equal(last(), 'AUTO,3');
-  event('AUTO_PATH_STARTED');
-  assert.match(elements.autoPath.textContent, /^已啟動 右1 \(E\)/);
-  assert.match(elements.autoPathsUsed.textContent, /本頁送出紀錄：右1 \(E\)/);
-  await windowHandlers.keydown(key('q'));
-  event('AUTO_PATH_REJECTED');                                // once per Enable
-  assert.match(elements.autoPath.textContent, /右1/);
-  assert.doesNotMatch(elements.autoPathsUsed.textContent, /左1/);
+  event('AUTO_PATH_STARTED');                                 // the menu's path, sent at Enable
+  assert.match(elements.autoPath.textContent, /^已啟動 右一/);
+  assert.match(elements.autoPathsUsed.textContent, /本頁送出紀錄：右一/);
+  // Changing the mode menu while enabled switches right away.
+  writes.length = 0;
+  elements.startMode.value = '0';
+  await elements.startMode.handlers.change();
+  assert.deepEqual([...writes], ['MODE,0']);
+  // Changing the path menu while enabled sends nothing (next Enable).
+  elements.autoPathSelect.value = '1';
+  elements.autoPathSelect.handlers.change();
+  assert.equal(writes.length, 1);
+  elements.startMode.value = '2';
+  elements.autoPathSelect.value = '0';
 
   // Stale status: warn only, keep driving (the robot's own RC-loss
   // failsafe is what stops it).
@@ -425,9 +448,11 @@ async function emergencyStopViaEnter() {
     line(`$GROUND_EVENT,${name}`);
     assert.equal(armed(), false, name);
   }
-  // A new Enable allows one more auto path; the record stays.
+  // A new Enable allows one more auto path and starts on the AI's own
+  // target pick; the record stays.
   assert.match(elements.autoPath.textContent, /not started/);
-  assert.match(elements.autoPathsUsed.textContent, /右1/);
+  assert.match(elements.autoPathsUsed.textContent, /右一/);
+  assert.match(elements.targetHole.textContent, /none/);
 
   // Ground link: a rejected or unconfirmed enable sends X so the ground
   // drops the arm channel it is still holding.
@@ -520,12 +545,12 @@ async function emergencyStopViaEnter() {
     'NaN', 'NaN', 'NaN', 0, 1500, 1500, 0, 0, 0, 0, 0, 1500, 0.0, 2310, 243.5, 0.0, 270.0, hole, path, mask].join(',');
   line(telTarget(5, 1, (1 << 1) | (1 << 4)));
   assert.equal(elements.targetHole.textContent, '5 · 中');
-  assert.match(elements.autoPath.textContent, /^已啟動 左1 \(Q\)/);
-  assert.equal(elements.autoPathsUsed.textContent, '開機後已用：左1 (Q)、右2 (R)');
+  assert.match(elements.autoPath.textContent, /^已啟動 左一/);
+  assert.equal(elements.autoPathsUsed.textContent, '開機後已用：左一、右二');
   line(telTarget(0, 0, 1 << 4));
   assert.match(elements.targetHole.textContent, /none/);
   assert.match(elements.autoPath.textContent, /not started/);
-  assert.equal(elements.autoPathsUsed.textContent, '開機後已用：右2 (R)');
+  assert.equal(elements.autoPathsUsed.textContent, '開機後已用：右二');
   // Slots 35-37: vision id sent to the Orin + fine-adjust; slots 5/6 say
   // whether that hole is in view.
   const telAim = (frameId, valid, visionId, aim, elev) => ['TEL', 1, 0, 0, 3500, frameId, valid, 1500, 1500, 1500, 1500, 1500, 0, 2, 1,
@@ -589,11 +614,10 @@ async function emergencyStopViaEnter() {
   await poll();
   assert.equal(last(), 'T,0,0');
 
-  // The stick is the only drive: W is the auto-path-2 key, not forward.
+  // The stick is the only drive: W does nothing.
   await windowHandlers.keydown(key('w'));
-  assert.equal(last(), 'AUTO,2');
   await windowHandlers.keyup(key('w'));
-  assert.equal(last(), 'AUTO,2');
+  assert.equal(last(), 'T,0,0');
 
   // Fire (Xbox Y = button 3): one F per press, none while held.
   writes.length = 0;

@@ -889,6 +889,36 @@ void testFineAdjustWireless() {
     assert(nearly(ManualControl::getAimOffsetPx(), 0.0) && ManualControl::getTarget() == 2);
 }
 
+// Dashboard menus (2026-10-16): MODE,<n> sets the mode directly, and every
+// Enable starts on the Orin's own pick (target 0).
+void testModeCommandAndTargetReset() {
+    reset();
+    send("MODE,1"); step();
+    assert(saw("REJECTED_DISARMED"));
+    armWired();
+    assert(ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
+    send("MODE,0"); step();
+    assert(saw("MODE_FULL_AUTO") && ManualControl::getOperatorMode() == OperatorMode::FULL_AUTO);
+    send("MODE,1"); step();
+    assert(saw("MODE_SEMI_AUTO") && ManualControl::getOperatorMode() == OperatorMode::SEMI_AUTO);
+    Serial.output.clear();
+    for (const char* bad : {"MODE,3", "MODE,-1", "MODE,", "MODE,2x"}) { send(bad); step(); }
+    assert(saw("BAD_COMMAND") && ManualControl::getOperatorMode() == OperatorMode::SEMI_AUTO);
+    send("M"); step();                                    // M still cycles from there
+    assert(ManualControl::getOperatorMode() == OperatorMode::FULL_AUTO);
+    send("MODE,2"); step();
+    assert(ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
+
+    // Target: kept while enabled, back to 0 (the AI's pick) at every Enable.
+    send("TGT,5"); step();
+    assert(ManualControl::getTarget() == 5);
+    send("X"); step();
+    armWired();
+    assert(ManualControl::getTarget() == RCMAP_TARGET_NONE);
+    send("TGT,0"); step();                                // key 0: back to the AI's pick
+    assert(ManualControl::getTarget() == RCMAP_TARGET_NONE);
+}
+
 #else
 
 void testEnableRefusedUntilPinTableConfirmed() {
@@ -921,6 +951,8 @@ int main() {
     assert(saw("TARGET_SELECTED") && ManualControl::getTarget() == 3);
     send("AUTO,1"); step();
     assert(saw("AUTO_PATH_REJECTED") && ManualControl::getAutoPathsUsedMask() == 0);
+    send("MODE,0"); step();                              // no auto modes on the benches
+    assert(saw("MODE_FULL_MANUAL") && ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
     send("T,1,-1"); send("ROT,1"); send("ANG,-1"); send("FLY,0.6"); step();
     assert(nearly(rec.chassisLeft, 1.0) && nearly(rec.chassisRight, -1.0));
     assert(nearly(rec.rotateCommand, 1.0) && nearly(rec.angleCommand, -1.0));
@@ -961,6 +993,7 @@ int main() {
     testShotTableByHeight();
     testFineAdjustWired();
     testFineAdjustWireless();
+    testModeCommandAndTargetReset();
     printf("manual_control_test (pin table confirmed): all asserts passed\n");
 #else
     testEnableRefusedUntilPinTableConfirmed();

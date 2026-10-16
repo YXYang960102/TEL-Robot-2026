@@ -90,6 +90,25 @@
 
     input:focus { border-color: var(--cyan); }
 
+    select {
+      min-height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #11161b;
+      color: var(--text);
+      padding: 0 8px;
+      font: inherit;
+    }
+
+    .menu-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 16px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
     main {
       display: grid;
       grid-template-columns: 1.25fr 0.75fr;
@@ -629,7 +648,26 @@
         </div>
         <div class="stream-controls">
           <button id="enableControl" disabled>Enable / 啟用輸出</button>
-          <span class="label">手把：搖桿 前後/轉向、Y（飛行搖桿上方鈕）發射・1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・Q/W/E/R 自動路徑 左1/左2/右1/右2（每次啟用一次）・M 模式（全手動→半自動→全自動）・←→ 水平・↑↓ 仰角（按住移動）・Enter 停用・Space 停用並斷線</span>
+          <span class="label">手把：搖桿 前後/轉向、Y（飛行搖桿上方鈕）發射・1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・0 回到 AI 自選・M 模式（全手動→半自動→全自動）・←→ 水平・↑↓ 仰角（按住移動）・Enter 停用・Space 停用並斷線</span>
+        </div>
+        <div class="menu-row">
+          <label class="label">模式 / mode
+            <select id="startMode" aria-label="Operator mode">
+              <option value="2" selected>全手動 FULL MANUAL</option>
+              <option value="1">半自動 SEMI AUTO</option>
+              <option value="0">全自動 FULL AUTO</option>
+            </select>
+          </label>
+          <label class="label">自動路徑 / auto path
+            <select id="autoPathSelect" aria-label="Auto path">
+              <option value="0" selected>None 不跑</option>
+              <option value="1">左一 left 1</option>
+              <option value="2">左二 left 2</option>
+              <option value="3">右一 right 1</option>
+              <option value="4">右二 right 2</option>
+            </select>
+          </label>
+          <span class="label">Enable 時套用：先切到這個模式，再跑一次這條路徑。啟用中改模式（或按 M）會立刻切換。</span>
         </div>
         <div class="grid">
           <div class="metric"><div class="label">left / right pulse / 左右輪脈衝</div><div class="value" id="chassisPulses">--</div></div>
@@ -638,7 +676,7 @@
           <div class="metric"><div class="label">target hole / 目標洞（1–9）</div><div class="value" id="targetHole">none / 未選</div>
             <div class="hole-grid" aria-label="target holes"><span id="hole3">3</span><span id="hole6">6</span><span id="hole9">9</span><span id="hole2">2</span><span id="hole5">5</span><span id="hole8">8</span><span id="hole1">1</span><span id="hole4">4</span><span id="hole7">7</span></div>
             <div class="subvalue" id="aimState">--</div></div>
-          <div class="metric"><div class="label">auto path / 本次啟用的自動路徑（Q W E R）</div><div class="value" id="autoPath">未啟動 / not started</div><div class="subvalue" id="autoPathsUsed">--</div></div>
+          <div class="metric"><div class="label">auto path / 本次啟用的自動路徑</div><div class="value" id="autoPath">未啟動 / not started</div><div class="subvalue" id="autoPathsUsed">--</div></div>
           <div class="metric"><div class="label">gamepad / 手把</div><div class="value" id="gamepadState">none / 未連接</div><div class="subvalue" id="gamepadInputs">按手把任一鍵讓瀏覽器偵測</div></div>
           <div class="metric"><div class="label">wireless link / 無線狀態</div><div class="value" id="wirelessState">--</div><div class="subvalue" id="rfLinkState">ground station only / 僅接地面站時</div></div>
           <div class="metric"><div class="label">rotate / angle mode / 旋轉・俯仰模式</div><div class="value" id="shooterAxisMode">--</div></div>
@@ -757,6 +795,11 @@
     const connectButton = document.getElementById("connect");
     const demoButton = document.getElementById("demo");
     const enableButton = document.getElementById("enableControl");
+    // Dashboard menus (Jeremy, 2026-10-16): the mode and auto path picked
+    // before Enable are applied right after the robot confirms it (the
+    // robot itself always enables in full manual).
+    const startModeSelect = document.getElementById("startMode");
+    const autoPathSelect = document.getElementById("autoPathSelect");
     const controlArmedBadge = document.getElementById("controlArmedBadge");
     const flywheelSlider = document.getElementById("flywheelSlider");
     const flywheelSliderValue = document.getElementById("flywheelSliderValue");
@@ -846,7 +889,7 @@
     // station there is no such telemetry, so the page shows what it sent,
     // once the robot's TARGET_SELECTED / AUTO_PATH_STARTED event comes back.
     const HOLE_NAMES = ["", "左下", "左中", "左上", "中下", "中", "中上", "右下", "右中", "右上"];
-    const AUTO_PATH_NAMES = ["", "左1 (Q)", "左2 (W)", "右1 (E)", "右2 (R)"];
+    const AUTO_PATH_NAMES = ["", "左一", "左二", "右一", "右二"];
     let targetHole = 0;
     let autoPathThisEnable = 0;
     let autoPathsUsedMask = 0;
@@ -872,6 +915,8 @@
     }
 
     function setControlArmed(armed) {
+      // An Enable this page asked for, confirmed just now.
+      const justEnabled = armed && !controlArmed && enablePending;
       controlArmed = armed;
       if (armed) {
         enablePending = false;
@@ -888,6 +933,26 @@
         setFlywheelSlider(0);
       }
       updateControlUi();
+      if (justEnabled) applyStartMenus();
+    }
+
+    // Right after a confirmed Enable: the mode menu's mode (if not full
+    // manual), then the path menu's auto path (if not None; the robot runs
+    // one per Enable). Every Enable starts on the AI's own target pick.
+    async function applyStartMenus() {
+      sentTarget = 0;
+      if (!robotReportsTarget) {
+        targetHole = 0;
+        autoPathThisEnable = 0;
+        renderTargetAndAuto();
+      }
+      const mode = Number(startModeSelect.value);
+      if (mode in MODE_NAMES && mode !== MODE_FULL_MANUAL) await sendControl(`MODE,${mode}`);
+      const path = Number(autoPathSelect.value);
+      if (path >= 1 && path <= 4) {
+        sentAutoPath = path;
+        await sendControl(`AUTO,${path}`);
+      }
     }
 
     // 0 full auto / 1 semi auto / 2 full manual (src/IO/OperatorMode.h).
@@ -896,6 +961,9 @@
     function setOperatorMode(mode) {
       if (!(mode in MODE_NAMES) || mode === operatorMode) return;
       operatorMode = mode;
+      // While enabled the menu shows the robot's mode (M, or the menu
+      // itself); after a disarm it keeps it as the next Enable's mode.
+      if (controlArmed) startModeSelect.value = String(mode);
       // The firmware zeroes the flywheel on every mode change.
       setFlywheelSlider(0);
       updateControlUi();
@@ -943,11 +1011,6 @@
     // (1 left-bottom, 2 left-mid, 3 left-top, ... 9 right-top).
     function targetForKey(key) {
       return /^[1-9]$/.test(key) ? Number(key) : 0;
-    }
-
-    // Q W E R -> auto paths 1-4 (left 1, left 2, right 1, right 2).
-    function autoPathForKey(key) {
-      return key.length === 1 ? "qwer".indexOf(key) + 1 : 0;
     }
 
     // Slots 35-37 plus the frame (slots 5/6): is the camera locked on the
@@ -1575,7 +1638,6 @@
         if (eventName in MODE_EVENTS && controlArmed) setOperatorMode(MODE_EVENTS[eventName]);
         if (ENABLE_REJECT_EVENTS.includes(eventName) && enablePending) failEnable(eventName);
         if (!robotReportsTarget) {
-          if (eventName === "OUTPUTS_ENABLED" && controlArmed) autoPathThisEnable = 0;
           if (eventName === "TARGET_SELECTED") targetHole = sentTarget;
           if (eventName === "AUTO_PATH_STARTED" && sentAutoPath) {
             autoPathThisEnable = sentAutoPath;
@@ -1751,10 +1813,10 @@
       lastRateAt = now;
     }, 1000);
 
-    // --- Keyboard control (1-9 / Q W E R / M / arrows / Enter / Space) ---
+    // --- Keyboard control (0-9 / M / arrows / Enter / Space) ---
     // src/IO/ManualControl.cpp protocol, wired or through the ground station.
     // The chassis and fire are on the gamepad only (control table v2,
-    // Jeremy 2026-10-16): W/E/R/Q are the auto-path keys now.
+    // Jeremy 2026-10-16); the mode and auto path also have menus above.
 
     function rotateCommand() {
       return (heldKeys.has("arrowright") ? 1 : 0) - (heldKeys.has("arrowleft") ? 1 : 0);
@@ -1927,6 +1989,16 @@
       await sendControl("E");
     });
 
+    startModeSelect.addEventListener("change", async () => {
+      // Drop focus so the arrows / Enter / Space go back to the robot.
+      startModeSelect.blur();
+      if (controlArmed) await sendControl(`MODE,${Number(startModeSelect.value)}`);
+    });
+
+    autoPathSelect.addEventListener("change", () => {
+      autoPathSelect.blur(); // takes effect at the next Enable
+    });
+
     angleSlider.addEventListener("input", async () => {
       if (!controlArmed) return;
       await sendControl(`ANGT,${Number(angleSlider.value)}`);
@@ -1992,15 +2064,11 @@
       }
       if (event.repeat) return;
       const hole = targetForKey(key);
-      const path = autoPathForKey(key);
-      if (hole) {
+      if (hole || key === "0") {
+        // 1-9: that hole; 0: back to the AI's own pick.
         event.preventDefault();
         sentTarget = hole;
         await sendControl(`TGT,${hole}`);
-      } else if (path) {
-        event.preventDefault();
-        sentAutoPath = path;
-        await sendControl(`AUTO,${path}`);
       } else if (key === "m") {
         event.preventDefault();
         await sendControl("M");

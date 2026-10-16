@@ -7,7 +7,7 @@
 
 // Ground-station side of wireless control: turns the PC Dashboard's line
 // protocol (the same one the Mega speaks over USB: E, X, K, T,<l>,<r>,
-// ROT,<d>, ANG,<d>, TGT,<0..9>, AUTO,<1..4>, F, M; FLY and ANGT are
+// ROT,<d>, ANG,<d>, TGT,<0..9>, AUTO,<1..4>, MODE,<0..2>, F, M; FLY and ANGT are
 // accepted but have no radio channel) into the RC channel state
 // (rcmap_command, table v2) that goes out over ELRS, and turns the robot's
 // status coming back (rcmap_status in Battery frames) into lines for the PC.
@@ -15,7 +15,8 @@
 //   T,<l>,<r>   -> forward = (l + r) / 2, turn = (r - l) / 2 (CH1/CH2)
 //   ROT / ANG   -> nudge (CH7), held while non-zero; elevation wins if both
 //   F           -> fire (CH5) high for FIRE_PULSE_MS
-//   TGT,<n>     -> target hole (CH3), kept until changed
+//   TGT,<n>     -> target hole (CH3), kept until changed or the next E
+//   MODE,<n>    -> operator mode (CH4) straight to that level
 //   AUTO,<n>    -> auto path (CH8) for AUTO_PULSE_MS, then none
 //
 // No Arduino here, so it runs unchanged in the host test.
@@ -41,6 +42,7 @@ public:
 
 private:
     void processLine(uint32_t nowMs, GroundEmitFn emit, void* ctx);
+    static void emitModeEvent(uint8_t mode, GroundEmitFn emit, void* ctx);
     void release();
 
     void updateNudge();
