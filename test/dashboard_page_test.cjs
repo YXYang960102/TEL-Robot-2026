@@ -557,11 +557,17 @@ async function emergencyStopViaEnter() {
   const telAim = (frameId, valid, visionId, aim, elev) => ['TEL', 1, 0, 0, 3500, frameId, valid, 1500, 1500, 1500, 1500, 1500, 0, 2, 1,
     'NaN', 'NaN', 'NaN', 0, 1500, 1500, 0, 0, 0, 0, 0, 1500, 0.0, 2310, 243.5, 0.0, 270.0, 1, 0, 0, visionId, aim, elev].join(',');
   line(telAim(10, 1, 10, 5, 0));
-  assert.equal(elements.aimState.textContent, '視覺 #10 已看到 ✓ · 微調 水平 +5 px · 仰角 0 µs');
+  assert.equal(elements.aimState.textContent, '視覺 #10 已看到 ✓ 3.50 m · 微調 水平 +5 px · 仰角 0 µs');
+  // The vision panel: meters, plus the raw mm.
+  assert.equal(elements.distance.textContent, '3.50 m');
+  assert.match(elements.distanceRaw.textContent, /^3500 mm/);
   line(telAim(0, 0, 10, -15, 20));
   assert.equal(elements.aimState.textContent, '視覺 #10 看不到 · 微調 水平 -15 px · 仰角 +20 µs');
+  // No valid target: "--", never "0 m".
+  assert.equal(elements.distance.textContent, '--');
+  assert.match(elements.distanceRaw.textContent, /看不到目標/);
   line(telAim(11, 1, 0, 0, 0));
-  assert.match(elements.aimState.textContent, /^AI 自選/);
+  assert.equal(elements.aimState.textContent, 'AI 自選 #11 3.50 m · 微調 水平 0 px · 仰角 0 µs');
   // Older firmware (no slots 35-37) leaves it alone.
   line(telTarget(0, 0, 1 << 4));
   assert.match(elements.aimState.textContent, /^AI 自選/);

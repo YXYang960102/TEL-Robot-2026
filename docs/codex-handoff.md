@@ -4013,3 +4013,33 @@ ground station should all be updated together.
   - demo mode updates the readouts with no console errors;
   - editing the layout with an old saved layout containing stream / trace
     prunes them correctly.
+
+## 2026-10-16 — Claude Code: Dashboard shows the vision distance in meters
+
+**User Request:** show the distance that vision measures on the Dashboard.
+
+**Changed (`tools/dashboard/index.html`):**
+- The Vision panel's distance card already existed. Before this change it
+  showed raw mm with the note "目前單位依 YOLO 輸出", and it showed 0 when
+  there was no target.
+- It now reads "相機距離" and shows **meters with 2 decimals**, which is
+  the shot table's unit. The line below it gives the original mm and the
+  note "相機到洞口的直線距離，填射擊表用這個".
+- With no valid target, or a distance of 0, it shows "--" / "看不到目標",
+  never "0 m".
+- The control panel's target-hole card also shows the distance:
+  - "視覺 #10 已看到 ✓ 3.50 m"
+  - "AI 自選 #11 3.50 m"
+- New helper `distanceMeters(data)`: valid && distance > 0 ? mm / 1000 :
+  null.
+
+**Limit:** this distance comes from TEL telemetry, so it is only available
+when the Dashboard is connected to the **Mega's USB**. The ground station's
+wireless status uplink has no distance field, so a wireless connection
+shows nothing here. Shot-table calibration therefore has to be done over
+USB.
+
+**Evidence:**
+- The Dashboard page and control tests pass, with new assertions for 3.50 m
+  / 3500 mm, the no-target case, and the AI-pick distance.
+- In a real browser, demo mode shows "1.62 m · 1616 mm".
