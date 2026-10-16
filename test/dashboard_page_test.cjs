@@ -526,6 +526,20 @@ async function emergencyStopViaEnter() {
   assert.match(elements.targetHole.textContent, /none/);
   assert.match(elements.autoPath.textContent, /not started/);
   assert.equal(elements.autoPathsUsed.textContent, '開機後已用：右2 (R)');
+  // Slots 35-37: vision id sent to the Orin + fine-adjust; slots 5/6 say
+  // whether that hole is in view.
+  const telAim = (frameId, valid, visionId, aim, elev) => ['TEL', 1, 0, 0, 3500, frameId, valid, 1500, 1500, 1500, 1500, 1500, 0, 2, 1,
+    'NaN', 'NaN', 'NaN', 0, 1500, 1500, 0, 0, 0, 0, 0, 1500, 0.0, 2310, 243.5, 0.0, 270.0, 1, 0, 0, visionId, aim, elev].join(',');
+  line(telAim(10, 1, 10, 5, 0));
+  assert.equal(elements.aimState.textContent, '視覺 #10 已看到 ✓ · 微調 水平 +5 px · 仰角 0 µs');
+  line(telAim(0, 0, 10, -15, 20));
+  assert.equal(elements.aimState.textContent, '視覺 #10 看不到 · 微調 水平 -15 px · 仰角 +20 µs');
+  line(telAim(11, 1, 0, 0, 0));
+  assert.match(elements.aimState.textContent, /^AI 自選/);
+  // Older firmware (no slots 35-37) leaves it alone.
+  line(telTarget(0, 0, 1 << 4));
+  assert.match(elements.aimState.textContent, /^AI 自選/);
+
   // With the robot reporting, events no longer overwrite it from the page.
   event('TARGET_SELECTED');
   assert.match(elements.targetHole.textContent, /none/);

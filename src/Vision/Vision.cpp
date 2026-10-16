@@ -1,5 +1,6 @@
 #include "Vision.h"
 #include "../Constants/VisionConstants.h"
+#include "OperatorTarget.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -16,6 +17,8 @@ unsigned long Vision::lastPacketMs = 0;
 bool Vision::hasPacket = false;
 bool Vision::sentReady = false;
 unsigned long Vision::lastHeartbeatMs = 0;
+uint8_t Vision::selectedTargetId = OperatorTarget::NONE;
+bool Vision::selectionDirty = false;
 Vision::OrinState Vision::orinState = Vision::OrinState::UNKNOWN;
 unsigned long Vision::lastOrinStateMs = 0;
 
@@ -26,6 +29,9 @@ void Vision::init() {
 
 void Vision::update() {
     sendHeartbeat();
+    if (selectionDirty && sentReady) {
+        sendSelection(); // a new choice goes out now, not at the next heartbeat
+    }
 
     while (Serial1.available()) {
         char c = Serial1.read();
@@ -66,6 +72,7 @@ void Vision::sendHeartbeat() {
         Serial1.print('\n');
         sentReady = true;
         lastHeartbeatMs = now;
+        sendSelection();
         return;
     }
 
@@ -77,6 +84,34 @@ void Vision::sendHeartbeat() {
     Serial1.print("MEGA_HEARTBEAT,");
     Serial1.print(Transport::PROTOCOL_VERSION);
     Serial1.print('\n');
+    // Resent with every heartbeat (100 ms): the Orin keeps its last valid
+    // choice, so a restarted Orin has the current one again within 100 ms.
+    sendSelection();
+}
+
+void Vision::sendSelection() {
+    Serial1.print("MEGA_TARGET,");
+    Serial1.print(Transport::PROTOCOL_VERSION);
+    Serial1.print(',');
+    Serial1.print(selectedTargetId);
+    Serial1.print('\n');
+    selectionDirty = false;
+}
+
+void Vision::setSelectedTarget(uint8_t visionId) {
+    if (visionId == selectedTargetId) {
+        return;
+    }
+    selectedTargetId = visionId;
+    selectionDirty = true;
+    // The frame in hand is for the old choice (or the Orin's own pick):
+    // never aim at it after a switch. The Orin's next frame for the new
+    // hole arrives within a camera cycle or two.
+    invalidateTarget();
+}
+
+uint8_t Vision::getSelectedTarget() {
+    return selectedTargetId;
 }
 
 namespace {
@@ -201,7 +236,9 @@ void Vision::storeTarget(
     bool nextValid) {
     lastPacketMs = millis();
     hasPacket = true;
-    valid = nextValid;
+    // A frame for a hole other than the selected one is "no target" (the
+    // link itself is still alive: isConnected() stays true).
+    valid = nextValid && OperatorTarget::frameMatchesSelection(selectedTargetId, nextTargetId);
 
     if (valid) {
         tx = constrain(

@@ -28,10 +28,16 @@
 // released again, so recovering the link never re-enables or fires on its
 // own.
 //
-// Target hole (TGT / CH3) is recorded and reported; the auto path
+// Target hole (TGT / CH3): main.cpp passes it to Vision (the Orin locks on
+// that hole) and Auto uses that hole's shot table. The auto path
 // (AUTO / CH8) can start once per Enable, and every path started since
-// boot is remembered for the Dashboard. What they then do (AI lock on the
-// hole, per-hole elevation/flywheel, the paths themselves) is phase 2.
+// boot is remembered for the Dashboard; the paths themselves are not built
+// yet.
+//
+// Fine-adjust in the auto modes: each arrow press (ROT/ANG going from 0 to
+// +-1; wireless: CH7 leaving center) adds a step to the aim offset
+// (left/right) or, once the shot table's elevation is measured, the
+// elevation offset (up/down). A new hole, Enable and disarm clear both.
 //
 // Operator mode (OperatorMode.h): M cycles FULL_MANUAL -> SEMI_AUTO ->
 // FULL_AUTO while armed (wireless: CH4 level). It is FULL_MANUAL whenever
@@ -63,6 +69,10 @@ public:
     static uint8_t getTarget();               // 0 = none, 1..9
     static uint8_t getAutoPathThisEnable();   // 0 = none, 1..4
     static uint8_t getAutoPathsUsedMask();    // bit n = path n started since boot
+    // Fine-adjust (TuningConstants::Auto): + = aim right / elevation up.
+    static double getAimOffsetPx();
+    static double getElevationOffsetUs();
+    static constexpr int NUDGE_NEEDS_RELEASE = 2; // see nudgePressed()
 
 private:
     // Wired line protocol
@@ -82,6 +92,8 @@ private:
     static void clearCommands();
     static void triggerFeed();
     static void selectTarget(uint8_t hole);
+    static void updateFineAdjust();
+    static void clearFineAdjust();
     static void requestAutoPath(uint8_t path);
     static void cycleOperatorMode();
     static void setOperatorMode(OperatorMode mode);
@@ -118,6 +130,10 @@ private:
     static uint8_t target;
     static uint8_t autoPathThisEnable;
     static uint8_t autoPathsUsedMask;
+    static double aimOffsetPx;
+    static double elevationOffsetUs;
+    static int rotateNudgePrev; // sign of the last ROT/nudge, for press edges
+    static int angleNudgePrev;
 
     static unsigned long eventSeq;
     static uint16_t lastEventCode;

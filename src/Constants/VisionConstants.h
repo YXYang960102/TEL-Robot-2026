@@ -9,7 +9,11 @@ constexpr unsigned long SERIAL_BAUD = 115200;
 constexpr unsigned long PACKET_TIMEOUT_MS = 300;
 constexpr size_t PACKET_MAX_CHARS = 80;
 constexpr unsigned long HEARTBEAT_INTERVAL_MS = 100;
-constexpr int PROTOCOL_VERSION = 1;
+// v2 (2026-10-16): adds MEGA_TARGET,2,<vision id> (the operator's chosen
+// hole), sent on change and with every heartbeat. Must match the Orin's
+// YOLO_Detect_single vision_main.main(); a v1 peer is refused both ways,
+// so the Mega and the Orin are deployed together.
+constexpr int PROTOCOL_VERSION = 2;
 }
 
 namespace Validation {

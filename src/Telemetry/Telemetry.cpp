@@ -114,5 +114,15 @@ void Telemetry::update() {
     Serial.print(",");
     Serial.print(ManualControl::getAutoPathThisEnable());
     Serial.print(",");
-    Serial.println(ManualControl::getAutoPathsUsedMask());
+    Serial.print(ManualControl::getAutoPathsUsedMask());
+    Serial.print(",");
+    // Slots 35-37 (appended 2026-10-16, Orin protocol v2): the hole as sent
+    // to the Orin (vision id 0 / 4..12), and the operator's fine-adjust
+    // (aim px, + = right; elevation us). Slots 5/6 (target id / valid)
+    // already only show the selected hole's frame.
+    Serial.print(Vision::getSelectedTarget());
+    Serial.print(",");
+    Serial.print(ManualControl::getAimOffsetPx(), 0);
+    Serial.print(",");
+    Serial.println(ManualControl::getElevationOffsetUs(), 0);
 }

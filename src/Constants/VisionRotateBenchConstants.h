@@ -27,7 +27,10 @@ constexpr unsigned long BAUD = 115200; // USB Serial, for the browser page
 // rotate the servo away from center instead of toward it.
 constexpr bool INVERTED = true;
 
-constexpr int PROTOCOL_VERSION = 1; // must match Orin CONTROLLER_PROTOCOL_VERSION
+// Must match the Orin's protocol (YOLO_Detect_single vision_main.main()
+// uses 2 since 2026-10-16). This bench sends no MEGA_TARGET, so the Orin
+// keeps its own automatic target choice (selection 0).
+constexpr int PROTOCOL_VERSION = 2;
 constexpr unsigned long VISION_BAUD = 115200; // Serial1, must match Orin SERIAL_BAUD
 
 // Deadband/slow-zone/creep/jog-speed bang-bang-with-ramp control retired

@@ -45,29 +45,38 @@ void Auto::update() {
     }
 
     Shooter::setRotateVisionFollow();
+    Shooter::setRotateAimOffsetPx(ManualControl::getAimOffsetPx());
 
-    // Flywheel from the shot table when the camera has a target (distance
-    // in mm -> m); otherwise the fixed SHOOT_COMMAND so it is already
-    // spinning when a target appears.
+    // A target Auto may shoot at: a valid frame (with a hole selected, only
+    // that hole's -- Vision drops every other id) that also has a depth
+    // distance. valid=1 with distance 0 (the Orin's webcam bench mode) has
+    // nothing to look up, so it can aim but never fire.
+    const bool hasTarget = Vision::isValid() && Vision::getDistance() > 0.0;
+
+    // Flywheel from the selected hole's shot table when there is a target
+    // (distance in mm -> m); otherwise the fixed SHOOT_COMMAND so it is
+    // already spinning when a target appears.
     double flywheelCommand = TuningConstants::Flywheel::SHOOT_COMMAND;
-    if (Vision::isValid()) {
+    if (hasTarget) {
+        const TuningConstants::ShotTable::Table& table =
+            TuningConstants::ShotTable::tableForHole(ManualControl::getTarget());
         const ShotTableLookup::Result shot = ShotTableLookup::lookup(
-            Vision::getDistance() / 1000.0,
-            TuningConstants::ShotTable::TABLE,
-            TuningConstants::ShotTable::TABLE_COUNT);
+            Vision::getDistance() / 1000.0, table.entries, table.count);
         flywheelCommand = shot.flywheelCommand;
-        // Elevation from the table too (a measured servo pulse), once the
-        // table holds real measured pulses (ShotTable::ELEVATION_MEASURED);
-        // until then the operator keeps the elevation. No target: hold.
+        // Elevation from the table too (a measured servo pulse) plus the
+        // operator's fine-adjust, once the table holds real measured pulses
+        // (ShotTable::ELEVATION_MEASURED); until then the operator keeps
+        // the elevation. No target: hold.
         if (TuningConstants::ShotTable::ELEVATION_MEASURED) {
-            Shooter::setAnglePulseUs(shot.elevationPulseUs);
+            Shooter::setAnglePulseUs(shot.elevationPulseUs + ManualControl::getElevationOffsetUs());
         }
     }
     Shooter::setFlywheelOpenLoop(flywheelCommand);
 
-    // Turret locked on the target (|tx| <= 5 px for 100 ms) and flywheel
-    // commanded at shoot speed long enough to be spun up.
-    const bool ready = Shooter::isReady();
+    // Turret locked on the target (|tx + aim offset| <= 5 px for 100 ms),
+    // flywheel commanded at shoot speed long enough to be spun up, and a
+    // target with a distance.
+    const bool ready = Shooter::isReady() && hasTarget;
     bool fired = false;
 
     if (fireState == FireState::IDLE) {

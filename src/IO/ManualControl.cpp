@@ -38,6 +38,10 @@ bool ManualControl::fireRequested = false;
 uint8_t ManualControl::target = RCMAP_TARGET_NONE;
 uint8_t ManualControl::autoPathThisEnable = RCMAP_AUTO_NONE;
 uint8_t ManualControl::autoPathsUsedMask = 0;
+double ManualControl::aimOffsetPx = 0.0;
+double ManualControl::elevationOffsetUs = 0.0;
+int ManualControl::rotateNudgePrev = 0;
+int ManualControl::angleNudgePrev = 0;
 
 unsigned long ManualControl::eventSeq = 0;
 uint16_t ManualControl::lastEventCode = RCMAP_EVENT_NONE;
@@ -70,6 +74,7 @@ void ManualControl::update() {
     processWirelessFrame();
 
     if (owner != Owner::NONE) {
+        updateFineAdjust();
         applyOutputs();
     }
     sendStatusIfDue();
@@ -442,6 +447,61 @@ void ManualControl::clearCommands() {
     // Disarm and every Enable start over in full manual, with no stale F.
     operatorMode = OperatorMode::FULL_MANUAL;
     fireRequested = false;
+    clearFineAdjust();
+}
+
+void ManualControl::clearFineAdjust() {
+    aimOffsetPx = 0.0;
+    elevationOffsetUs = 0.0;
+    // An arrow still held from before needs a release before it counts.
+    rotateNudgePrev = NUDGE_NEEDS_RELEASE;
+    angleNudgePrev = NUDGE_NEEDS_RELEASE;
+}
+
+namespace {
+int signOf(double v) { return v > 0.0 ? 1 : (v < 0.0 ? -1 : 0); }
+double clampAbs(double v, double limit) { return v > limit ? limit : (v < -limit ? -limit : v); }
+
+// One arrow press: the direction changes to a non-zero one (from 0, or
+// straight from the other side). Holding repeats the same value -- the
+// Dashboard resends ROT,1 every heartbeat, the radio repeats CH7 every
+// frame -- and adds nothing. After a clear, a held arrow first has to be
+// released.
+bool nudgePressed(int now, int& prev) {
+    const bool pressed = now != 0 && now != prev && prev != ManualControl::NUDGE_NEEDS_RELEASE;
+    if (!(prev == ManualControl::NUDGE_NEEDS_RELEASE && now != 0)) prev = now;
+    return pressed;
+}
+}
+
+void ManualControl::updateFineAdjust() {
+    using namespace TuningConstants::Auto;
+    const int rotateNow = signOf(rotateManualCommand);
+    const int angleNow = signOf(angleManualCommand);
+    const bool rotatePress = nudgePressed(rotateNow, rotateNudgePrev);
+    const bool anglePress = nudgePressed(angleNow, angleNudgePrev);
+    if (operatorMode == OperatorMode::FULL_MANUAL) {
+        return; // manual: the arrows are the hold-to-move jog
+    }
+    if (rotatePress) {
+        aimOffsetPx = clampAbs(aimOffsetPx + rotateNow * AIM_OFFSET_STEP_PX, AIM_OFFSET_MAX_PX);
+    }
+    // Up/down only adjust Auto's elevation once Auto owns it; until the
+    // shot table is measured they stay the manual jog (applyOutputs).
+    if (anglePress && autoOwnsElevation()) {
+        // Same direction as the jog: "up" moves the pulse the way ANG,1 does.
+        const int up = TuningConstants::Angle::INVERTED ? -1 : 1;
+        elevationOffsetUs = clampAbs(elevationOffsetUs + angleNow * up * ELEVATION_OFFSET_STEP_US,
+                                     ELEVATION_OFFSET_MAX_US);
+    }
+}
+
+double ManualControl::getAimOffsetPx() {
+    return aimOffsetPx;
+}
+
+double ManualControl::getElevationOffsetUs() {
+    return elevationOffsetUs;
 }
 
 void ManualControl::triggerFeed() {
@@ -466,10 +526,11 @@ void ManualControl::selectTarget(uint8_t hole) {
     if (hole > RCMAP_TARGET_MAX || hole == target) {
         return;
     }
-    // Phase 1 records the choice and reports it; aiming at the chosen hole
-    // (semi-auto AI lock, per-hole elevation/flywheel, offsets cleared on a
-    // change) comes in phase 2.
+    // main.cpp hands it to Vision (MEGA_TARGET -> the Orin locks on this
+    // hole) and Auto looks it up in that hole's shot table.
     target = hole;
+    // Offsets belong to the hole they were set for.
+    clearFineAdjust();
     sendEvent(RCMAP_EVENT_TARGET_SELECTED);
 }
 

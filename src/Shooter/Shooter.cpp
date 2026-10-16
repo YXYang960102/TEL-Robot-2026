@@ -37,6 +37,7 @@ AngleControlMode Shooter::angleMode = AngleControlMode::DISABLED;
 RotateControlMode Shooter::rotateMode = RotateControlMode::DISABLED;
 bool Shooter::outputsEnabled = false;
 bool Shooter::rotateReady = false;
+double Shooter::rotateAimOffsetPx = 0.0;
 double Shooter::angleManualCommand = 0.0;
 double Shooter::rotateManualCommand = 0.0;
 double Shooter::flywheelOpenLoopCommand = 0.0;
@@ -86,6 +87,7 @@ void Shooter::stopAll() {
     flywheelSpinStartMs = 0;
     flywheelReady = false;
     rotateReady = false;
+    rotateAimOffsetPx = 0.0;
     rotateVisionFollow.reset();
     releaseAngle();
     writeRotateCommand(0.0);
@@ -159,6 +161,10 @@ void Shooter::setRotateVisionFollow() {
     rotateMode = RotateControlMode::VISION_FOLLOW;
 }
 
+void Shooter::setRotateAimOffsetPx(double offsetPx) {
+    rotateAimOffsetPx = offsetPx;
+}
+
 void Shooter::setFlywheelOpenLoop(double command) {
     flywheelOpenLoopCommand = constrain(command, 0.0, 1.0);
 }
@@ -216,8 +222,11 @@ void Shooter::updateRotate() {
     if (rotateMode == RotateControlMode::VISION_FOLLOW) {
         // PIDF on image-space tx, same control law and gains as the A5
         // bench. An invalid/stale target commands 0 and clears the lock.
+        // Aim offset R: the loop drives tx + R to 0, i.e. holds the target
+        // R px left of center, so the turret points R px right of it.
+        // Example: R = +10, target at tx = -10 -> input 0 -> locked.
         const double command = rotateVisionFollow.update(
-            Vision::getTx(),
+            Vision::getTx() + rotateAimOffsetPx,
             Vision::isValid(),
             Vision::getTargetId(),
             millis());

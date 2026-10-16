@@ -636,7 +636,8 @@
           <div class="metric"><div class="label">control owner / 控制權</div><div class="value" id="controlOwner">--</div></div>
           <div class="metric"><div class="label">feed tower / 送球塔</div><div class="value" id="towerState">--</div><div class="subvalue">trigger pulses sent, no ball sensor / 已送觸發次數，無球感測</div></div>
           <div class="metric"><div class="label">target hole / 目標洞（1–9）</div><div class="value" id="targetHole">none / 未選</div>
-            <div class="hole-grid" aria-label="target holes"><span id="hole3">3</span><span id="hole6">6</span><span id="hole9">9</span><span id="hole2">2</span><span id="hole5">5</span><span id="hole8">8</span><span id="hole1">1</span><span id="hole4">4</span><span id="hole7">7</span></div></div>
+            <div class="hole-grid" aria-label="target holes"><span id="hole3">3</span><span id="hole6">6</span><span id="hole9">9</span><span id="hole2">2</span><span id="hole5">5</span><span id="hole8">8</span><span id="hole1">1</span><span id="hole4">4</span><span id="hole7">7</span></div>
+            <div class="subvalue" id="aimState">--</div></div>
           <div class="metric"><div class="label">auto path / 本次啟用的自動路徑（Q W E R）</div><div class="value" id="autoPath">未啟動 / not started</div><div class="subvalue" id="autoPathsUsed">--</div></div>
           <div class="metric"><div class="label">gamepad / 手把</div><div class="value" id="gamepadState">none / 未連接</div><div class="subvalue" id="gamepadInputs">按手把任一鍵讓瀏覽器偵測</div></div>
           <div class="metric"><div class="label">wireless link / 無線狀態</div><div class="value" id="wirelessState">--</div><div class="subvalue" id="rfLinkState">ground station only / 僅接地面站時</div></div>
@@ -751,7 +752,7 @@
   </main>
 
   <script>
-    const ids = ["tx", "ty", "distance", "targetId", "valid", "shooterReady", "operatorMode", "warnBits", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed"];
+    const ids = ["tx", "ty", "distance", "targetId", "valid", "shooterReady", "operatorMode", "warnBits", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed", "aimState"];
     const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     const connectButton = document.getElementById("connect");
     const demoButton = document.getElementById("demo");
@@ -947,6 +948,17 @@
     // Q W E R -> auto paths 1-4 (left 1, left 2, right 1, right 2).
     function autoPathForKey(key) {
       return key.length === 1 ? "qwer".indexOf(key) + 1 : 0;
+    }
+
+    // Slots 35-37 plus the frame (slots 5/6): is the camera locked on the
+    // hole the operator chose? The Mega only passes that hole's frames on,
+    // so valid=1 with the same id means "seen".
+    function aimStateText(data) {
+      const signed = (v) => `${v > 0 ? "+" : ""}${v}`;
+      const offsets = `微調 水平 ${signed(data.aimOffsetPx)} px · 仰角 ${signed(data.elevationOffsetUs)} µs`;
+      if (data.visionTargetId === 0) return `AI 自選 · ${offsets}`;
+      const seen = data.valid && data.targetId === data.visionTargetId;
+      return `視覺 #${data.visionTargetId} ${seen ? "已看到 ✓" : "看不到"} · ${offsets}`;
     }
 
     function renderTargetAndAuto() {
@@ -1323,7 +1335,13 @@
         // auto paths used since boot (bit n = path n).
         targetHole: p.length > 32 ? Number(p[32]) : NaN,
         autoPathThisEnable: p.length > 33 ? Number(p[33]) : NaN,
-        autoPathsUsedMask: p.length > 34 ? Number(p[34]) : NaN
+        autoPathsUsedMask: p.length > 34 ? Number(p[34]) : NaN,
+        // 35-37 (Orin protocol v2): the hole as sent to the Orin (vision id
+        // 0 / 4..12) and the operator's fine-adjust (aim px, + = right;
+        // elevation us).
+        visionTargetId: p.length > 35 ? Number(p[35]) : NaN,
+        aimOffsetPx: p.length > 36 ? Number(p[36]) : NaN,
+        elevationOffsetUs: p.length > 37 ? Number(p[37]) : NaN
       };
     }
 
@@ -1401,6 +1419,10 @@
         autoPathThisEnable = data.autoPathThisEnable;
         autoPathsUsedMask = data.autoPathsUsedMask;
         renderTargetAndAuto();
+      }
+      if (Number.isFinite(data.visionTargetId) && Number.isFinite(data.aimOffsetPx) &&
+          Number.isFinite(data.elevationOffsetUs)) {
+        el.aimState.textContent = aimStateText(data);
       }
       if (Number.isFinite(data.falconPulseUs) && Number.isFinite(data.falconRatioPct)) {
         el.falconPwm.textContent = `${data.falconPulseUs} us (${data.falconRatioPct.toFixed(1)}%)`;

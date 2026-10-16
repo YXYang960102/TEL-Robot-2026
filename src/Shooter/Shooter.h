@@ -49,6 +49,9 @@ public:
     // Turret driven by the camera: VisionFollowController on Vision::getTx()
     // every update().
     static void setRotateVisionFollow();
+    // Operator fine-adjust: vision-follow aims this many px right (+) of
+    // the target's center. 0 = straight at it.
+    static void setRotateAimOffsetPx(double offsetPx);
 
     // Status
     // Turret locked on target: |tx| within VISION_READY_TOLERANCE_PX for
@@ -90,6 +93,7 @@ private:
     static RotateControlMode rotateMode;
     static bool outputsEnabled;
     static bool rotateReady;
+    static double rotateAimOffsetPx;
     static double angleManualCommand;
     static double rotateManualCommand;
     static double flywheelOpenLoopCommand;

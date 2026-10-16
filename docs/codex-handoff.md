@@ -3621,3 +3621,154 @@ compared.
 - The auto paths themselves (need localization).
 - The flight stick's real fire-button index.
 - The turret AS5600.
+
+
+## 2026-10-16 — Codex: approved operator selection, Orin protocol v2
+
+**User Request / Discussion Result:** Jeremy said 「那你可以開始改了」 after
+reviewing Claude's scope lock. Implemented only selected-hole transport/override;
+recognition, tracking/memory, depth algorithms and config values unchanged.
+
+**Changed / Added / Why:** YOLO_Detect_single serial_tx.py stores selected_target_id
+from strict MEGA_TARGET,2,0|4..12 (invalid commands preserve prior choice; not a
+heartbeat). target_manager.select gains optional selected_target_id=0; nonzero
+requires exactly one matching reliable hole, otherwise None, without auto fallback.
+Override leaves automatic state untouched, bypasses auto ranking/red priority/
+shot budget/stable-frame delay. Zero executes original code. vision_main polls
+serial in standalone serial mode too and passes selection to manager. Its main()
+explicitly constructs protocol_version=2; config and constructor legacy default
+remain 1 to preserve existing parameter values. Deploy matching Mega v2.
+Added docs/operator-selection-v2.md and tests/test_operator_selection.py; recovery
+fake link now models enabled and selected_target_id. No new runtime dependencies.
+
+**Flow / Calculation:** Mega converts key→vision only once, e.g. key1→10;
+Orin receives MEGA_TARGET,2,10→matches id10→existing depth resolver→five-field
+packet. tx=cx-width//2, ty=cy-height//2, pixels right/down positive; e.g.
+(250,350),1000x800 gives -250,-50. Distance mm. Missing selected target outputs
+0,0,0,0,0. Depth-only still invalid. Webcam's existing valid=1,distance=0 remains
+bench-only behavior; Mega competition must gate usable distance. Selection held
+until valid replacement/0 (including reconnect); production --wait-for-mega and
+Mega returned-id checks remain required. 100ms selection resend is Mega-owned;
+300ms numeric timeout Mega-owned, existing Orin heartbeat timeout 1s unchanged.
+
+**Evidence:** PYTHONDONTWRITEBYTECODE=1 venv/bin/python -m unittest discover -s tests:
+54 tests PASS, including original 46. git diff --check PASS. New cases cover nine
+choices, fragments, malformed/version mismatch, heartbeats, missing/ambiguous/
+unreliable targets, auto-state preservation, depth-only gate, full synthetic
+positional grid and mocked real session output. No hardware/recording validation,
+no flash, commit, push or deployment. Pre-existing handoff edits and Thumbs.db
+preserved. TEL runtime not modified.
+
+**Limits / Next Test:** IDs derive from geometric layout/anchors, not YOLO class.
+Full-grid synthetic numbering passes; partial cold-start, tilt, occlusion and
+flow drift are not certified. Existing automatic target-loss reset deferral remains.
+Claude may implement Mega phase2 against docs/operator-selection-v2.md: statuses
+v2, MEGA_TARGET vision ids, returned-id/valid/range/timeout gates. With outputs
+disabled, test each physical hole, covering chosen hole, rapid switches and peer
+restarts before enabling mechanisms. Do not claim competition readiness from host
+suite. See YOLO_Detect_single/docs/operator-selection-v2.md for full contract.
+
+## 2026-10-16 — Claude Code: Mega side of Orin protocol v2 (selected hole, per-hole shot tables, fine-adjust)
+
+**User Request:** implement the Mega side against Codex's
+`YOLO_Detect_single/docs/operator-selection-v2.md`. Jeremy decided:
+- **B**: both semi-auto and full auto shoot the selected hole; with no hole
+  selected, the AI picks.
+- Fine-adjust steps for now: 5 px horizontal, 10 µs elevation.
+- The 9 per-hole tables start as copies of the current table.
+
+**Changed:**
+- **Hole numbering.** `src/Vision/OperatorTarget.h` (new) is the only
+  place that converts a key to a vision id:
+  `4 + (2 − rowFromBottom)·3 + col`. For example, key 1 → 10 and key 9 → 6.
+  `static_assert` pins all 9 values.
+- **`Vision`** (protocol v2):
+  - `PROTOCOL_VERSION` is now 2, so v1 lifecycle lines are refused.
+  - `MEGA_TARGET,2,<id>` is sent right after `MEGA_READY`, immediately on
+    every change, and with every heartbeat (100 ms).
+  - `setSelectedTarget()`: changing the selection drops the frame in hand
+    at once.
+  - `storeTarget()`: while a hole is selected, a frame for any other id is
+    `valid=false`. The link itself still counts as connected.
+- **`main.cpp`**: after `ManualControl::update()` it calls
+  `Vision::setSelectedTarget(visionIdForHole(getTarget()))`, so a switch
+  takes effect before `Auto` runs in the same loop.
+- **`Auto`**:
+  - `hasTarget` = valid **and distance > 0**. Without a distance it can
+    aim but `ready` is false, so it never fires. This covers the webcam
+    case of valid=1 with distance 0.
+  - The flywheel comes from `ShotTable::tableForHole(target)`.
+  - Elevation = table pulse + elevation offset, but only once
+    `ELEVATION_MEASURED` is true. It is still false.
+  - `Shooter::setRotateAimOffsetPx(aim offset)`.
+- **`Shooter`**: vision-follow takes `tx + aimOffsetPx` as its input. A
+  positive offset makes the turret aim to the right of the hole. Example:
+  R = +10, and the loop locks when the target is at tx = −10. `stopAll`
+  clears it.
+- **`ManualControl`**, fine-adjust:
+  - In semi-auto and full auto, one arrow press adds one step. A press is
+    the direction changing to non-zero, from 0 or straight to the opposite
+    side. Wired ROT,1 resent every heartbeat and wireless CH7 repeated
+    every frame do not add more.
+  - Left/right → aim px, clamped to ±100.
+  - Up/down → elevation µs, clamped to ±200, with the same direction as
+    `ANG,1`. Up/down only change Auto's elevation **once Auto owns it**;
+    until then they stay the manual elevation jog.
+  - A new hole, Enable and disarm all clear the offsets. A key still held
+    after a clear must be released before it counts again.
+  - Full manual: no change, the arrows are still hold-to-move.
+- **`TuningConstants`**:
+  - `ShotTable::HOLE_1..HOLE_9` plus `BY_HOLE` / `tableForHole()`. All are
+    placeholder copies of `TABLE`.
+  - `Auto::AIM_OFFSET_*` and `ELEVATION_OFFSET_*`.
+- **Telemetry**: appended slots 35 = vision id sent to the Orin,
+  36 = aim offset px, 37 = elevation offset µs.
+- **Dashboard**: the target-hole card has a new line: "視覺 #id 已看到 ✓ /
+  看不到 · 微調 水平/仰角", or "AI 自選" (the AI picks) when no hole is
+  selected.
+- **`mega_vision_rotate_test` bench**: `PROTOCOL_VERSION` is now 2. It sends
+  no `MEGA_TARGET`, so the Orin picks on its own. Without this change, the
+  bench would also stop working once the Orin is updated.
+
+**Added tests:**
+- `test/operator_target_test.cpp`: key → id for all 9 holes, and the
+  frame-match rule.
+- `test/vision_link_test.cpp`: runs the **real Vision.cpp** with
+  `test/vision_stubs/Arduino.h`. Covers:
+  - READY / HEARTBEAT / TARGET packet order;
+  - v1 refused;
+  - a switch drops the current frame;
+  - another id or a bonus hole is invalid;
+  - `0,0,0,0,0`;
+  - stale frames;
+  - resending to a restarted Orin.
+- `manual_control_test`, new cases: no distance means no fire, each hole's
+  own table, wired and wireless fine-adjust (step, hold, change of
+  direction, clamp, clear on hole switch, a held key needs a release,
+  disarm). The fire tests now place a target with a distance in view.
+
+**Evidence:**
+- All 8 Mega envs build. megaatmega2560 RAM went from 2073 to 3547 B (43%);
+  the 1.4 KB added is the per-hole tables in SRAM, and they can move to
+  PROGMEM if that ever gets tight.
+- Ground pio builds. The bridge is unaffected because RcControlMap did not
+  change.
+- All host and page tests pass.
+- **Not run on hardware.**
+
+**Impact:** **The Orin (YOLO_Detect_single with Codex's v2 changes) and this
+Mega firmware must be deployed together**, because a v1/v2 mix refuses the
+other side and vision stops working. Unchanged: the turret PIDF gains,
+`ELEVATION_MEASURED = false`, and full-manual behavior.
+
+**Next Test** (outputs off or motors disconnected, Orin and Mega flashed at
+the same time):
+1. Press keys 1–9 in turn. The Dashboard should show the matching vision
+   id (#10 / #7 / #4 …). The Orin should frame that physical hole and show
+   "已看到 ✓".
+2. Cover the selected hole. It should show "看不到", with no fallback to
+   another hole.
+3. Switch holes quickly, and restart the Orin and the Mega each once.
+4. Then, with outputs on and in semi-auto, check the direction of the
+   left/right fine-adjust: pressing → should make the turret aim to the
+   right of the hole.

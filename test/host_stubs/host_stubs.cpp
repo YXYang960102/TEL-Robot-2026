@@ -56,6 +56,7 @@ void Shooter::setRotateOpenLoop(double command) {
     rec.rotateCommand = command;
 }
 void Shooter::setRotateVisionFollow() { rec.rotateMode = "vision"; }
+void Shooter::setRotateAimOffsetPx(double offsetPx) { rec.aimOffsetPx = offsetPx; }
 void Shooter::disableRotate() {
     rec.rotateMode = "disabled";
     rec.rotateCommand = 0.0;

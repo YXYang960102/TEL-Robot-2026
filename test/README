@@ -42,6 +42,14 @@ Host tests used in this repo (run from the repo root):
       test/manual_control_test.cpp test/host_stubs/host_stubs.cpp src/IO/ManualControl.cpp src/Auto/Auto.cpp src/Dribbler/Dribbler.cpp \
       /tmp/rcmap.o -o /tmp/t && /tmp/t
 
+  # Orin link (protocol v2): the REAL src/Vision/Vision.cpp on its own small
+  # Arduino shim (test/vision_stubs/) -- MEGA_TARGET sent on change and with
+  # every heartbeat, v1 refused, only the selected hole's frames valid.
+  g++ -std=c++17 -Wall -Wextra -Werror -I test/vision_stubs test/vision_link_test.cpp src/Vision/Vision.cpp -o /tmp/t && /tmp/t
+
+  # Dashboard hole (keys 1-9) -> Orin vision id, and the frame-match rule.
+  g++ -std=c++17 -Wall -Wextra -Werror test/operator_target_test.cpp -o /tmp/t && /tmp/t
+
   # Ground STM32 command/status logic (tools/stm32_ground_control).
   g++ -std=c++17 -Wall -Wextra -Werror -I tools/stm32_ground_control/src -I src/IO \
       tools/stm32_ground_control/test/host_test_ground_state.cpp \

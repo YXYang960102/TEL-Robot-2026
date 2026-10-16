@@ -95,6 +95,19 @@ namespace Auto {
 // also applies, so the real full-auto rate is whichever is longer.
 constexpr uint32_t COOLDOWN_MS = 300;
 
+// Operator fine-adjust in the auto modes (Jeremy, 2026-10-16): each arrow
+// press (wireless: each nudge from center) adds one step; a new target hole,
+// Enable and disarm clear both. PROVISIONAL step sizes -- tune on the field.
+//   left/right: the turret aims this many pixels right (+) / left (-) of
+//     the hole's center (vision-follow drives tx + offset to 0).
+//   up/down: added to the shot table's elevation pulse; only once the
+//     table is measured (ShotTable::ELEVATION_MEASURED), until then up/down
+//     stay the manual elevation jog.
+constexpr double AIM_OFFSET_STEP_PX = 5.0;
+constexpr double AIM_OFFSET_MAX_PX = 100.0;
+constexpr double ELEVATION_OFFSET_STEP_US = 10.0;
+constexpr double ELEVATION_OFFSET_MAX_US = 200.0;
+
 }
 
 namespace ShotTable {
@@ -109,6 +122,12 @@ namespace ShotTable {
 //                     the pulse (not an angle) needs no angle calibration.
 // Fill it from test shots: at each distance, adjust until it scores and
 // copy the Dashboard's pulse and the Falcon % here.
+//
+// One table per target hole (HOLE_1..HOLE_9, keys 1-9: columns from the
+// left, each bottom-up), because a high and a low hole at the same
+// distance need different elevation and speed; TABLE is for "no hole
+// selected" (the Orin's own pick). All of them start as copies of the same
+// placeholder rows -- tune each hole separately.
 //
 // PLACEHOLDERS: no real shots have been measured. The flywheel column is a
 // guess; the elevation column is all neutral (1500 us) and is NOT applied
@@ -138,6 +157,170 @@ constexpr Entry TABLE[] = {
 };
 constexpr int TABLE_COUNT = sizeof(TABLE) / sizeof(TABLE[0]);
 
+// Hole 1: left-bottom (key 1).
+constexpr Entry HOLE_1[] = {
+    {2.0, 0.70, 1500.0},
+    {2.5, 0.72, 1500.0},
+    {3.0, 0.75, 1500.0},
+    {3.5, 0.78, 1500.0},
+    {4.0, 0.80, 1500.0},
+    {4.5, 0.82, 1500.0},
+    {5.0, 0.84, 1500.0},
+    {5.5, 0.86, 1500.0},
+    {6.0, 0.88, 1500.0},
+    {6.5, 0.90, 1500.0},
+    {7.0, 0.92, 1500.0},
+    {7.5, 0.94, 1500.0},
+    {8.0, 0.96, 1500.0},
+};
+// Hole 2: left-mid (key 2).
+constexpr Entry HOLE_2[] = {
+    {2.0, 0.70, 1500.0},
+    {2.5, 0.72, 1500.0},
+    {3.0, 0.75, 1500.0},
+    {3.5, 0.78, 1500.0},
+    {4.0, 0.80, 1500.0},
+    {4.5, 0.82, 1500.0},
+    {5.0, 0.84, 1500.0},
+    {5.5, 0.86, 1500.0},
+    {6.0, 0.88, 1500.0},
+    {6.5, 0.90, 1500.0},
+    {7.0, 0.92, 1500.0},
+    {7.5, 0.94, 1500.0},
+    {8.0, 0.96, 1500.0},
+};
+// Hole 3: left-top (key 3).
+constexpr Entry HOLE_3[] = {
+    {2.0, 0.70, 1500.0},
+    {2.5, 0.72, 1500.0},
+    {3.0, 0.75, 1500.0},
+    {3.5, 0.78, 1500.0},
+    {4.0, 0.80, 1500.0},
+    {4.5, 0.82, 1500.0},
+    {5.0, 0.84, 1500.0},
+    {5.5, 0.86, 1500.0},
+    {6.0, 0.88, 1500.0},
+    {6.5, 0.90, 1500.0},
+    {7.0, 0.92, 1500.0},
+    {7.5, 0.94, 1500.0},
+    {8.0, 0.96, 1500.0},
+};
+// Hole 4: mid-bottom (key 4).
+constexpr Entry HOLE_4[] = {
+    {2.0, 0.70, 1500.0},
+    {2.5, 0.72, 1500.0},
+    {3.0, 0.75, 1500.0},
+    {3.5, 0.78, 1500.0},
+    {4.0, 0.80, 1500.0},
+    {4.5, 0.82, 1500.0},
+    {5.0, 0.84, 1500.0},
+    {5.5, 0.86, 1500.0},
+    {6.0, 0.88, 1500.0},
+    {6.5, 0.90, 1500.0},
+    {7.0, 0.92, 1500.0},
+    {7.5, 0.94, 1500.0},
+    {8.0, 0.96, 1500.0},
+};
+// Hole 5: center (key 5).
+constexpr Entry HOLE_5[] = {
+    {2.0, 0.70, 1500.0},
+    {2.5, 0.72, 1500.0},
+    {3.0, 0.75, 1500.0},
+    {3.5, 0.78, 1500.0},
+    {4.0, 0.80, 1500.0},
+    {4.5, 0.82, 1500.0},
+    {5.0, 0.84, 1500.0},
+    {5.5, 0.86, 1500.0},
+    {6.0, 0.88, 1500.0},
+    {6.5, 0.90, 1500.0},
+    {7.0, 0.92, 1500.0},
+    {7.5, 0.94, 1500.0},
+    {8.0, 0.96, 1500.0},
+};
+// Hole 6: mid-top (key 6).
+constexpr Entry HOLE_6[] = {
+    {2.0, 0.70, 1500.0},
+    {2.5, 0.72, 1500.0},
+    {3.0, 0.75, 1500.0},
+    {3.5, 0.78, 1500.0},
+    {4.0, 0.80, 1500.0},
+    {4.5, 0.82, 1500.0},
+    {5.0, 0.84, 1500.0},
+    {5.5, 0.86, 1500.0},
+    {6.0, 0.88, 1500.0},
+    {6.5, 0.90, 1500.0},
+    {7.0, 0.92, 1500.0},
+    {7.5, 0.94, 1500.0},
+    {8.0, 0.96, 1500.0},
+};
+// Hole 7: right-bottom (key 7).
+constexpr Entry HOLE_7[] = {
+    {2.0, 0.70, 1500.0},
+    {2.5, 0.72, 1500.0},
+    {3.0, 0.75, 1500.0},
+    {3.5, 0.78, 1500.0},
+    {4.0, 0.80, 1500.0},
+    {4.5, 0.82, 1500.0},
+    {5.0, 0.84, 1500.0},
+    {5.5, 0.86, 1500.0},
+    {6.0, 0.88, 1500.0},
+    {6.5, 0.90, 1500.0},
+    {7.0, 0.92, 1500.0},
+    {7.5, 0.94, 1500.0},
+    {8.0, 0.96, 1500.0},
+};
+// Hole 8: right-mid (key 8).
+constexpr Entry HOLE_8[] = {
+    {2.0, 0.70, 1500.0},
+    {2.5, 0.72, 1500.0},
+    {3.0, 0.75, 1500.0},
+    {3.5, 0.78, 1500.0},
+    {4.0, 0.80, 1500.0},
+    {4.5, 0.82, 1500.0},
+    {5.0, 0.84, 1500.0},
+    {5.5, 0.86, 1500.0},
+    {6.0, 0.88, 1500.0},
+    {6.5, 0.90, 1500.0},
+    {7.0, 0.92, 1500.0},
+    {7.5, 0.94, 1500.0},
+    {8.0, 0.96, 1500.0},
+};
+// Hole 9: right-top (key 9).
+constexpr Entry HOLE_9[] = {
+    {2.0, 0.70, 1500.0},
+    {2.5, 0.72, 1500.0},
+    {3.0, 0.75, 1500.0},
+    {3.5, 0.78, 1500.0},
+    {4.0, 0.80, 1500.0},
+    {4.5, 0.82, 1500.0},
+    {5.0, 0.84, 1500.0},
+    {5.5, 0.86, 1500.0},
+    {6.0, 0.88, 1500.0},
+    {6.5, 0.90, 1500.0},
+    {7.0, 0.92, 1500.0},
+    {7.5, 0.94, 1500.0},
+    {8.0, 0.96, 1500.0},
+};
+
+struct Table {
+    const Entry* entries;
+    int count;
+};
+#define TEL_SHOT_TABLE(name) Table{name, static_cast<int>(sizeof(name) / sizeof(name[0]))}
+// Index = target hole (0 = none -> TABLE).
+constexpr Table BY_HOLE[] = {
+    TEL_SHOT_TABLE(TABLE),
+    TEL_SHOT_TABLE(HOLE_1), TEL_SHOT_TABLE(HOLE_2), TEL_SHOT_TABLE(HOLE_3),
+    TEL_SHOT_TABLE(HOLE_4), TEL_SHOT_TABLE(HOLE_5), TEL_SHOT_TABLE(HOLE_6),
+    TEL_SHOT_TABLE(HOLE_7), TEL_SHOT_TABLE(HOLE_8), TEL_SHOT_TABLE(HOLE_9),
+};
+#undef TEL_SHOT_TABLE
+constexpr int BY_HOLE_COUNT = sizeof(BY_HOLE) / sizeof(BY_HOLE[0]);
+
+inline const Table& tableForHole(uint8_t hole) {
+    return BY_HOLE[hole < BY_HOLE_COUNT ? hole : 0];
+}
+
 }
 
 static_assert(Rotate::VISION_MAX_COMMAND > 0.0 && Rotate::VISION_MAX_COMMAND <= 1.0,
@@ -148,5 +331,10 @@ static_assert(Rotate::VISION_MAX_INTEGRAL_COMMAND >= 0.0 &&
 static_assert(Rotate::VISION_kIZONE_PX >= 0.0 && Rotate::VISION_READY_TOLERANCE_PX > 0.0,
               "Vision-follow pixel windows must be non-negative");
 static_assert(ShotTable::TABLE_COUNT >= 2, "Shot table needs at least two entries to interpolate");
+static_assert(ShotTable::BY_HOLE_COUNT == 10, "one shot table per hole 1..9, plus none");
+static_assert(Auto::AIM_OFFSET_STEP_PX > 0.0 && Auto::AIM_OFFSET_MAX_PX >= Auto::AIM_OFFSET_STEP_PX &&
+              Auto::ELEVATION_OFFSET_STEP_US > 0.0 &&
+              Auto::ELEVATION_OFFSET_MAX_US >= Auto::ELEVATION_OFFSET_STEP_US,
+              "Fine-adjust steps must be positive and fit inside their limits");
 
 }

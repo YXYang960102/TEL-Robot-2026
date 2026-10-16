@@ -121,6 +121,13 @@ bool saw(const std::string& event) {
 
 [[maybe_unused]] bool nearly(double a, double b) { return fabs(a - b) < 1e-6; }
 
+// The camera sees the (selected) hole with a depth distance: 4 m, where the
+// placeholder shot table gives exactly SHOOT_COMMAND (0.80).
+[[maybe_unused]] void targetInView() {
+    hoststub::visionValid = true;
+    hoststub::visionDistanceMm = 4000.0;
+}
+
 #if defined(TEL_HOST_TEST_PIN_TABLE_CONFIRMED)
 
 // ------------------------------------------------------------------ wired
@@ -598,6 +605,7 @@ void testModeKeyWired() {
 void testSemiAutoFiresOnlyWhenReady() {
     reset();
     hoststub::visionReady = true;
+    targetInView();
     armWired();
     send("M"); step();                                    // semi-auto
     // Auto has the turret and flywheel; the slider is ignored.
@@ -635,6 +643,7 @@ void testSemiAutoFiresOnlyWhenReady() {
 void testFullAutoFiresByItself() {
     reset();
     hoststub::visionReady = true;
+    targetInView();
     armWired();
     send("M"); send("M"); step();                         // full auto
     assert(ManualControl::getOperatorMode() == OperatorMode::FULL_AUTO);
@@ -718,6 +727,7 @@ void testElevationTargetCommands() {
 void testWirelessMode() {
     reset();
     hoststub::visionReady = true;
+    targetInView();
     armWireless();
     assert(ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
     wireless.mode_us = RCMAP_MODE_SEMI_AUTO_US;
@@ -745,6 +755,124 @@ void testWirelessMode() {
     wireless.armed = true;
     rcStep();
     assert(saw("ENABLE_REJECTED_NOT_MANUAL") && !ManualControl::isArmed());
+}
+
+// ------------------------------------------- vision v2: target, fine-adjust
+
+void testAutoNeedsDistance() {
+    // A valid frame with no depth distance (the Orin's webcam bench mode)
+    // can be aimed at but never fired at: nothing to look up.
+    reset();
+    hoststub::visionReady = true;
+    hoststub::visionValid = true;
+    hoststub::visionDistanceMm = 0.0;
+    hoststub::shooterReady = true;
+    armWired();
+    send("M"); send("M"); step();                         // full auto
+    assert(shotsDuring(2500) == 0);
+    assert(nearly(rec.flywheelCommand, TuningConstants::Flywheel::SHOOT_COMMAND));
+    hoststub::visionDistanceMm = 4000.0;
+    assert(shotsDuring(2500) >= 2);
+    // Semi-auto F without a distance: refused.
+    hoststub::visionDistanceMm = 0.0;
+    send("M"); send("M"); step();                         // full auto -> manual -> semi
+    assert(ManualControl::getOperatorMode() == OperatorMode::SEMI_AUTO);
+    Serial.output.clear();
+    runArmed(1500);
+    send("F"); step();
+    assert(saw("FIRE_NOT_READY"));
+}
+
+void testPerHoleShotTables() {
+    using namespace TuningConstants::ShotTable;
+    // Each hole has its own table; 0 (and anything out of range) is TABLE.
+    assert(tableForHole(0).entries == TABLE && tableForHole(0).count == TABLE_COUNT);
+    const Entry* holes[] = {HOLE_1, HOLE_2, HOLE_3, HOLE_4, HOLE_5, HOLE_6, HOLE_7, HOLE_8, HOLE_9};
+    for (uint8_t k = 1; k <= 9; k++) {
+        assert(tableForHole(k).entries == holes[k - 1] && tableForHole(k).count >= 2);
+        for (int i = 1; i < tableForHole(k).count; i++) {
+            assert(tableForHole(k).entries[i].distanceMeters > tableForHole(k).entries[i - 1].distanceMeters);
+        }
+    }
+    assert(tableForHole(10).entries == TABLE && tableForHole(255).entries == TABLE);
+    // Auto looks up the selected hole's table.
+    reset();
+    hoststub::visionReady = true;
+    hoststub::visionValid = true;
+    hoststub::visionDistanceMm = 5000.0;
+    armWired();
+    send("TGT,6"); send("M"); step();
+    const ShotTableLookup::Result expected =
+        ShotTableLookup::lookup(5.0, tableForHole(6).entries, tableForHole(6).count);
+    assert(nearly(rec.flywheelCommand, expected.flywheelCommand));
+}
+
+void testFineAdjustWired() {
+    using namespace TuningConstants::Auto;
+    reset();
+    hoststub::visionReady = true;
+    armWired();
+    // Full manual: the arrows are the jog, no offset.
+    send("ROT,1"); step();
+    assert(nearly(ManualControl::getAimOffsetPx(), 0.0) && rec.rotateMode == "manual");
+    send("ROT,0"); send("M"); step();                     // semi-auto
+    // One press = one step; holding (heartbeat resends) adds nothing.
+    send("ROT,1"); step();
+    send("ROT,1"); step();
+    send("ROT,1"); step();
+    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
+    assert(nearly(rec.aimOffsetPx, AIM_OFFSET_STEP_PX));  // Auto hands it to the turret
+    send("ROT,0"); step();
+    send("ROT,1"); step();
+    assert(nearly(ManualControl::getAimOffsetPx(), 2 * AIM_OFFSET_STEP_PX));
+    send("ROT,-1"); step();                               // straight to the other side
+    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
+    // Clamped.
+    for (int i = 0; i < 100; i++) { send("ROT,0"); step(); send("ROT,1"); step(); }
+    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_MAX_PX));
+    // A new hole clears it, and a key still held then needs a release.
+    send("TGT,4"); step();
+    assert(nearly(ManualControl::getAimOffsetPx(), 0.0));
+    send("ROT,1"); step(); send("ROT,1"); step();
+    assert(nearly(ManualControl::getAimOffsetPx(), 0.0));
+    send("ROT,0"); step(); send("ROT,1"); step();
+    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
+    // The same hole again is not a change: kept.
+    send("TGT,4"); step();
+    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
+    // Up/down: Auto doesn't own the elevation until the table is measured,
+    // so they stay the manual jog and no elevation offset builds up.
+    static_assert(!TuningConstants::ShotTable::ELEVATION_MEASURED,
+                  "add the elevation-offset cases when the elevation is measured");
+    send("ANG,1"); step();
+    assert(nearly(ManualControl::getElevationOffsetUs(), 0.0));
+    assert(nearly(rec.angleCommand, ManualControlConstants::ANGLE_MANUAL_SCALE));
+    send("ANG,0"); step();
+    // Disarm clears; so does a new Enable.
+    send("X"); step();
+    assert(nearly(ManualControl::getAimOffsetPx(), 0.0));
+}
+
+void testFineAdjustWireless() {
+    using namespace TuningConstants::Auto;
+    reset();
+    hoststub::visionReady = true;
+    armWireless();
+    wireless.mode_us = RCMAP_MODE_SEMI_AUTO_US;
+    rcStep();
+    wireless.nudge = RCMAP_NUDGE_RIGHT;
+    runWireless(200);                                     // held: every frame repeats it
+    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
+    wireless.nudge = RCMAP_NUDGE_CENTER; rcStep();
+    wireless.nudge = RCMAP_NUDGE_RIGHT; rcStep();
+    assert(nearly(ManualControl::getAimOffsetPx(), 2 * AIM_OFFSET_STEP_PX));
+    wireless.nudge = RCMAP_NUDGE_LEFT; rcStep();
+    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
+    // Switching hole on CH3 clears it.
+    wireless.nudge = RCMAP_NUDGE_CENTER;
+    wireless.target = 2;
+    rcStep();
+    assert(nearly(ManualControl::getAimOffsetPx(), 0.0) && ManualControl::getTarget() == 2);
 }
 
 #else
@@ -815,6 +943,10 @@ int main() {
     testShotTableDrivesFlywheel();
     testWirelessMode();
     testElevationTargetCommands();
+    testAutoNeedsDistance();
+    testPerHoleShotTables();
+    testFineAdjustWired();
+    testFineAdjustWireless();
     printf("manual_control_test (pin table confirmed): all asserts passed\n");
 #else
     testEnableRefusedUntilPinTableConfirmed();
