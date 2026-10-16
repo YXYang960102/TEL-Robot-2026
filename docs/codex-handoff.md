@@ -3848,3 +3848,58 @@ by the servo limits.
    at 2.5–8.5 m.
 3. Use the trims only for a single hole that is consistently off.
 4. Once the elevation values are real, set `ELEVATION_MEASURED = true`.
+
+## 2026-10-16 — Claude Code: pins confirmed (tower trigger D21), production Enable allowed
+
+**User Request:** Jeremy gave the feed tower trigger pin as **D21**. The
+other pins are the competition ones he confirmed on 2026-10-14 ("正式比賽還是一樣").
+
+**Changed:**
+- `DribblerConstants::Tower::TRIGGER_PIN` changed from 2 (a provisional
+  placeholder) to 21.
+- `Pins.h`: `PIN_TABLE_CONFIRMED = true`. The comment lists every confirmed
+  pin:
+
+  | Pin | Use |
+  |-----|-----|
+  | D48 / D46 | chassis right / left |
+  | D23 | turret |
+  | D24 | elevation |
+  | D25 | Falcon |
+  | D21 | tower trigger |
+  | Serial1 D18 / D19 | Orin |
+  | Serial2 D16 / D17 | ELRS bridge |
+- The Enable gate code is unchanged. Setting the flag back to false
+  disables Enable again.
+- `TEL_HOST_TEST_PIN_TABLE_CONFIRMED` is still a hard error on Arduino. In
+  the host tests, `=true` runs the armed suite, `=false` runs the refusal
+  suite, and leaving it unset now behaves like the firmware (armed).
+  test/README has the matching commands.
+
+**Risk to check on hardware:** D21 is also the Mega 2560's I2C SCL line,
+and the board has a 10 kΩ pull-up to 5 V on it. While the Mega is in reset
+or the bootloader (power-up, upload, reset button), before
+`Dribbler::init()` drives the pin LOW, the trigger line can sit HIGH. If
+the tower acts on a HIGH **level**, it may feed a ball every time the Mega
+resets.
+
+Check it:
+- **Multimeter:** hold the Mega's RESET button and measure D21 to GND. If
+  it reads about 5 V, the risk is real.
+- **Live test:** with the tower connected and no ball loaded, press reset
+  on the Mega and watch whether the tower moves.
+
+Fixes, if needed:
+- On the tower side, act only on a rising edge, and ignore the first
+  stretch after power-up.
+- Or add a 1 kΩ pull-down from D21 to GND. That divides 5 V × 1k/11k ≈
+  0.45 V, which reads LOW, and it doesn't fight the Mega's push-pull output.
+- Or move the trigger to a pin without a pull-up (D20/D21 both have one).
+
+**Evidence:**
+- All 8 Mega envs build, and `Dribbler.cpp.o` / `main.cpp.o` were rebuilt
+  after the header change.
+- `manual_control_test` passes in four variants: true, false, unset, and
+  wired-manual.
+- The gamepad and Dashboard page tests pass.
+- Not run on hardware.

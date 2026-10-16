@@ -1,17 +1,21 @@
 #pragma once
 
 // Gate for Enable from either operator source (src/IO/ManualControl.cpp):
-// stays false until the real motor/sensor pin table has been checked on the
-// robot against this file, ChassisConstants.h, DribblerConstants.h and
-// ShooterConstants.h. While false, Enable is refused, so provisional pins
-// can never be driven just because a comment says "provisional".
+// while false, Enable is refused (ENABLE_REJECTED_PINS_UNCONFIRMED), so
+// unchecked pins can never be driven.
 //
-// The partial-hardware wired benches (BuildProfile.h) confirm only the
-// outputs they drive, so Enable is allowed there.
+// CONFIRMED 2026-10-16 (Jeremy: these are the competition pins):
+//   chassis right D48, left D46 (ChassisConstants.h)
+//   turret D23, elevation D24, Falcon D25 (ShooterConstants.h)
+//   feed tower trigger D21 (DribblerConstants.h)
+//   Orin Serial1 D18/D19, robot ELRS bridge Serial2 D16/D17
+// If the wiring changes, change the pin in its Constants file (main.cpp's
+// pincheck catches two outputs on one pin or an output on a serial pin);
+// set this back to false if a pin is ever in doubt.
 //
 // TEL_HOST_TEST_PIN_TABLE_CONFIRMED exists only so the host test
-// (test/manual_control_test.cpp) can exercise the armed paths; it is a hard
-// compile error in any Arduino build, so firmware can't bypass the gate.
+// (test/manual_control_test.cpp) can exercise both the armed paths (true)
+// and the refusal (false); it is a hard compile error in any Arduino build.
 #include "BuildProfile.h"
 #include "DribblerConstants.h"
 
@@ -21,7 +25,7 @@
 #endif
 constexpr bool PIN_TABLE_CONFIRMED = TEL_HOST_TEST_PIN_TABLE_CONFIRMED;
 #else
-constexpr bool PIN_TABLE_CONFIRMED = BuildProfile::PARTIAL_HARDWARE_BENCH;
+constexpr bool PIN_TABLE_CONFIRMED = true;
 #endif
 
 // Where each pin lives: every motor/sensor pin is defined exactly once, in

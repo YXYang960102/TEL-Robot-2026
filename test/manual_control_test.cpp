@@ -11,8 +11,9 @@
 // full-auto firing), and the phase-1 target / auto-path records.
 //
 // Build twice (see test/README):
-//   with -DTEL_HOST_TEST_PIN_TABLE_CONFIRMED=true  -> full armed-path suite
-//   without it                                     -> pin-table gate only
+//   -DTEL_HOST_TEST_PIN_TABLE_CONFIRMED=true   -> full armed-path suite
+//   -DTEL_HOST_TEST_PIN_TABLE_CONFIRMED=false  -> pin-table gate only
+//   (without it, like the firmware since 2026-10-16: armed suite)
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -129,7 +130,7 @@ bool saw(const std::string& event) {
     hoststub::visionDistanceMm = 4000.0;
 }
 
-#if defined(TEL_HOST_TEST_PIN_TABLE_CONFIRMED)
+#if !defined(TEL_HOST_TEST_PIN_TABLE_CONFIRMED) || TEL_HOST_TEST_PIN_TABLE_CONFIRMED
 
 // ------------------------------------------------------------------ wired
 
@@ -930,7 +931,7 @@ int main() {
            ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
     send("X"); step(); assert(!ManualControl::isArmed());
     printf("wired manual profile: all asserts passed\n");
-#elif defined(TEL_HOST_TEST_PIN_TABLE_CONFIRMED)
+#elif !defined(TEL_HOST_TEST_PIN_TABLE_CONFIRMED) || TEL_HOST_TEST_PIN_TABLE_CONFIRMED
     testWiredRefusedWhileDisarmed();
     testRetiredKeys();
     testEnableDisableDrivesEverySubsystem();

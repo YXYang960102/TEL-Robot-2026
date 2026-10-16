@@ -13,9 +13,12 @@
 namespace DribblerConstants {
 
 namespace Tower {
-// PROVISIONAL pin -- the real pin table hasn't been confirmed yet.
-// PIN_TABLE_CONFIRMED in Pins.h refuses Enable until it is.
-constexpr uint8_t TRIGGER_PIN = 2;
+// D21 (Jeremy, 2026-10-16). Note: on the Mega 2560, D21 is also the I2C
+// SCL pin, which the board pulls up (10 kOhm to 5 V) -- while the Mega is
+// in reset / the bootloader, before Dribbler::init() drives it LOW, the
+// line can sit HIGH. Check on the robot that the tower doesn't take that
+// as a trigger (see docs/codex-handoff.md, 2026-10-16 pins confirmed).
+constexpr uint8_t TRIGGER_PIN = 21;
 constexpr bool TRIGGER_ACTIVE_HIGH = true;
 
 constexpr unsigned long PULSE_MS = 100;
