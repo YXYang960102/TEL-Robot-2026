@@ -4065,3 +4065,34 @@ these two menus out on their own).
   setup panel and not in the control panel.
 - In a real browser: panel order is vision → setup → control, and the text
   is back to normal size.
+
+## 2026-10-16 — Claude Code: Dashboard safety panel removed; Enable / Falcon / elevation in their own panel
+
+**User Request:** delete the safety panel. Move Enable, the speed slider and
+the elevation set out of the Manual Control panel into a panel of their own.
+
+**Changed (`tools/dashboard/index.html`):**
+- Deleted the `data-panel="safety"` panel. Removed with it: `#risk`,
+  `updateRisk()`, the `.risk` / `.risk-card` / `.hint-list` CSS, and the
+  matching compact / tiny rules.
+- New `data-panel="operate"` panel, "Enable & Outputs / 啟用與輸出". It
+  sits right below Match Setup and holds:
+  - the Enable button, the key hint text, and the armed badge
+    `#controlArmedBadge`;
+  - the Falcon slider;
+  - the elevation slider, number box and Set button.
+
+  The panel uses `data-fixed-density` so it never shrinks to the small-text
+  layout. Element ids are unchanged, so no JS changed.
+- The Manual Control panel keeps only the readout cards; its title is now
+  "手動操控狀態".
+- Panel order: vision → setup → operate → control → field / telemetry,
+  with sbus / log on the side.
+
+**Evidence:**
+- The page and control tests pass, with new assertions:
+  - Enable, the slider and Set are inside the operate panel, not the
+    control panel;
+  - the safety panel is gone.
+- In a real browser: demo mode works with no console errors, and the panel
+  order and layout look right.

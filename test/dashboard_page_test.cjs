@@ -676,3 +676,14 @@ assert.doesNotMatch(html, /data-panel="(trace|stream)"|id="(chart|streamUrl|stre
   const control = html.slice(html.indexOf('data-panel="control"'));
   assert.doesNotMatch(control, /id="startMode"|id="autoPathSelect"/);
 }
+
+// Enable, the Falcon slider and the elevation set live in their own panel;
+// the safety panel is gone (Jeremy, 2026-10-16).
+{
+  const operate = html.slice(html.indexOf('data-panel="operate"'), html.indexOf('data-panel="control"'));
+  for (const id of ['enableControl', 'controlArmedBadge', 'flywheelSlider', 'angleSlider', 'angleInput', 'angleSet']) {
+    assert.match(operate, new RegExp(`id="${id}"`), id);
+  }
+  assert.doesNotMatch(html.slice(html.indexOf('data-panel="control"')), /id="(enableControl|flywheelSlider|angleSet)"/);
+  assert.doesNotMatch(html, /data-panel="safety"|id="risk"/);
+}

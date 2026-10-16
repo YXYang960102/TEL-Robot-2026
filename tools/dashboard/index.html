@@ -172,10 +172,6 @@
       font-size: 12px;
     }
 
-    .panel.compact .risk {
-      font-size: 16px;
-    }
-
     .panel.tiny .section-title {
       font-size: 10px;
       padding: 7px 8px;
@@ -198,8 +194,7 @@
     }
 
     .panel.tiny .label,
-    .panel.tiny .subvalue,
-    .panel.tiny .hint-list {
+    .panel.tiny .subvalue {
       font-size: 10px;
     }
 
@@ -211,10 +206,6 @@
     .panel.tiny td {
       padding: 6px 8px;
       font-size: 11px;
-    }
-
-    .panel.tiny .risk {
-      font-size: 14px;
     }
 
     main.custom-layout .panel {
@@ -516,39 +507,6 @@
       font-weight: 650;
     }
 
-    .risk {
-      padding: 12px;
-      font-size: 18px;
-      font-weight: 750;
-    }
-
-    .risk.ok { color: var(--green); }
-    .risk.warn { color: var(--yellow); }
-    .risk.bad { color: var(--red); }
-
-    .risk-card {
-      display: grid;
-      align-content: center;
-      min-height: 78px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--panel-2);
-    }
-
-    .hint-list {
-      display: grid;
-      gap: 8px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    .hint-list div {
-      padding: 8px 10px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: var(--panel-2);
-    }
-
     .layout-help {
       display: none;
       margin: 0 14px 10px;
@@ -633,14 +591,31 @@
         </div>
       </section>
 
-      <section class="panel" data-panel="control" style="margin-top:14px">
+      <section class="panel" data-panel="operate" data-fixed-density style="margin-top:14px">
         <div class="section-title">
-          <span>Manual Control / 手動操控（USB 接 Mega＝有線，接地面 STM32＝無線）</span>
+          <span>Enable &amp; Outputs / 啟用與輸出（USB 接 Mega＝有線，接地面 STM32＝無線）</span>
           <span id="controlArmedBadge">disabled / 未啟用</span>
         </div>
         <div class="stream-controls">
           <button id="enableControl" disabled>Enable / 啟用輸出</button>
           <span class="label">手把：搖桿 前後/轉向、Y（飛行搖桿上方鈕）發射・1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・0 回到 AI 自選・M 模式（全手動→半自動→全自動）・←→ 水平・↑↓ 仰角（按住移動）・Enter 停用・Space 停用並斷線</span>
+        </div>
+        <div class="stream-controls">
+          <input id="flywheelSlider" type="range" min="0" max="100" step="1" value="0" disabled aria-label="Falcon command ratio">
+          <span class="label" id="flywheelSliderValue">Falcon 指令 0%（Enter/Space/逾時自動歸零）</span>
+        </div>
+        <div class="stream-controls" style="border-bottom:0">
+          <input id="angleSlider" type="range" min="0" max="270" step="1" value="135" disabled aria-label="Elevation target angle">
+          <input id="angleInput" type="number" step="0.5" placeholder="仰角 °" disabled style="width:90px" aria-label="Elevation target angle (degrees)">
+          <button id="angleSet" disabled>設定仰角 / Set</button>
+          <span class="label" id="angleValue">仰角目標 --°（↑↓ 按住移動；輸入角度後按「設定」，Enter 仍是停止）</span>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="control" style="margin-top:14px">
+        <div class="section-title">
+          <span>Manual Control / 手動操控狀態</span>
+          <span>readouts / 讀值</span>
         </div>
         <div class="grid">
           <div class="metric"><div class="label">left / right pulse / 左右輪脈衝</div><div class="value" id="chassisPulses">--</div></div>
@@ -655,16 +630,6 @@
           <div class="metric"><div class="label">rotate / angle mode / 旋轉・俯仰模式</div><div class="value" id="shooterAxisMode">--</div></div>
           <div class="metric"><div class="label">elevation pulse / 仰角脈寬</div><div class="value" id="anglePulse">--</div><div class="subvalue">500–2500 us, no limit switch / 無限位，量機構兩端</div></div>
           <div class="metric"><div class="label">Falcon PWM / 飛輪 PWM</div><div class="value" id="falconPwm">--</div><div class="subvalue">command ratio, not RPM / 指令佔比，非轉速</div></div>
-        </div>
-        <div class="stream-controls">
-          <input id="flywheelSlider" type="range" min="0" max="100" step="1" value="0" disabled aria-label="Falcon command ratio">
-          <span class="label" id="flywheelSliderValue">Falcon 指令 0%（Enter/Space/逾時自動歸零）</span>
-        </div>
-        <div class="stream-controls">
-          <input id="angleSlider" type="range" min="0" max="270" step="1" value="135" disabled aria-label="Elevation target angle">
-          <input id="angleInput" type="number" step="0.5" placeholder="仰角 °" disabled style="width:90px" aria-label="Elevation target angle (degrees)">
-          <button id="angleSet" disabled>設定仰角 / Set</button>
-          <span class="label" id="angleValue">仰角目標 --°（↑↓ 按住移動；輸入角度後按「設定」，Enter 仍是停止）</span>
         </div>
       </section>
 
@@ -694,23 +659,6 @@
     </div>
 
     <div class="side">
-      <section class="panel vertical-panel" data-panel="safety">
-        <div class="section-title">
-          <span class="title-stack"><strong>Safety</strong><span>安全</span></span>
-          <span>即時判斷</span>
-        </div>
-        <div class="vertical-body">
-          <div class="risk-card">
-            <div class="risk" id="risk">等待資料</div>
-          </div>
-          <div class="hint-list">
-            <div>valid = 0：停止自動前進</div>
-            <div>distance 太近：停止或後退</div>
-            <div>tx 偏太大：先原地轉向</div>
-          </div>
-        </div>
-      </section>
-
       <section class="panel" data-panel="sbus">
         <div class="section-title"><span>MechLink / 無線鏈路</span><span>ELRS receiver / 接收機</span></div>
         <table>
@@ -762,7 +710,6 @@
     const connection = document.getElementById("connection");
     const packetAge = document.getElementById("packetAge");
     const poseSource = document.getElementById("poseSource");
-    const risk = document.getElementById("risk");
     const log = document.getElementById("log");
     const rate = document.getElementById("rate");
     const fieldCanvas = document.getElementById("fieldCanvas");
@@ -1313,21 +1260,6 @@
       };
     }
 
-    function updateRisk(data) {
-      risk.className = "risk ok";
-      risk.textContent = "安全";
-      if (!data.valid) {
-        risk.className = "risk warn";
-        risk.textContent = "沒有目標，禁止自動前進";
-      } else if (data.warn & 2) {
-        risk.className = "risk bad";
-        risk.textContent = "距離太近，應停止或後退";
-      } else if (data.warn & 4) {
-        risk.className = "risk warn";
-        risk.textContent = "偏差過大，只建議原地轉向";
-      }
-    }
-
     function updateMetrics(data) {
       el.tx.textContent = data.tx.toFixed(1);
       el.ty.textContent = data.ty.toFixed(1);
@@ -1353,7 +1285,6 @@
       el.ch8.textContent = data.ch8;
       updateControlMetrics(data);
       updatePose(data);
-      updateRisk(data);
     }
 
     function updateControlMetrics(data) {
