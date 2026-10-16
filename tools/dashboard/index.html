@@ -362,6 +362,8 @@
     }
 
     /* 3x3 target holes, drawn as seen from the robot: left column = 1-3. */
+    #matchTimer.done { color: var(--red); }
+
     .hole-grid {
       display: grid;
       grid-template-columns: repeat(3, 24px);
@@ -587,7 +589,7 @@
               <option value="4">右二 right 2</option>
             </select>
           </label>
-          <span class="label">Enable 時套用：先切到這個模式，再跑一次這條路徑。啟用中改模式（或按 M）會立刻切換。</span>
+          <span class="label">Enable 後機器人不動，按手把 Y（或「開始比賽」）才套用：先切到這個模式，再跑一次這條路徑。比賽中改模式（或按 X / A / B）會立刻切換。</span>
         </div>
       </section>
 
@@ -598,7 +600,14 @@
         </div>
         <div class="stream-controls">
           <button id="enableControl" disabled>Enable / 啟用輸出</button>
-          <span class="label">手把：搖桿 前後/轉向、Y（飛行搖桿上方鈕）發射・1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・0 回到 AI 自選・M 模式（全手動→半自動→全自動）・←→ 水平・↑↓ 仰角（按住移動）・Enter 停用・Space 停用並斷線</span>
+          <span class="label">Xbox 手把：左蘑菇頭 前後・右蘑菇頭 轉向・十字鍵 ↑↓ 仰角 ←→ 水平（全手動按住移動；自動模式每按一下微調一格）・X 全自動・A 半自動・B 全手動・RB 發射・LB 轉台回正（待 AS5600）・Y 開始比賽｜鍵盤：1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・0 回到 AI 自選・Enter 停用・Space 停用並斷線</span>
+        </div>
+        <div class="stream-controls">
+          <button id="startMatch" disabled>開始比賽 / Start（Y）</button>
+          <div>
+            <div class="value" id="matchTimer">3:00</div>
+            <div class="subvalue" id="matchState">Enable 後按 Y 開始；開始前機器人不會動</div>
+          </div>
         </div>
         <div class="stream-controls">
           <input id="flywheelSlider" type="range" min="0" max="100" step="1" value="0" disabled aria-label="Falcon command ratio">
@@ -608,7 +617,7 @@
           <input id="angleSlider" type="range" min="0" max="270" step="1" value="135" disabled aria-label="Elevation target angle">
           <input id="angleInput" type="number" step="0.5" placeholder="仰角 °" disabled style="width:90px" aria-label="Elevation target angle (degrees)">
           <button id="angleSet" disabled>設定仰角 / Set</button>
-          <span class="label" id="angleValue">仰角目標 --°（↑↓ 按住移動；輸入角度後按「設定」，Enter 仍是停止）</span>
+          <span class="label" id="angleValue">仰角目標 --°（十字鍵 ↑↓ 按住移動；輸入角度後按「設定」，Enter 仍是停止）</span>
         </div>
       </section>
 
@@ -685,7 +694,7 @@
   </main>
 
   <script>
-    const ids = ["tx", "ty", "distance", "targetId", "valid", "shooterReady", "operatorMode", "warnBits", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed", "aimState", "distanceRaw"];
+    const ids = ["tx", "ty", "distance", "targetId", "valid", "shooterReady", "operatorMode", "warnBits", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed", "aimState", "distanceRaw", "matchTimer", "matchState"];
     const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     const connectButton = document.getElementById("connect");
     const demoButton = document.getElementById("demo");
@@ -695,6 +704,7 @@
     // robot itself always enables in full manual).
     const startModeSelect = document.getElementById("startMode");
     const autoPathSelect = document.getElementById("autoPathSelect");
+    const startMatchButton = document.getElementById("startMatch");
     const controlArmedBadge = document.getElementById("controlArmedBadge");
     const flywheelSlider = document.getElementById("flywheelSlider");
     const flywheelSliderValue = document.getElementById("flywheelSliderValue");
@@ -750,7 +760,14 @@
     let controlArmed = false;
     let gamepadDrive = null;         // [left, right] while the gamepad stick is pushed
     let gamepadNeedsCenter = false;  // after Enable, until the stick is centered once
-    let gamepadFireWasDown = false;
+    let gamepadButtonsPrev = new Set(); // for press edges
+    let dpadRotate = 0, dpadAngle = 0;   // D-pad: turret / elevation
+    // Match flow (Jeremy, 2026-10-17): Enable -> robot holds still -> Y (or
+    // the Start button) applies the menus and starts the 3:00 countdown.
+    // Before the start nothing that moves the robot is sent.
+    const MATCH_MS = 3 * 60 * 1000;
+    let matchStarted = false;
+    let matchEndsAt = 0; // performance.now() deadline; 0 = never started
     let operatorMode = 2; // MODE_FULL_MANUAL
     let enablePending = false;
     let enablePendingSince = 0;
@@ -767,7 +784,6 @@
     // Lets this page (deployed from dev) work with any robot's firmware.
     let absoluteElevation = false;
     let flywheelRatio = 0;
-    const heldKeys = new Set();
 
     // 3x3 target hole (keys 1-9) and auto paths (Q W E R), phase 1: the
     // robot records them (TEL slots 32-34 on USB). Through the ground
@@ -813,24 +829,37 @@
         // The firmware drops back to full manual on every disarm.
         operatorMode = MODE_FULL_MANUAL;
         tankLeft = 0; tankRight = 0; rotateAxis = 0; angleAxis = 0;
+        dpadRotate = 0; dpadAngle = 0;
         gamepadDrive = null;
-        heldKeys.clear();
+        // A new Enable waits for Y again (the countdown itself runs on).
+        matchStarted = false;
         setFlywheelSlider(0);
       }
       updateControlUi();
-      if (justEnabled) applyStartMenus();
+      if (justEnabled) {
+        // Every Enable starts on the AI's own target pick (the robot resets
+        // it too); the menus wait for Y.
+        sentTarget = 0;
+        if (!robotReportsTarget) {
+          targetHole = 0;
+          autoPathThisEnable = 0;
+          renderTargetAndAuto();
+        }
+      }
     }
 
-    // Right after a confirmed Enable: the mode menu's mode (if not full
-    // manual), then the path menu's auto path (if not None; the robot runs
-    // one per Enable). Every Enable starts on the AI's own target pick.
-    async function applyStartMenus() {
-      sentTarget = 0;
-      if (!robotReportsTarget) {
-        targetHole = 0;
-        autoPathThisEnable = 0;
-        renderTargetAndAuto();
-      }
+    // Y / the Start button: the mode menu's mode (if not full manual), then
+    // the path menu's auto path (if not None; the robot runs one per
+    // Enable), and the 3:00 countdown. Once per Enable.
+    async function startMatch() {
+      if (!controlArmed || matchStarted) return;
+      matchStarted = true;
+      matchEndsAt = performance.now() + MATCH_MS;
+      // A stick held while pressing Y must not drive: center it once.
+      gamepadNeedsCenter = true;
+      updateControlUi();
+      renderMatchTimer();
+      appendControlLog("match started / 比賽開始");
       const mode = Number(startModeSelect.value);
       if (mode in MODE_NAMES && mode !== MODE_FULL_MANUAL) await sendControl(`MODE,${mode}`);
       const path = Number(autoPathSelect.value);
@@ -838,6 +867,26 @@
         sentAutoPath = path;
         await sendControl(`AUTO,${path}`);
       }
+    }
+
+    // X / A / B or the menu: before the start it only picks the mode Y
+    // will apply; during the match it switches right away.
+    async function selectMode(mode) {
+      if (!(mode in MODE_NAMES)) return;
+      startModeSelect.value = String(mode);
+      if (controlArmed && matchStarted) await sendControl(`MODE,${mode}`);
+    }
+
+    function renderMatchTimer() {
+      const left = matchEndsAt === 0 ? MATCH_MS : Math.max(0, matchEndsAt - performance.now());
+      const seconds = Math.ceil(left / 1000);
+      el.matchTimer.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+      el.matchTimer.classList.toggle("done", matchEndsAt !== 0 && left === 0);
+      el.matchState.textContent = matchStarted
+        ? (left === 0 ? "time up / 時間到" : "running / 比賽中")
+        : controlArmed ? "enabled — press Y / 已啟用，按 Y 開始（機器人不會動）"
+                       : matchEndsAt !== 0 && left > 0 ? "running, disabled / 倒數中（未啟用）"
+                                                       : "Enable 後按 Y 開始；開始前機器人不會動";
     }
 
     // 0 full auto / 1 semi auto / 2 full manual (src/IO/OperatorMode.h).
@@ -861,13 +910,16 @@
       enableButton.textContent = controlArmed ? "Enabled / 輸出已啟用" : enablePending ? "Enabling… / 等待機器人確認" : "Enable / 啟用輸出";
       el.operatorMode.textContent = modeName;
       // In the auto modes the shot table sets the flywheel, not the slider.
-      flywheelSlider.disabled = !controlArmed || operatorMode !== MODE_FULL_MANUAL;
+      // Nothing that moves the robot before the match is started (Y).
+      flywheelSlider.disabled = !controlArmed || !matchStarted || operatorMode !== MODE_FULL_MANUAL;
+      startMatchButton.disabled = !controlArmed || matchStarted;
       // Elevation is an absolute target angle (positional servo). In an
       // auto mode the robot answers REJECTED_AUTO_MODE if Auto owns it.
-      const angleEditable = controlArmed && absoluteElevation;
+      const angleEditable = controlArmed && matchStarted && absoluteElevation;
       angleSlider.disabled = !angleEditable;
       angleInput.disabled = !angleEditable;
       angleSetButton.disabled = !angleEditable;
+      renderMatchTimer();
     }
 
     // The firmware zeroes the flywheel on every disarm (Enter, Space,
@@ -1316,7 +1368,7 @@
         angleSlider.max = String(data.angleMaxDeg);
         // Don't yank the slider out from under the operator's hand.
         if (document.activeElement !== angleSlider) angleSlider.value = String(Math.round(data.angleTargetDeg));
-        angleValue.textContent = `仰角目標 ${data.angleTargetDeg.toFixed(1)}° · ${data.anglePulseUs} us（範圍 ${data.angleMinDeg.toFixed(0)}–${data.angleMaxDeg.toFixed(0)}°；↑↓ 按住移動；輸入角度後按「設定」，Enter 仍是停止）`;
+        angleValue.textContent = `仰角目標 ${data.angleTargetDeg.toFixed(1)}° · ${data.anglePulseUs} us（範圍 ${data.angleMinDeg.toFixed(0)}–${data.angleMaxDeg.toFixed(0)}°；十字鍵 ↑↓ 按住移動；輸入角度後按「設定」，Enter 仍是停止）`;
       }
       if (Number.isFinite(data.targetHole) && Number.isFinite(data.autoPathThisEnable) &&
           Number.isFinite(data.autoPathsUsedMask)) {
@@ -1624,26 +1676,32 @@
       lastRateAt = now;
     }, 1000);
 
-    // --- Keyboard control (0-9 / M / arrows / Enter / Space) ---
+    // --- Operator input (Jeremy, 2026-10-17) ---
     // src/IO/ManualControl.cpp protocol, wired or through the ground station.
-    // The chassis and fire are on the gamepad only (control table v2,
-    // Jeremy 2026-10-16); the mode and auto path also have menus above.
-
-    function rotateCommand() {
-      return (heldKeys.has("arrowright") ? 1 : 0) - (heldKeys.has("arrowleft") ? 1 : 0);
-    }
-
-    // Gamepad (browser Gamepad API: Xbox-style pads and flight sticks).
-    // One stick drives -- Y forward/back, X turn, analog -- plus one fire
-    // button (= F). Everything else stays on the keyboard (Jeremy,
-    // 2026-10-16). Pads with the browser's "standard" mapping (Xbox layout)
-    // use the left stick and Y; anything else (a flight stick) uses axes 0/1
-    // and button 0 until its real fire button is known -- the gamepad
-    // readout shows which button index is pressed.
+    // Keyboard: 1-9 / 0 (target hole), Enter (disable), Space (stop and
+    // disconnect). Everything else is on the gamepad.
+    //
+    // Gamepad (browser Gamepad API). Xbox ("standard" mapping) is the default:
+    //   left stick Y = forward/back, right stick X = turn (analog)
+    //   D-pad up/down = elevation, left/right = turret (hold-to-move in full
+    //     manual; in the auto modes the robot makes each press one
+    //     fine-adjust step)
+    //   X / A / B = full auto / semi auto / full manual
+    //   RB = fire, LB = turret home (needs the AS5600: not fitted yet)
+    //   Y = start the match (menus + 3:00 countdown)
+    // Any other pad (a flight stick): axes 0/1 drive, button 0 fires, and the
+    // Dashboard's Start button starts the match.
     const GAMEPAD_DEADZONE = 0.15;
     const GAMEPAD_PROFILES = {
-      standard: { label: "Xbox", turnAxis: 0, forwardAxis: 1, fireButton: 3 },
-      other: { label: "flight stick", turnAxis: 0, forwardAxis: 1, fireButton: 0 },
+      standard: {
+        label: "Xbox", forwardAxis: 1, turnAxis: 2, fireButton: 5, startButton: 3, homeButton: 4,
+        modeButtons: { 2: 0, 0: 1, 1: 2 }, // X full auto, A semi auto, B full manual
+        dpad: { up: 12, down: 13, left: 14, right: 15 },
+      },
+      other: {
+        label: "flight stick", forwardAxis: 1, turnAxis: 0, fireButton: 0, startButton: -1, homeButton: -1,
+        modeButtons: {}, dpad: null,
+      },
     };
 
     function gamepadProfile(pad) {
@@ -1668,6 +1726,21 @@
       return [round(forward - turn), round(forward + turn)];
     }
 
+    // D-pad -> [turret, elevation]: right/up = +1, both of a pair = 0.
+    function dpadAxes(down, dpad) {
+      if (!dpad) return [0, 0];
+      const on = (b) => (down.has(b) ? 1 : 0);
+      return [on(dpad.right) - on(dpad.left), on(dpad.up) - on(dpad.down)];
+    }
+
+    function rotateCommand() {
+      return dpadRotate;
+    }
+
+    function angleCommand() {
+      return dpadAngle;
+    }
+
     function firstGamepad() {
       const pads = navigator.getGamepads ? Array.from(navigator.getGamepads()) : [];
       return pads.find((pad) => pad && pad.connected) || null;
@@ -1678,7 +1751,9 @@
       if (!pad) {
         el.gamepadState.textContent = "none / 未連接";
         el.gamepadInputs.textContent = "按手把任一鍵讓瀏覽器偵測";
-        gamepadFireWasDown = false;
+        gamepadButtonsPrev = new Set();
+        dpadRotate = 0; dpadAngle = 0;
+        if (controlArmed) await sendAllAxesIfChanged(); // unplugged mid-jog: stop
         if (gamepadDrive !== null) {
           // Unplugged mid-drive: stop.
           gamepadDrive = null;
@@ -1688,18 +1763,28 @@
       }
       const profile = gamepadProfile(pad);
       const pressed = pad.buttons.map((b, i) => (b && b.pressed ? i : -1)).filter((i) => i >= 0);
+      const down = new Set(pressed);
+      const prev = gamepadButtonsPrev;
+      gamepadButtonsPrev = down;
+      // One action per press; holding repeats nothing, and a press made
+      // while disabled never fires later.
+      const edge = (b) => b >= 0 && down.has(b) && !prev.has(b);
       el.gamepadState.textContent = `${profile.label} · ${pad.id.slice(0, 32)}`;
       el.gamepadInputs.textContent =
-        `X ${(pad.axes[profile.turnAxis] ?? 0).toFixed(2)} · Y ${(pad.axes[profile.forwardAxis] ?? 0).toFixed(2)}` +
+        `前後 ${(pad.axes[profile.forwardAxis] ?? 0).toFixed(2)} · 轉向 ${(pad.axes[profile.turnAxis] ?? 0).toFixed(2)}` +
         ` · 按鈕 [${pressed.join(",")}] · 發射=按鈕 ${profile.fireButton}`;
 
-      const fireDown = pressed.includes(profile.fireButton);
-      const fireEdge = fireDown && !gamepadFireWasDown;
-      gamepadFireWasDown = fireDown;
+      for (const [button, mode] of Object.entries(profile.modeButtons)) {
+        if (edge(Number(button))) await selectMode(mode);
+      }
       if (!controlArmed) {
         gamepadDrive = null;
         return;
       }
+      if (edge(profile.startButton)) await startMatch();
+      if (edge(profile.homeButton)) appendControlLog("turret home / 轉台回正：AS5600 尚未安裝，之後實作");
+      if (!matchStarted) return; // the robot holds still until Y
+
       let drive = gamepadTank(pad);
       if (drive === null) gamepadNeedsCenter = false;
       if (gamepadNeedsCenter) drive = null;
@@ -1707,7 +1792,9 @@
         gamepadDrive = drive;
         await sendTankIfChanged();
       }
-      if (fireEdge) await sendControl("F");
+      [dpadRotate, dpadAngle] = dpadAxes(down, profile.dpad);
+      await sendAllAxesIfChanged();
+      if (edge(profile.fireButton)) await sendControl("F");
     }
 
     async function sendTankIfChanged() {
@@ -1716,10 +1803,6 @@
         tankLeft = left; tankRight = right;
         await sendControl(`T,${left},${right}`);
       }
-    }
-
-    function angleCommand() {
-      return (heldKeys.has("arrowup") ? 1 : 0) - (heldKeys.has("arrowdown") ? 1 : 0);
     }
 
     async function sendAngleIfChanged() {
@@ -1790,7 +1873,6 @@
     }
 
     enableButton.addEventListener("click", async () => {
-      heldKeys.clear();
       // Drop focus so a later Space/Enter can't re-activate this button.
       enableButton.blur();
       if (controlArmed || enablePending) return;
@@ -1801,9 +1883,14 @@
     });
 
     startModeSelect.addEventListener("change", async () => {
-      // Drop focus so the arrows / Enter / Space go back to the robot.
+      // Drop focus so Enter / Space go back to the robot.
       startModeSelect.blur();
-      if (controlArmed) await sendControl(`MODE,${Number(startModeSelect.value)}`);
+      await selectMode(Number(startModeSelect.value));
+    });
+
+    startMatchButton.addEventListener("click", async () => {
+      startMatchButton.blur();
+      await startMatch();
     });
 
     autoPathSelect.addEventListener("change", () => {
@@ -1811,19 +1898,19 @@
     });
 
     angleSlider.addEventListener("input", async () => {
-      if (!controlArmed) return;
+      if (!controlArmed || !matchStarted) return;
       await sendControl(`ANGT,${Number(angleSlider.value)}`);
     });
 
     angleSetButton.addEventListener("click", async () => {
       angleSetButton.blur();
       const degrees = Number(angleInput.value);
-      if (!controlArmed || angleInput.value === "" || !Number.isFinite(degrees)) return;
+      if (!controlArmed || !matchStarted || angleInput.value === "" || !Number.isFinite(degrees)) return;
       await sendControl(`ANGT,${degrees}`);
     });
 
     flywheelSlider.addEventListener("input", async () => {
-      if (!controlArmed || operatorMode !== MODE_FULL_MANUAL) {
+      if (!controlArmed || !matchStarted || operatorMode !== MODE_FULL_MANUAL) {
         setFlywheelSlider(0);
         return;
       }
@@ -1831,9 +1918,6 @@
       await sendControl(`FLY,${flywheelRatio.toFixed(2)}`);
     });
 
-    // Arrows up/down: the elevation's hold-to-move jog (ANG) on every
-    // firmware and on the radio; the slider / number box set an exact angle.
-    const MOVEMENT_KEYS = new Set(["arrowleft", "arrowright", "arrowup", "arrowdown"]);
     const NON_TEXT_INPUT_TYPES = new Set(["range", "checkbox", "radio", "button", "submit", "reset"]);
 
     // Only real text entry (the elevation angle box, layout fields, etc.) is
@@ -1865,43 +1949,14 @@
         else await emergencyDisconnect();
         return;
       }
-      if (typing || !controlArmed) return;
-
-      if (MOVEMENT_KEYS.has(key)) {
-        event.preventDefault();
-        heldKeys.add(key);
-        await sendAllAxesIfChanged();
-        return;
-      }
-      if (event.repeat) return;
+      if (typing || !controlArmed || event.repeat) return;
       const hole = targetForKey(key);
       if (hole || key === "0") {
         // 1-9: that hole; 0: back to the AI's own pick.
         event.preventDefault();
         sentTarget = hole;
         await sendControl(`TGT,${hole}`);
-      } else if (key === "m") {
-        event.preventDefault();
-        await sendControl("M");
       }
-    });
-
-    // Releases are honored no matter where focus is: if focus moved into a
-    // text box while a key was held, the keyup still has to clear it, or
-    // the heartbeat would keep resending the stale direction.
-    window.addEventListener("keyup", async (event) => {
-      const key = event.key.toLowerCase();
-      if (!heldKeys.has(key)) return;
-      heldKeys.delete(key);
-      if (!controlArmed) return;
-      await sendAllAxesIfChanged();
-    });
-
-    // Moving focus into a text box mid-hold also releases everything held.
-    document.addEventListener("focusin", async (event) => {
-      if (!isTypingTarget(event.target) || heldKeys.size === 0) return;
-      heldKeys.clear();
-      if (controlArmed) await sendAllAxesIfChanged();
     });
 
     window.addEventListener("blur", () => { if (controlArmed || enablePending) emergencyStop(); });
@@ -1932,6 +1987,7 @@
 
     setInterval(sendHeartbeat, CONTROL_HEARTBEAT_MS);
     setInterval(pollGamepad, 20);
+    setInterval(renderMatchTimer, 200);
 
     updatePanelDensity();
     drawField();

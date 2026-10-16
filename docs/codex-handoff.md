@@ -4096,3 +4096,129 @@ the elevation set out of the Manual Control panel into a panel of their own.
   - the safety panel is gone.
 - In a real browser: demo mode works with no console errors, and the panel
   order and layout look right.
+
+## 2026-10-17 — Claude Code: Xbox gamepad layout, match start (Y) + 3:00 countdown, keyboard trimmed
+
+**User Request (Jeremy):**
+- The gamepad uses the Xbox layout by default:
+
+  | Control | Action |
+  |---|---|
+  | Left stick Y | forward / back |
+  | Right stick X | turn |
+  | D-pad | elevation / turret fine adjust |
+  | X / A / B | full auto / semi auto / full manual |
+  | RB | fire |
+  | LB | turret home (AS5600, later) |
+  | Y | start the auto modes and show a 3:00 countdown |
+- Flow: connect → pick the path (and mode) → Enable, **and the robot does
+  not move (sticks dead)** → press Y to run everything.
+- The countdown starts on the first Y. At 0 it only shows 0:00 and does
+  nothing else.
+- Remove M and the arrows from the keyboard.
+
+**Changed (`tools/dashboard/index.html` only; firmware, ground station and
+Orin are unchanged):**
+- `GAMEPAD_PROFILES.standard` (browser Gamepad API "standard" mapping):
+
+  | Field | Value |
+  |---|---|
+  | forwardAxis | 1 |
+  | turnAxis | 2 |
+  | fireButton | 5 (RB) |
+  | startButton | 3 (Y) |
+  | homeButton | 4 (LB) |
+  | modeButtons | {X(2) → 0, A(0) → 1, B(1) → 2} |
+  | dpad | 12–15 |
+
+  `other` (flight stick) stays axes 0/1 with fire on button 0, and has no
+  start or mode buttons; the new Start button and the menu cover those.
+- Every button acts once per press, through `gamepadButtonsPrev`. A press
+  made while disabled is never replayed later.
+- `pollGamepad()`:
+  - Mode buttons work at any time through `selectMode()`. Before the start
+    they only set the menu; during the match they send `MODE,n`.
+  - Once enabled, Y → `startMatch()`.
+  - LB only logs "AS5600 尚未安裝".
+  - **Before `matchStarted` it returns without sending any motion.**
+  - After the start: the stick (center first again) → T, the D-pad →
+    `dpadAxes()` → ROT/ANG through the existing hold-to-move path. In the
+    auto modes the firmware still turns each press into one fine-adjust
+    step. RB → F.
+- `startMatch()` (Y or the new "開始比賽 / Start（Y）" button):
+  - once per Enable;
+  - sends `MODE,n` (skipped for full manual), then `AUTO,n` (skipped for
+    None);
+  - `matchEndsAt = now + 3:00`.
+
+  The menus are no longer applied at Enable, only at Y. Enable still
+  resets the target display to the AI's pick.
+- Before the start the Falcon slider, the elevation slider/box/Set and
+  Start-while-pending are all disabled or ignored. The heartbeat only
+  sends K.
+- A disarm clears `matchStarted`, so a new Enable waits for Y again, but
+  the running countdown keeps going. `renderMatchTimer()` runs every
+  200 ms and on every UI update:
+  - shows m:ss;
+  - at 0 shows "0:00" in red ("時間到") and changes nothing else;
+  - a new Y restarts it from 3:00.
+- Keyboard: only 1–9 / 0, Enter and Space are left. M, the arrows, the
+  keyup handler and the focusin hold-release handler are removed, because
+  nothing on the keyboard is held any more.
+
+**AS5600 turret home: design recorded, not implemented (Jeremy:
+"先記著之後做"):**
+- **Hardware:**
+  - The AS5600 sits on the turret motor shaft, which drives the turret's
+    big pulley through a belt at 180 : 36.5. One turret turn is about
+    4.93 magnet turns.
+  - The turret only travels about 180°, which is about 2.47 magnet turns,
+    or about 56 counts per turret degree.
+  - It will use I2C on D20 / D21. **The feed tower trigger (D21 today) has
+    to move first** (Jeremy: "送球塔的腳位之後會改").
+- **Multi-turn counting:**
+  - `delta = raw − last`; if delta > 2048, subtract 4096; if delta <
+    −2048, add 4096; `total += delta`.
+  - The magnet must move less than 2048 counts between reads. At 2 rev/s
+    that is about 80 counts per 10 ms, so it is safe.
+- **Home (Jeremy):**
+  - On the robot, pick a setpoint inside the first magnet turn (0–4095)
+    as the origin, and count left/right from there.
+  - At boot, if the turret is inside that first turn, a dedicated **turret
+    PIDF (separate from the vision-follow PIDF)** brings it to the
+    setpoint.
+  - Otherwise, LB brings it back to the setpoint.
+  - LB: one press drives to center and stops. In the auto modes it pauses
+    vision-follow, then hands the turret back.
+- **Caveat to raise with Jeremy when this is built:** the same raw count
+  repeats about every 73° of turret travel (one magnet turn). At boot the
+  Mega cannot tell which turn it is in, so it assumes the nearest one. The
+  automatic home is only right if the turret is powered up within about
+  ±36° of center (half a magnet turn). If it starts at, say, 90°, it
+  locks onto the wrong turn and "home" lands about 73° off. Options when
+  implementing:
+  - mark the turret for power-up;
+  - home against a mechanical end (the AS5600 count stops changing) once;
+  - add a switch.
+  - Also add software limits of about ±85°.
+
+**Evidence:**
+- `dashboard_control_test` now pins the Xbox map (axes, RB / LB / Y,
+  X / A / B → modes, the D-pad) and `dpadAxes()`.
+- `dashboard_page_test` was rewritten for the new flow and covers:
+  - nothing moves before Y (stick, D-pad, RB, slider), only K;
+  - digits still go out, and X / A / B only set the menu;
+  - Y sends `MODE` / `AUTO` once, starts 3:00, then 2:00 and 0:01; a second
+    Y does nothing;
+  - disarm stops the match but not the clock; at 0 the robot stays
+    enabled;
+  - the ground station sends `MODE,1` / `AUTO,3` only at Y;
+  - X / A / B and the menu during the match;
+  - LB does nothing except the log line;
+  - right stick X turn, left stick Y forward, the other axes are ignored;
+  - RB fires and Y doesn't;
+  - unplugging zeroes T / ROT;
+  - the flight-stick profile;
+  - the keyboard M / arrows are gone.
+- In a real browser the layout is right and the console has no errors.
+- Not run on hardware.

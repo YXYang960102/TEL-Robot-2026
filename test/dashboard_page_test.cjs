@@ -1,4 +1,4 @@
-// Behavior test for tools/dashboard/index.html's keyboard control (wired
+// Behavior test for tools/dashboard/index.html's operator control (wired
 // through the Mega's USB, or wireless through the ground STM32),
 // loading the WHOLE page script in a vm with a permissive DOM stub (canvas,
 // and layout code just hits no-op proxies). Covers the page-side
@@ -108,12 +108,31 @@ async function emergencyStopViaEnter() {
 }
 
 (async () => {
-  // Disarmed by default: arrows, holes and auto keys send nothing.
+  // Gamepad stub (browser Gamepad API). Xbox = "standard" mapping.
+  let pads = [];
+  ctx.navigator.getGamepads = () => pads;
+  const pad = (mapping, axes, pressedButtons = []) => ({
+    connected: true, id: mapping === 'standard' ? 'Xbox 360 Controller' : 'Flight Stick', mapping, axes,
+    buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: pressedButtons.includes(i), value: 0 })),
+  });
+  const xbox = (axes = [0, 0, 0, 0], buttons = []) => pad('standard', axes, buttons);
+  const XB = { A: 0, B: 1, X: 2, Y: 3, LB: 4, RB: 5, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15 };
+  const poll = () => run('pollGamepad()');
+  // Press and release Xbox buttons (sticks centered).
+  const press = async (...buttons) => { pads = [xbox([0, 0, 0, 0], buttons)]; await poll(); pads = [xbox()]; await poll(); };
+  const start = () => elements.startMatch.handlers.click();
+
+  // Disarmed by default: keys and the pad send nothing.
   for (const k of ['ArrowUp', '5', '0', 'm']) await windowHandlers.keydown(key(k));
+  pads = [xbox([0, -1, 1, 0], [XB.RB, XB.UP, XB.Y])];
+  await poll();
+  pads = [xbox()];
+  await poll();
   assert.equal(writes.length, 0);
   // Initial disabled state comes from the markup itself (not modeled by
   // the DOM stub), so check the source directly.
   assert.match(html, /<button id="enableControl" disabled>/);
+  assert.match(html, /<button id="startMatch" disabled>/);
   assert.match(html, /<input id="flywheelSlider"[^>]*\bdisabled\b/);
 
   // Enable goes through the button, and only the firmware's
@@ -123,51 +142,86 @@ async function emergencyStopViaEnter() {
   assert.equal(armed(), false);
   event('OUTPUTS_ENABLED');
   assert.equal(armed(), true);
-  assert.equal(elements.flywheelSlider.disabled, false);
 
-  // 1-9 / Q W E R: one line per press; held-key auto-repeat sends nothing.
+  // ---- Before Y: the robot holds still (Jeremy, 2026-10-17) ----
+  assert.equal(run('matchStarted'), false);
+  assert.equal(elements.startMatch.disabled, false);
+  assert.equal(elements.flywheelSlider.disabled, true);
+  assert.match(elements.matchState.textContent, /按 Y 開始/);
+  writes.length = 0;
+  pads = [xbox([0, -1, 1, 0], [XB.UP, XB.RIGHT, XB.RB])];  // stick, D-pad, fire
+  await poll(); await poll();
+  pads = [xbox()];
+  await poll();
+  elements.flywheelSlider.value = '40';
+  await elements.flywheelSlider.handlers.input();
+  assert.equal(writes.length, 0);
+  assert.equal(elements.flywheelSlider.value, '0');
+  await run('sendHeartbeat()');
+  assert.deepEqual([...writes], ['K']);                  // just the keepalive
+  // Digits still pick a target (no motion); repeats send nothing.
   writes.length = 0;
   for (const k of ['1', '5', '9', '0']) {
     await windowHandlers.keydown(key(k));
     await windowHandlers.keydown(key(k, { repeat: true }));
-    await windowHandlers.keydown(key(k, { repeat: true }));
   }
   assert.deepEqual([...writes], ['TGT,1', 'TGT,5', 'TGT,9', 'TGT,0']);   // 0 = back to the AI's pick
-  // Q W E R are no longer auto-path keys (the path is a menu now).
+  // M, the arrows and the old letter keys are gone from the keyboard.
   writes.length = 0;
-  for (const k of ['q', 'w', 'e', 'r']) await windowHandlers.keydown(key(k));
-  assert.equal(writes.length, 0);
-  // No keyboard drive or fire any more (the stick does both), and the
-  // retired keys send nothing.
-  writes.length = 0;
-  for (const k of ['s', 'a', 'd', 'f', 'l']) {
+  for (const k of ['m', 'ArrowUp', 'ArrowLeft', 'q', 'w', 'e', 'r', 's', 'a', 'd', 'f', 'l']) {
     await windowHandlers.keydown(key(k));
-    await windowHandlers.keyup(key(k));
   }
   assert.equal(writes.length, 0);
+  assert.equal(windowHandlers.keyup, undefined);       // no held keyboard keys any more
+  // X / A / B before the start only pick the mode Y will apply.
+  await press(XB.A);
+  assert.equal(elements.startMode.value, '1');
+  await press(XB.X);
+  assert.equal(elements.startMode.value, '0');
+  await press(XB.B);
+  assert.equal(elements.startMode.value, '2');
+  assert.equal(writes.length, 0);
 
-  // Arrows: left/right turret, up/down elevation, both hold-to-move;
-  // release stops. With no angle telemetry yet (older firmware, or the
-  // wireless ground station) the exact-angle widgets are off.
-  writes.length = 0;
-  await windowHandlers.keydown(key('ArrowRight'));
-  await windowHandlers.keydown(key('ArrowUp'));
+  // ---- Y: start (menus: full manual, no path) ----
+  clock.t = 1000;
+  await press(XB.Y);
+  assert.equal(run('matchStarted'), true);
+  assert.equal(writes.length, 0);                        // manual + None: nothing to send
+  assert.equal(elements.matchTimer.textContent, '3:00');
+  assert.match(elements.matchState.textContent, /比賽中/);
+  assert.equal(elements.startMatch.disabled, true);
+  assert.equal(elements.flywheelSlider.disabled, false);
+  clock.t = 1000 + 60000;
+  run('renderMatchTimer()');
+  assert.equal(elements.matchTimer.textContent, '2:00');
+  clock.t = 1000 + 179500;
+  run('renderMatchTimer()');
+  assert.equal(elements.matchTimer.textContent, '0:01');
+  // A second Y does nothing.
+  await press(XB.Y);
+  assert.equal(writes.length, 0);
+
+  // D-pad: right/left turret, up/down elevation, hold-to-move; release
+  // stops. With no angle telemetry yet the exact-angle widgets are off.
+  pads = [xbox([0, 0, 0, 0], [XB.RIGHT, XB.UP])];
+  await poll(); await poll();                            // held: not repeated
   assert.deepEqual([...writes], ['ROT,1', 'ANG,1']);
-  await windowHandlers.keyup(key('ArrowRight'));
-  await windowHandlers.keyup(key('ArrowUp'));
+  pads = [xbox()];
+  await poll();
   assert.deepEqual([...writes].slice(-2), ['ROT,0', 'ANG,0']);
   assert.equal(elements.angleSlider.disabled, true);
 
   // The Mega reports the angle fields (TEL slots 29-31): the exact-angle
-  // widgets turn on; the arrows stay the hold-to-move jog.
+  // widgets turn on; the D-pad stays the hold-to-move jog.
   run('handleLine(' + JSON.stringify(['TEL', 1, 0, 0, 0, 0, 0, 1500, 1500, 1500, 1500, 1500, 0, 3, 1,
     'NaN', 'NaN', 'NaN', 1, 1500, 1500, 1, 0, 0, 0, 0, 1500, 0.0, 1500, 135.0, 0.0, 270.0].join(',')) + ')');
   assert.equal(elements.angleSlider.disabled, false);
   writes.length = 0;
-  await windowHandlers.keydown(key('ArrowUp'));
-  await windowHandlers.keydown(key('ArrowUp', { repeat: true }));
-  assert.deepEqual([...writes], ['ANG,1']);              // held, not repeated
-  await windowHandlers.keyup(key('ArrowUp'));
+  pads = [xbox([0, 0, 0, 0], [XB.DOWN])];
+  await poll();
+  assert.deepEqual([...writes], ['ANG,-1']);
+  pads = [xbox()];
+  await poll();
   assert.equal(last(), 'ANG,0');
   assert.ok(!writes.some((w) => w.startsWith('ANGS')));
   // Slider and number box send an absolute target.
@@ -182,26 +236,11 @@ async function emergencyStopViaEnter() {
   await elements.angleSet.handlers.click();
   assert.equal(writes.length, 0);                       // empty box: nothing sent
 
-  // Typing in a real text box never drives the robot...
+  // Typing in a real text box never drives the robot.
   writes.length = 0;
-  for (const k of ['w', 'r', '5', 'm', 'ArrowUp']) {
-    await windowHandlers.keydown(key(k, { target: elements.angleInput }));
-  }
+  for (const k of ['5', 'm']) await windowHandlers.keydown(key(k, { target: elements.angleInput }));
   assert.equal(writes.length, 0);
   assert.equal(armed(), true);
-
-  // ...but a key held BEFORE focus moved there is still released by its
-  // keyup (Codex: otherwise the heartbeat keeps resending the old value).
-  await windowHandlers.keydown(key('ArrowRight'));
-  assert.equal(last(), 'ROT,1');
-  await windowHandlers.keyup(key('ArrowRight', { target: elements.angleInput }));
-  assert.equal(last(), 'ROT,0');
-
-  // Focus jumping into a text box mid-hold also releases it.
-  await windowHandlers.keydown(key('ArrowDown'));
-  assert.equal(last(), 'ANG,-1');
-  await documentHandlers.focusin({ target: elements.angleInput });
-  assert.equal(last(), 'ANG,0');
 
   // Falcon slider -> FLY command, and resent by the heartbeat while non-zero.
   elements.flywheelSlider.value = '40';
@@ -219,6 +258,9 @@ async function emergencyStopViaEnter() {
   assert.equal(armed(), false);
   assert.equal(elements.flywheelSlider.value, '0');
   assert.equal(run('flywheelRatio'), 0);
+  // Disarm ends the match for this Enable (the countdown itself runs on).
+  assert.equal(run('matchStarted'), false);
+  assert.match(elements.matchState.textContent, /倒數中/);
 
   // Disarmed: heartbeat sends nothing, slider input is ignored.
   writes.length = 0;
@@ -228,22 +270,39 @@ async function emergencyStopViaEnter() {
   assert.equal(writes.length, 0);
   assert.equal(elements.flywheelSlider.value, '0');
 
-  // Neutral + armed heartbeat is a bare keepalive.
+  // A new Enable waits for Y again; the countdown restarts from 3:00.
   await arm();
+  assert.equal(run('matchStarted'), false);
   await run('sendHeartbeat()');
   assert.equal(last(), 'K');
+  clock.t = 400000;
+  run('renderMatchTimer()');
+  assert.equal(elements.matchTimer.textContent, '0:00');   // the old one ran out
+  assert.match(html, /#matchTimer\.done/);
+  await start();
+  assert.equal(elements.matchTimer.textContent, '3:00');
+  clock.t = 400000 + 200000;
+  run('renderMatchTimer()');
+  assert.equal(elements.matchTimer.textContent, '0:00');   // at 0: just shown
+  assert.match(elements.matchState.textContent, /時間到/);
+  assert.equal(armed(), true);                              // nothing is disabled by it
 
   // Firmware-side disarms (watchdog, RC link lost, corrupt line) reset the
   // page too.
   for (const name of ['OUTPUTS_DISABLED', 'COMMAND_TIMEOUT', 'DISABLED_RC_LINK_LOST', 'DISABLED_CORRUPT_COMMAND']) {
     await arm();
+    await start();
     elements.flywheelSlider.value = '50';
     await elements.flywheelSlider.handlers.input();
-    await windowHandlers.keydown(key('ArrowRight'));
+    pads = [xbox([0, 0, 0, 0], [XB.RIGHT])];
+    await poll();
     event(name);
     assert.equal(armed(), false, name);
     assert.equal(run('flywheelRatio'), 0, name);
-    assert.equal(run('heldKeys.size'), 0, name);
+    assert.equal(run('rotateAxis'), 0, name);
+    assert.equal(run('matchStarted'), false, name);
+    pads = [xbox()];
+    await poll();
   }
 
   // Telemetry that reports armed=0 also resyncs the page.
@@ -269,13 +328,12 @@ async function emergencyStopViaEnter() {
   assert.equal(last(), 'X');
   assert.equal(armed(), false);
 
-  // Codex review afed238 [P1]: with the chassis and the Falcon running,
-  // focus moves into a text box -- Enter there must still stop.
+  // Codex review afed238 [P1]: with the Falcon running, focus in a text
+  // box -- Enter there must still stop.
   await arm();
-  await windowHandlers.keydown(key('ArrowRight'));
+  await start();
   elements.flywheelSlider.value = '40';
   await elements.flywheelSlider.handlers.input();
-  await documentHandlers.focusin({ target: elements.angleInput });
   writes.length = 0;
   await windowHandlers.keydown(key('Enter', { target: elements.angleInput }));
   assert.equal(last(), 'X');
@@ -293,7 +351,6 @@ async function emergencyStopViaEnter() {
 
   // Same scenario with Space from the text box: stop, then disconnect.
   await arm();
-  await windowHandlers.keydown(key('ArrowRight'));
   writes.length = 0;
   await windowHandlers.keydown(key(' ', { target: elements.angleInput }));
   assert.equal(writes[0], 'X');
@@ -318,18 +375,18 @@ async function emergencyStopViaEnter() {
   event('OUTPUTS_ENABLED');
   assert.equal(armed(), false);
 
-  // Pending: heartbeat keeps the link alive with K, motion keys do nothing,
-  // a second click doesn't resend E.
+  // Pending: heartbeat keeps the link alive with K, keys and Start do
+  // nothing, a second click doesn't resend E.
   writes.length = 0;
   await elements.enableControl.handlers.click();
   await elements.enableControl.handlers.click();
   assert.deepEqual([...writes], ['E']);
   assert.equal(run('enablePending'), true);
-  await windowHandlers.keydown(key('ArrowRight'));
   await windowHandlers.keydown(key('5'));
+  await start();
   await run('sendHeartbeat()');
   assert.deepEqual([...writes], ['E', 'K']);
-  await windowHandlers.keyup(key('ArrowRight'));
+  assert.equal(run('matchStarted'), false);
 
   // Enter during pending cancels it.
   await windowHandlers.keydown(key('Enter'));
@@ -356,12 +413,12 @@ async function emergencyStopViaEnter() {
 
   // No confirmation at all within 3 s on the Mega link: give up, no X.
   writes.length = 0;
-  clock.t = 1000;
+  clock.t = 1000000;
   await elements.enableControl.handlers.click();
-  clock.t = 3900;
+  clock.t = 1002900;
   await run('sendHeartbeat()');
   assert.equal(run('enablePending'), true);
-  clock.t = 4100;
+  clock.t = 1003100;
   await run('sendHeartbeat()');
   assert.equal(run('enablePending'), false);
   assert.deepEqual([...writes], ['E', 'K']);
@@ -383,19 +440,19 @@ async function emergencyStopViaEnter() {
   assert.match(elements.wirelessState.textContent, /disarmed/);
 
   // Robot confirms via $WIRELESS (even if the $EVENT was coalesced away).
-  // The menus picked before Enable go out right after the confirmation:
-  // the mode, then the auto path.
-  clock.t = 10000;
+  // The menus picked before Enable wait for Y: the mode, then the path.
+  clock.t = 1100000;
   writes.length = 0;
   elements.startMode.value = '1';                  // semi auto
   elements.autoPathSelect.value = '3';             // right 1
   await elements.enableControl.handlers.click();
   line('$GROUND_EVENT,ENABLE_REQUESTED');
   assert.equal(armed(), false);
-  assert.deepEqual([...writes], ['E']);            // nothing before the robot confirms
   line('$WIRELESS,1,1,2,1,0,1,1,60');
   assert.equal(armed(), true);
   await new Promise((r) => setImmediate(r));
+  assert.deepEqual([...writes], ['E']);            // Enabled, but nothing until Y
+  await press(XB.Y);
   assert.deepEqual([...writes], ['E', 'MODE,1', 'AUTO,3']);
   assert.match(elements.controlOwner.textContent, /wireless/);
   // The robot reports the mode: the menu follows it while enabled.
@@ -412,20 +469,26 @@ async function emergencyStopViaEnter() {
   assert.match(elements.targetHole.textContent, /none/);     // not confirmed yet
   event('TARGET_SELECTED');
   assert.equal(elements.targetHole.textContent, '7 · 右下');
-  event('AUTO_PATH_STARTED');                                 // the menu's path, sent at Enable
+  event('AUTO_PATH_STARTED');                                 // the menu's path, sent at Y
   assert.match(elements.autoPath.textContent, /^已啟動 右一/);
   assert.match(elements.autoPathsUsed.textContent, /本頁送出紀錄：右一/);
-  // Changing the mode menu while enabled switches right away.
+  // During the match the mode menu and X / A / B switch right away.
   writes.length = 0;
   elements.startMode.value = '0';
   await elements.startMode.handlers.change();
-  assert.deepEqual([...writes], ['MODE,0']);
-  // Changing the path menu while enabled sends nothing (next Enable).
+  await press(XB.B);
+  assert.deepEqual([...writes], ['MODE,0', 'MODE,2']);
+  // Changing the path menu sends nothing (next Enable + Y).
   elements.autoPathSelect.value = '1';
   elements.autoPathSelect.handlers.change();
-  assert.equal(writes.length, 1);
+  assert.equal(writes.length, 2);
   elements.startMode.value = '2';
   elements.autoPathSelect.value = '0';
+  // LB (turret home) only explains that the AS5600 isn't there yet.
+  writes.length = 0;
+  await press(XB.LB);
+  assert.equal(writes.length, 0);
+  assert.match(run('log.textContent'), /AS5600 尚未安裝/);
 
   // Stale status: warn only, keep driving (the robot's own RC-loss
   // failsafe is what stops it).
@@ -463,22 +526,25 @@ async function emergencyStopViaEnter() {
   await new Promise((r) => setImmediate(r));
   assert.deepEqual([...writes], ['E', 'X']);
   writes.length = 0;
-  clock.t = 20000;
+  clock.t = 1200000;
   await elements.enableControl.handlers.click();
-  clock.t = 23500;
+  clock.t = 1203500;
   await run('sendHeartbeat()');
   assert.deepEqual([...writes], ['E', 'X']);
   assert.equal(run('enablePending'), false);
 
-  // ---------------- operator modes (M) ----------------
+  // ---------------- operator modes (X / A / B) ----------------
   connectFakePort();
   run('setConnection(true)');
-  clock.t = 30000;
+  clock.t = 1300000;
   await arm();
+  await start();
   writes.length = 0;
-  await windowHandlers.keydown(key('m'));
-  await windowHandlers.keydown(key('m', { repeat: true }));
-  assert.deepEqual([...writes], ['M']);               // one press, no auto-repeat
+  pads = [xbox([0, 0, 0, 0], [XB.A])];
+  await poll(); await poll();                          // held: one press
+  pads = [xbox()];
+  await poll();
+  assert.deepEqual([...writes], ['MODE,1']);
   // The robot confirms; the page shows it and locks the Falcon slider
   // (the shot table drives the flywheel in the auto modes).
   event('MODE_SEMI_AUTO');
@@ -509,11 +575,11 @@ async function emergencyStopViaEnter() {
   assert.equal(armed(), false);
   assert.match(elements.operatorMode.textContent, /FULL MANUAL/);
   // Ground station: $WIRELESS turns the exact-angle widgets off (the radio
-  // carries only up/stop/down); the arrows' ANG jog is unchanged.
+  // carries only up/stop/down); the D-pad's ANG jog is unchanged.
   // $WIRELESS field 10 carries the mode (-1 = not reported).
   connectFakePort();
   run('setConnection(true)');
-  clock.t = 40000;
+  clock.t = 1400000;
   await elements.enableControl.handlers.click();
   line('$WIRELESS,1,1,2,1,0,1,1,50,2');
   assert.equal(armed(), true);
@@ -523,10 +589,13 @@ async function emergencyStopViaEnter() {
   line('$WIRELESS,1,1,2,1,0,1,1,50,-1');
   assert.match(elements.operatorMode.textContent, /FULL AUTO/);   // unknown: unchanged
   assert.equal(elements.angleSlider.disabled, true);
+  await start();
   writes.length = 0;
-  await windowHandlers.keydown(key('ArrowUp'));
+  pads = [xbox([0, 0, 0, 0], [XB.UP])];
+  await poll();
   assert.equal(last(), 'ANG,1');
-  await windowHandlers.keyup(key('ArrowUp'));
+  pads = [xbox()];
+  await poll();
   assert.equal(last(), 'ANG,0');
 
   // Slot 28 (appended): elevation pulse; older lines without it are fine.
@@ -576,75 +645,81 @@ async function emergencyStopViaEnter() {
   event('TARGET_SELECTED');
   assert.match(elements.targetHole.textContent, /none/);
 
-  // ---------------- gamepad (Gamepad API) ----------------
+  // ---------------- gamepad driving ----------------
   connectFakePort();
   run('setConnection(true)');
-  clock.t = 50000;
-  let pads = [];
-  ctx.navigator.getGamepads = () => pads;
-  const pad = (mapping, axes, pressedButtons = []) => ({
-    connected: true, id: mapping === 'standard' ? 'Xbox 360 Controller' : 'Flight Stick', mapping, axes,
-    buttons: Array.from({ length: 17 }, (_, i) => ({ pressed: pressedButtons.includes(i), value: 0 })),
-  });
-  const poll = () => run('pollGamepad()');
-
+  clock.t = 1500000;
+  pads = [];
   await poll();
   assert.match(elements.gamepadState.textContent, /none/);
 
-  // Disarmed: the stick and fire button send nothing.
-  pads = [pad('standard', [1, 0, 0, 0], [3])];
+  // Disarmed: the sticks, RB and Y send nothing.
+  pads = [xbox([0, -1, 1, 0], [XB.RB, XB.Y])];
   writes.length = 0;
   await poll();
   assert.equal(writes.length, 0);
   assert.match(elements.gamepadState.textContent, /Xbox/);
-  assert.match(elements.gamepadInputs.textContent, /按鈕 \[3\]/);
+  assert.match(elements.gamepadInputs.textContent, /按鈕 \[3,5\]/);
+  pads = [xbox()];
+  await poll();
 
-  // Enabled with the stick already pushed: ignored until it is centered once.
-  pads = [pad('standard', [1, 0, 0, 0])];
+  // Enabled and started with the stick already pushed: ignored until it
+  // is centered once.
   await arm();
+  pads = [xbox([0, 0, 1, 0], [XB.Y])];        // Y while holding the turn stick
+  await poll();
+  assert.equal(run('matchStarted'), true);
   writes.length = 0;
+  pads = [xbox([0, 0, 1, 0])];
   await poll(); await poll();
   assert.equal(writes.length, 0);
-  pads = [pad('standard', [0, 0, 0, 0])];
+  pads = [xbox()];
   await poll();
-  // Stick right = turn right = same as D (T,-1,1); deadzone-rescaled analog.
-  pads = [pad('standard', [1, 0, 0, 0])];
+  // Right stick X = turn: right = T,-1,1; deadzone-rescaled analog.
+  pads = [xbox([0, 0, 1, 0])];
   await poll();
   assert.equal(last(), 'T,-1,1');
-  pads = [pad('standard', [0.575, 0, 0, 0])];   // half way past the deadzone
+  pads = [xbox([0, 0, 0.575, 0])];            // half way past the deadzone
   await poll();
   assert.equal(last(), 'T,-0.5,0.5');
-  pads = [pad('standard', [0, -1, 0, 0])];      // stick up = forward
+  pads = [xbox([0, -1, 0, 0])];               // left stick up = forward
   await poll();
   assert.equal(last(), 'T,1,1');
-  pads = [pad('standard', [0.1, -0.1, 0, 0])];  // inside the deadzone = stop
+  pads = [xbox([0.1, -0.1, 0.1, 0])];         // inside the deadzone = stop
   await poll();
   assert.equal(last(), 'T,0,0');
-
-  // The stick is the only drive: W does nothing.
-  await windowHandlers.keydown(key('w'));
-  await windowHandlers.keyup(key('w'));
-  assert.equal(last(), 'T,0,0');
-
-  // Fire (Xbox Y = button 3): one F per press, none while held.
+  // Left stick X and right stick Y drive nothing.
   writes.length = 0;
-  pads = [pad('standard', [0, 0, 0, 0], [3])];
-  await poll(); await poll(); await poll();
-  pads = [pad('standard', [0, 0, 0, 0])];
+  pads = [xbox([1, 0, 0, 1])];
   await poll();
-  pads = [pad('standard', [0, 0, 0, 0], [3])];
+  assert.equal(writes.length, 0);
+  pads = [xbox()];
+  await poll();
+
+  // Fire (RB): one F per press, none while held; Y never fires.
+  writes.length = 0;
+  pads = [xbox([0, 0, 0, 0], [XB.RB])];
+  await poll(); await poll(); await poll();
+  pads = [xbox()];
+  await poll();
+  pads = [xbox([0, 0, 0, 0], [XB.RB])];
+  await poll();
+  pads = [xbox([0, 0, 0, 0], [XB.Y])];
   await poll();
   assert.deepEqual([...writes], ['F', 'F']);
-
-  // Unplugged while driving: the drive drops to zero.
-  pads = [pad('standard', [-1, 0, 0, 0])];
+  pads = [xbox()];
   await poll();
-  assert.equal(last(), 'T,1,-1');
+
+  // Unplugged while driving and jogging: everything drops to zero.
+  pads = [xbox([0, 0, -1, 0], [XB.LEFT])];
+  await poll();
+  assert.ok(writes.includes('T,1,-1') && writes.includes('ROT,-1'));
   pads = [];
   await poll();
-  assert.equal(last(), 'T,0,0');
+  assert.ok(writes.slice(-2).includes('T,0,0') && writes.slice(-2).includes('ROT,0'));
 
-  // A non-standard pad (flight stick): axes 0/1, fire = button 0.
+  // A non-standard pad (flight stick): axes 0/1, fire = button 0; no
+  // start or mode buttons (the Start button / menu do that).
   writes.length = 0;
   pads = [pad('', [0, 0], [0])];
   await poll();
