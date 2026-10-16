@@ -31,6 +31,7 @@ extern Recorder rec;
 extern bool visionReady;      // Vision::isConnected()/isVisionReady()
 extern bool visionValid;      // Vision::isValid() (a target is locked)
 extern double visionDistanceMm;
+extern int visionTargetId;    // Vision::getTargetId() (Orin vision id)
 extern bool shooterReady;     // Shooter::isReady() (turret locked && flywheel up)
 
 }

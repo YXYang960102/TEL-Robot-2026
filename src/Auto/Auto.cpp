@@ -48,20 +48,20 @@ void Auto::update() {
     Shooter::setRotateAimOffsetPx(ManualControl::getAimOffsetPx());
 
     // A target Auto may shoot at: a valid frame (with a hole selected, only
-    // that hole's -- Vision drops every other id) that also has a depth
-    // distance. valid=1 with distance 0 (the Orin's webcam bench mode) has
-    // nothing to look up, so it can aim but never fire.
-    const bool hasTarget = Vision::isValid() && Vision::getDistance() > 0.0;
+    // that hole's -- Vision drops every other id) that has a depth distance
+    // and a shot table for its height. The frame's id says which hole it is
+    // (the selected one, or the Orin's own pick with none selected), so the
+    // table is that hole's row. valid=1 with distance 0 (the Orin's webcam
+    // bench mode) or an id with no table can be aimed at but never fired at.
+    ShotTableLookup::Result shot = {0.0, 0.0};
+    const bool hasTarget = Vision::isValid() && Vision::getDistance() > 0.0 &&
+        ShotTableLookup::lookupTarget(Vision::getTargetId(), Vision::getDistance() / 1000.0, shot);
 
-    // Flywheel from the selected hole's shot table when there is a target
-    // (distance in mm -> m); otherwise the fixed SHOOT_COMMAND so it is
-    // already spinning when a target appears.
+    // Flywheel from that table when there is a target (distance in mm -> m);
+    // otherwise the fixed SHOOT_COMMAND so it is already spinning when a
+    // target appears.
     double flywheelCommand = TuningConstants::Flywheel::SHOOT_COMMAND;
     if (hasTarget) {
-        const TuningConstants::ShotTable::Table& table =
-            TuningConstants::ShotTable::tableForHole(ManualControl::getTarget());
-        const ShotTableLookup::Result shot = ShotTableLookup::lookup(
-            Vision::getDistance() / 1000.0, table.entries, table.count);
         flywheelCommand = shot.flywheelCommand;
         // Elevation from the table too (a measured servo pulse) plus the
         // operator's fine-adjust, once the table holds real measured pulses

@@ -19,6 +19,7 @@ Recorder rec;
 bool visionReady = false;
 bool visionValid = false;
 double visionDistanceMm = 0.0;
+int visionTargetId = 8;       // the center hole, unless a test says otherwise
 bool shooterReady = false;
 }
 
@@ -80,6 +81,7 @@ bool Vision::isConnected() { return hoststub::visionReady; }
 bool Vision::isVisionReady() { return hoststub::visionReady; }
 bool Vision::isValid() { return hoststub::visionValid; }
 double Vision::getDistance() { return hoststub::visionDistanceMm; }
+int Vision::getTargetId() { return hoststub::visionTargetId; }
 
 int MechLink::channels[RCMAP_CHANNEL_COUNT];
 unsigned long MechLink::frameCount = 0;

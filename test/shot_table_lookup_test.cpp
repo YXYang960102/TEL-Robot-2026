@@ -1,5 +1,8 @@
 #include <assert.h>
 #include <math.h>
+#include <stdio.h>
+
+#include <initializer_list>
 
 #include "../src/Control/ShotTableLookup.h"
 
@@ -50,11 +53,25 @@ int main() {
         assert(near(r.flywheelCommand, 0.70));
         assert(near(r.elevationPulseUs, 1800.0));
     }
-    // Above the last entry: clamp, do not extrapolate.
+    // Beyond the last entry: extrapolated along the last segment's trend
+    // (3.0 -> 4.0 m: +0.10 flywheel, -200 us per m). 4.5 m -> 0.95, 1300 us.
+    {
+        auto r = ShotTableLookup::lookup(4.5, kTable, kCount);
+        assert(near(r.flywheelCommand, 0.95));
+        assert(near(r.elevationPulseUs, 1300.0));
+    }
+    // ...but the flywheel command never goes past 100% (5 m would be 1.0,
+    // 20 m would be 2.5). The elevation keeps going; Shooter clamps it to
+    // the servo's limits.
     {
         auto r = ShotTableLookup::lookup(20.0, kTable, kCount);
-        assert(near(r.flywheelCommand, 0.90));
-        assert(near(r.elevationPulseUs, 1400.0));
+        assert(near(r.flywheelCommand, 1.0));
+        assert(near(r.elevationPulseUs, 1400.0 - 200.0 * 16.0));
+    }
+    // A null table is a no-op too.
+    {
+        auto r = ShotTableLookup::lookup(5.0, nullptr, 3);
+        assert(near(r.flywheelCommand, 0.0) && near(r.elevationPulseUs, 0.0));
     }
 
     // count <= 1 is a defensive no-op case.
@@ -69,18 +86,39 @@ int main() {
         assert(near(r.elevationPulseUs, kTable[0].elevationPulseUs));
     }
 
-    // The real project table: sanity-check it is sorted and interpolates
-    // cleanly across its full range without special-casing any entry.
+    // The real project tables (one per height): sorted, and they
+    // interpolate cleanly across their full range.
     {
-        using TuningConstants::ShotTable::TABLE;
-        using TuningConstants::ShotTable::TABLE_COUNT;
-        for (int i = 0; i < TABLE_COUNT - 1; i++) {
-            assert(TABLE[i].distanceMeters < TABLE[i + 1].distanceMeters);
+        using namespace TuningConstants::ShotTable;
+        for (int id : {10, 7, 4, 1}) {  // bottom, middle, top, bonus
+            const Table t = tableForVisionId(id);
+            assert(t.entries != nullptr && t.count >= 2);
+            for (int i = 0; i < t.count - 1; i++) {
+                assert(t.entries[i].distanceMeters < t.entries[i + 1].distanceMeters);
+            }
+            auto r = ShotTableLookup::lookup(5.25, t.entries, t.count);  // between 5.0 and 5.5
+            assert(r.flywheelCommand > t.entries[5].flywheelCommand &&
+                   r.flywheelCommand < t.entries[6].flywheelCommand);
         }
-        auto r = ShotTableLookup::lookup(5.25, TABLE, TABLE_COUNT);
-        assert(r.flywheelCommand > TABLE[6].flywheelCommand &&
-               r.flywheelCommand < TABLE[7].flywheelCommand);
     }
 
+    // lookupTarget: the id's table plus that hole's elevation trim; no
+    // table for id 0 / unknown ids.
+    {
+        using namespace TuningConstants::ShotTable;
+        for (int id = 1; id <= 12; id++) {
+            ShotTableLookup::Result r = {0.0, 0.0};
+            assert(ShotTableLookup::lookupTarget(id, 4.0, r));
+            const Table t = tableForVisionId(id);
+            const auto plain = ShotTableLookup::lookup(4.0, t.entries, t.count);
+            assert(near(r.flywheelCommand, plain.flywheelCommand));
+            assert(near(r.elevationPulseUs, plain.elevationPulseUs + ELEVATION_TRIM_US[id]));
+        }
+        ShotTableLookup::Result r = {0.0, 0.0};
+        assert(!ShotTableLookup::lookupTarget(0, 4.0, r));
+        assert(!ShotTableLookup::lookupTarget(13, 4.0, r));
+    }
+
+    printf("shot_table_lookup_test: all asserts passed\n");
     return 0;
 }

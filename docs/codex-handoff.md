@@ -3772,3 +3772,79 @@ the same time):
 4. Then, with outputs on and in semi-auto, check the direction of the
    left/right fine-adjust: pressing → should make the turret aim to the
    right of the hole.
+
+## 2026-10-16 — Claude Code: shot tables by height (3 rows + bonus), extrapolation beyond 8.5 m
+
+**User Request / Discussion Result:** Jeremy asked how to lay out the table
+for "every hole has a different elevation and speed, and those change with
+distance". Agreed with Jeremy, including after he checked the diagram:
+- The trajectory depends on the hole's height and the distance to it, so
+  the three holes of a row share one table.
+- An angled shot needs no extra table. The Orin's `DEPTH_DISTANCE_MODE =
+  "range"` measures the straight-line distance from the camera to the
+  selected hole, which is already longer at an angle.
+- Each hole gets one elevation trim.
+- Tables run from 2.5 m, because the rules put the barrier 250 cm from the
+  net.
+- The bonus holes are at a different height, so they get their own table
+  (Jeremy: **A**).
+- Beyond 8.5 m, predict along the 8.0 → 8.5 trend (Jeremy).
+
+**Changed (supersedes the 9 per-hole tables from 95632be):**
+- `TuningConstants::ShotTable`: `BOTTOM_ROW` / `MIDDLE_ROW` / `TOP_ROW` /
+  `BONUS_ROW`.
+  - Each table is 2.5–8.5 m in 0.5 m steps (13 entries) of {flywheel,
+    elevation pulse}. All four are the same placeholder for now.
+  - `ELEVATION_TRIM_US[13]` is indexed by Orin vision id, and the comments
+    give the matching keys.
+  - `tableForVisionId()`:
+
+    | Vision id | Table | Keys |
+    |---|---|---|
+    | 10–12 | bottom | 1 4 7 |
+    | 7–9 | middle | 2 5 8 |
+    | 4–6 | top | 3 6 9 |
+    | 1–3 | bonus | — |
+    | 0 / unknown | none | — |
+  - Approximate heights read from the rules drawing (to be measured on the
+    field): 120 / 180 / 240 / 290 cm.
+- `ShotTableLookup::lookup`:
+  - Beyond the last entry it extrapolates linearly along the last segment.
+    The flywheel stays within 0–1; the elevation is limited by
+    `Shooter::setAnglePulseUs` to MIN/MAX.
+  - Below the first entry it clamps to that entry.
+  - A null table is a no-op.
+- `ShotTableLookup::lookupTarget(id, m, out)` = the id's height table +
+  that hole's trim. It returns false when the id has no table.
+- `Auto`: the table is chosen from the **frame's id**. With a hole
+  selected, Vision only passes that hole's frames; with none selected, it
+  is the Orin's own pick, so the bonus holes also get the right table.
+  `hasTarget` = valid && distance > 0 && the id has a table, so an id with
+  no table is never fired at.
+
+**Calculation:** placeholder table, 8.0 m = 0.96 and 8.5 m = 0.98, so
+9.0 m → 0.98 + (0.98 − 0.96) = 1.00, and 9.5 m is also 1.00 because the
+flywheel is capped there. The elevation uses the same trend and is capped
+by the servo limits.
+
+**Evidence:**
+- All 8 Mega envs build. megaatmega2560 RAM went from 3547 to 2587 B
+  (31.6%).
+- `shot_table_lookup_test` was updated and now prints its result:
+  extrapolation 4.5 m → 0.95 / 1300 µs, flywheel cap, null table, all four
+  real tables, `lookupTarget` + trim.
+- New `manual_control_test` case `testShotTableByHeight`:
+  - id → table for all 12 ids;
+  - every table is 2.5 + 0.5·i;
+  - Auto uses the frame id's table;
+  - id 0 never fires;
+  - a bonus hole has a table and fires.
+- All other host and page tests pass. Nothing has run on hardware.
+
+**Next Test:**
+1. Measure the actual hole heights on the field.
+2. With the turret locked (Dashboard shows "已看到 ✓"), read the **camera
+   distance** shown on the Dashboard. Fill each row's flywheel and elevation
+   at 2.5–8.5 m.
+3. Use the trims only for a single hole that is consistently off.
+4. Once the elevation values are real, set `ELEVATION_MEASURED = true`.

@@ -2,10 +2,16 @@
 
 #include "../Constants/TuningConstants.h"
 
-// Looks up the distance -> {flywheelCommand, elevationPulseUs} shot table
-// (TuningConstants::ShotTable) with clamped linear interpolation between
-// the two nearest entries. Header-only static method -- pure logic, no
-// Arduino dependency, native-host-testable.
+// Looks up a distance -> {flywheelCommand, elevationPulseUs} shot table
+// (TuningConstants::ShotTable) with linear interpolation between the two
+// nearest entries:
+//   below the first entry: the first entry's values (clamped);
+//   beyond the last entry: extrapolated along the last two entries' trend
+//     (Jeremy, 2026-10-16: past 8.5 m, predict from the table rather than
+//     freeze at 8.5 m). The flywheel command is kept within 0..1; the
+//     elevation pulse is limited by Shooter::setAnglePulseUs().
+// Header-only static methods -- pure logic, no Arduino dependency,
+// native-host-testable.
 class ShotTableLookup {
 public:
     struct Result {
@@ -17,36 +23,42 @@ public:
         double distanceMeters,
         const TuningConstants::ShotTable::Entry* table,
         int count) {
-        if (count <= 0) {
+        if (table == nullptr || count <= 0) {
             return {0.0, 0.0};
         }
         if (count == 1 || distanceMeters <= table[0].distanceMeters) {
             return {table[0].flywheelCommand, table[0].elevationPulseUs};
         }
-        if (distanceMeters >= table[count - 1].distanceMeters) {
-            return {table[count - 1].flywheelCommand, table[count - 1].elevationPulseUs};
+
+        int i = 0;
+        while (i < count - 2 && distanceMeters > table[i + 1].distanceMeters) {
+            i++;
         }
+        // table[i]..table[i+1] brackets the distance, or (beyond the last
+        // entry) is the last segment, which t > 1 then extends.
+        const auto& lower = table[i];
+        const auto& upper = table[i + 1];
+        const double span = upper.distanceMeters - lower.distanceMeters;
+        const double t = span > 0.0 ? (distanceMeters - lower.distanceMeters) / span : 0.0;
+        const double flywheel =
+            lower.flywheelCommand + (upper.flywheelCommand - lower.flywheelCommand) * t;
+        return {
+            flywheel < 0.0 ? 0.0 : (flywheel > 1.0 ? 1.0 : flywheel),
+            lower.elevationPulseUs + (upper.elevationPulseUs - lower.elevationPulseUs) * t,
+        };
+    }
 
-        for (int i = 0; i < count - 1; i++) {
-            const auto& lower = table[i];
-            const auto& upper = table[i + 1];
-            if (distanceMeters > upper.distanceMeters) {
-                continue;
-            }
-
-            const double span = upper.distanceMeters - lower.distanceMeters;
-            const double t = span > 0.0
-                ? (distanceMeters - lower.distanceMeters) / span
-                : 0.0;
-            return {
-                lower.flywheelCommand + (upper.flywheelCommand - lower.flywheelCommand) * t,
-                lower.elevationPulseUs + (upper.elevationPulseUs - lower.elevationPulseUs) * t,
-            };
+    // The shot for one Orin target: its height's table
+    // (ShotTable::tableForVisionId) plus that hole's elevation trim.
+    // False when the id has no table (0 / unknown): don't shoot at it.
+    static bool lookupTarget(int visionId, double distanceMeters, Result& out) {
+        const TuningConstants::ShotTable::Table table =
+            TuningConstants::ShotTable::tableForVisionId(visionId);
+        if (table.entries == nullptr) {
+            return false;
         }
-
-        // Unreachable given the bounds checks above; satisfies -Werror on a
-        // missing return without masking a real bug if the table were ever
-        // passed unsorted.
-        return {table[count - 1].flywheelCommand, table[count - 1].elevationPulseUs};
+        out = lookup(distanceMeters, table.entries, table.count);
+        out.elevationPulseUs += TuningConstants::ShotTable::elevationTrimUs(visionId);
+        return true;
     }
 };

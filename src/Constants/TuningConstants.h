@@ -112,54 +112,50 @@ constexpr double ELEVATION_OFFSET_MAX_US = 200.0;
 
 namespace ShotTable {
 
-// Distance (meters, measured from Vision) -> flywheel command and
-// elevation servo pulse. Both are the actual actuator values to send:
+// Camera distance (meters, Vision::getDistance() / 1000) -> flywheel command
+// and elevation servo pulse, the actual actuator values to send:
 //   flywheelCommand   open-loop Falcon command 0..1 (no speed feedback,
 //                     so not an RPM)
 //   elevationPulseUs  the elevation servo's target pulse, as shown on the
-//                     Dashboard "elevation pulse" readout. The elevation is
-//                     a positional servo, so a pulse is a position; storing
-//                     the pulse (not an angle) needs no angle calibration.
+//                     Dashboard "elevation pulse" readout (a positional
+//                     servo: a pulse is a position, no angle calibration).
+//
+// ONE TABLE PER HEIGHT, not per hole (Jeremy, 2026-10-16): the trajectory
+// depends on the hole's height and the distance to it, so the three holes
+// of a row share a table. Shooting a side hole at an angle needs no extra
+// table: the camera measures the distance to that hole itself (Orin
+// DEPTH_DISTANCE_MODE "range", straight-line camera -> hole), which is
+// longer at an angle, so the lookup lands on a farther row by itself.
+// Heights from the rules drawing (hole centers above the floor, approx.,
+// confirm on the field): bottom 120 cm, middle 180 cm, top 240 cm, bonus
+// holes 290 cm.
+//
+// Rows every 0.5 m from 2.5 m (the barrier is 250 cm from the net, so the
+// robot is never closer) to 8.5 m; the key is the CAMERA's distance, so
+// read it off the Dashboard while locked on the hole, never a tape measure
+// (the camera's own bias is then calibrated in). Between rows: linear
+// interpolation. Below 2.5 m: the 2.5 m values. Beyond 8.5 m: extrapolated
+// along the 8.0 -> 8.5 m trend (Jeremy) -- the flywheel still stops at
+// 100% and the elevation at the servo's limits.
+//
 // Fill it from test shots: at each distance, adjust until it scores and
-// copy the Dashboard's pulse and the Falcon % here.
+// copy the Dashboard's pulse and the Falcon % here. Then use
+// ELEVATION_TRIM_US below for a single hole that is consistently high/low.
 //
-// One table per target hole (HOLE_1..HOLE_9, keys 1-9: columns from the
-// left, each bottom-up), because a high and a low hole at the same
-// distance need different elevation and speed; TABLE is for "no hole
-// selected" (the Orin's own pick). All of them start as copies of the same
-// placeholder rows -- tune each hole separately.
-//
-// PLACEHOLDERS: no real shots have been measured. The flywheel column is a
-// guess; the elevation column is all neutral (1500 us) and is NOT applied
-// until ELEVATION_MEASURED is set true -- placeholder pulses must never
-// move the real elevation. Until then the operator keeps the elevation in
-// every mode.
+// PLACEHOLDERS: no real shots have been measured; all four tables are the
+// same guess. The elevation column is all neutral (1500 us) and is NOT
+// applied until ELEVATION_MEASURED is set true -- placeholder pulses must
+// never move the real elevation. Until then the operator keeps the
+// elevation in every mode.
 struct Entry {
     double distanceMeters;
     double flywheelCommand;
     double elevationPulseUs;
 };
 constexpr bool ELEVATION_MEASURED = false;
-constexpr Entry TABLE[] = {
-    {2.0, 0.70, 1500.0},
-    {2.5, 0.72, 1500.0},
-    {3.0, 0.75, 1500.0},
-    {3.5, 0.78, 1500.0},
-    {4.0, 0.80, 1500.0},
-    {4.5, 0.82, 1500.0},
-    {5.0, 0.84, 1500.0},
-    {5.5, 0.86, 1500.0},
-    {6.0, 0.88, 1500.0},
-    {6.5, 0.90, 1500.0},
-    {7.0, 0.92, 1500.0},
-    {7.5, 0.94, 1500.0},
-    {8.0, 0.96, 1500.0},
-};
-constexpr int TABLE_COUNT = sizeof(TABLE) / sizeof(TABLE[0]);
 
-// Hole 1: left-bottom (key 1).
-constexpr Entry HOLE_1[] = {
-    {2.0, 0.70, 1500.0},
+// Bottom row, ~120 cm: keys 1, 4, 7 = Orin vision ids 10, 11, 12.
+constexpr Entry BOTTOM_ROW[] = {
     {2.5, 0.72, 1500.0},
     {3.0, 0.75, 1500.0},
     {3.5, 0.78, 1500.0},
@@ -172,10 +168,12 @@ constexpr Entry HOLE_1[] = {
     {7.0, 0.92, 1500.0},
     {7.5, 0.94, 1500.0},
     {8.0, 0.96, 1500.0},
+    {8.5, 0.98, 1500.0},
 };
-// Hole 2: left-mid (key 2).
-constexpr Entry HOLE_2[] = {
-    {2.0, 0.70, 1500.0},
+constexpr int BOTTOM_ROW_COUNT = sizeof(BOTTOM_ROW) / sizeof(BOTTOM_ROW[0]);
+
+// Middle row, ~180 cm: keys 2, 5, 8 = Orin vision ids 7, 8, 9.
+constexpr Entry MIDDLE_ROW[] = {
     {2.5, 0.72, 1500.0},
     {3.0, 0.75, 1500.0},
     {3.5, 0.78, 1500.0},
@@ -188,10 +186,12 @@ constexpr Entry HOLE_2[] = {
     {7.0, 0.92, 1500.0},
     {7.5, 0.94, 1500.0},
     {8.0, 0.96, 1500.0},
+    {8.5, 0.98, 1500.0},
 };
-// Hole 3: left-top (key 3).
-constexpr Entry HOLE_3[] = {
-    {2.0, 0.70, 1500.0},
+constexpr int MIDDLE_ROW_COUNT = sizeof(MIDDLE_ROW) / sizeof(MIDDLE_ROW[0]);
+
+// Top row, ~240 cm: keys 3, 6, 9 = Orin vision ids 4, 5, 6.
+constexpr Entry TOP_ROW[] = {
     {2.5, 0.72, 1500.0},
     {3.0, 0.75, 1500.0},
     {3.5, 0.78, 1500.0},
@@ -204,10 +204,13 @@ constexpr Entry HOLE_3[] = {
     {7.0, 0.92, 1500.0},
     {7.5, 0.94, 1500.0},
     {8.0, 0.96, 1500.0},
+    {8.5, 0.98, 1500.0},
 };
-// Hole 4: mid-bottom (key 4).
-constexpr Entry HOLE_4[] = {
-    {2.0, 0.70, 1500.0},
+constexpr int TOP_ROW_COUNT = sizeof(TOP_ROW) / sizeof(TOP_ROW[0]);
+
+// Bonus small holes, ~290 cm: Orin vision ids 1, 2, 3 (not selectable;
+// only the Orin's own pick in full auto with no hole selected).
+constexpr Entry BONUS_ROW[] = {
     {2.5, 0.72, 1500.0},
     {3.0, 0.75, 1500.0},
     {3.5, 0.78, 1500.0},
@@ -220,105 +223,37 @@ constexpr Entry HOLE_4[] = {
     {7.0, 0.92, 1500.0},
     {7.5, 0.94, 1500.0},
     {8.0, 0.96, 1500.0},
+    {8.5, 0.98, 1500.0},
 };
-// Hole 5: center (key 5).
-constexpr Entry HOLE_5[] = {
-    {2.0, 0.70, 1500.0},
-    {2.5, 0.72, 1500.0},
-    {3.0, 0.75, 1500.0},
-    {3.5, 0.78, 1500.0},
-    {4.0, 0.80, 1500.0},
-    {4.5, 0.82, 1500.0},
-    {5.0, 0.84, 1500.0},
-    {5.5, 0.86, 1500.0},
-    {6.0, 0.88, 1500.0},
-    {6.5, 0.90, 1500.0},
-    {7.0, 0.92, 1500.0},
-    {7.5, 0.94, 1500.0},
-    {8.0, 0.96, 1500.0},
-};
-// Hole 6: mid-top (key 6).
-constexpr Entry HOLE_6[] = {
-    {2.0, 0.70, 1500.0},
-    {2.5, 0.72, 1500.0},
-    {3.0, 0.75, 1500.0},
-    {3.5, 0.78, 1500.0},
-    {4.0, 0.80, 1500.0},
-    {4.5, 0.82, 1500.0},
-    {5.0, 0.84, 1500.0},
-    {5.5, 0.86, 1500.0},
-    {6.0, 0.88, 1500.0},
-    {6.5, 0.90, 1500.0},
-    {7.0, 0.92, 1500.0},
-    {7.5, 0.94, 1500.0},
-    {8.0, 0.96, 1500.0},
-};
-// Hole 7: right-bottom (key 7).
-constexpr Entry HOLE_7[] = {
-    {2.0, 0.70, 1500.0},
-    {2.5, 0.72, 1500.0},
-    {3.0, 0.75, 1500.0},
-    {3.5, 0.78, 1500.0},
-    {4.0, 0.80, 1500.0},
-    {4.5, 0.82, 1500.0},
-    {5.0, 0.84, 1500.0},
-    {5.5, 0.86, 1500.0},
-    {6.0, 0.88, 1500.0},
-    {6.5, 0.90, 1500.0},
-    {7.0, 0.92, 1500.0},
-    {7.5, 0.94, 1500.0},
-    {8.0, 0.96, 1500.0},
-};
-// Hole 8: right-mid (key 8).
-constexpr Entry HOLE_8[] = {
-    {2.0, 0.70, 1500.0},
-    {2.5, 0.72, 1500.0},
-    {3.0, 0.75, 1500.0},
-    {3.5, 0.78, 1500.0},
-    {4.0, 0.80, 1500.0},
-    {4.5, 0.82, 1500.0},
-    {5.0, 0.84, 1500.0},
-    {5.5, 0.86, 1500.0},
-    {6.0, 0.88, 1500.0},
-    {6.5, 0.90, 1500.0},
-    {7.0, 0.92, 1500.0},
-    {7.5, 0.94, 1500.0},
-    {8.0, 0.96, 1500.0},
-};
-// Hole 9: right-top (key 9).
-constexpr Entry HOLE_9[] = {
-    {2.0, 0.70, 1500.0},
-    {2.5, 0.72, 1500.0},
-    {3.0, 0.75, 1500.0},
-    {3.5, 0.78, 1500.0},
-    {4.0, 0.80, 1500.0},
-    {4.5, 0.82, 1500.0},
-    {5.0, 0.84, 1500.0},
-    {5.5, 0.86, 1500.0},
-    {6.0, 0.88, 1500.0},
-    {6.5, 0.90, 1500.0},
-    {7.0, 0.92, 1500.0},
-    {7.5, 0.94, 1500.0},
-    {8.0, 0.96, 1500.0},
+constexpr int BONUS_ROW_COUNT = sizeof(BONUS_ROW) / sizeof(BONUS_ROW[0]);
+
+// Per-hole elevation trim (us, added to its row's pulse), indexed by Orin
+// vision id. 0 unless one hole turns out consistently high or low.
+constexpr double ELEVATION_TRIM_US[13] = {
+    0.0,            // 0: no target
+    0.0, 0.0, 0.0,  // 1-3: bonus holes
+    0.0, 0.0, 0.0,  // 4-6: top row, keys 3 6 9
+    0.0, 0.0, 0.0,  // 7-9: middle row, keys 2 5 8
+    0.0, 0.0, 0.0,  // 10-12: bottom row, keys 1 4 7
 };
 
 struct Table {
     const Entry* entries;
     int count;
 };
-#define TEL_SHOT_TABLE(name) Table{name, static_cast<int>(sizeof(name) / sizeof(name[0]))}
-// Index = target hole (0 = none -> TABLE).
-constexpr Table BY_HOLE[] = {
-    TEL_SHOT_TABLE(TABLE),
-    TEL_SHOT_TABLE(HOLE_1), TEL_SHOT_TABLE(HOLE_2), TEL_SHOT_TABLE(HOLE_3),
-    TEL_SHOT_TABLE(HOLE_4), TEL_SHOT_TABLE(HOLE_5), TEL_SHOT_TABLE(HOLE_6),
-    TEL_SHOT_TABLE(HOLE_7), TEL_SHOT_TABLE(HOLE_8), TEL_SHOT_TABLE(HOLE_9),
-};
-#undef TEL_SHOT_TABLE
-constexpr int BY_HOLE_COUNT = sizeof(BY_HOLE) / sizeof(BY_HOLE[0]);
 
-inline const Table& tableForHole(uint8_t hole) {
-    return BY_HOLE[hole < BY_HOLE_COUNT ? hole : 0];
+// Orin vision id -> its height's table; {nullptr, 0} for 0 / unknown ids
+// (no table = Auto never fires at it).
+inline Table tableForVisionId(int visionId) {
+    if (visionId >= 1 && visionId <= 3) return {BONUS_ROW, BONUS_ROW_COUNT};
+    if (visionId >= 4 && visionId <= 6) return {TOP_ROW, TOP_ROW_COUNT};
+    if (visionId >= 7 && visionId <= 9) return {MIDDLE_ROW, MIDDLE_ROW_COUNT};
+    if (visionId >= 10 && visionId <= 12) return {BOTTOM_ROW, BOTTOM_ROW_COUNT};
+    return {nullptr, 0};
+}
+
+inline double elevationTrimUs(int visionId) {
+    return visionId >= 0 && visionId <= 12 ? ELEVATION_TRIM_US[visionId] : 0.0;
 }
 
 }
@@ -330,8 +265,9 @@ static_assert(Rotate::VISION_MAX_INTEGRAL_COMMAND >= 0.0 &&
               "Vision-follow integral limit must fit inside the command limit");
 static_assert(Rotate::VISION_kIZONE_PX >= 0.0 && Rotate::VISION_READY_TOLERANCE_PX > 0.0,
               "Vision-follow pixel windows must be non-negative");
-static_assert(ShotTable::TABLE_COUNT >= 2, "Shot table needs at least two entries to interpolate");
-static_assert(ShotTable::BY_HOLE_COUNT == 10, "one shot table per hole 1..9, plus none");
+static_assert(ShotTable::BOTTOM_ROW_COUNT >= 2 && ShotTable::MIDDLE_ROW_COUNT >= 2 &&
+              ShotTable::TOP_ROW_COUNT >= 2 && ShotTable::BONUS_ROW_COUNT >= 2,
+              "Each shot table needs at least two entries to interpolate");
 static_assert(Auto::AIM_OFFSET_STEP_PX > 0.0 && Auto::AIM_OFFSET_MAX_PX >= Auto::AIM_OFFSET_STEP_PX &&
               Auto::ELEVATION_OFFSET_STEP_US > 0.0 &&
               Auto::ELEVATION_OFFSET_MAX_US >= Auto::ELEVATION_OFFSET_STEP_US,

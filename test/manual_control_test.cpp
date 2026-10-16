@@ -49,6 +49,7 @@ void reset() {
     hoststub::visionReady = false;
     hoststub::visionValid = false;
     hoststub::visionDistanceMm = 0.0;
+    hoststub::visionTargetId = 8;
     hoststub::shooterReady = false;
     MechLink::signalLost = true;
     MechLink::frameCount = 0;
@@ -122,7 +123,7 @@ bool saw(const std::string& event) {
 [[maybe_unused]] bool nearly(double a, double b) { return fabs(a - b) < 1e-6; }
 
 // The camera sees the (selected) hole with a depth distance: 4 m, where the
-// placeholder shot table gives exactly SHOOT_COMMAND (0.80).
+// placeholder shot tables give 0.80 = SHOOT_COMMAND.
 [[maybe_unused]] void targetInView() {
     hoststub::visionValid = true;
     hoststub::visionDistanceMm = 4000.0;
@@ -684,8 +685,8 @@ void testShotTableDrivesFlywheel() {
     hoststub::visionDistanceMm = 5000.0;  // 5 m
     armWired();
     send("M"); step();
-    const ShotTableLookup::Result expected = ShotTableLookup::lookup(
-        5.0, TuningConstants::ShotTable::TABLE, TuningConstants::ShotTable::TABLE_COUNT);
+    ShotTableLookup::Result expected = {0.0, 0.0};
+    assert(ShotTableLookup::lookupTarget(hoststub::visionTargetId, 5.0, expected));
     assert(nearly(rec.flywheelCommand, expected.flywheelCommand));
 }
 
@@ -783,28 +784,40 @@ void testAutoNeedsDistance() {
     assert(saw("FIRE_NOT_READY"));
 }
 
-void testPerHoleShotTables() {
+void testShotTableByHeight() {
     using namespace TuningConstants::ShotTable;
-    // Each hole has its own table; 0 (and anything out of range) is TABLE.
-    assert(tableForHole(0).entries == TABLE && tableForHole(0).count == TABLE_COUNT);
-    const Entry* holes[] = {HOLE_1, HOLE_2, HOLE_3, HOLE_4, HOLE_5, HOLE_6, HOLE_7, HOLE_8, HOLE_9};
-    for (uint8_t k = 1; k <= 9; k++) {
-        assert(tableForHole(k).entries == holes[k - 1] && tableForHole(k).count >= 2);
-        for (int i = 1; i < tableForHole(k).count; i++) {
-            assert(tableForHole(k).entries[i].distanceMeters > tableForHole(k).entries[i - 1].distanceMeters);
-        }
+    // Orin vision id -> its height's table: 10-12 bottom, 7-9 middle,
+    // 4-6 top, 1-3 bonus; nothing for 0 / unknown.
+    for (int id = 10; id <= 12; id++) assert(tableForVisionId(id).entries == BOTTOM_ROW);
+    for (int id = 7; id <= 9; id++) assert(tableForVisionId(id).entries == MIDDLE_ROW);
+    for (int id = 4; id <= 6; id++) assert(tableForVisionId(id).entries == TOP_ROW);
+    for (int id = 1; id <= 3; id++) assert(tableForVisionId(id).entries == BONUS_ROW);
+    for (int id : {0, 13, -1, 99}) assert(tableForVisionId(id).entries == nullptr);
+    // Each table: 2.5 .. 8.5 m every 0.5 m (the barrier is 2.5 m out).
+    for (const Table t : {tableForVisionId(10), tableForVisionId(7), tableForVisionId(4), tableForVisionId(1)}) {
+        assert(t.count == 13);
+        for (int i = 0; i < t.count; i++) assert(nearly(t.entries[i].distanceMeters, 2.5 + 0.5 * i));
     }
-    assert(tableForHole(10).entries == TABLE && tableForHole(255).entries == TABLE);
-    // Auto looks up the selected hole's table.
+
+    // Auto uses the frame's hole: the flywheel follows that hole's table.
     reset();
     hoststub::visionReady = true;
     hoststub::visionValid = true;
     hoststub::visionDistanceMm = 5000.0;
+    hoststub::visionTargetId = 5;                         // top row, key 6
     armWired();
     send("TGT,6"); send("M"); step();
-    const ShotTableLookup::Result expected =
-        ShotTableLookup::lookup(5.0, tableForHole(6).entries, tableForHole(6).count);
+    ShotTableLookup::Result expected = {0.0, 0.0};
+    assert(ShotTableLookup::lookupTarget(5, 5.0, expected));
     assert(nearly(rec.flywheelCommand, expected.flywheelCommand));
+    // A frame with no table (id 0) is never fired at, even "ready".
+    hoststub::visionTargetId = 0;
+    hoststub::shooterReady = true;
+    send("M"); step();                                    // full auto
+    assert(shotsDuring(2500) == 0);
+    assert(nearly(rec.flywheelCommand, TuningConstants::Flywheel::SHOOT_COMMAND));
+    hoststub::visionTargetId = 2;                         // a bonus hole: has a table
+    assert(shotsDuring(2500) >= 2);
 }
 
 void testFineAdjustWired() {
@@ -944,7 +957,7 @@ int main() {
     testWirelessMode();
     testElevationTargetCommands();
     testAutoNeedsDistance();
-    testPerHoleShotTables();
+    testShotTableByHeight();
     testFineAdjustWired();
     testFineAdjustWireless();
     printf("manual_control_test (pin table confirmed): all asserts passed\n");
