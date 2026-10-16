@@ -4043,3 +4043,25 @@ USB.
 - The Dashboard page and control tests pass, with new assertions for 3.50 m
   / 3500 mm, the no-target case, and the AI-pick distance.
 - In a real browser, demo mode shows "1.62 m · 1616 mm".
+
+## 2026-10-16 — Claude Code: Dashboard mode / auto-path menus moved to their own panel
+
+**User Request:** Jeremy sent a screenshot: "把這兩個選單單獨拉出來" (pull
+these two menus out on their own).
+
+**Changed (`tools/dashboard/index.html`):**
+- The "模式" and "自動路徑" menus moved out of the Manual Control panel
+  into a new `data-panel="setup"` panel, "Match Setup / 模式與自動路徑".
+  It sits directly above Manual Control and can be dragged and resized
+  like the other panels. The element ids and behavior are unchanged.
+- This panel is naturally short (about 130 px), and `updatePanelDensity()`
+  treats any panel under 210 px as tiny and shrinks its text to 10 px. The
+  panel is marked `data-fixed-density` so the density pass skips it.
+- With an older saved layout, the new panel is placed using the existing
+  fallback.
+
+**Evidence:**
+- The page test passes, with a new assertion that both menus are in the
+  setup panel and not in the control panel.
+- In a real browser: panel order is vision → setup → control, and the text
+  is back to normal size.

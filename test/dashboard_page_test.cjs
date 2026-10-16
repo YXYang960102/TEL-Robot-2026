@@ -666,3 +666,13 @@ async function emergencyStopViaEnter() {
 // The realtime trace and the vision stream panels were removed (Jeremy,
 // 2026-10-16).
 assert.doesNotMatch(html, /data-panel="(trace|stream)"|id="(chart|streamUrl|streamImage)"/);
+
+// The mode and auto-path menus live in their own panel (Jeremy, 2026-10-16),
+// not inside the manual control panel.
+{
+  const setup = html.slice(html.indexOf('data-panel="setup"'), html.indexOf('data-panel="control"'));
+  assert.match(setup, /id="startMode"/);
+  assert.match(setup, /id="autoPathSelect"/);
+  const control = html.slice(html.indexOf('data-panel="control"'));
+  assert.doesNotMatch(control, /id="startMode"|id="autoPathSelect"/);
+}

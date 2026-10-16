@@ -607,16 +607,12 @@
         </div>
       </section>
 
-      <section class="panel" data-panel="control" style="margin-top:14px">
+      <section class="panel" data-panel="setup" data-fixed-density style="margin-top:14px">
         <div class="section-title">
-          <span>Manual Control / 手動操控（USB 接 Mega＝有線，接地面 STM32＝無線）</span>
-          <span id="controlArmedBadge">disabled / 未啟用</span>
+          <span>Match Setup / 模式與自動路徑</span>
+          <span>Enable 前選好</span>
         </div>
-        <div class="stream-controls">
-          <button id="enableControl" disabled>Enable / 啟用輸出</button>
-          <span class="label">手把：搖桿 前後/轉向、Y（飛行搖桿上方鈕）發射・1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・0 回到 AI 自選・M 模式（全手動→半自動→全自動）・←→ 水平・↑↓ 仰角（按住移動）・Enter 停用・Space 停用並斷線</span>
-        </div>
-        <div class="menu-row">
+        <div class="menu-row" style="border-bottom:0">
           <label class="label">模式 / mode
             <select id="startMode" aria-label="Operator mode">
               <option value="2" selected>全手動 FULL MANUAL</option>
@@ -634,6 +630,17 @@
             </select>
           </label>
           <span class="label">Enable 時套用：先切到這個模式，再跑一次這條路徑。啟用中改模式（或按 M）會立刻切換。</span>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="control" style="margin-top:14px">
+        <div class="section-title">
+          <span>Manual Control / 手動操控（USB 接 Mega＝有線，接地面 STM32＝無線）</span>
+          <span id="controlArmedBadge">disabled / 未啟用</span>
+        </div>
+        <div class="stream-controls">
+          <button id="enableControl" disabled>Enable / 啟用輸出</button>
+          <span class="label">手把：搖桿 前後/轉向、Y（飛行搖桿上方鈕）發射・1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・0 回到 AI 自選・M 模式（全手動→半自動→全自動）・←→ 水平・↑↓ 仰角（按住移動）・Enter 停用・Space 停用並斷線</span>
         </div>
         <div class="grid">
           <div class="metric"><div class="label">left / right pulse / 左右輪脈衝</div><div class="value" id="chassisPulses">--</div></div>
@@ -1016,6 +1023,8 @@
 
     function updatePanelDensity() {
       panels.forEach((panel) => {
+        // A naturally short panel (the setup menus) keeps its normal size.
+        if (panel.hasAttribute("data-fixed-density")) return;
         const w = panel.offsetWidth || panel.getBoundingClientRect().width;
         const h = panel.offsetHeight || panel.getBoundingClientRect().height;
         const tiny = w < 330 || h < 210;
