@@ -4806,3 +4806,37 @@ when manually disabled.
 Claude's: a chassis command filter (`COMMAND_FILTER_TIME_CONSTANT_MS`),
 plus edits to MechLink, Telemetry and the Dashboard. They were left
 untouched. Flashing from that folder includes them.
+
+## 2026-10-18 — Claude Code: committed Jeremy's working-tree drive changes (597c614)
+
+**User Request:** "push everything on dev". Uncommitted edits in Jeremy's
+tree (author not Claude) were reviewed, tested and committed.
+
+**What they do:**
+- **Chassis output filter.** An exponential filter on the left/right
+  command, tau `COMMAND_FILTER_TIME_CONSTANT_MS` = 80 ms, with
+  α = dt/(dt+τ). It reaches 63% of a step in 80 ms and 95% in 240 ms.
+  `stop()` and disable snap straight to neutral (safety stops are never
+  eased). The first tick after an enable snaps to the target.
+- **Rescaled deadband.** `applyDeadband` now returns
+  (|c| − 0.04)/(1 − 0.04) with the sign kept, instead of a step at 0.04.
+- **TEL slot 38: `MechLink::lastLineAgeMs()`.** The time since the last
+  valid RC line. The wired Dashboard shows it in the RF link cell, with
+  a ⚠ at ≥ 200 ms (LINE_TIMEOUT_MS).
+- **Dashboard gamepad mix.**
+  - `TURN_INNER_RATIO` = −0.5 and `DRIVE_TURN_GAIN` = (1−r)/(1+r) = 3.
+    The turn gain blends from 1 at no forward to 3 at full forward.
+  - Both wheels are scaled by the larger one rather than clipped.
+  - Examples: full forward + full turn gives (1, −0.5), where it used to
+    clip to (1, 0). Turn alone still gives (1, −1).
+  - The wireless path inverts exactly (ground: forward = (l+r)/2,
+    turn = (r−l)/2; Mega mixes back), so the ratio survives.
+  - Note: at full forward a small turn is 3× stronger than before.
+
+**Evidence:**
+- Page, control, manual_control (2 variants) and gamepad_motor tests
+  pass.
+- Builds pass: `megaatmega2560`, axes, wired and drive.
+- No dedicated host test for the Chassis filter (Chassis is stubbed in
+  the host tests).
+- Not run on hardware by Claude.
