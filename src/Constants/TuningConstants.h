@@ -27,7 +27,7 @@ constexpr bool INVERTED = false;
 }
 
 namespace RightDrive {
-constexpr bool INVERTED = true;
+constexpr bool INVERTED = false;
 }
 
 namespace Manual {
