@@ -86,6 +86,12 @@ void MechLink::parseLine() {
     everReceivedLine = true;
 }
 
+unsigned long MechLink::lastLineAgeMs() {
+    // Never received anything: millis() itself is already a large, still-
+    // growing number, same "clearly stale" meaning as a real old timestamp.
+    return everReceivedLine ? millis() - lastValidLineMs : millis();
+}
+
 void MechLink::setSafe() {
     for (uint8_t i = 0; i < RCMAP_CHANNEL_COUNT; i++) {
         channels[i] = 1500;

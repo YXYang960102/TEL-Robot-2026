@@ -124,5 +124,13 @@ void Telemetry::update() {
     Serial.print(",");
     Serial.print(ManualControl::getAimOffsetPx(), 0);
     Serial.print(",");
-    Serial.println(ManualControl::getElevationOffsetUs(), 0);
+    Serial.print(ManualControl::getElevationOffsetUs(), 0);
+    Serial.print(",");
+    // Slot 38 (appended 2026-10-17): ms since the last valid "RC,..." line
+    // from the robot STM32 bridge, so the real ELRS/bridge update rate can
+    // be read live (Dashboard) instead of assumed -- compare against
+    // MechLink's own LINE_TIMEOUT_MS (200) and
+    // ManualControlConstants::COMMAND_TIMEOUT_MS (250). Bench-check this
+    // with the chassis output-disabled or the drive motors unpowered.
+    Serial.println(MechLink::lastLineAgeMs());
 }

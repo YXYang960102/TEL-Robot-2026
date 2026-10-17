@@ -16,11 +16,16 @@ double Chassis::rightCommand = 0.0;
 bool Chassis::outputsEnabled = false;
 int Chassis::rightPulseUs = Output::NEUTRAL_US;
 int Chassis::leftPulseUs = Output::NEUTRAL_US;
+double Chassis::filteredLeftCommand = 0.0;
+double Chassis::filteredRightCommand = 0.0;
+unsigned long Chassis::lastUpdateMs = 0;
+bool Chassis::hasLastUpdateMs = false;
 
 void Chassis::init() {
     rightDrive.attach(RightDrive::SIGNAL_PIN);
     leftDrive.attach(LeftDrive::SIGNAL_PIN);
     outputsEnabled = false;
+    hasLastUpdateMs = false;
     stop();
 }
 
@@ -28,12 +33,22 @@ void Chassis::update() {
     if (!outputsEnabled) {
         rightPulseUs = Output::NEUTRAL_US;
         leftPulseUs = Output::NEUTRAL_US;
+        filteredLeftCommand = 0.0;
+        filteredRightCommand = 0.0;
+        hasLastUpdateMs = false; // next enable starts the filter fresh, not a huge dt
     } else {
+        const unsigned long now = millis();
+        const double dtMs = hasLastUpdateMs
+            ? static_cast<double>(now - lastUpdateMs)
+            : 0.0; // first tick after an enable: snap filtered state to target
+        lastUpdateMs = now;
+        hasLastUpdateMs = true;
+
         rightPulseUs = commandToPulseUs(
-            rightCommand,
+            filterTowards(rightCommand, filteredRightCommand, dtMs),
             RightDrive::INVERTED);
         leftPulseUs = commandToPulseUs(
-            leftCommand,
+            filterTowards(leftCommand, filteredLeftCommand, dtMs),
             LeftDrive::INVERTED);
     }
     rightDrive.writeMicroseconds(rightPulseUs);
@@ -88,6 +103,11 @@ void Chassis::stop() {
     turnCommand = 0.0;
     leftCommand = 0.0;
     rightCommand = 0.0;
+    // Immediate, not filtered: an explicit/safety stop must not ease out
+    // over the filter's time constant.
+    filteredLeftCommand = 0.0;
+    filteredRightCommand = 0.0;
+    hasLastUpdateMs = false;
     rightPulseUs = Output::NEUTRAL_US;
     leftPulseUs = Output::NEUTRAL_US;
 
@@ -124,7 +144,34 @@ int Chassis::getLeftPulseUs() {
 }
 
 double Chassis::applyDeadband(double command) {
-    return abs(command) < Manual::COMMAND_DEADBAND ? 0.0 : command;
+    // Rescaled, not a hard cutoff: output is 0 at |command| == DEADBAND and
+    // ramps continuously to +-1 at the stick's full range. A hard cutoff
+    // (0 below the threshold, unchanged above it) jumps straight from 0 to
+    // DEADBAND*RANGE_US the instant the stick crosses the threshold -- a
+    // real step on the PWM pin, not a ramp -- which can sit right in a
+    // brushed ESC's weak low-throttle band and judder (Jeremy, 2026-10-17).
+    const double magnitude = abs(command);
+    if (magnitude < Manual::COMMAND_DEADBAND) {
+        return 0.0;
+    }
+    const double scaled = (magnitude - Manual::COMMAND_DEADBAND) / (1.0 - Manual::COMMAND_DEADBAND);
+    return command < 0.0 ? -scaled : scaled;
+}
+
+double Chassis::filterTowards(double target, double& state, double dtMs) {
+    // Exponential filter: state moves a fraction `alpha` of the way to
+    // `target` each call. alpha = dt / (dt + tau) makes the result
+    // independent of how often update() actually runs (loop jitter,
+    // delay(10) plus whatever else ran that tick), not just a fixed
+    // per-call step. dtMs <= 0 (first tick after an enable) snaps straight
+    // to the target instead of dividing by a non-positive time constant.
+    if (dtMs <= 0.0 || Manual::COMMAND_FILTER_TIME_CONSTANT_MS <= 0.0) {
+        state = target;
+        return state;
+    }
+    const double alpha = dtMs / (dtMs + Manual::COMMAND_FILTER_TIME_CONSTANT_MS);
+    state += (target - state) * alpha;
+    return state;
 }
 
 int Chassis::commandToPulseUs(double command, bool inverted) {

@@ -26,6 +26,7 @@ public:
 private:
     static double applyDeadband(double command);
     static int commandToPulseUs(double command, bool inverted);
+    static double filterTowards(double target, double& state, double dtMs);
 
     static Servo rightDrive;
     static Servo leftDrive;
@@ -36,4 +37,15 @@ private:
     static bool outputsEnabled;
     static int rightPulseUs;
     static int leftPulseUs;
+
+    // Smoothed (filterTowards()) versions of leftCommand/rightCommand, fed
+    // to commandToPulseUs() instead of the raw commands. Reset to 0 by
+    // stop(), so a disable/enable always ramps back up from neutral instead
+    // of snapping to a stale value. getLeftCommand()/getRightCommand() keep
+    // reporting the raw (pre-filter) command; getLeftPulseUs()/
+    // getRightPulseUs() reflect the filtered, actually-written pulse.
+    static double filteredLeftCommand;
+    static double filteredRightCommand;
+    static unsigned long lastUpdateMs;
+    static bool hasLastUpdateMs;
 };

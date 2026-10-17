@@ -34,6 +34,16 @@ namespace Manual {
 constexpr double COMMAND_DEADBAND = 0.04;
 constexpr double MIN_COMMAND = -1.0;
 constexpr double MAX_COMMAND = 1.0;
+
+// Chassis output smoothing (Chassis::update()). An exponential filter on
+// the final left/right command before it becomes a pulse, time constant in
+// ms: output tracks a step input to ~63% in this many ms, ~95% in 3x this.
+// Smooths frame-to-frame stick/RF noise so it doesn't land directly on the
+// PWM pins; does NOT apply to stop()/disable(), which still snap straight
+// to neutral. 80 ms is a first guess -- fast enough that an intentional
+// stick move still feels immediate, slow enough to average out single-frame
+// jitter at ~10-15 ms/loop. TUNE ON THE ROBOT.
+constexpr double COMMAND_FILTER_TIME_CONSTANT_MS = 80.0;
 }
 
 namespace Angle {
@@ -286,6 +296,8 @@ inline double elevationTrimUs(int visionId) {
 
 }
 
+static_assert(Manual::COMMAND_FILTER_TIME_CONSTANT_MS >= 0.0,
+              "Chassis command filter time constant must not be negative");
 static_assert(Rotate::VISION_MAX_COMMAND > 0.0 && Rotate::VISION_MAX_COMMAND <= 1.0,
               "Vision-follow command limit out of range");
 static_assert(Rotate::VISION_MAX_INTEGRAL_COMMAND >= 0.0 &&

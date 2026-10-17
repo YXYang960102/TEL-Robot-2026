@@ -1365,7 +1365,10 @@
         // elevation us).
         visionTargetId: p.length > 35 ? Number(p[35]) : NaN,
         aimOffsetPx: p.length > 36 ? Number(p[36]) : NaN,
-        elevationOffsetUs: p.length > 37 ? Number(p[37]) : NaN
+        elevationOffsetUs: p.length > 37 ? Number(p[37]) : NaN,
+        // Slot 38 (appended 2026-10-17): ms since the last valid "RC,..."
+        // line from the robot STM32 bridge (MechLink::lastLineAgeMs()).
+        rcFrameAgeMs: p.length > 38 ? Number(p[38]) : NaN
       };
     }
 
@@ -1386,6 +1389,13 @@
     function updateControlMetrics(data) {
       if (Number.isFinite(data.leftPulseUs) && Number.isFinite(data.rightPulseUs)) {
         el.chassisPulses.textContent = `${data.leftPulseUs} / ${data.rightPulseUs} us`;
+      }
+      if (Number.isFinite(data.rcFrameAgeMs)) {
+        // TEL only arrives with the page on the Mega's USB, never through the
+        // ground station, so this never overwrites the $RFLINK text.
+        // 200 = MechLink::LINE_TIMEOUT_MS (Mega treats the RF link as lost).
+        el.rfLinkState.textContent = `RC 幀齡 ${data.rcFrameAgeMs} ms` +
+          (data.rcFrameAgeMs >= 200 ? " ⚠ 逾時（≥200）" : "（逾時 200）");
       }
       if (Number.isFinite(data.controlOwner)) {
         el.controlOwner.textContent = OWNER_NAMES[data.controlOwner] ?? `#${data.controlOwner}`;
@@ -1765,6 +1775,11 @@
     // Any other pad (a flight stick): axes 0/1 drive, button 0 fires, and the
     // Dashboard's Start button starts the match.
     const GAMEPAD_DEADZONE = 0.15;
+    // Inner wheel at full forward + full turn, as a fraction of the outer
+    // wheel (Jeremy, 2026-10-17): -0.5 = the inner wheel runs backwards at
+    // half speed. Must stay above -1. Turn alone stays equal and opposite.
+    const TURN_INNER_RATIO = -0.5;
+    const DRIVE_TURN_GAIN = (1 - TURN_INNER_RATIO) / (1 + TURN_INNER_RATIO);
     const GAMEPAD_PROFILES = {
       standard: {
         label: "Xbox", forwardAxis: 1, turnAxis: 2, fireButton: 5, startButton: 3, homeButton: 4,
@@ -1803,13 +1818,25 @@
     // way. Fixed here, so the wired and the wireless path (the ground
     // station turns T into forward/turn and the Mega mixes it back) both
     // follow.
+    // Turn gain blends from 1 with no forward (turn alone = equal and
+    // opposite) to DRIVE_TURN_GAIN at full forward, where left = 1 + g and
+    // right = 1 - g scale to a ratio of exactly TURN_INNER_RATIO. Both wheels
+    // are then scaled by the larger one instead of each being clipped, so
+    // the ratio survives: plain clipping turned full forward + full turn
+    // into (1, 0), the inner wheel stopped (2026-10-17).
     function gamepadTank(pad) {
       const profile = gamepadProfile(pad);
       const forward = -shapeAxis(pad.axes[profile.forwardAxis]); // stick up is negative
       const turn = shapeAxis(pad.axes[profile.turnAxis]);
       if (forward === 0 && turn === 0) return null;
+      const gain = 1 + (DRIVE_TURN_GAIN - 1) * Math.abs(forward);
+      let left = forward + turn * gain;
+      let right = forward - turn * gain;
+      const scale = Math.max(1, Math.abs(left), Math.abs(right));
+      left /= scale;
+      right /= scale;
       const round = (v) => Math.round(Math.max(-1, Math.min(1, v)) * 100) / 100;
-      return [round(forward + turn), round(forward - turn)];
+      return [round(left), round(right)];
     }
 
     // D-pad -> [turret, elevation]: right/up = +1, both of a pair = 0.
