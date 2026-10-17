@@ -747,6 +747,42 @@ async function emergencyStopViaEnter() {
   assert.deepEqual([...writes], ['F']);
   assert.match(elements.gamepadState.textContent, /flight stick/);
 
+  // The team's pad (Vendor 11c1, D-input): its own profile -- Y (4)
+  // starts, right stick X (axis 2) turns, the hat (axis 9) jogs, RB (7) fires.
+  await windowHandlers.keydown(key('Enter'));
+  connectFakePort();
+  run('setConnection(true)');
+  const pad11 = (axes, pressed = []) => {
+    const a = Array(10).fill(0); a[9] = 1.29;            // hat released
+    axes.forEach((v, i) => { if (v !== undefined) a[i] = v; });
+    return { connected: true, id: 'Controller (Vendor: 11c1 Product: 9101)', mapping: '', axes: a,
+      buttons: Array.from({ length: 16 }, (_, i) => ({ pressed: pressed.includes(i), value: 0 })) };
+  };
+  pads = [pad11([])];
+  await poll();
+  assert.match(elements.gamepadState.textContent, /Xbox \(11c1\)/);
+  await arm();
+  writes.length = 0;
+  pads = [pad11([], [4])]; await poll();                // Y: start
+  pads = [pad11([])]; await poll();
+  assert.equal(run('matchStarted'), true);
+  pads = [pad11([undefined, undefined, 1])]; await poll(); // right stick right
+  assert.equal(last(), 'T,-1,1');
+  pads = [pad11([0, -1, 0])]; await poll();             // left stick up
+  assert.equal(last(), 'T,1,1');
+  pads = [pad11([])]; await poll();
+  writes.length = 0;
+  pads = [pad11([undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, -1])];
+  await poll();                                          // hat up
+  assert.deepEqual([...writes], ['ANG,1']);
+  pads = [pad11([])]; await poll();
+  assert.equal(last(), 'ANG,0');
+  writes.length = 0;
+  pads = [pad11([], [7])]; await poll();                // RB fires
+  pads = [pad11([], [3])]; await poll();                // X: full auto
+  assert.deepEqual([...writes], ['F', 'MODE,0']);
+  pads = [pad11([])]; await poll();
+
   // Disarm clears the gamepad drive.
   pads = [pad('', [0, -1])];
   await poll();

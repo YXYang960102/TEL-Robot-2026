@@ -1739,6 +1739,15 @@
         modeButtons: { 2: 0, 0: 1, 1: 2 }, // X full auto, A semi auto, B full manual
         dpad: { up: 12, down: 13, left: 14, right: 15 },
       },
+      // The team's Xbox-style pad (Vendor 11c1) in D-input mode on macOS:
+      // Chrome gives it no "standard" mapping. Read off on the robot
+      // 2026-10-17: A 0, B 1, X 3, Y 4, LB 6, RB 7; left stick Y = axis 1,
+      // right stick X = axis 2; the D-pad is a hat switch on axis 9.
+      vendor11c1: {
+        label: "Xbox (11c1)", forwardAxis: 1, turnAxis: 2, fireButton: 7, startButton: 4, homeButton: 6,
+        modeButtons: { 3: 0, 0: 1, 1: 2 }, // X full auto, A semi auto, B full manual
+        dpad: { hatAxis: 9 },
+      },
       other: {
         label: "flight stick", forwardAxis: 1, turnAxis: 0, fireButton: 0, startButton: -1, homeButton: -1,
         modeButtons: {}, dpad: null,
@@ -1746,7 +1755,9 @@
     };
 
     function gamepadProfile(pad) {
-      return pad.mapping === "standard" ? GAMEPAD_PROFILES.standard : GAMEPAD_PROFILES.other;
+      if (pad.mapping === "standard") return GAMEPAD_PROFILES.standard;
+      if (/Vendor:\s*11c1\b/i.test(pad.id || "")) return GAMEPAD_PROFILES.vendor11c1;
+      return GAMEPAD_PROFILES.other;
     }
 
     // Deadzone, then rescale so just past the deadzone is ~0, not a jump.
@@ -1768,8 +1779,20 @@
     }
 
     // D-pad -> [turret, elevation]: right/up = +1, both of a pair = 0.
-    function dpadAxes(down, dpad) {
+    // A hat switch reports one axis: -1 + k * 2/7 for k = 0..7 = up, up-right,
+    // right, down-right, down, down-left, left, up-left; released is ~1.29
+    // (out of range). Pad 11c1, 2026-10-17: up -1, right -0.43, down 0.14,
+    // left 0.71.
+    const HAT_DIRECTIONS = [[0, 1], [1, 1], [1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1]];
+    function hatAxes(value) {
+      if (!Number.isFinite(value) || value < -1.1 || value > 1.1) return [0, 0];
+      const k = Math.round((value + 1) * 3.5);
+      return HAT_DIRECTIONS[k] ?? [0, 0];
+    }
+
+    function dpadAxes(down, dpad, axes = []) {
       if (!dpad) return [0, 0];
+      if (dpad.hatAxis !== undefined) return hatAxes(axes[dpad.hatAxis]);
       const on = (b) => (down.has(b) ? 1 : 0);
       return [on(dpad.right) - on(dpad.left), on(dpad.up) - on(dpad.down)];
     }
@@ -1835,7 +1858,7 @@
         gamepadDrive = drive;
         await sendTankIfChanged();
       }
-      [dpadRotate, dpadAngle] = dpadAxes(down, profile.dpad);
+      [dpadRotate, dpadAngle] = dpadAxes(down, profile.dpad, pad.axes);
       await sendAllAxesIfChanged();
       if (edge(profile.fireButton)) await sendControl("F");
     }
