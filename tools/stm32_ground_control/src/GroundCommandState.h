@@ -24,7 +24,10 @@ using GroundEmitFn = void (*)(void* ctx, const char* line);
 
 class GroundCommandState {
 public:
-    static constexpr uint32_t PC_TIMEOUT_MS = 250;
+    // 500 ms (was 250): the Dashboard sends a line at least every 75 ms, but
+    // 250 ms tripped on page hiccups on the 2026-10-17 bench. A dead page
+    // still stops the robot within half a second.
+    static constexpr uint32_t PC_TIMEOUT_MS = 500;
     static constexpr size_t MAX_LINE_LENGTH = 24;
     // The robot acts on the rising edge; holding the level this long makes
     // sure it is seen (CH5 is in every packet; CH8 is round-robin).

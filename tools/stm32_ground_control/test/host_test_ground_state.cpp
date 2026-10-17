@@ -152,7 +152,9 @@ static void testPcWatchdog() {
     }
     assert(st.command().armed);
     lines.clear();
-    st.tick(1251, collect, nullptr); // 251 ms without a line
+    st.tick(1251, collect, nullptr); // 251 ms without a line: still fine (500 ms)
+    assert(st.command().armed);
+    st.tick(1501, collect, nullptr); // 501 ms without a line
     assert(!st.command().armed && nearf(onAir(st).forward, 0));
     assert(saw("$GROUND_EVENT,PC_TIMEOUT"));
 }
@@ -282,6 +284,15 @@ static void testAimFrames() {
     st.event_code = rcmap_status_code(RCMAP_EVENT_FEED_TRIGGER_SENT, RCMAP_MODE_SEMI_AUTO);
     tr.onStatus(st, 310, collect, nullptr);
     assert(saw("$EVENT,FEED_TRIGGER_SENT"));
+    // A status with an event code past the table is corrupt: dropped
+    // whole (no $EVENT, flags untouched, freshness not renewed).
+    lines.clear();
+    rcmap_status bad{};
+    bad.flags = 0;
+    bad.event_seq = 99;
+    bad.event_code = rcmap_status_code(3312 & 0x0FFF, RCMAP_MODE_FULL_MANUAL);
+    tr.onStatus(bad, 320, collect, nullptr);
+    assert(lines.empty() && tr.flags() == st.flags);
     // No aim frame for > STALE_MS: fresh 0 and zeros.
     lines.clear();
     tr.tick(20 + RobotStatusTracker::STALE_MS + 300, collect, nullptr);

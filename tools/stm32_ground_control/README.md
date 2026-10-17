@@ -47,7 +47,8 @@ All of these are accepted only while enabled; otherwise the board prints `REJECT
 | `M` | Cycles the operator mode on CH4: 2000 full manual → 1750 semi auto → 1500 full auto → back. Prints `$GROUND_EVENT,MODE_<name>`. `E`, `X` and a PC timeout put CH4 back to full manual (the robot refuses an Enable whose CH4 isn't manual). |
 
 Safety rules:
-- If no line arrives for 250 ms while enabled, the board releases the arm channel and prints `$GROUND_EVENT,PC_TIMEOUT`.
+- If no line arrives for 500 ms while enabled, the board releases the arm channel and prints `$GROUND_EVENT,PC_TIMEOUT`. This was 250 ms until 2026-10-17, when page hiccups kept tripping it.
+- A robot status frame whose event code isn't a known event is treated as corrupt and dropped.
 - A line too long for the buffer also releases (`COMMAND_TOO_LONG`).
 - If this board loses power, or the TX loses the link, the robot's ELRS RX
   stops sending frames. The Mega reports `DISABLED_RC_LINK_LOST` within about 0.7 s.

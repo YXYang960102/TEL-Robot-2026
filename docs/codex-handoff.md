@@ -4342,3 +4342,47 @@ its default):**
   "wireless link".
 - If it still flips, raise the ELRS Telem Ratio to 1:8 or 1:4 (ELRS Lua on
   an EdgeTX radio; it is stored on the TX).
+
+## 2026-10-17 — Claude Code: wireless bench results and link robustness (robot bridge reflashed, 11c1 pad, PC timeout, buffers)
+
+**Hardware results (2026-10-17 morning, Jeremy):**
+- **Root cause of "Enable always fails"**: the robot's ELRS bridge STM32
+  still ran the 2026-10-11 `16f26be` image. It sends **9** RC channels;
+  `RCMAP_CHANNEL_COUNT` became 10 in `d7b6cbe` (10-12), so `MechLink`
+  rejected every line.
+  - TEL slots 7–11 were stuck at the `setSafe` values
+    1500,1500,2000,1000,1000.
+  - Meanwhile the bridge LED stayed solid and the Battery-frame uplink
+    worked.
+  - Claude had wrongly said the bridge needed no reflash, because the repo
+    image sha was unchanged.
+  - After reflashing `dist/` (99b017a4, 10 channels), **wireless Enable
+    works end to end** (OUTPUTS_ENABLED and match start over the radio).
+- The team's pad is Vendor 11c1 in D-input mode with no "standard" mapping.
+  A profile was added in `0384adc`: hat D-pad on axis 9, RB fire, Y start.
+- Two remaining issues: repeated `ground: PC_TIMEOUT` (the ground station
+  heard no Dashboard line for 250 ms) and occasional
+  `UNKNOWN_EVENT_CODE`.
+
+**Changed:**
+- Ground `PC_TIMEOUT_MS` 250 → **500 ms**. The Dashboard sends at least
+  every 75 ms.
+- Ground `RobotStatusTracker::onStatus`: a status whose event code is ≥
+  `RCMAP_EVENT_COUNT` is corrupt and is dropped whole: no `$EVENT`, flags
+  untouched, freshness not renewed.
+- Mega production envs: `SERIAL_RX_BUFFER_SIZE` / `SERIAL_TX_BUFFER_SIZE`
+  64 → 256, the same as the ELRS bench that passed on 10-11. This is so the
+  TEL print can't block the loop long enough to overflow Serial2 RX. RAM
+  goes from 2594 to 3746 B (45.7%).
+
+**Evidence:**
+- Ground host test passes: still armed at 251 ms, released at 501 ms;
+  corrupt status dropped.
+- Ground pio and the four production-family Mega envs build.
+- Hardware retest pending (reflash ground + Mega).
+
+**Open:**
+- Where corrupt status frames come from is not yet known. Candidates: the
+  Mega → bridge line, or the bridge's parse.
+- If `PC_TIMEOUT` persists, check whether the Dashboard window was occluded
+  or in the background (Chrome timer throttling).

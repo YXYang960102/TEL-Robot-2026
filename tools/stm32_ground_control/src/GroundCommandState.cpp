@@ -255,6 +255,12 @@ void RobotStatusTracker::onStatus(const rcmap_status& s, uint32_t nowMs, GroundE
         lastAimMs = nowMs;
         return;
     }
+    // A status whose event isn't a known event code is corrupt (seen as
+    // UNKNOWN_EVENT_CODE on the 2026-10-17 bench): drop the whole frame
+    // rather than trust its flags or report a bogus event.
+    if (rcmap_status_code_event(s.event_code) >= RCMAP_EVENT_COUNT) {
+        return;
+    }
     const bool newEvent = haveStatus && s.event_seq != last.event_seq;
     last = s;
     haveStatus = true;
