@@ -170,10 +170,9 @@ static void testInputHardening() {
     }
     assert(nearf(onAir(st).forward, 0.5f));
     assert(saw("$GROUND_EVENT,BAD_COMMAND") && saw("$GROUND_EVENT,UNKNOWN_COMMAND"));
-    // FLY / ANGT have no radio channel: accepted (keep the link alive),
-    // nothing sent, no error.
+    // ANGT has no radio channel: accepted (keeps the link alive), nothing
+    // sent, no error.
     lines.clear();
-    send(st, "FLY,0.4", 2);
     send(st, "ANGT,90", 2);
     assert(lines.empty());
     // Oversized line ending in a valid-looking command: dropped whole, and a
@@ -357,6 +356,56 @@ static void testModeKey() {
     assert(saw("$GROUND_EVENT,REJECTED_NOT_ENABLED") && ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
 }
 
+static void testFlywheel() {
+    GroundCommandState st;
+    st.reset(0);
+    lines.clear();
+    send(st, "FLY,0.5", 1);                 // not enabled: refused
+    assert(saw("$GROUND_EVENT,REJECTED_NOT_ENABLED") && ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+
+    send(st, "E", 2);
+    send(st, "FLY,0.42", 3);                // full manual: on CH4, 3 us per 1%
+    assert(ch4(st) == 1000 + 3 * 42);
+    assert(nearf(onAir(st).flywheel, 0.42f));
+    send(st, "FLY,1", 4);
+    assert(ch4(st) == 1300);
+    send(st, "FLY,0", 5);
+    assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+    lines.clear();
+    for (const char* bad : {"FLY,1.5", "FLY,-0.1", "FLY,nan", "FLY,", "FLY,0.3x"}) send(st, bad, 6);
+    assert(saw("$GROUND_EVENT,BAD_COMMAND") && ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+
+    // A mode change drops it (the robot does the same) and an auto mode
+    // never carries it.
+    send(st, "FLY,0.6", 7);
+    send(st, "MODE,1", 8);
+    assert(ch4(st) == RCMAP_MODE_SEMI_AUTO_US);
+    send(st, "FLY,0.6", 9);
+    assert(ch4(st) == RCMAP_MODE_SEMI_AUTO_US);
+    send(st, "MODE,2", 10);
+    assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+    send(st, "FLY,0.6", 11);
+    send(st, "MODE,2", 12);                 // same mode again: kept
+    assert(ch4(st) == 1180);
+    send(st, "M", 13);
+    send(st, "M", 14);
+    send(st, "M", 15);                      // back round to manual: off
+    assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+
+    // X, a PC timeout and E all turn it off.
+    send(st, "FLY,0.6", 16);
+    send(st, "X", 17);
+    assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+    send(st, "E", 18);
+    assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+    send(st, "FLY,0.6", 19);
+    send(st, "E", 20);
+    assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+    send(st, "FLY,0.6", 21);
+    st.tick(21 + GroundCommandState::PC_TIMEOUT_MS + 1, collect, nullptr);
+    assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+}
+
 int main() {
     testDefaultsAndEnable();
     testNudge();
@@ -366,6 +415,7 @@ int main() {
     testInputHardening();
     testStatusTracker();
     testModeKey();
+    testFlywheel();
     testAimFrames();
     printf("ground control host tests: all asserts passed\n");
     return 0;

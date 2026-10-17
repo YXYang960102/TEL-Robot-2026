@@ -43,13 +43,41 @@ static bool us_to_level(int us, int base, int step, int tolerance, uint8_t level
     return true;
 }
 
+/* CH4: the mode level, or full manual's flywheel range when it is on. */
+static int mode_channel_us(const rcmap_command *c) {
+    const uint8_t mode = rcmap_mode_from_us(c->mode_us);
+    if (mode != RCMAP_MODE_FULL_MANUAL) return rcmap_mode_to_us(mode);
+    const int percent = round_float(clamp_float(c->flywheel, 0.0f, 1.0f) * 100.0f);
+    if (percent <= 0) return RCMAP_MODE_FULL_MANUAL_US;
+    return RCMAP_FLYWHEEL_BASE_US + (percent * RCMAP_FLYWHEEL_SPAN_US + 50) / 100;
+}
+
+/* CH4 back to mode + flywheel; false for the gap between the flywheel
+ * range and full auto. Flywheel is rounded to the nearest 1% (3 us), which
+ * absorbs the link's +-1 us quantization. */
+static bool decode_mode_channel(int us, int *mode_us, float *flywheel) {
+    *flywheel = 0.0f;
+    if (us >= RCMAP_MODE_FULL_AUTO_MIN_US) {
+        *mode_us = rcmap_mode_to_us(rcmap_mode_from_us(us));
+        return true;
+    }
+    if (us > RCMAP_FLYWHEEL_MAX_US + RCMAP_FLYWHEEL_SPAN_US / 100) return false;
+    int percent = ((us - RCMAP_FLYWHEEL_BASE_US) * 100 + RCMAP_FLYWHEEL_SPAN_US / 2) /
+                  RCMAP_FLYWHEEL_SPAN_US;
+    if (us < RCMAP_FLYWHEEL_BASE_US) percent = 0;
+    if (percent > 100) percent = 100;
+    *mode_us = RCMAP_MODE_FULL_MANUAL_US;
+    *flywheel = (float)percent / 100.0f;
+    return true;
+}
+
 void rcmap_encode(const rcmap_command *c, int ch_us[16]) {
     for (uint8_t i = 0; i < 16u; i++) ch_us[i] = 1500;
     ch_us[RCMAP_CH_FORWARD] = axis_to_us(c->forward);
     ch_us[RCMAP_CH_TURN] = axis_to_us(c->turn);
     const uint8_t target = c->target <= RCMAP_TARGET_MAX ? c->target : RCMAP_TARGET_NONE;
     ch_us[RCMAP_CH_TARGET] = RCMAP_TARGET_BASE_US + (int)target * RCMAP_TARGET_STEP_US;
-    ch_us[RCMAP_CH_MODE] = rcmap_mode_to_us(rcmap_mode_from_us(c->mode_us));
+    ch_us[RCMAP_CH_MODE] = mode_channel_us(c);
     ch_us[RCMAP_CH_FIRE] = c->fire ? 2000 : 1000;
     ch_us[RCMAP_CH_ARM] = c->armed ? 2000 : 1000;
     const uint8_t nudge = c->nudge < RCMAP_FIVE_LEVELS ? c->nudge : RCMAP_NUDGE_CENTER;
@@ -64,7 +92,10 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
         if (ch_us[i] < RCMAP_MIN_VALID_US || ch_us[i] > RCMAP_MAX_VALID_US) return false;
     }
     uint8_t target, nudge, path;
-    if (!us_to_level(ch_us[RCMAP_CH_TARGET], RCMAP_TARGET_BASE_US, RCMAP_TARGET_STEP_US,
+    int mode_us;
+    float flywheel;
+    if (!decode_mode_channel(ch_us[RCMAP_CH_MODE], &mode_us, &flywheel) ||
+        !us_to_level(ch_us[RCMAP_CH_TARGET], RCMAP_TARGET_BASE_US, RCMAP_TARGET_STEP_US,
                      RCMAP_TARGET_TOLERANCE_US, RCMAP_TARGET_MAX + 1u, &target) ||
         !us_to_level(ch_us[RCMAP_CH_NUDGE], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
                      RCMAP_LEVEL_TOLERANCE_US, RCMAP_FIVE_LEVELS, &nudge) ||
@@ -75,7 +106,8 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     out->forward = us_to_axis(ch_us[RCMAP_CH_FORWARD]);
     out->turn = us_to_axis(ch_us[RCMAP_CH_TURN]);
     out->target = target;
-    out->mode_us = ch_us[RCMAP_CH_MODE];
+    out->mode_us = mode_us;
+    out->flywheel = flywheel;
     out->fire = ch_us[RCMAP_CH_FIRE] >= RCMAP_SWITCH_ON_US;
     out->armed = ch_us[RCMAP_CH_ARM] >= RCMAP_SWITCH_ON_US;
     out->nudge = nudge;

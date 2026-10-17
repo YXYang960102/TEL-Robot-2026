@@ -51,9 +51,10 @@ void GroundCommandState::release() {
     rotate = 0;
     angle = 0;
     updateNudge();
-    // Back to full manual: the robot refuses an Enable whose CH4 isn't
-    // manual, and every release ends any auto mode.
+    // Back to full manual, flywheel off: the robot refuses an Enable whose
+    // CH4 isn't exactly that, and every release ends any auto mode.
     cmd.mode_us = RCMAP_MODE_FULL_MANUAL_US;
+    cmd.flywheel = 0.0f;
 }
 
 void GroundCommandState::updateNudge() {
@@ -119,15 +120,18 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
     const bool isTank = strncmp(line, "T,", 2) == 0;
     const bool isRotate = strncmp(line, "ROT,", 4) == 0;
     const bool isAngle = strncmp(line, "ANG,", 4) == 0;
-    // No radio channel (table v2): accepted so the Dashboard's heartbeat
-    // keeps the link alive, but nothing is sent for them.
-    const bool isNoChannel = strncmp(line, "FLY,", 4) == 0 || strncmp(line, "ANGT,", 5) == 0;
+    // FLY,<0..1>: the Falcon slider, sent on CH4 with the mode (full
+    // manual only; see RcControlMap.h).
+    const bool isFlywheel = strncmp(line, "FLY,", 4) == 0;
+    // No radio channel: accepted so the Dashboard's heartbeat keeps the
+    // link alive, but nothing is sent for it.
+    const bool isNoChannel = strncmp(line, "ANGT,", 5) == 0;
     const bool isTarget = strncmp(line, "TGT,", 4) == 0;
     const bool isAutoPath = strncmp(line, "AUTO,", 5) == 0;
     const bool isModeSet = strncmp(line, "MODE,", 5) == 0;
     const bool isSingle = line[1] == '\0' && (line[0] == 'F' || line[0] == 'M');
-    if (!isTank && !isRotate && !isAngle && !isNoChannel && !isTarget && !isAutoPath && !isModeSet &&
-        !isSingle) {
+    if (!isTank && !isRotate && !isAngle && !isFlywheel && !isNoChannel && !isTarget &&
+        !isAutoPath && !isModeSet && !isSingle) {
         emitLine(emit, ctx, "$GROUND_EVENT,UNKNOWN_COMMAND");
         return;
     }
@@ -155,6 +159,18 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
         lastPcMs = nowMs;
         cmd.forward = (left + right) / 2.0f;
         cmd.turn = (right - left) / 2.0f;
+        return;
+    }
+    if (isFlywheel) {
+        float v = 0.0f;
+        if (!parseValue(line + 4, 0.0f, 1.0f, v)) {
+            emitLine(emit, ctx, "$GROUND_EVENT,BAD_COMMAND");
+            return;
+        }
+        lastPcMs = nowMs;
+        // Kept only in full manual (the robot ignores it otherwise, and a
+        // mode change starts the flywheel from 0 on both ends).
+        cmd.flywheel = rcmap_mode_from_us(cmd.mode_us) == RCMAP_MODE_FULL_MANUAL ? v : 0.0f;
         return;
     }
     if (isRotate || isAngle) {
@@ -187,6 +203,7 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
         } else if (isModeSet) {
             // The Dashboard's mode menu: CH4 straight to that level.
             const uint8_t mode = static_cast<uint8_t>(n);
+            if (mode != rcmap_mode_from_us(cmd.mode_us)) cmd.flywheel = 0.0f;
             cmd.mode_us = rcmap_mode_to_us(mode);
             emitModeEvent(mode, emit, ctx);
         } else if (cmd.auto_path == RCMAP_AUTO_NONE) {
@@ -214,6 +231,7 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
                            : mode == RCMAP_MODE_SEMI_AUTO   ? RCMAP_MODE_FULL_AUTO
                                                             : RCMAP_MODE_FULL_MANUAL;
         cmd.mode_us = rcmap_mode_to_us(next);
+        cmd.flywheel = 0.0f;
         emitModeEvent(next, emit, ctx);
     }
 }

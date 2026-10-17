@@ -23,7 +23,16 @@
  *   CH2  turn            1000..2000 us = -1..+1 (continuous; +1 = right)
  *   CH3  target hole     1000 + 100*k, k = 0..9 (0 = none, 1..9 = the
  *                        3x3 holes: 1 left-bottom .. 9 right-top)
- *   CH4  operator mode   2000 / 1750 / 1500 = FULL_MANUAL / SEMI_AUTO / FULL_AUTO
+ *   CH4  operator mode + Falcon (2026-10-17):
+ *          2000                FULL_MANUAL, flywheel 0
+ *          1750                SEMI_AUTO
+ *          1500                FULL_AUTO
+ *          1000 + 300*f        FULL_MANUAL, flywheel f (0 < f <= 1; 3 us = 1%)
+ *        The flywheel shares CH4 because only CH1-4 are full resolution
+ *        and it only matters in full manual (the autos run it from the
+ *        shot table). 1300..1399 is a gap: a frame there is rejected. The
+ *        three old levels are unchanged, so a ground STM32 still on the
+ *        previous image can never make the robot spin the flywheel.
  *   CH5  fire            1000 = released, 2000 = pressed (the ground holds
  *                        it 100 ms per press; the robot acts on low->high)
  *   CH6  arm             1000 = disarmed, 2000 = enable requested
@@ -77,12 +86,17 @@ extern "C" {
 #define RCMAP_MODE_FULL_AUTO_US 1500
 #define RCMAP_MODE_SEMI_AUTO_US 1750
 #define RCMAP_MODE_FULL_MANUAL_US 2000
-#define RCMAP_MODE_FULL_AUTO_MIN_US 1250
+#define RCMAP_MODE_FULL_AUTO_MIN_US 1400
 #define RCMAP_MODE_SEMI_AUTO_MIN_US 1625
 #define RCMAP_MODE_FULL_MANUAL_MIN_US 1875
+/* Full manual with the flywheel on: 1000 us = 0 .. 1300 us = 1.0. */
+#define RCMAP_FLYWHEEL_BASE_US 1000
+#define RCMAP_FLYWHEEL_SPAN_US 300
+#define RCMAP_FLYWHEEL_MAX_US (RCMAP_FLYWHEEL_BASE_US + RCMAP_FLYWHEEL_SPAN_US)
 
 /* Fail-safe: anything that isn't clearly an auto level (including 0 from a
- * zero-initialized command, or a value below 1250 us) reads as manual. */
+ * zero-initialized command, the flywheel range, or the gap below 1400 us)
+ * reads as manual. rcmap_decode is stricter: it rejects the gap. */
 static inline uint8_t rcmap_mode_from_us(int us) {
     if (us >= RCMAP_MODE_FULL_MANUAL_MIN_US) return RCMAP_MODE_FULL_MANUAL;
     if (us >= RCMAP_MODE_SEMI_AUTO_MIN_US) return RCMAP_MODE_SEMI_AUTO;
@@ -99,7 +113,10 @@ typedef struct {
     float forward;     /* -1..1 */
     float turn;        /* -1..1, +1 = right */
     uint8_t target;    /* 0 = none, 1..9 */
-    int mode_us;       /* CH4; encode sends rcmap_mode_to_us(rcmap_mode_from_us(mode_us)) */
+    int mode_us;       /* CH4 mode; encode uses rcmap_mode_from_us(mode_us),
+                          decode returns the mode's exact level */
+    float flywheel;    /* CH4 too: 0..1, sent only in full manual; decode
+                          gives 0 outside full manual, in 1% steps */
     bool fire;         /* CH5 high = fire pressed */
     bool armed;        /* CH6 high = enable requested */
     uint8_t nudge;     /* RCMAP_NUDGE_* */

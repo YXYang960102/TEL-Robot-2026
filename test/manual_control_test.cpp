@@ -395,7 +395,7 @@ void testWirelessCommands() {
     wireless.nudge = RCMAP_NUDGE_CENTER;
     rcStep();
     assert(nearly(rec.rotateCommand, 0.0) && nearly(rec.angleCommand, 0.0));
-    // No wireless flywheel channel in table v2.
+    // Flywheel off unless the ground sends it (CH4, see testWirelessFlywheel).
     assert(nearly(rec.flywheelCommand, 0.0));
     // Arm released by the ground: disarm.
     wireless.armed = false;
@@ -811,6 +811,43 @@ void testWirelessMode() {
     assert(saw("ENABLE_REJECTED_NOT_MANUAL") && !ManualControl::isArmed());
 }
 
+// The Dashboard's Falcon slider over the radio (CH4 with the mode).
+void testWirelessFlywheel() {
+    reset();
+    armWireless();
+    wireless.flywheel = 0.42f;
+    rcStep();
+    assert(fabs(rec.flywheelCommand - 0.42) < 1e-4);
+    wireless.flywheel = 1.0f;
+    rcStep();
+    assert(fabs(rec.flywheelCommand - 1.0) < 1e-4);
+    wireless.flywheel = 0.0f;
+    rcStep();
+    assert(nearly(rec.flywheelCommand, 0.0));
+    // Semi auto: the slider value never reaches the robot (Auto owns the
+    // flywheel there).
+    wireless.flywheel = 0.7f;
+    wireless.mode_us = RCMAP_MODE_SEMI_AUTO_US;
+    rcStep();
+    assert(ManualControl::getOperatorMode() == OperatorMode::SEMI_AUTO);
+    assert(nearly(ManualControl::getFlywheelCommand(), 0.0));
+    // Link loss: disarmed, flywheel off.
+    wireless.mode_us = RCMAP_MODE_FULL_MANUAL_US;
+    rcStep();
+    assert(fabs(rec.flywheelCommand - 0.7) < 1e-4);
+    MechLink::signalLost = true;
+    step();
+    assert(!ManualControl::isArmed() && nearly(rec.flywheelCommand, 0.0));
+    // An Enable whose CH4 carries a flywheel speed is refused.
+    Serial.output.clear();
+    wireless.armed = false;
+    rcStep();
+    wireless.armed = true;
+    rcStep();
+    assert(saw("ENABLE_REJECTED_NOT_MANUAL") && !ManualControl::isArmed());
+    assert(nearly(rec.flywheelCommand, 0.0));
+}
+
 // ------------------------------------------- vision v2: target, fine-adjust
 
 void testAutoNeedsDistance() {
@@ -1040,6 +1077,7 @@ int main() {
     testAutoWithoutCamera();
     testShotTableDrivesFlywheel();
     testWirelessMode();
+    testWirelessFlywheel();
     testElevationTargetCommands();
     testAutoNeedsDistance();
     testShotTableByHeight();

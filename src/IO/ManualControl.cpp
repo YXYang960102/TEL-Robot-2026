@@ -361,10 +361,10 @@ void ManualControl::processWirelessFrame() {
     }
     const uint8_t frameMode = rcmap_mode_from_us(c.mode_us);
     if (rising) {
-        // An Enable must never start in an auto mode: the ground station
-        // resets CH4 to manual when it raises the arm channel, so anything
-        // else here is stale or corrupt.
-        if (frameMode != RCMAP_MODE_FULL_MANUAL) {
+        // An Enable must never start in an auto mode or with the flywheel
+        // on: the ground station resets CH4 to manual, flywheel 0, when it
+        // raises the arm channel, so anything else here is stale or corrupt.
+        if (frameMode != RCMAP_MODE_FULL_MANUAL || c.flywheel > 0.0f) {
             sendEvent(RCMAP_EVENT_ENABLE_REJECTED_NOT_MANUAL);
         } else {
             requestEnable(Owner::WIRELESS);
@@ -386,8 +386,10 @@ void ManualControl::processWirelessFrame() {
         // Nudge (arrows): one direction at a time; held = hold-to-move jog.
         angleManualCommand = c.nudge == RCMAP_NUDGE_UP ? 1.0 : (c.nudge == RCMAP_NUDGE_DOWN ? -1.0 : 0.0);
         rotateManualCommand = c.nudge == RCMAP_NUDGE_RIGHT ? 1.0 : (c.nudge == RCMAP_NUDGE_LEFT ? -1.0 : 0.0);
-        flywheelCommand = 0.0; // no wireless flywheel channel (table v2)
         setOperatorMode(static_cast<OperatorMode>(frameMode));
+        // The Dashboard's Falcon slider, on CH4 with the mode (decode gives
+        // 0 outside full manual; applyOutputs only uses it in full manual).
+        flywheelCommand = c.flywheel;
         selectTarget(c.target);
         if (fireEdge) handleFire();
         if (autoEdge) requestAutoPath(c.auto_path);

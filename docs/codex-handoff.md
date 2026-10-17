@@ -4442,3 +4442,85 @@ the tower "fires by itself now and then". Decision: move the trigger to
 
 **Evidence:** `manual_control_test` passes in 3 variants and the 4 Mega
 production-family envs build. Not run on hardware.
+
+## 2026-10-17 — Claude Code: Falcon slider over the wireless link (CH4)
+
+**User Request:** Jeremy asked for the Dashboard's Falcon slider to work
+over the wireless link too. Until now the radio had no flywheel channel
+(table v2), so the slider did nothing while wireless. He chose option B:
+the flywheel shares CH4 with the mode, at 1% steps. Option A was 6 levels
+on CH9.
+
+**Discussion Result / Why:**
+- Only CH1–4 are full resolution in ELRS Hybrid; CH6 and up have 6
+  positions.
+- The flywheel only matters in full manual, because in the autos the
+  shot table drives it. So it can share CH4 with the mode.
+
+**Changed:** new CH4 layout (`RcControlMap.h`):
+
+| CH4 value | Meaning |
+|---|---|
+| 2000 µs | full manual, flywheel 0 (unchanged) |
+| 1750 µs | semi auto (unchanged) |
+| 1500 µs | full auto (unchanged) |
+| 1000 + 300·f µs, 0 < f ≤ 1 | full manual with the flywheel at f (3 µs = 1%) |
+| 1300–1399 µs | gap; `rcmap_decode` rejects the frame |
+
+- `RCMAP_MODE_FULL_AUTO_MIN_US` moved 1250 → 1400.
+- `rcmap_command.flywheel` added.
+  - Encode: sent only in full manual, rounded to whole percent; NaN or
+    ≤ 0 sends 2000.
+  - Decode: rounds to the nearest 1%, 0 outside full manual, and returns
+    the exact mode level in `mode_us`.
+- Ground STM32:
+  - `FLY,<0..1>` is now parsed. It is BAD_COMMAND outside 0..1 and is
+    kept only in full manual.
+  - A mode change (`MODE`/`M`), `E`, `X` and a PC timeout set it to 0.
+  - `ANGT` stays no-channel.
+- Mega `processWirelessFrame`:
+  - `flywheelCommand = c.flywheel`. `applyOutputs` already uses it only
+    in full manual.
+  - A wireless Enable whose CH4 carries a flywheel speed is refused with
+    `ENABLE_REJECTED_NOT_MANUAL`.
+
+**Safety and compatibility:**
+- The three old levels are unchanged. A ground STM32 still on the old
+  image therefore can never make a new Mega spin the flywheel.
+- A new ground with an old Mega:
+  - Values ≥ 1250 µs read as full auto. That is a flywheel above about
+    83%, so the old Mega would switch modes.
+  - Lower values are ignored, since the old Mega forces the flywheel to 0.
+  - Reflash both together.
+- The Dashboard was not changed: it already gates the slider on armed +
+  match started + full manual and resends FLY with the heartbeat.
+
+**Impact:** reflash the Mega and the ground STM32. Robot bridge: no; a
+rebuild gives the same `.bin`, sha256 99b017a463ba3163…, because it links
+only the status helpers. Orin: no.
+
+**Evidence:**
+- `rc_control_map_test`: every 1% round-trips, also with ±1 µs jitter;
+  the gap is rejected; old levels decode with the flywheel at 0.
+- `manual_control_test` (3 variants) adds `testWirelessFlywheel`: speed
+  in manual, 0 in semi auto, 0 on link loss, Enable refused when the
+  speed isn't 0.
+- Ground host test adds `testFlywheel`.
+- Vision, operator-target, shot-table and the two Dashboard tests pass.
+- Builds pass:
+  - `megaatmega2560` (RAM 45.7%);
+  - `mega_wired_manual_test`, `mega_drive_test`, `mega_manual_axes_test`
+    and `mega_elrs_link_test`;
+  - the ground STM32.
+- Not run on hardware.
+
+**Next Test:** after reflashing both boards: Enable over the radio, Y,
+full manual, slider 10% → 30%. The Falcon should follow and the Mega TEL
+mode channel should read about 1030 → 1090. Switching to semi auto must
+drop it, as must releasing Enable.
+
+**Separate open hardware item:** the Falcon turns slowly at the 1500 µs
+neutral even though D25 and GND are confirmed. The code always outputs
+1500 when stopped. Suspects: the Falcon's own neutral/deadband
+configuration (it is borrowed from another team) or its PWM calibration.
+Check the LED colour at neutral and unplug the signal wire to confirm.

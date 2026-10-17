@@ -7,8 +7,8 @@
 
 // Ground-station side of wireless control: turns the PC Dashboard's line
 // protocol (the same one the Mega speaks over USB: E, X, K, T,<l>,<r>,
-// ROT,<d>, ANG,<d>, TGT,<0..9>, AUTO,<1..4>, MODE,<0..2>, F, M; FLY and ANGT are
-// accepted but have no radio channel) into the RC channel state
+// ROT,<d>, ANG,<d>, TGT,<0..9>, AUTO,<1..4>, MODE,<0..2>, FLY,<0..1>, F, M;
+// ANGT is accepted but has no radio channel) into the RC channel state
 // (rcmap_command, table v2) that goes out over ELRS, and turns the robot's
 // status coming back (rcmap_status in Battery frames) into lines for the PC.
 //
@@ -17,6 +17,8 @@
 //   F           -> fire (CH5) high for FIRE_PULSE_MS
 //   TGT,<n>     -> target hole (CH3), kept until changed or the next E
 //   MODE,<n>    -> operator mode (CH4) straight to that level
+//   FLY,<f>     -> Falcon 0..1, on CH4 with the mode (full manual only;
+//                  a mode change, E, X and a PC timeout set it to 0)
 //   AUTO,<n>    -> auto path (CH8) for AUTO_PULSE_MS, then none
 //
 // No Arduino here, so it runs unchanged in the host test.

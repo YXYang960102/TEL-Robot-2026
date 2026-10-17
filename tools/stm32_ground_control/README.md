@@ -41,10 +41,11 @@ The PC sends exactly what it sends to the Mega over a wired link:
 | `TGT,<0..9>` | Target hole on CH3 (1 left-bottom … 9 right-top, 0 = the AI's own pick). It is held after the key is released, until the next `E`. |
 | `AUTO,<1..4>` | Auto path on CH8 for 200 ms, then back to none. A press during the 200 ms is ignored. The robot allows one path per Enable. The Dashboard sends it right after Enable from its path menu. |
 | `MODE,<0..2>` | Operator mode on CH4, straight to that level (0 full auto, 1 semi auto, 2 full manual). The Dashboard sends it right after Enable from its mode menu. |
-| `FLY,<0..1>` / `ANGT,<deg>` | Accepted, so the link stays alive, but sent nowhere: table v2 has no wireless flywheel channel or absolute elevation channel. |
+| `FLY,<0..1>` | The Falcon slider, on CH4 together with the mode (2026-10-17): full manual with the flywheel on is sent as 1000 + 300·f µs (3 µs = 1%), flywheel 0 as the plain 2000. Kept only in full manual; any mode change, `E`, `X` and a PC timeout set it back to 0. |
+| `ANGT,<deg>` | Accepted, so the link stays alive, but sent nowhere: there is no absolute elevation channel. |
 
 All of these are accepted only while enabled; otherwise the board prints `REJECTED_NOT_ENABLED`. `R` and `L` were retired with table v2 and are now `UNKNOWN`.
-| `M` | Cycles the operator mode on CH4: 2000 full manual → 1750 semi auto → 1500 full auto → back. Prints `$GROUND_EVENT,MODE_<name>`. `E`, `X` and a PC timeout put CH4 back to full manual (the robot refuses an Enable whose CH4 isn't manual). |
+| `M` | Cycles the operator mode on CH4: 2000 full manual → 1750 semi auto → 1500 full auto → back. Prints `$GROUND_EVENT,MODE_<name>`. `E`, `X` and a PC timeout put CH4 back to full manual with the flywheel off (the robot refuses an Enable whose CH4 isn't exactly that). |
 
 Safety rules:
 - If no line arrives for 500 ms while enabled, the board releases the arm channel and prints `$GROUND_EVENT,PC_TIMEOUT`. This was 250 ms until 2026-10-17, when page hiccups kept tripping it.
