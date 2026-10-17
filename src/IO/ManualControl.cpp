@@ -47,7 +47,7 @@ int ManualControl::angleNudgePrev = 0;
 unsigned long ManualControl::eventSeq = 0;
 uint16_t ManualControl::lastEventCode = RCMAP_EVENT_NONE;
 unsigned long ManualControl::lastStatusMs = 0;
-bool ManualControl::statusSlotIsAim = false;
+uint8_t ManualControl::statusSlot = 0;
 
 void ManualControl::init() {
     commandLength = 0;
@@ -66,7 +66,7 @@ void ManualControl::init() {
     eventSeq = 0;
     lastEventCode = RCMAP_EVENT_NONE;
     lastStatusMs = millis();
-    statusSlotIsAim = false; // status first
+    statusSlot = 0; // status first
 }
 
 void ManualControl::update() {
@@ -636,12 +636,14 @@ void ManualControl::sendStatusIfDue() {
         return;
     }
     lastStatusMs = now;
-    // Every other slot carries the aim frame (distance, elevation pulse,
-    // target) instead: status and aim each go out every 200 ms, well inside
-    // the ground's 1 s staleness window. One line per 100 ms, so the robot
-    // bridge (which forwards the latest line every 100 ms) passes both.
-    const bool aimSlot = statusSlotIsAim;
-    statusSlotIsAim = !statusSlotIsAim;
+    // Every third slot carries the aim frame (distance, elevation pulse,
+    // target) instead: status, status, aim. The ELRS telemetry slots that
+    // carry these back are sparse and keep only the latest frame, so status
+    // gets two thirds of them (2026-10-17 bench: 1:1 left status ~1 s
+    // apart). One line per 100 ms, so the robot bridge (which forwards the
+    // latest line every 100 ms) passes them all.
+    const bool aimSlot = statusSlot == 2;
+    statusSlot = static_cast<uint8_t>((statusSlot + 1) % 3);
     if (aimSlot) {
         AimUplink::send();
         return;

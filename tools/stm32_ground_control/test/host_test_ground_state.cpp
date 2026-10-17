@@ -217,23 +217,25 @@ static void testStatusTracker() {
     assert(lastWireless() == "$WIRELESS,1,1,2,0,0,0,0,50,-1");
     // Status goes stale: reported as not fresh with everything zeroed.
     tr.tick(1500, collect, nullptr);
+    assert(tr.fresh(1500));                 // 1 s old: still fresh (STALE_MS 3 s)
+    tr.tick(3500, collect, nullptr);
     assert(lastWireless().rfind("$WIRELESS,0,0,0,0,0,0,0,", 0) == 0);
-    assert(!tr.fresh(1500));
+    assert(!tr.fresh(3500));
 
     // Mode rides in the top bits of the code: the event name is still
     // decoded correctly and $WIRELESS reports the mode.
     lines.clear();
     tr.onStatus(status(RCMAP_STATUS_ARMED | RCMAP_STATUS_OWNER_WIRELESS, 7,
                        rcmap_status_code(RCMAP_EVENT_MODE_SEMI_AUTO, RCMAP_MODE_SEMI_AUTO)),
-                1600, collect, nullptr);
+                3600, collect, nullptr);
     assert(saw("$EVENT,MODE_SEMI_AUTO"));
-    tr.tick(1760, collect, nullptr);        // reports every 250 ms (last at 1500)
+    tr.tick(3760, collect, nullptr);        // reports every 250 ms (last at 3500)
     assert(lastWireless() == "$WIRELESS,1,1,2,0,0,0,0,160,1");
     tr.onStatus(status(RCMAP_STATUS_ARMED | RCMAP_STATUS_OWNER_WIRELESS, 8,
                        rcmap_status_code(RCMAP_EVENT_FEED_TRIGGER_SENT, RCMAP_MODE_FULL_AUTO)),
-                1800, collect, nullptr);
+                3800, collect, nullptr);
     assert(saw("$EVENT,FEED_TRIGGER_SENT"));
-    tr.tick(2020, collect, nullptr);
+    tr.tick(4020, collect, nullptr);
     assert(lastWireless() == "$WIRELESS,1,1,2,0,0,0,0,220,0");
 }
 

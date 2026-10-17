@@ -60,7 +60,11 @@ private:
 
 class RobotStatusTracker {
 public:
-    static constexpr uint32_t STALE_MS = 1000;
+    // 3 s (was 1 s): the ELRS telemetry slots are sparse (default ratio
+    // about 1:64), and status / aim share them, so status can be ~1 s apart
+    // on the bench (2026-10-17). Display only -- the robot disarms itself on
+    // RC loss regardless.
+    static constexpr uint32_t STALE_MS = 3000;
     static constexpr uint32_t REPORT_PERIOD_MS = 250;
 
     void reset(uint32_t nowMs);

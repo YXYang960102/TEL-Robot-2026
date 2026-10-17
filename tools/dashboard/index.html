@@ -747,7 +747,7 @@
     // After E, wait this long for the robot to confirm OUTPUTS_ENABLED.
     // Wireless confirmation rides the ELRS telemetry uplink, so it is
     // slower than wired; 3 s is generous for both.
-    const ENABLE_PENDING_TIMEOUT_MS = 3000;
+    const ENABLE_PENDING_TIMEOUT_MS = 5000; // 3 s was too tight for sparse ELRS telemetry (2026-10-17)
     const OWNER_NAMES = ["none / 無", "wired / 有線", "wireless / 無線"];
     const MODE_FULL_MANUAL = 2;
     const MODE_NAMES = { 0: "FULL AUTO / 全自動", 1: "SEMI AUTO / 半自動", 2: "FULL MANUAL / 全手動" };
@@ -1523,6 +1523,13 @@
       }
     }
 
+    // CRSF link statistics RSSI byte: the spec says "dBm * -1" (45 = -45
+    // dBm), but this ELRS TX sends a signed byte (232 = -24 dBm, seen on the
+    // 2026-10-17 bench at close range). Above 127 it can only be the latter.
+    function rssiDbm(raw) {
+      return raw > 127 ? raw - 256 : -raw;
+    }
+
     function handleLine(line) {
       if (line.startsWith("$EVENT,")) {
         const eventName = line.slice(7).trim();
@@ -1568,7 +1575,7 @@
         linkKind = "ground";
         const p = line.trim().split(",");
         el.rfLinkState.textContent = p[1] === "1"
-          ? `RF LQ up ${p[2]}% / down ${p[3]}% · RSSI -${p[4]} dBm`
+          ? `RF LQ up ${p[2]}% / down ${p[3]}% · RSSI ${rssiDbm(Number(p[4]))} dBm`
           : "RF link lost / 無線電斷線";
         return;
       }

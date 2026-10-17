@@ -4302,3 +4302,43 @@ new ground just shows `$AIM,0,...`.
 - All other host and page tests pass.
 - **Not run on hardware.** The Battery-frame uplink itself is still
   unproven over the air until the 2026-10-17 wireless test.
+
+## 2026-10-17 — Claude Code: wireless uplink works on hardware; slower-telemetry tuning
+
+**Hardware result (Jeremy, first wireless bench of the day):**
+- The Battery-frame status uplink **works over the air**, for the first
+  time. The Dashboard showed "disarmed / none · 489 ms" with RF LQ 96–99%
+  up and down.
+- The readout kept flipping to "no robot status", because status frames
+  arrived up to about 1 s apart. ELRS sends telemetry only in sparse slots
+  (default ratio about 1:64), keeps only the latest Battery frame, and
+  status and aim frames now share those slots.
+- RSSI showed "-232 dBm": a display bug.
+
+**Changed (Jeremy chose the code-side fix first; ELRS Telem Ratio left at
+its default):**
+- Ground `RobotStatusTracker::STALE_MS` goes from 1 s to **3 s** for both
+  `$WIRELESS` and `$AIM`. This is display only; the robot still disarms
+  itself on RC loss.
+- Mega `sendStatusIfDue()`: slots are now **status, status, aim**
+  (`statusSlot` 0 / 1 / 2) instead of 1:1, so status gets two thirds of the
+  sparse telemetry slots.
+- Dashboard:
+  - `ENABLE_PENDING_TIMEOUT_MS` goes from 3 s to **5 s**.
+  - New `rssiDbm()`: above 127 the byte is a signed value (232 means
+    −24 dBm); otherwise it follows the spec ("dBm × −1", 45 means −45 dBm).
+
+**Evidence:**
+- Ground host test updated (still fresh at 1 s, stale at 3.05 s) and
+  passes.
+- `manual_control_test` passes, with the slot pattern now S S A (6 status
+  and 3 aim frames in 900 ms).
+- Dashboard tests pass (5 s pending, RSSI −45 / −24).
+- The four ManualControl envs and the ground pio build pass. The bridge is
+  untouched.
+
+**Next:**
+- Reflash the Mega and the ground station, then watch the age number in
+  "wireless link".
+- If it still flips, raise the ELRS Telem Ratio to 1:8 or 1:4 (ELRS Lua on
+  an EdgeTX radio; it is stored on the TX).

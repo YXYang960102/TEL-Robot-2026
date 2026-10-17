@@ -555,7 +555,7 @@ void testStatusUplink() {
     assert(rcmap_status_code_mode(rec.statusCode) == RCMAP_MODE_SEMI_AUTO);
 }
 
-// Aim frames (2026-10-17): every other 100 ms status slot carries the
+// Aim frames (2026-10-17): every third 100 ms status slot carries the
 // distance / elevation pulse / target for the wireless Dashboard.
 rcmap_aim lastAim() {
     rcmap_status st = {};
@@ -569,13 +569,15 @@ rcmap_aim lastAim() {
 
 void testAimUplink() {
     reset();
-    // Alternates status / aim, one line per 100 ms, status first.
+    // Status, status, aim; one line per 100 ms.
     step(100);
     assert(rec.statusCount == 1 && rec.aimCount == 0);
     step(100);
-    assert(rec.statusCount == 1 && rec.aimCount == 1);
-    for (int i = 0; i < 8; i++) step(100);
-    assert(rec.statusCount == 5 && rec.aimCount == 5);
+    assert(rec.statusCount == 2 && rec.aimCount == 0);
+    step(100);
+    assert(rec.statusCount == 2 && rec.aimCount == 1);
+    for (int i = 0; i < 6; i++) step(100);
+    assert(rec.statusCount == 6 && rec.aimCount == 3);
     // Nothing in view: no distance, not valid.
     rcmap_aim a = lastAim();
     assert(a.distance_cm == 0 && !a.valid && a.target_id == 0 && a.elevation_pulse_us == 1500);
@@ -589,7 +591,7 @@ void testAimUplink() {
     armWired();
     send("M"); step();                    // semi auto: arrows are fine-adjust
     send("ROT,1"); step(); send("ROT,0"); step();
-    runWithHeartbeat(250);
+    runWithHeartbeat(350);
     a = lastAim();
     assert(a.distance_cm == 352 && a.elevation_pulse_us == 1620);
     assert(a.selected_id == 10 && a.target_id == 10 && a.valid);

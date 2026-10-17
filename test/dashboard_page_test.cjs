@@ -411,14 +411,14 @@ async function emergencyStopViaEnter() {
     assert.deepEqual([...writes], ['E'], name);
   }
 
-  // No confirmation at all within 3 s on the Mega link: give up, no X.
+  // No confirmation at all within 5 s on the Mega link: give up, no X.
   writes.length = 0;
   clock.t = 1000000;
   await elements.enableControl.handlers.click();
-  clock.t = 1002900;
+  clock.t = 1004900;
   await run('sendHeartbeat()');
   assert.equal(run('enablePending'), true);
-  clock.t = 1003100;
+  clock.t = 1005100;
   await run('sendHeartbeat()');
   assert.equal(run('enablePending'), false);
   assert.deepEqual([...writes], ['E', 'K']);
@@ -435,7 +435,9 @@ async function emergencyStopViaEnter() {
   run('setConnection(true)');
   line('$RFLINK,1,100,98,45');
   assert.equal(run('linkKind'), 'ground');
-  assert.match(elements.rfLinkState.textContent, /up 100% \/ down 98%/);
+  assert.match(elements.rfLinkState.textContent, /up 100% \/ down 98% · RSSI -45 dBm/);
+  line('$RFLINK,1,97,97,232');                     // signed byte from this ELRS TX
+  assert.match(elements.rfLinkState.textContent, /RSSI -24 dBm/);
   line('$WIRELESS,1,0,0,1,0,1,1,80');
   assert.match(elements.wirelessState.textContent, /disarmed/);
 
@@ -547,7 +549,7 @@ async function emergencyStopViaEnter() {
   writes.length = 0;
   clock.t = 1200000;
   await elements.enableControl.handlers.click();
-  clock.t = 1203500;
+  clock.t = 1205500;
   await run('sendHeartbeat()');
   assert.deepEqual([...writes], ['E', 'X']);
   assert.equal(run('enablePending'), false);

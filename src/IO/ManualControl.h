@@ -138,5 +138,5 @@ private:
     static unsigned long eventSeq;
     static uint16_t lastEventCode;
     static unsigned long lastStatusMs;
-    static bool statusSlotIsAim; // the status slots alternate status / aim
+    static uint8_t statusSlot; // 0, 1 = status, 2 = aim frame
 };
