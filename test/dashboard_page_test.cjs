@@ -533,6 +533,41 @@ async function emergencyStopViaEnter() {
     line(`$GROUND_EVENT,${name}`);
     assert.equal(armed(), false, name);
   }
+  // The ground's stage-1 hold and its resume are log-only: still armed.
+  await arm();
+  line('$GROUND_EVENT,PC_HOLD');
+  line('$GROUND_EVENT,PC_RESUMED,640');
+  assert.equal(armed(), true);
+  assert.match(elements.log.textContent, /ground: PC_RESUMED,640/);
+  // Stall evidence: a late heartbeat tick is logged as a page stall; a
+  // normal tick is not; nothing is logged while disarmed.
+  elements.log.textContent = '';
+  clock.t = 500000;
+  await run('sendHeartbeat()');
+  clock.t = 500075;
+  await run('sendHeartbeat()');
+  assert.doesNotMatch(elements.log.textContent, /PC_GAP/);
+  clock.t = 500700;
+  await run('sendHeartbeat()');
+  assert.match(elements.log.textContent, /PC_GAP 625ms/);
+  line('$GROUND_EVENT,PC_TIMEOUT');
+  assert.equal(armed(), false);
+  elements.log.textContent = '';
+  clock.t = 509000;
+  await run('sendHeartbeat()');
+  // ...and the first tick after a new Enable doesn't count the idle time.
+  await arm();
+  clock.t = 512000;
+  await run('sendHeartbeat()');
+  assert.doesNotMatch(elements.log.textContent, /PC_GAP/);
+  // A slow serial write is logged as USB backpressure.
+  ctx.clock = clock;
+  run('writer = { write: () => { clock.t += 400; return Promise.resolve(); }, releaseLock() {} }');
+  await run('sendControl("K")');
+  assert.match(elements.log.textContent, /WRITE_SLOW 400ms/);
+  connectFakePort();
+  line('$GROUND_EVENT,ENABLE_RELEASED');
+
   // A new Enable allows one more auto path and starts on the AI's own
   // target pick; the record stays.
   assert.match(elements.autoPath.textContent, /not started/);

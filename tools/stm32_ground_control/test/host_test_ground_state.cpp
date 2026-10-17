@@ -152,11 +152,57 @@ static void testPcWatchdog() {
     }
     assert(st.command().armed);
     lines.clear();
-    st.tick(1251, collect, nullptr); // 251 ms without a line: still fine (500 ms)
-    assert(st.command().armed);
-    st.tick(1501, collect, nullptr); // 501 ms without a line
+    st.tick(1300, collect, nullptr); // 300 ms without a line: still fine
+    assert(st.command().armed && nearf(onAir(st).forward, 1) && lines.empty());
+
+    // Stage 1 (> PC_HOLD_MS): motion neutral, enable / mode / target kept.
+    send(st, "TGT,5", 1000);
+    send(st, "MODE,1", 1000);
+    send(st, "MODE,2", 1000);
+    send(st, "FLY,0.5", 1000);
+    send(st, "ROT,1", 1000);
+    send(st, "T,1,1", 1000);
+    lines.clear();
+    st.tick(1301, collect, nullptr);
+    rcmap_command d = onAir(st);
+    assert(st.command().armed && saw("$GROUND_EVENT,PC_HOLD"));
+    assert(nearf(d.forward, 0) && nearf(d.turn, 0) && d.nudge == RCMAP_NUDGE_CENTER);
+    assert(d.flywheel == 0.0f && d.target == 5 && d.mode_us == RCMAP_MODE_FULL_MANUAL_US);
+    lines.clear();
+    st.tick(1400, collect, nullptr); // printed once
+    assert(lines.empty());
+    // The next line resumes and reports the gap; the Dashboard's resends
+    // bring the outputs back.
+    send(st, "K", 1640);
+    assert(saw("$GROUND_EVENT,PC_RESUMED,640"));
+    send(st, "T,1,1", 1640);
+    send(st, "FLY,0.5", 1640);
+    st.tick(1640, collect, nullptr);
+    assert(nearf(onAir(st).forward, 1) && nearf(onAir(st).flywheel, 0.5f));
+    lines.clear();
+    send(st, "K", 1700);              // no hold in between: nothing printed
+    assert(lines.empty());
+
+    // A rejected line doesn't count as the PC being alive.
+    send(st, "Q", 1900);
+    // Stage 2 (> PC_TIMEOUT_MS): released, like before.
+    st.tick(1700 + GroundCommandState::PC_TIMEOUT_MS, collect, nullptr);
+    assert(st.command().armed && saw("$GROUND_EVENT,PC_HOLD"));
+    lines.clear();
+    st.tick(1701 + GroundCommandState::PC_TIMEOUT_MS, collect, nullptr);
     assert(!st.command().armed && nearf(onAir(st).forward, 0));
-    assert(saw("$GROUND_EVENT,PC_TIMEOUT"));
+    assert(saw("$GROUND_EVENT,PC_TIMEOUT") && !saw("$GROUND_EVENT,PC_HOLD"));
+    // A fresh E after the timeout starts clean: no stale hold / resume.
+    lines.clear();
+    send(st, "E", 4000);
+    send(st, "K", 4050);
+    for (const auto& l : lines) assert(l.rfind("$GROUND_EVENT,PC_RESUMED", 0) != 0);
+    assert(st.command().armed);
+    // Not enabled: the watchdog stays quiet.
+    send(st, "X", 4100);
+    lines.clear();
+    st.tick(9000, collect, nullptr);
+    assert(lines.empty());
 }
 
 static void testInputHardening() {

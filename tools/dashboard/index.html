@@ -744,6 +744,11 @@
     // (tools/stm32_ground_control, wireless over ELRS) -- see
     // docs/codex-handoff.md.
     const CONTROL_HEARTBEAT_MS = 75;
+    // Stall evidence (2026-10-17, ground PC_TIMEOUTs): log a heartbeat tick
+    // that came this late (the page was busy) or a serial write that took
+    // this long (USB backpressure). The ground stops motion after 300 ms.
+    const HEARTBEAT_GAP_LOG_MS = 250;
+    let lastHeartbeatTickMs = null;
     // After E, wait this long for the robot to confirm OUTPUTS_ENABLED.
     // Wireless confirmation rides the ELRS telemetry uplink, so it is
     // slower than wired; 3 s is generous for both.
@@ -934,7 +939,10 @@
     async function sendControl(command) {
       if (!writer) return;
       try {
+        const started = performance.now();
         await writer.write(encoder.encode(`${command}\n`));
+        const took = performance.now() - started;
+        if (took > HEARTBEAT_GAP_LOG_MS) appendControlLog(`WRITE_SLOW ${Math.round(took)}ms (USB)`);
       } catch (error) {
         appendControlLog(`WRITE_ERROR ${error.message}`);
       }
@@ -2034,6 +2042,17 @@
 
     async function sendHeartbeat() {
       if (!port) return;
+      // Measured only while enabled / enabling (a background tab's slow
+      // ticks before Enable are not a stall).
+      const tickMs = performance.now();
+      if (!controlArmed && !enablePending) {
+        lastHeartbeatTickMs = null;
+      } else {
+        if (lastHeartbeatTickMs !== null && tickMs - lastHeartbeatTickMs > HEARTBEAT_GAP_LOG_MS) {
+          appendControlLog(`PC_GAP ${Math.round(tickMs - lastHeartbeatTickMs)}ms (page busy)`);
+        }
+        lastHeartbeatTickMs = tickMs;
+      }
       if (enablePending && performance.now() - enablePendingSince > ENABLE_PENDING_TIMEOUT_MS) {
         await failEnable("no confirmation / 沒收到機器人確認");
         return;

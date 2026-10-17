@@ -48,7 +48,10 @@ All of these are accepted only while enabled; otherwise the board prints `REJECT
 | `M` | Cycles the operator mode on CH4: 2000 full manual → 1750 semi auto → 1500 full auto → back. Prints `$GROUND_EVENT,MODE_<name>`. `E`, `X` and a PC timeout put CH4 back to full manual with the flywheel off (the robot refuses an Enable whose CH4 isn't exactly that). |
 
 Safety rules:
-- If no line arrives for 500 ms while enabled, the board releases the arm channel and prints `$GROUND_EVENT,PC_TIMEOUT`. This was 250 ms until 2026-10-17, when page hiccups kept tripping it.
+- PC watchdog, two stages (2026-10-17; it was a single 500 ms stage, and 250 ms before that, but page / USB hiccups kept releasing the enable mid-match):
+  - No line for **300 ms** while enabled: motion goes neutral (drive, nudge, flywheel) and the board prints `$GROUND_EVENT,PC_HOLD`. The enable, mode and target are kept. The next line prints `$GROUND_EVENT,PC_RESUMED,<ms of silence>`, and the Dashboard's per-tick resends bring the outputs back without a new Enable or Y.
+  - No line for **1500 ms**: the arm channel is released and the board prints `$GROUND_EVENT,PC_TIMEOUT`, as before.
+  - The Dashboard logs `PC_GAP <ms> (page busy)` when its own heartbeat tick runs late and `WRITE_SLOW <ms> (USB)` when a serial write stalls. Together with `PC_RESUMED` this tells a page stall from a USB stall.
 - A robot status frame whose event code isn't a known event is treated as corrupt and dropped.
 - A line too long for the buffer also releases (`COMMAND_TOO_LONG`).
 - If this board loses power, or the TX loses the link, the robot's ELRS RX

@@ -26,10 +26,16 @@ using GroundEmitFn = void (*)(void* ctx, const char* line);
 
 class GroundCommandState {
 public:
-    // 500 ms (was 250): the Dashboard sends a line at least every 75 ms, but
-    // 250 ms tripped on page hiccups on the 2026-10-17 bench. A dead page
-    // still stops the robot within half a second.
-    static constexpr uint32_t PC_TIMEOUT_MS = 500;
+    // Two-stage PC watchdog (2026-10-17). The Dashboard sends a line at
+    // least every 75 ms, but page / USB hiccups of 0.5 s+ kept releasing the
+    // enable mid-match (it was one 500 ms stage, 250 ms before that).
+    //   PC_HOLD_MS:    motion to neutral (drive, nudge, flywheel), enable,
+    //                  mode and target kept; the next line resumes, and the
+    //                  Dashboard resends every non-neutral output each tick.
+    //   PC_TIMEOUT_MS: release the enable, as before.
+    // A dead page now stops the robot sooner (300 ms) and disarms at 1.5 s.
+    static constexpr uint32_t PC_HOLD_MS = 300;
+    static constexpr uint32_t PC_TIMEOUT_MS = 1500;
     static constexpr size_t MAX_LINE_LENGTH = 24;
     // The robot acts on the rising edge; holding the level this long makes
     // sure it is seen (CH5 is in every packet; CH8 is round-robin).
@@ -38,9 +44,11 @@ public:
 
     void reset(uint32_t nowMs);
     void rxByte(char c, uint32_t nowMs, GroundEmitFn emit, void* ctx);
-    // Watchdog: no line from the PC for PC_TIMEOUT_MS while an enable is
-    // requested -> release the arm channel and zero everything. Also ends
-    // the fire / auto-path pulses.
+    // Watchdog, while an enable is requested: no line from the PC for
+    // PC_HOLD_MS -> motion neutral ("$GROUND_EVENT,PC_HOLD"; the next line
+    // prints "$GROUND_EVENT,PC_RESUMED,<gap ms>"); for PC_TIMEOUT_MS ->
+    // release the arm channel and zero everything. Also ends the fire /
+    // auto-path pulses.
     void tick(uint32_t nowMs, GroundEmitFn emit, void* ctx);
 
     const rcmap_command& command() const { return cmd; }
@@ -49,6 +57,8 @@ private:
     void processLine(uint32_t nowMs, GroundEmitFn emit, void* ctx);
     static void emitModeEvent(uint8_t mode, GroundEmitFn emit, void* ctx);
     void release();
+    void holdMotion();
+    void notePcLine(uint32_t nowMs, GroundEmitFn emit, void* ctx);
 
     void updateNudge();
 
@@ -61,6 +71,7 @@ private:
     size_t length = 0;
     bool discarding = false;
     uint32_t lastPcMs = 0;
+    bool pcHold = false;
 };
 
 class RobotStatusTracker {

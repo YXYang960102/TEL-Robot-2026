@@ -38,6 +38,7 @@ void GroundCommandState::reset(uint32_t nowMs) {
     length = 0;
     discarding = false;
     lastPcMs = nowMs;
+    pcHold = false;
 }
 
 void GroundCommandState::release() {
@@ -55,6 +56,31 @@ void GroundCommandState::release() {
     // CH4 isn't exactly that, and every release ends any auto mode.
     cmd.mode_us = RCMAP_MODE_FULL_MANUAL_US;
     cmd.flywheel = 0.0f;
+    pcHold = false;
+}
+
+void GroundCommandState::holdMotion() {
+    // Stage 1 of the PC watchdog: everything that moves goes neutral; the
+    // enable, mode and target stay. Fire / auto pulses end on their own.
+    cmd.forward = 0.0f;
+    cmd.turn = 0.0f;
+    cmd.flywheel = 0.0f;
+    rotate = 0;
+    angle = 0;
+    updateNudge();
+    pcHold = true;
+}
+
+void GroundCommandState::notePcLine(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
+    if (pcHold) {
+        // How long the PC was silent: the evidence for page vs USB stalls.
+        char text[48];
+        snprintf(text, sizeof(text), "$GROUND_EVENT,PC_RESUMED,%lu",
+                 static_cast<unsigned long>(nowMs - lastPcMs));
+        emitLine(emit, ctx, text);
+        pcHold = false;
+    }
+    lastPcMs = nowMs;
 }
 
 void GroundCommandState::updateNudge() {
@@ -113,7 +139,7 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
         return;
     }
     if (strcmp(line, "K") == 0) {
-        lastPcMs = nowMs;
+        notePcLine(nowMs, emit, ctx);
         return;
     }
 
@@ -156,7 +182,7 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
             emitLine(emit, ctx, "$GROUND_EVENT,BAD_COMMAND");
             return;
         }
-        lastPcMs = nowMs;
+        notePcLine(nowMs, emit, ctx);
         cmd.forward = (left + right) / 2.0f;
         cmd.turn = (right - left) / 2.0f;
         return;
@@ -167,7 +193,7 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
             emitLine(emit, ctx, "$GROUND_EVENT,BAD_COMMAND");
             return;
         }
-        lastPcMs = nowMs;
+        notePcLine(nowMs, emit, ctx);
         // Kept only in full manual (the robot ignores it otherwise, and a
         // mode change starts the flywheel from 0 on both ends).
         cmd.flywheel = rcmap_mode_from_us(cmd.mode_us) == RCMAP_MODE_FULL_MANUAL ? v : 0.0f;
@@ -179,7 +205,7 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
             emitLine(emit, ctx, "$GROUND_EVENT,BAD_COMMAND");
             return;
         }
-        lastPcMs = nowMs;
+        notePcLine(nowMs, emit, ctx);
         if (isRotate) rotate = toDirection(v);
         else angle = toDirection(v);
         updateNudge();
@@ -197,7 +223,7 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
             emitLine(emit, ctx, "$GROUND_EVENT,BAD_COMMAND");
             return;
         }
-        lastPcMs = nowMs;
+        notePcLine(nowMs, emit, ctx);
         if (isTarget) {
             cmd.target = static_cast<uint8_t>(n);
         } else if (isModeSet) {
@@ -215,7 +241,7 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
         return;
     }
 
-    lastPcMs = nowMs;
+    notePcLine(nowMs, emit, ctx);
     if (isNoChannel) {
         return;
     }
@@ -252,6 +278,9 @@ void GroundCommandState::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
     if (cmd.armed && nowMs - lastPcMs > PC_TIMEOUT_MS) {
         release();
         emitLine(emit, ctx, "$GROUND_EVENT,PC_TIMEOUT");
+    } else if (cmd.armed && !pcHold && nowMs - lastPcMs > PC_HOLD_MS) {
+        holdMotion();
+        emitLine(emit, ctx, "$GROUND_EVENT,PC_HOLD");
     }
 }
 

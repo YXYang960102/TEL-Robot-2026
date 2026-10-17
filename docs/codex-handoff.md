@@ -4524,3 +4524,58 @@ neutral even though D25 and GND are confirmed. The code always outputs
 1500 when stopped. Suspects: the Falcon's own neutral/deadband
 configuration (it is borrowed from another team) or its PWM calibration.
 Check the LED colour at neutral and unplug the signal wire to confirm.
+
+## 2026-10-17 — Claude Code: two-stage PC watchdog on the ground STM32 + stall logging
+
+**User Request:** Jeremy reported "still drops now and then" after
+flashing 90092ec. The log showed `ground: PC_TIMEOUT`: the ground STM32 had
+heard nothing from the Dashboard for more than 500 ms, and released the
+enable. That meant a new Enable and a new Y mid-match. He approved:
+diagnostics plus a two-stage timeout.
+
+**Why:**
+- The ground's loop reads USB before it checks the timeout, with the same
+  `now`, so its own stalls can't fake a timeout.
+- That leaves a page stall or a USB stall. The log could not tell which.
+- The old one-stage design made every hiccup cost the whole match state.
+
+**Changed:**
+- `GroundCommandState`:
+  - `PC_HOLD_MS` = 300. Above it, `holdMotion()` sets forward, turn,
+    nudge and flywheel to neutral, keeps arm/mode/target, and prints
+    `$GROUND_EVENT,PC_HOLD` once. The next accepted line prints
+    `$GROUND_EVENT,PC_RESUMED,<silent ms>` and clears the hold.
+  - `PC_TIMEOUT_MS` 500 → 1500. Above it the enable is released and
+    `$GROUND_EVENT,PC_TIMEOUT` is printed, unchanged. Old Dashboards
+    still recognise it.
+  - Every accepted line goes through `notePcLine()`. Rejected or unknown
+    lines still don't count as the PC being alive.
+- Dashboard:
+  - `PC_GAP <ms> (page busy)` is logged when a heartbeat tick runs more
+    than 250 ms late. This is measured only while enabled or enabling, and
+    resets on disarm.
+  - `WRITE_SLOW <ms> (USB)` is logged when `writer.write` takes more
+    than 250 ms.
+  - The hold and resume events are log-only and do not disarm.
+
+**Impact:**
+- A frozen PC now stops motion in 300 ms (was 500) and disarms at 1.5 s
+  (was 0.5 s).
+- Reflash only the ground STM32. The Dashboard updates through Pages on
+  push. The Mega, bridge and Orin are unchanged.
+
+**Evidence:**
+- Ground host test `testPcWatchdog` rewritten to cover: hold at 301 ms
+  with arm/mode/target kept, printed once; resume with the gap (640);
+  outputs return on the resends; a rejected line is not alive; timeout at
+  1501 ms; no stale resume after a new E; quiet while disarmed.
+- Page test covers: hold/resume don't disarm; PC_GAP is logged at
+  625 ms and not at 75 ms or while disarmed; no false gap on the first
+  tick after Enable; WRITE_SLOW.
+- Control test passes. The ground firmware builds. Not run on hardware.
+
+**Next Test:** use the robot normally. When it hiccups, the log
+should show `ground: PC_HOLD` and then `PC_RESUMED,<ms>`, and the robot
+should keep its enable. A `PC_GAP` next to it means the page was busy.
+`WRITE_SLOW`, or a large `PC_RESUMED` with no `PC_GAP`, means USB or the
+hub.
