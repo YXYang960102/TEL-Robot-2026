@@ -819,3 +819,14 @@ assert.doesNotMatch(html, /data-panel="(trace|stream)"|id="(chart|streamUrl|stre
   assert.doesNotMatch(html.slice(html.indexOf('data-panel="control"')), /id="(enableControl|flywheelSlider|angleSet)"/);
   assert.doesNotMatch(html, /data-panel="safety"|id="risk"/);
 }
+
+// Manual Control readout order (Jeremy, 2026-10-17): row 1 target hole,
+// Falcon, elevation, wireless; row 2 the rest; last the wheel pulses and
+// the gamepad (4 per row).
+{
+  const control = html.slice(html.indexOf('data-panel="control"'));
+  const grid = control.slice(0, control.indexOf('</section>'));
+  const order = [...grid.matchAll(/class="value" id="([A-Za-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(order, ['targetHole', 'falconPwm', 'anglePulse', 'wirelessState',
+    'controlOwner', 'towerState', 'autoPath', 'shooterAxisMode', 'chassisPulses', 'gamepadState']);
+}
