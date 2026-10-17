@@ -749,6 +749,13 @@
     // this long (USB backpressure). The ground stops motion after 300 ms.
     const HEARTBEAT_GAP_LOG_MS = 250;
     let lastHeartbeatTickMs = null;
+    let statusMismatchLogged = false;
+    // RF link log (ground $RFLINK): lost / back, and an LQ below
+    // RF_LQ_LOG_LOW until it recovers above RF_LQ_LOG_OK.
+    const RF_LQ_LOG_LOW = 50;
+    const RF_LQ_LOG_OK = 70;
+    let rfLinkLogged = null;
+    let rfLqLowLogged = false;
     // After E, wait this long for the robot to confirm OUTPUTS_ENABLED.
     // Wireless confirmation rides the ELRS telemetry uplink, so it is
     // slower than wired; 3 s is generous for both.
@@ -823,6 +830,7 @@
     function setControlArmed(armed) {
       // An Enable this page asked for, confirmed just now.
       const justEnabled = armed && !controlArmed && enablePending;
+      if (armed !== controlArmed) statusMismatchLogged = false; // log anew per enable
       controlArmed = armed;
       if (armed) {
         enablePending = false;
@@ -1582,9 +1590,21 @@
       if (line.startsWith("$RFLINK,")) {
         linkKind = "ground";
         const p = line.trim().split(",");
-        el.rfLinkState.textContent = p[1] === "1"
+        const rfUp = p[1] === "1";
+        el.rfLinkState.textContent = rfUp
           ? `RF LQ up ${p[2]}% / down ${p[3]}% · RSSI ${rssiDbm(Number(p[4]))} dBm`
           : "RF link lost / 無線電斷線";
+        if (rfLinkLogged !== null && rfUp !== rfLinkLogged) {
+          appendControlLog(rfUp ? "RF link back / 無線電恢復" : "RF link lost / 無線電斷線");
+        }
+        rfLinkLogged = rfUp;
+        const worstLq = Math.min(Number(p[2]), Number(p[3]));
+        if (rfUp && !rfLqLowLogged && worstLq < RF_LQ_LOG_LOW) {
+          appendControlLog(`RF LQ low / 訊號品質低: up ${p[2]}% down ${p[3]}%`);
+          rfLqLowLogged = true;
+        } else if (rfLqLowLogged && rfUp && worstLq > RF_LQ_LOG_OK) {
+          rfLqLowLogged = false;
+        }
         return;
       }
 
@@ -1943,8 +1963,19 @@
       el.towerState.textContent = feedBusy ? "busy / 冷卻中" : "ready / 可觸發";
       el.shooterAxisMode.textContent = rotateManual ? "manual / 手動" : "vision / 視覺";
       const wirelessOwned = armed === 1 && owner === 2;
-      if (controlArmed && !wirelessOwned) setControlArmed(false);
-      else if (!controlArmed && enablePending && wirelessOwned) setControlArmed(true);
+      // Status rides the sparse ELRS uplink and can be seconds old, so it
+      // never disarms this page (2026-10-17: a late "disarmed" from the
+      // previous enable kept stopping the heartbeat -> ground PC_TIMEOUT).
+      // Disarming comes from the robot's events and the ground's releases;
+      // either way the robot is safe (it needs a new CH6 edge to enable, and
+      // the ground releases 1.5 s after this page goes quiet). A mismatch is
+      // logged once so a real drop is still visible.
+      const mismatch = controlArmed && !wirelessOwned;
+      if (mismatch && !statusMismatchLogged) {
+        appendControlLog(`robot status says ${armed ? "armed" : "disarmed"} (owner ${OWNER_NAMES[owner] ?? owner}, ${ageMs} ms old) / 狀態顯示未由無線啟用`);
+      }
+      statusMismatchLogged = mismatch;
+      if (!controlArmed && enablePending && wirelessOwned) setControlArmed(true);
       if (controlArmed && Number.isInteger(mode) && mode >= 0) setOperatorMode(mode);
     }
 

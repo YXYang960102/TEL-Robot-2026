@@ -39,11 +39,16 @@ void GroundCommandState::reset(uint32_t nowMs) {
     discarding = false;
     lastPcMs = nowMs;
     pcHold = false;
+    enabled = false;
+    armLowSinceMs = nowMs - ARM_LOW_MS; // CH6 counts as low long enough
 }
 
-void GroundCommandState::release() {
+void GroundCommandState::release(uint32_t nowMs) {
     // Arm off and every motion neutral, fire / auto released. The selected
     // target hole is a choice, not a motion, so it is kept until the next E.
+    if (enabled) epoch++;
+    enabled = false;
+    if (cmd.armed) armLowSinceMs = nowMs;
     cmd.armed = false;
     cmd.forward = 0.0f;
     cmd.turn = 0.0f;
@@ -57,6 +62,12 @@ void GroundCommandState::release() {
     cmd.mode_us = RCMAP_MODE_FULL_MANUAL_US;
     cmd.flywheel = 0.0f;
     pcHold = false;
+}
+
+void GroundCommandState::raiseArmIfReady(uint32_t nowMs) {
+    if (enabled && !cmd.armed && nowMs - armLowSinceMs >= ARM_LOW_MS) {
+        cmd.armed = true;
+    }
 }
 
 void GroundCommandState::holdMotion() {
@@ -113,8 +124,8 @@ void GroundCommandState::rxByte(char c, uint32_t nowMs, GroundEmitFn emit, void*
     // be parsed as a command), and treat a corrupt PC stream as lost.
     length = 0;
     discarding = true;
-    if (cmd.armed) {
-        release();
+    if (enabled) {
+        release(nowMs);
         emitLine(emit, ctx, "$GROUND_EVENT,RELEASED_CORRUPT_COMMAND");
     }
     emitLine(emit, ctx, "$GROUND_EVENT,COMMAND_TOO_LONG");
@@ -124,17 +135,20 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
     if (line[0] == '\0') return;
 
     if (strcmp(line, "E") == 0) {
-        release();
+        release(nowMs);
         // Every Enable starts on the Orin's own pick, like the robot (which
         // resets it too -- but would take this held CH3 straight back).
         cmd.target = RCMAP_TARGET_NONE;
-        cmd.armed = true;
+        enabled = true;
+        epoch++;
+        // CH6 high now if it has been low long enough, else from tick().
+        raiseArmIfReady(nowMs);
         lastPcMs = nowMs;
         emitLine(emit, ctx, "$GROUND_EVENT,ENABLE_REQUESTED");
         return;
     }
     if (strcmp(line, "X") == 0) {
-        release();
+        release(nowMs);
         emitLine(emit, ctx, "$GROUND_EVENT,ENABLE_RELEASED");
         return;
     }
@@ -161,7 +175,7 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
         emitLine(emit, ctx, "$GROUND_EVENT,UNKNOWN_COMMAND");
         return;
     }
-    if (!cmd.armed) {
+    if (!enabled) {
         // Nothing to send without an enable request; the robot would refuse
         // it anyway.
         emitLine(emit, ctx, "$GROUND_EVENT,REJECTED_NOT_ENABLED");
@@ -275,10 +289,11 @@ void GroundCommandState::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
     if (cmd.auto_path != RCMAP_AUTO_NONE && nowMs - autoStartMs >= AUTO_PULSE_MS) {
         cmd.auto_path = RCMAP_AUTO_NONE;
     }
-    if (cmd.armed && nowMs - lastPcMs > PC_TIMEOUT_MS) {
-        release();
+    raiseArmIfReady(nowMs);
+    if (enabled && nowMs - lastPcMs > PC_TIMEOUT_MS) {
+        release(nowMs);
         emitLine(emit, ctx, "$GROUND_EVENT,PC_TIMEOUT");
-    } else if (cmd.armed && !pcHold && nowMs - lastPcMs > PC_HOLD_MS) {
+    } else if (enabled && !pcHold && nowMs - lastPcMs > PC_HOLD_MS) {
         holdMotion();
         emitLine(emit, ctx, "$GROUND_EVENT,PC_HOLD");
     }
@@ -311,6 +326,7 @@ void RobotStatusTracker::onStatus(const rcmap_status& s, uint32_t nowMs, GroundE
     const bool newEvent = haveStatus && s.event_seq != last.event_seq;
     last = s;
     haveStatus = true;
+    invalidated = false;
     lastStatusMs = nowMs;
     const uint16_t event = rcmap_status_code_event(s.event_code);
     if (newEvent && event != RCMAP_EVENT_NONE) {
@@ -321,7 +337,7 @@ void RobotStatusTracker::onStatus(const rcmap_status& s, uint32_t nowMs, GroundE
 }
 
 bool RobotStatusTracker::fresh(uint32_t nowMs) const {
-    return haveStatus && nowMs - lastStatusMs <= STALE_MS;
+    return haveStatus && !invalidated && nowMs - lastStatusMs <= STALE_MS;
 }
 
 void RobotStatusTracker::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {

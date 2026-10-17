@@ -36,6 +36,13 @@ public:
     // A dead page now stops the robot sooner (300 ms) and disarms at 1.5 s.
     static constexpr uint32_t PC_HOLD_MS = 300;
     static constexpr uint32_t PC_TIMEOUT_MS = 1500;
+    // The robot enables only on a low->high edge of CH6 (2026-10-17). If an
+    // E arrives while CH6 is still high (the robot disarmed itself, but the
+    // ground kept holding the arm channel), CH6 first goes low for this long
+    // so the low actually crosses the radio (CH6 is round-robin) and the
+    // bridge's 20 ms forwarding, then high. Without it that Enable never
+    // confirmed ("no confirmation") and only a second press worked.
+    static constexpr uint32_t ARM_LOW_MS = 200;
     static constexpr size_t MAX_LINE_LENGTH = 24;
     // The robot acts on the rising edge; holding the level this long makes
     // sure it is seen (CH5 is in every packet; CH8 is round-robin).
@@ -52,11 +59,18 @@ public:
     void tick(uint32_t nowMs, GroundEmitFn emit, void* ctx);
 
     const rcmap_command& command() const { return cmd; }
+    // E received and not released since. CH6 (command().armed) follows it,
+    // up to ARM_LOW_MS later.
+    bool isEnabled() const { return enabled; }
+    // Bumped on every E and every release of an enable: the robot status
+    // received before it says nothing about the new state.
+    uint32_t enableEpoch() const { return epoch; }
 
 private:
     void processLine(uint32_t nowMs, GroundEmitFn emit, void* ctx);
     static void emitModeEvent(uint8_t mode, GroundEmitFn emit, void* ctx);
-    void release();
+    void release(uint32_t nowMs);
+    void raiseArmIfReady(uint32_t nowMs);
     void holdMotion();
     void notePcLine(uint32_t nowMs, GroundEmitFn emit, void* ctx);
 
@@ -72,6 +86,9 @@ private:
     bool discarding = false;
     uint32_t lastPcMs = 0;
     bool pcHold = false;
+    bool enabled = false;
+    uint32_t armLowSinceMs = 0;
+    uint32_t epoch = 0;
 };
 
 class RobotStatusTracker {
@@ -99,11 +116,16 @@ public:
     void tick(uint32_t nowMs, GroundEmitFn emit, void* ctx);
 
     bool fresh(uint32_t nowMs) const;
+    // The last status predates an E / release: report "not fresh" until the
+    // next status arrives, so a page can't confirm (or doubt) an enable
+    // from the previous one.
+    void invalidate() { invalidated = true; }
     uint8_t flags() const { return last.flags; }
 
 private:
     rcmap_status last{};
     bool haveStatus = false;
+    bool invalidated = false;
     uint32_t lastStatusMs = 0;
     rcmap_aim lastAim{};
     bool haveAim = false;

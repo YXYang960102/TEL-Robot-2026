@@ -34,9 +34,11 @@ ES900RX (CRSF, RF)  <--USART2 PA2/PA3-->  this board  <--USART1 PA9/PA10-->  Meg
   that line is younger than `STATUS_STALE_MS` (500 ms). Battery is a frame
   type ELRS already relays as flight-controller telemetry, so no custom
   frame type has to survive the radio. **Not yet verified on hardware.**
-- **Uplink, TEL lines**: a `TEL,...` line read back on USART1 is still split
-  into `CRSF_TEL_CHUNK` frames between status frames. The production Mega
-  prints `TEL` to USB only, so in practice this path is idle.
+- **Uplink, other lines**: dropped (2026-10-17). This board used to relay
+  any non-`ST,` line as `CRSF_TEL_CHUNK` frames every 20 ms, forever, so a
+  single garbled line from a Mega reset could keep about 40 custom frames a
+  second competing with the status frames for ELRS's telemetry slots. Only
+  status goes up now.
 
 USART2/PA2-PA3's role, baud, and bring-up code are unchanged from
 `tools/stm32_elrs_bidirectional_test`, which is hardware-confirmed working

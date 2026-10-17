@@ -228,6 +228,9 @@ static void testInputHardening() {
     assert(!st.command().armed && saw("$GROUND_EVENT,COMMAND_TOO_LONG"));
     assert(!onAir(st).fire);
     send(st, "E", 3); // next line parses normally
+    assert(st.isEnabled());
+    // (CH6 was high until 2 ms ago: it rises after ARM_LOW_MS, see testArmEdge.)
+    st.tick(2 + GroundCommandState::ARM_LOW_MS, collect, nullptr);
     assert(st.command().armed);
 }
 
@@ -452,6 +455,70 @@ static void testFlywheel() {
     assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
 }
 
+static void testArmEdge() {
+    GroundCommandState st;
+    st.reset(1000);
+    // CH6 has been low since boot: E raises it at once.
+    send(st, "E", 1000);
+    assert(st.isEnabled() && st.command().armed);
+    const uint32_t e1 = st.enableEpoch();
+    // E again while CH6 is high (the robot disarmed itself but the ground
+    // still holds arm): CH6 must go low for ARM_LOW_MS before rising, or
+    // the robot never sees the edge it needs.
+    send(st, "E", 2000);
+    assert(st.isEnabled() && !st.command().armed && st.enableEpoch() != e1);
+    send(st, "T,1,1", 2050);              // commands are accepted meanwhile
+    assert(nearf(onAir(st).forward, 1));
+    st.tick(2000 + GroundCommandState::ARM_LOW_MS - 1, collect, nullptr);
+    assert(!st.command().armed);
+    send(st, "K", 2150);
+    st.tick(2000 + GroundCommandState::ARM_LOW_MS, collect, nullptr);
+    assert(st.command().armed);
+    // X then a quick E: low only for the remainder of ARM_LOW_MS.
+    const uint32_t e2 = st.enableEpoch();
+    send(st, "X", 3000);
+    assert(!st.isEnabled() && !st.command().armed && st.enableEpoch() != e2);
+    send(st, "E", 3100);
+    assert(!st.command().armed);
+    st.tick(3000 + GroundCommandState::ARM_LOW_MS, collect, nullptr);
+    assert(st.command().armed);
+    // A release during the low wait: stays low, nothing rises later.
+    send(st, "E", 4000);
+    send(st, "X", 4050);
+    st.tick(4500, collect, nullptr);
+    assert(!st.command().armed && !st.isEnabled());
+    // Epoch: unchanged by a release that had nothing enabled.
+    const uint32_t e3 = st.enableEpoch();
+    send(st, "X", 4600);
+    assert(st.enableEpoch() == e3);
+}
+
+static void testStatusInvalidate() {
+    RobotStatusTracker tr;
+    tr.reset(0);
+    tr.onStatus(status(RCMAP_STATUS_ARMED | RCMAP_STATUS_OWNER_WIRELESS, 1, RCMAP_EVENT_OUTPUTS_ENABLED),
+                100, collect, nullptr);
+    assert(tr.fresh(200));
+    // After an E / release the old status is not reported as current...
+    tr.invalidate();
+    assert(!tr.fresh(200));
+    lines.clear();
+    tr.tick(300, collect, nullptr);
+    assert(lastWireless().rfind("$WIRELESS,0,", 0) == 0);
+    // ...until the next status, whose new event still comes through.
+    lines.clear();
+    tr.onStatus(status(0, 2, RCMAP_EVENT_OUTPUTS_DISABLED), 400, collect, nullptr);
+    assert(tr.fresh(400) && saw("$EVENT,OUTPUTS_DISABLED"));
+    // An aim frame doesn't count as status.
+    tr.invalidate();
+    rcmap_aim a{};
+    a.distance_cm = 300;
+    rcmap_status as{};
+    rcmap_aim_to_status(&a, &as.flags, &as.event_seq, &as.event_code);
+    tr.onStatus(as, 500, collect, nullptr);
+    assert(!tr.fresh(500));
+}
+
 int main() {
     testDefaultsAndEnable();
     testNudge();
@@ -462,6 +529,8 @@ int main() {
     testStatusTracker();
     testModeKey();
     testFlywheel();
+    testArmEdge();
+    testStatusInvalidate();
     testAimFrames();
     printf("ground control host tests: all asserts passed\n");
     return 0;

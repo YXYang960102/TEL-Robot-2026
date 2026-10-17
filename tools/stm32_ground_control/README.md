@@ -32,7 +32,7 @@ The PC sends exactly what it sends to the Mega over a wired link:
 
 | Line | Effect here |
 |------|-------------|
-| `E` | Arm channel (CH6) goes high, every axis goes neutral, and the target hole goes back to 0 (the AI's own pick). Prints `$GROUND_EVENT,ENABLE_REQUESTED`. The robot enables on the low→high edge. |
+| `E` | Arm channel (CH6) goes high, every axis goes neutral, and the target hole goes back to 0 (the AI's own pick). Prints `$GROUND_EVENT,ENABLE_REQUESTED`. The robot enables on the low→high edge, so if CH6 was high (or went low less than 200 ms ago), it is held low until it has been low for 200 ms (`ARM_LOW_MS`) and then raised; otherwise that Enable would never confirm. Every `E` and every release also mark the last robot status out of date: `$WIRELESS` reports `fresh` 0 until the next status arrives. |
 | `X` | Arm channel goes low and every axis goes neutral. Prints `$GROUND_EVENT,ENABLE_RELEASED`. |
 | `K` | Heartbeat. |
 | `T,<l>,<r>` | Becomes forward = (l+r)/2 on CH1 and turn = (r−l)/2 on CH2 (the robot mixes them back with the same polarity). |

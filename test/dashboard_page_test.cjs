@@ -517,15 +517,37 @@ async function emergencyStopViaEnter() {
   assert.equal(armed(), true);
   assert.match(elements.wirelessState.textContent, /no robot status/);
 
-  // Fresh status saying disarmed -> page disarms.
+  // Status saying disarmed: it may be seconds old over ELRS, so the page
+  // stays armed (keeps heartbeating) and logs the mismatch once; the
+  // robot's event is what disarms it.
+  elements.log.textContent = '';
   line('$WIRELESS,1,0,0,1,0,1,1,40');
+  line('$WIRELESS,1,0,0,1,0,1,1,40');
+  assert.equal(armed(), true);
+  assert.equal((run('log.textContent').match(/robot status says disarmed/g) || []).length, 1);
+  event('DISABLED_RC_LINK_LOST');
   assert.equal(armed(), false);
 
-  // Wired source owns the robot -> wireless page doesn't count as armed.
+  // Same for a status naming the wired source: logged, not disarmed.
   await arm();
-  assert.equal(armed(), true);
   line('$WIRELESS,1,1,1,1,0,1,1,40');
+  assert.equal(armed(), true);
+  assert.match(run('log.textContent'), /robot status says armed \(owner wired/);
+  event('OUTPUTS_DISABLED');
   assert.equal(armed(), false);
+
+  // RF log: lost / back once each, LQ low once until it recovers.
+  elements.log.textContent = '';
+  line('$RFLINK,0,0,0,0');
+  line('$RFLINK,0,0,0,0');
+  line('$RFLINK,1,40,90,50');
+  line('$RFLINK,1,45,90,50');
+  line('$RFLINK,1,95,95,50');
+  line('$RFLINK,1,30,95,50');
+  const rfLog = run('log.textContent');
+  assert.equal((rfLog.match(/RF link lost/g) || []).length, 1);
+  assert.equal((rfLog.match(/RF link back/g) || []).length, 1);
+  assert.equal((rfLog.match(/RF LQ low/g) || []).length, 2);
 
   // Ground-side release (PC timeout etc.) disarms the page.
   for (const name of ['PC_TIMEOUT', 'ENABLE_RELEASED', 'RELEASED_CORRUPT_COMMAND', 'COMMAND_TOO_LONG']) {

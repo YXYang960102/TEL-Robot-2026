@@ -4636,3 +4636,72 @@ show 1490 at rest.
 2. Still creeping backwards: raise the trim to 15, then 20.
 3. Creeping forwards: lower it to 5.
 4. Then Enable, Y, and check that the slider at 0 is also still.
+
+## 2026-10-17 — Claude Code: wireless enable/disconnect fixes (bridge, ground, Dashboard)
+
+**User Request:** after 34fd71f the link kept dropping:
+`PC_HOLD` → `PC_TIMEOUT`, "no confirmation" on the first Enable, and
+`OUTPUTS_ENABLED` arriving 6 s after E. Jeremy approved fixing all of it.
+The ELRS TX OLED shows 150Hz 25mW 1:32 TLM (not 1:64 as assumed before).
+Jeremy is changing it to 1:4 on the module.
+
+**Causes found:**
+1. **Robot bridge.**
+   - Any line from the Mega not starting with `ST,` was stored and
+     re-sent as a `TEL_CHUNK` (0x7F) frame every 20 ms, forever.
+   - The production Mega only sends `ST,`. But one garbled line (a Mega
+     reset or upload mid-line) is enough to start about 40 custom frames
+     a second, which compete with the Battery status frames for ELRS's
+     telemetry slots.
+   - This is a likely cause of multi-second status lag. It is unproven:
+     the ground doesn't count frame types.
+2. **Dashboard.** A *fresh* `$WIRELESS` (received within 3 s, but its
+   content possibly seconds old) saying "not armed by wireless" disarmed
+   the page silently. The heartbeat stopped, and the ground then fired
+   `PC_HOLD` and `PC_TIMEOUT`. This matches 6:57:47 and 7:02:06.
+3. **Ground.** E while CH6 was already high did `release()` + arm in the
+   same instant, so CH6 never went low on air. The robot (which needs a
+   low→high edge, and after an RC outage first needs a low) never
+   confirmed: "no confirmation", and only a second press worked.
+
+**Changed:**
+- Bridge `main.c`: non-`ST,` lines are dropped, and the TEL_CHUNK sender
+  and `TEL_CHUNK_SEND_PERIOD_MS` are removed. Only status goes up.
+  - New image: 2584 bytes, sha256 `ee0344818ee2b1c2…`.
+  - **Reflash the robot bridge.**
+- Ground `GroundCommandState`:
+  - `enabled` (E accepted) is separate from CH6 (`cmd.armed`).
+  - `ARM_LOW_MS` = 200: CH6 rises only after it has been low for 200 ms,
+    at once if it already was.
+  - `enableEpoch()` is bumped on E and on a real release; `main.cpp`
+    then calls `RobotStatusTracker::invalidate()`, so `fresh` = 0 until
+    the next status. Events still come through.
+  - LED follows `isEnabled()`.
+- Dashboard:
+  - `$WIRELESS` no longer disarms the page. It can still confirm a
+    pending Enable. A mismatch is logged once per enable.
+  - Disarm comes from robot events (`DISARM_EVENTS`) and ground
+    releases.
+  - Safe either way: the robot needs a new CH6 edge, and the ground
+    releases 1.5 s after the page goes quiet.
+  - `$RFLINK` changes are logged: lost / back, and LQ below 50% (once
+    until it recovers above 70%).
+
+**Evidence:**
+- Ground host tests add `testArmEdge` (immediate raise; 200 ms low
+  when re-enabling from high; X then quick E; release during the wait;
+  epoch) and `testStatusInvalidate`. `testInputHardening` was adjusted.
+- Page test: a status mismatch is logged once and does not disarm; the
+  robot event does; RF logging.
+- Control, rc map and manual_control tests pass. The bridge build.py
+  runs its host test, then the cross-build and checks. The ground
+  firmware builds.
+- Not run on hardware.
+
+**Next Test:**
+1. Reflash the bridge and the ground.
+2. Set TLM 1:4.
+3. Enable once: it should confirm in about 1 s.
+4. Drive for several minutes; there should be no `PC_TIMEOUT`.
+5. If it still drops, the log should now say why: `robot status says…`,
+   `RF link lost`, `RF LQ low`, `PC_GAP` or `WRITE_SLOW`.
