@@ -1811,9 +1811,11 @@
       // while disabled never fires later.
       const edge = (b) => b >= 0 && down.has(b) && !prev.has(b);
       el.gamepadState.textContent = `${profile.label} · ${pad.id.slice(0, 32)}`;
+      // Every axis and pressed button, so a pad the browser doesn't map as
+      // "standard" (e.g. a D-input pad on macOS) can be mapped by hand.
+      const axesText = Array.from(pad.axes, (v, i) => `${i}:${(v ?? 0).toFixed(2)}`).join(" ");
       el.gamepadInputs.textContent =
-        `前後 ${(pad.axes[profile.forwardAxis] ?? 0).toFixed(2)} · 轉向 ${(pad.axes[profile.turnAxis] ?? 0).toFixed(2)}` +
-        ` · 按鈕 [${pressed.join(",")}] · 發射=按鈕 ${profile.fireButton}`;
+        `mapping: ${pad.mapping || "非標準"} · 軸 [${axesText}] · 按鈕 [${pressed.join(",")}]`;
 
       for (const [button, mode] of Object.entries(profile.modeButtons)) {
         if (edge(Number(button))) await selectMode(mode);
