@@ -243,7 +243,9 @@ void Shooter::updateRotate() {
 void Shooter::updateFlywheelReady() {
     // No RPM feedback: "ready" means commanded at/above shoot speed for
     // long enough that it has probably spun up.
-    if (flywheelOpenLoopCommand >= Flywheel::SHOOT_COMMAND) {
+    // Never ready while stopped, even with SHOOT_COMMAND at 0 (2026-10-17:
+    // the autos run with the flywheel off for turret testing).
+    if (flywheelOpenLoopCommand > 0.0 && flywheelOpenLoopCommand >= Flywheel::SHOOT_COMMAND) {
         if (flywheelSpinStartMs == 0) {
             flywheelSpinStartMs = millis();
         }

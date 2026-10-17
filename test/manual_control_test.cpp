@@ -132,7 +132,8 @@ bool saw(const std::string& event) {
 static_assert(TuningConstants::Rotate::MANUAL_JOG_INVERTED, "robot-verified 2026-10-17");
 
 // The camera sees the (selected) hole with a depth distance: 4 m, where the
-// placeholder shot tables give 0.80 = SHOOT_COMMAND.
+// shot tables give SHOOT_COMMAND (0.80 with the placeholders; both 0 while
+// the flywheel is off for turret testing, 2026-10-17).
 [[maybe_unused]] void targetInView() {
     hoststub::visionValid = true;
     hoststub::visionDistanceMm = 4000.0;

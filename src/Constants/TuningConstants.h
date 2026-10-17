@@ -101,7 +101,11 @@ constexpr int STOP_TRIM_US = 10;
 // are both provisional placeholders standing in for real speed feedback.
 // Re-tune against real shots once hardware is available; do not trust these
 // numbers unattended.
-constexpr double SHOOT_COMMAND = 0.8;
+// 0.0 with the shot table's flywheel column (Jeremy, 2026-10-17): the autos
+// leave the flywheel stopped while the turret follow is tested. Was 0.8.
+// A stopped flywheel is never "ready" (Shooter::updateFlywheelReady), so
+// the autos cannot fire meanwhile.
+constexpr double SHOOT_COMMAND = 0.0;
 constexpr uint32_t SPIN_UP_MS = 1500;
 
 }
@@ -160,6 +164,12 @@ namespace ShotTable {
 // copy the Dashboard's pulse and the Falcon % here. Then use
 // ELEVATION_TRIM_US below for a single hole that is consistently high/low.
 //
+// FLYWHEEL COLUMN ALL 0.00 (Jeremy, 2026-10-17): turret-follow testing in
+// semi / full auto with the flywheel stopped (the same 1490 us stop pulse
+// as disabled -- Shooter's STOP_TRIM_US). Was 0.72 at 2.5 m rising 0.03 /
+// 0.5 m to 0.98 at 8.5 m, the same guess in all four rows. Put real values
+// back before shooting in the autos.
+//
 // PLACEHOLDERS: no real shots have been measured; all four tables are the
 // same guess. The elevation column is all neutral (1500 us) and is NOT
 // applied until ELEVATION_MEASURED is set true -- placeholder pulses must
@@ -174,74 +184,74 @@ constexpr bool ELEVATION_MEASURED = false;
 
 // Bottom row, ~120 cm: keys 1, 4, 7 = Orin vision ids 10, 11, 12.
 constexpr Entry BOTTOM_ROW[] = {
-    {2.5, 0.72, 1500.0},
-    {3.0, 0.75, 1500.0},
-    {3.5, 0.78, 1500.0},
-    {4.0, 0.80, 1500.0},
-    {4.5, 0.82, 1500.0},
-    {5.0, 0.84, 1500.0},
-    {5.5, 0.86, 1500.0},
-    {6.0, 0.88, 1500.0},
-    {6.5, 0.90, 1500.0},
-    {7.0, 0.92, 1500.0},
-    {7.5, 0.94, 1500.0},
-    {8.0, 0.96, 1500.0},
-    {8.5, 0.98, 1500.0},
+    {2.5, 0.00, 1500.0},
+    {3.0, 0.00, 1500.0},
+    {3.5, 0.00, 1500.0},
+    {4.0, 0.00, 1500.0},
+    {4.5, 0.00, 1500.0},
+    {5.0, 0.00, 1500.0},
+    {5.5, 0.00, 1500.0},
+    {6.0, 0.00, 1500.0},
+    {6.5, 0.00, 1500.0},
+    {7.0, 0.00, 1500.0},
+    {7.5, 0.00, 1500.0},
+    {8.0, 0.00, 1500.0},
+    {8.5, 0.00, 1500.0},
 };
 constexpr int BOTTOM_ROW_COUNT = sizeof(BOTTOM_ROW) / sizeof(BOTTOM_ROW[0]);
 
 // Middle row, ~180 cm: keys 2, 5, 8 = Orin vision ids 7, 8, 9.
 constexpr Entry MIDDLE_ROW[] = {
-    {2.5, 0.72, 1500.0},
-    {3.0, 0.75, 1500.0},
-    {3.5, 0.78, 1500.0},
-    {4.0, 0.80, 1500.0},
-    {4.5, 0.82, 1500.0},
-    {5.0, 0.84, 1500.0},
-    {5.5, 0.86, 1500.0},
-    {6.0, 0.88, 1500.0},
-    {6.5, 0.90, 1500.0},
-    {7.0, 0.92, 1500.0},
-    {7.5, 0.94, 1500.0},
-    {8.0, 0.96, 1500.0},
-    {8.5, 0.98, 1500.0},
+    {2.5, 0.00, 1500.0},
+    {3.0, 0.00, 1500.0},
+    {3.5, 0.00, 1500.0},
+    {4.0, 0.00, 1500.0},
+    {4.5, 0.00, 1500.0},
+    {5.0, 0.00, 1500.0},
+    {5.5, 0.00, 1500.0},
+    {6.0, 0.00, 1500.0},
+    {6.5, 0.00, 1500.0},
+    {7.0, 0.00, 1500.0},
+    {7.5, 0.00, 1500.0},
+    {8.0, 0.00, 1500.0},
+    {8.5, 0.00, 1500.0},
 };
 constexpr int MIDDLE_ROW_COUNT = sizeof(MIDDLE_ROW) / sizeof(MIDDLE_ROW[0]);
 
 // Top row, ~240 cm: keys 3, 6, 9 = Orin vision ids 4, 5, 6.
 constexpr Entry TOP_ROW[] = {
-    {2.5, 0.72, 1500.0},
-    {3.0, 0.75, 1500.0},
-    {3.5, 0.78, 1500.0},
-    {4.0, 0.80, 1500.0},
-    {4.5, 0.82, 1500.0},
-    {5.0, 0.84, 1500.0},
-    {5.5, 0.86, 1500.0},
-    {6.0, 0.88, 1500.0},
-    {6.5, 0.90, 1500.0},
-    {7.0, 0.92, 1500.0},
-    {7.5, 0.94, 1500.0},
-    {8.0, 0.96, 1500.0},
-    {8.5, 0.98, 1500.0},
+    {2.5, 0.00, 1500.0},
+    {3.0, 0.00, 1500.0},
+    {3.5, 0.00, 1500.0},
+    {4.0, 0.00, 1500.0},
+    {4.5, 0.00, 1500.0},
+    {5.0, 0.00, 1500.0},
+    {5.5, 0.00, 1500.0},
+    {6.0, 0.00, 1500.0},
+    {6.5, 0.00, 1500.0},
+    {7.0, 0.00, 1500.0},
+    {7.5, 0.00, 1500.0},
+    {8.0, 0.00, 1500.0},
+    {8.5, 0.00, 1500.0},
 };
 constexpr int TOP_ROW_COUNT = sizeof(TOP_ROW) / sizeof(TOP_ROW[0]);
 
 // Bonus small holes, ~290 cm: Orin vision ids 1, 2, 3 (not selectable;
 // only the Orin's own pick in full auto with no hole selected).
 constexpr Entry BONUS_ROW[] = {
-    {2.5, 0.72, 1500.0},
-    {3.0, 0.75, 1500.0},
-    {3.5, 0.78, 1500.0},
-    {4.0, 0.80, 1500.0},
-    {4.5, 0.82, 1500.0},
-    {5.0, 0.84, 1500.0},
-    {5.5, 0.86, 1500.0},
-    {6.0, 0.88, 1500.0},
-    {6.5, 0.90, 1500.0},
-    {7.0, 0.92, 1500.0},
-    {7.5, 0.94, 1500.0},
-    {8.0, 0.96, 1500.0},
-    {8.5, 0.98, 1500.0},
+    {2.5, 0.00, 1500.0},
+    {3.0, 0.00, 1500.0},
+    {3.5, 0.00, 1500.0},
+    {4.0, 0.00, 1500.0},
+    {4.5, 0.00, 1500.0},
+    {5.0, 0.00, 1500.0},
+    {5.5, 0.00, 1500.0},
+    {6.0, 0.00, 1500.0},
+    {6.5, 0.00, 1500.0},
+    {7.0, 0.00, 1500.0},
+    {7.5, 0.00, 1500.0},
+    {8.0, 0.00, 1500.0},
+    {8.5, 0.00, 1500.0},
 };
 constexpr int BONUS_ROW_COUNT = sizeof(BONUS_ROW) / sizeof(BONUS_ROW[0]);
 

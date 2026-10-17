@@ -96,9 +96,14 @@ int main() {
             for (int i = 0; i < t.count - 1; i++) {
                 assert(t.entries[i].distanceMeters < t.entries[i + 1].distanceMeters);
             }
-            auto r = ShotTableLookup::lookup(5.25, t.entries, t.count);  // between 5.0 and 5.5
-            assert(r.flywheelCommand > t.entries[5].flywheelCommand &&
-                   r.flywheelCommand < t.entries[6].flywheelCommand);
+            // Between 5.0 and 5.5 m: within the two rows' values (equal
+            // while the flywheel column is all 0 for turret testing).
+            auto r = ShotTableLookup::lookup(5.25, t.entries, t.count);
+            const double lo = fmin(t.entries[5].flywheelCommand, t.entries[6].flywheelCommand);
+            const double hi = fmax(t.entries[5].flywheelCommand, t.entries[6].flywheelCommand);
+            assert(r.flywheelCommand >= lo && r.flywheelCommand <= hi);
+            assert(near(r.flywheelCommand,
+                        (t.entries[5].flywheelCommand + t.entries[6].flywheelCommand) / 2.0));
         }
     }
 

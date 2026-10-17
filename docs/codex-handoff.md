@@ -4766,3 +4766,43 @@ their own. With TLM now at 1:4 the uplink has room for it.
 3. tx/ty should update about every 0.4 s and match the Orin window's
    overlay.
 4. Moving the target out of view should show `--`.
+
+## 2026-10-17 — Claude Code: flywheel at 0 in the autos for turret-follow testing
+
+**User Request:** Jeremy wants to test the turret vision-follow in semi
+auto without the flywheel running. He asked for the shot-table flywheel
+values to be 0.0, not a switch, so that the flywheel behaves as it does
+when manually disabled.
+
+**Changed:**
+- Every flywheel entry in all four `ShotTable` rows is 0.00. They were
+  0.72 at 2.5 m, rising 0.03 per 0.5 m to 0.98 at 8.5 m; the old values
+  are noted in a comment.
+- `Flywheel::SHOOT_COMMAND` 0.8 → 0.0. This is the no-target command in
+  the autos, so the flywheel stays stopped there too. With command 0,
+  `writeFlywheelCommand` sends the same stop-trim pulse as when disabled:
+  1490 µs (`STOP_TRIM_US` 10 with INVERTED).
+- `Shooter::updateFlywheelReady()` is now ready only if the command is
+  > 0 *and* ≥ SHOOT_COMMAND. Otherwise SHOOT_COMMAND 0 would have made a
+  stopped flywheel "ready" after 1.5 s, and the autos could have fed a
+  ball into it.
+- `shot_table_lookup_test` asserts the interpolation as a midpoint within
+  range rather than strictly increasing. A test comment was updated.
+
+**Impact:**
+- Semi and full auto: the turret follows; the flywheel stays stopped;
+  the autos never fire.
+- Full manual: unchanged; the Dashboard slider still works.
+- Reflash the Mega only.
+- **Restore the table and SHOOT_COMMAND before any shooting in the
+  autos.**
+
+**Evidence:**
+- `manual_control_test` (3 variants), `shot_table_lookup_test`.
+- Builds pass: `megaatmega2560`, axes and wired.
+- Not run on hardware.
+
+**Note:** Jeremy's working tree had uncommitted changes that are not
+Claude's: a chassis command filter (`COMMAND_FILTER_TIME_CONSTANT_MS`),
+plus edits to MechLink, Telemetry and the Dashboard. They were left
+untouched. Flashing from that folder includes them.
