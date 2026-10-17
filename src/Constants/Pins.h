@@ -7,7 +7,7 @@
 // CONFIRMED 2026-10-16 (Jeremy: these are the competition pins):
 //   chassis right D48, left D46 (ChassisConstants.h)
 //   turret D23, elevation D24, Falcon D25 (ShooterConstants.h)
-//   feed tower trigger D21 (DribblerConstants.h)
+//   feed tower trigger D22 (DribblerConstants.h; was D21 until 2026-10-17)
 //   Orin Serial1 D18/D19, robot ELRS bridge Serial2 D16/D17
 // If the wiring changes, change the pin in its Constants file (main.cpp's
 // pincheck catches two outputs on one pin or an output on a serial pin);

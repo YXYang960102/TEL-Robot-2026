@@ -13,12 +13,14 @@
 namespace DribblerConstants {
 
 namespace Tower {
-// D21 (Jeremy, 2026-10-16). Note: on the Mega 2560, D21 is also the I2C
-// SCL pin, which the board pulls up (10 kOhm to 5 V) -- while the Mega is
-// in reset / the bootloader, before Dribbler::init() drives it LOW, the
-// line can sit HIGH. Check on the robot that the tower doesn't take that
-// as a trigger (see docs/codex-handoff.md, 2026-10-16 pins confirmed).
-constexpr uint8_t TRIGGER_PIN = 21;
+// D22 (Jeremy, 2026-10-17; was D21). D21 is the Mega's I2C SCL with an
+// on-board pull-up, so whenever the pin wasn't driven -- reset, upload,
+// and every bench build that doesn't drive the tower -- it sat HIGH and
+// the tower could fire on its own. D22 has no pull-up (D20/D21 stay free
+// for the turret AS5600 on I2C). It still floats until Dribbler::init()
+// and in benches that leave it alone: a pull-down on the tower input
+// keeps it LOW then.
+constexpr uint8_t TRIGGER_PIN = 22;
 constexpr bool TRIGGER_ACTIVE_HIGH = true;
 
 constexpr unsigned long PULSE_MS = 100;

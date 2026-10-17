@@ -4410,3 +4410,35 @@ turned it left. The horizontal fine-adjust (turret jog) was also reversed.
 the 4 Mega envs build. **Next:** reflash the Mega, check that stick
 left/right and D-pad left/right now match, and check that forward/back
 is still right.
+
+## 2026-10-17 — Claude Code: feed tower trigger moved D21 → D22
+
+**User Request:** Jeremy asked whether the trigger idles LOW, worried that
+the tower "fires by itself now and then". Decision: move the trigger to
+**D22**.
+
+**Why:**
+- In production the trigger idles LOW (driven) and pulses HIGH for 100 ms
+  per shot.
+- But D21 is the Mega 2560's I2C SCL, which has an on-board pull-up.
+  Whenever the pin is not driven, it sits **HIGH**:
+  - during reset, boot and upload;
+  - in every bench build that doesn't drive the tower
+    (`mega_elrs_link_test`, `mega_serial1_test`, the wired / drive / axes
+    benches, and so on).
+- D22 has no pull-up, and D20/D21 are left free for the turret AS5600
+  (I2C).
+
+**Changed:**
+- `DribblerConstants::Tower::TRIGGER_PIN` 21 → 22.
+- Comments updated in `DribblerConstants.h` and the `Pins.h` pin list.
+- The pincheck passes; the outputs are D22–D25, D45 and D46.
+
+**Remaining:**
+- D22 still floats until `Dribbler::init()`, and in benches that don't
+  drive it. A pull-down (about 1–10 kΩ) on the tower's input, or
+  rising-edge triggering on the tower side, keeps it safe.
+- **Rewire the trigger to D22 before flashing.**
+
+**Evidence:** `manual_control_test` passes in 3 variants and the 4 Mega
+production-family envs build. Not run on hardware.
