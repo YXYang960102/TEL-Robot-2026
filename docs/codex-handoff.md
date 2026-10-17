@@ -4579,3 +4579,60 @@ should show `ground: PC_HOLD` and then `PC_RESUMED,<ms>`, and the robot
 should keep its enable. A `PC_GAP` next to it means the page was busy.
 `WRITE_SLOW`, or a large `PC_RESUMED` with no `PC_GAP`, means USB or the
 hub.
+
+## 2026-10-17 — Claude Code: Falcon stop trim + Flywheel INVERTED committed
+
+**User Request:** The flywheel creeps backwards when it should be still,
+even though D25 and GND are confirmed. Jeremy asked to send a small
+forward value at rest instead. He also asked to commit his local
+`Flywheel::INVERTED = true`, which he had already flashed after the robot
+test.
+
+**Changed:**
+- `TuningConstants::Flywheel::INVERTED = true`. This is Jeremy's value,
+  now committed.
+- New `TuningConstants::Flywheel::STOP_TRIM_US = 10`, with a
+  `static_assert` in ShooterConstants.h limiting it to 0..30 µs.
+- `Shooter::writeFlywheelCommand()`: a command ≤ 0 becomes
+  `STOP_TRIM_US / 500` and goes through the same `commandToPulseUs()`
+  INVERTED handling.
+  - "Stopped" covers disabled (`stopAll`), before Y, and the slider at 0.
+  - Commands above 0 are unchanged.
+  - `init()` still sends a plain 1500 for the very first pulse;
+    `stopAll()` right after it applies the trim.
+
+**Calculation:** 10 µs → command 0.02. INVERTED gives −0.02, so the pulse
+is 1500 + 0.02·(1000 − 1500) = **1490 µs**. Not inverted it would be
+1510 µs. Checked values:
+
+| Trim (µs) | Pulse, INVERTED | Pulse, not inverted |
+|---|---|---|
+| 5 | 1495 | 1505 |
+| 15 | 1485 | 1515 |
+| 20 | 1480 | 1520 |
+| 30 | 1470 | 1530 |
+
+The Falcon's neutral deadband is about ±4%, roughly ±20 µs.
+
+**Why:**
+- This borrowed Falcon reads 1500 as slightly reverse, probably because
+  of its own neutral or deadband configuration.
+- The trim is a robot-specific workaround. Set it back to 0 for a Falcon
+  that is configured normally.
+- The 30 µs cap stops a typo from spinning a disabled flywheel.
+
+**Impact:** reflash the Mega only. The Dashboard's Falcon PWM readout will
+show 1490 at rest.
+
+**Evidence:**
+- Mega envs build: `megaatmega2560`, manual axes, wired manual, drive,
+  gamepad motor and vision rotate.
+- `manual_control_test` passes.
+- The pulse arithmetic was checked on the host (table above).
+- Not run on hardware.
+
+**Next Test:**
+1. Flash, then leave the robot disabled and watch the flywheel.
+2. Still creeping backwards: raise the trim to 15, then 20.
+3. Creeping forwards: lower it to 5.
+4. Then Enable, Y, and check that the slider at 0 is also still.

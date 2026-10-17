@@ -83,7 +83,18 @@ constexpr double VISION_READY_TOLERANCE_PX = 5.0;
 
 namespace Flywheel {
 
-constexpr bool INVERTED = false;
+// true since the 2026-10-17 robot test (Jeremy): the slider's direction is
+// the shooting direction with the pulse going below 1500 us.
+constexpr bool INVERTED = true;
+
+// Stop trim (Jeremy, 2026-10-17): this Falcon creeps backwards at the
+// 1500 us neutral (D25 and GND checked), so "stopped" (command 0: disabled,
+// before Y, slider at 0) sends this many us toward the slider's spin
+// direction instead -- 1490 us with INVERTED = true. TUNE ON THE ROBOT:
+// still creeping backwards -> raise (15, 20); creeping forwards -> lower
+// (5). 0 = plain 1500 (a normally configured Falcon). Capped at 30 us in
+// ShooterConstants.h so a typo can't spin a disabled flywheel.
+constexpr int STOP_TRIM_US = 10;
 
 // Auto-fire sequence (Auto::update()). No RPM/tachometer feedback exists for
 // this Falcon 500 (PWM command path is one-way) -- SHOOT_COMMAND/SPIN_UP_MS

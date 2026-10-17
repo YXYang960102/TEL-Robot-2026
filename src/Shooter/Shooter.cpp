@@ -52,6 +52,8 @@ void Shooter::init() {
     // value. The positional elevation servo is attached lazily on its first
     // jog (see writeAngleCommand), so it gets no pulse until then.
     if (DRIVES_FLYWHEEL) {
+        // Neutral for the very first pulse; stopAll() below moves it to the
+        // stop-trimmed value right away.
         flywheelOutput.writeMicroseconds(Flywheel::NEUTRAL_US);
         flywheelOutput.attach(Flywheel::SIGNAL_PIN, Flywheel::MIN_PULSE_US, Flywheel::MAX_PULSE_US);
     }
@@ -297,6 +299,12 @@ void Shooter::writeRotateCommand(double command) {
 
 void Shooter::writeFlywheelCommand(double command) {
     if (!DRIVES_FLYWHEEL) return;
+    // Stopped = STOP_TRIM_US toward the spin direction, not exactly 1500
+    // (this Falcon creeps backwards at 1500). As a command it goes through
+    // the same INVERTED handling: 10 us -> 0.02 -> 1490 us when inverted.
+    const double stopCommand = static_cast<double>(Flywheel::STOP_TRIM_US) /
+                               (Flywheel::MAX_PULSE_US - Flywheel::NEUTRAL_US);
+    if (command <= 0.0) command = stopCommand;
     flywheelPulseUs = commandToPulseUs(command, Flywheel::MOTOR);
     flywheelOutput.writeMicroseconds(flywheelPulseUs);
 }
