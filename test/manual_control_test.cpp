@@ -51,6 +51,8 @@ void reset() {
     hoststub::visionValid = false;
     hoststub::visionDistanceMm = 0.0;
     hoststub::visionTargetId = 8;
+    hoststub::visionTx = 0.0;
+    hoststub::visionTy = 0.0;
     hoststub::shooterReady = false;
     MechLink::signalLost = true;
     MechLink::frameCount = 0;
@@ -561,8 +563,8 @@ void testStatusUplink() {
     assert(rcmap_status_code_mode(rec.statusCode) == RCMAP_MODE_SEMI_AUTO);
 }
 
-// Aim frames (2026-10-17): every third 100 ms status slot carries the
-// distance / elevation pulse / target for the wireless Dashboard.
+// Aim and vision frames (2026-10-17): the 100 ms status slots go status,
+// aim, status, vision, for the wireless Dashboard.
 rcmap_aim lastAim() {
     rcmap_status st = {};
     st.flags = rec.aimFlags;
@@ -575,15 +577,17 @@ rcmap_aim lastAim() {
 
 void testAimUplink() {
     reset();
-    // Status, status, aim; one line per 100 ms.
+    // Status, aim, status, vision; one line per 100 ms.
     step(100);
-    assert(rec.statusCount == 1 && rec.aimCount == 0);
+    assert(rec.statusCount == 1 && rec.aimCount == 0 && rec.visionCount == 0);
     step(100);
-    assert(rec.statusCount == 2 && rec.aimCount == 0);
+    assert(rec.statusCount == 1 && rec.aimCount == 1 && rec.visionCount == 0);
     step(100);
-    assert(rec.statusCount == 2 && rec.aimCount == 1);
-    for (int i = 0; i < 6; i++) step(100);
-    assert(rec.statusCount == 6 && rec.aimCount == 3);
+    assert(rec.statusCount == 2 && rec.aimCount == 1 && rec.visionCount == 0);
+    step(100);
+    assert(rec.statusCount == 2 && rec.aimCount == 1 && rec.visionCount == 1);
+    for (int i = 0; i < 8; i++) step(100);
+    assert(rec.statusCount == 6 && rec.aimCount == 3 && rec.visionCount == 3);
     // Nothing in view: no distance, not valid.
     rcmap_aim a = lastAim();
     assert(a.distance_cm == 0 && !a.valid && a.target_id == 0 && a.elevation_pulse_us == 1500);
@@ -605,6 +609,42 @@ void testAimUplink() {
     // The status frames in between are untouched by it.
     assert(rec.statusFlags & RCMAP_STATUS_ARMED);
     assert(!rcmap_status_is_aim(rec.statusCode));
+    assert(!rcmap_status_is_vision(rec.statusCode));
+}
+
+rcmap_vision lastVision() {
+    rcmap_status st = {};
+    st.flags = rec.visionFlags;
+    st.event_seq = rec.visionSeq;
+    st.event_code = rec.visionCode;
+    rcmap_vision v = {};
+    assert(rcmap_vision_from_status(&st, &v));
+    return v;
+}
+
+void testVisionUplink() {
+    reset();
+    for (int i = 0; i < 4; i++) step(100);
+    // Nothing in view: zeros, not valid.
+    rcmap_vision v = lastVision();
+    assert(!v.valid && v.distance_cm == 0 && v.tx_px == 0.0f && v.ty_px == 0.0f);
+    hoststub::visionReady = true;
+    hoststub::visionValid = true;
+    hoststub::visionDistanceMm = 3524.0;   // -> 352 cm
+    hoststub::visionTargetId = 10;
+    hoststub::visionTx = -62.4;           // -> -62.5 (0.5 px steps)
+    hoststub::visionTy = 20.5;
+    for (int i = 0; i < 4; i++) step(100);
+    v = lastVision();
+    assert(v.valid && v.distance_cm == 352 && v.target_id == 10);
+    assert(v.tx_px == -62.5f && v.ty_px == 20.5f);
+    // Lost target: tx / ty back to 0 (not a stale value).
+    hoststub::visionValid = false;
+    for (int i = 0; i < 4; i++) step(100);
+    v = lastVision();
+    assert(!v.valid && v.tx_px == 0.0f && v.distance_cm == 0);
+    hoststub::visionTx = 0.0;
+    hoststub::visionTy = 0.0;
 }
 
 // ----------------------------------------------------------- operator modes
@@ -1085,6 +1125,7 @@ int main() {
     testFineAdjustWireless();
     testModeCommandAndTargetReset();
     testAimUplink();
+    testVisionUplink();
     printf("manual_control_test (pin table confirmed): all asserts passed\n");
 #else
     testEnableRefusedUntilPinTableConfirmed();

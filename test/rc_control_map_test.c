@@ -180,6 +180,34 @@ static void test_operator_mode(void) {
 }
 
 /* Aim frames: alternate with status in the same ST line / Battery frame. */
+static void test_vision_frames(void) {
+    rcmap_vision v;
+    memset(&v, 0, sizeof v);
+    v.distance_cm = 352; v.tx_px = -62.5f; v.ty_px = 20.4f; v.valid = true; v.target_id = 10;
+    rcmap_status s;
+    memset(&s, 0, sizeof s);
+    rcmap_vision_to_status(&v, &s.flags, &s.event_seq, &s.event_code);
+    /* Never mistaken for status or aim; the ST line field ranges hold. */
+    assert(rcmap_status_is_vision(s.event_code) && !rcmap_status_is_aim(s.event_code));
+    assert(s.event_seq <= 0xFFFFFFu);
+    rcmap_aim a;
+    assert(!rcmap_aim_from_status(&s, &a));
+    rcmap_vision back;
+    assert(rcmap_vision_from_status(&s, &back));
+    assert(back.distance_cm == 352 && back.valid && back.target_id == 10);
+    assert(back.tx_px == -62.5f && back.ty_px == 20.5f); /* 0.5 px steps */
+    /* Clamps: distance 16383 cm, tx / ty +-1023.5 px. */
+    v.distance_cm = 40000; v.tx_px = 5000.0f; v.ty_px = -5000.0f; v.valid = false; v.target_id = 0;
+    rcmap_vision_to_status(&v, &s.flags, &s.event_seq, &s.event_code);
+    assert(rcmap_vision_from_status(&s, &back));
+    assert(back.distance_cm == 0x3FFF && back.tx_px == 1023.5f && back.ty_px == -1023.5f && !back.valid);
+    /* Status codes (<= 0x3FFF) and aim frames are not vision frames. */
+    for (uint8_t m = 0; m <= RCMAP_MODE_FULL_MANUAL; m++) {
+        assert(!rcmap_status_is_vision(rcmap_status_code(RCMAP_EVENT_COUNT - 1, m)));
+    }
+    assert(!rcmap_status_is_vision(RCMAP_AIM_FRAME_BIT | 0x4000u));
+}
+
 static void test_flywheel_on_mode_channel(void) {
     rcmap_command c = base();
     c.mode_us = RCMAP_MODE_FULL_MANUAL_US;
@@ -312,6 +340,7 @@ int main(void) {
     test_event_names_and_status();
     test_aim_frames();
     test_flywheel_on_mode_channel();
+    test_vision_frames();
     test_operator_mode();
     printf("rc_control_map host tests: all asserts passed\n");
     return 0;

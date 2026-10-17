@@ -504,6 +504,20 @@ async function emergencyStopViaEnter() {
   line('$AIM,1,abc');                                         // malformed: ignored
   assert.match(elements.distanceRaw.textContent, /收不到機器人視覺資料/);
   assert.equal(run('linkKind'), 'ground');
+  // $VISION (the robot's vision frame): tx / ty in half pixels.
+  line('$VISION,1,352,-125,41,1,10');
+  assert.equal(elements.tx.textContent, '-62.5');
+  assert.equal(elements.ty.textContent, '20.5');
+  line('$VISION,1,0,0,0,0,0');                     // no valid target
+  assert.equal(elements.tx.textContent, '--');
+  line('$VISION,0,0,0,0,0,0');                     // stale
+  assert.equal(elements.ty.textContent, '--');
+  line('$VISION,1,x');                             // malformed: ignored
+  assert.equal(run('linkKind'), 'ground');
+  // The vision panel keeps only tx, ty and distance.
+  for (const gone of ['targetId', 'valid', 'shooterReady', 'operatorMode', 'warnBits']) {
+    assert.doesNotMatch(html, new RegExp(`id="${gone}"`), gone);
+  }
 
   // LB (turret home) only explains that the AS5600 isn't there yet.
   writes.length = 0;
@@ -627,7 +641,7 @@ async function emergencyStopViaEnter() {
   // (the shot table drives the flywheel in the auto modes).
   event('MODE_SEMI_AUTO');
   assert.match(elements.controlArmedBadge.textContent, /半自動/);
-  assert.match(elements.operatorMode.textContent, /SEMI AUTO/);
+  assert.match(run('MODE_NAMES[operatorMode]'), /SEMI AUTO/);
   assert.equal(elements.flywheelSlider.disabled, true);
   writes.length = 0;
   elements.flywheelSlider.value = '60';
@@ -638,20 +652,20 @@ async function emergencyStopViaEnter() {
   await windowHandlers.keydown(key('6'));
   assert.equal(last(), 'TGT,6');
   event('MODE_FULL_AUTO');
-  assert.match(elements.operatorMode.textContent, /FULL AUTO/);
+  assert.match(run('MODE_NAMES[operatorMode]'), /FULL AUTO/);
   event('MODE_FULL_MANUAL');
   assert.equal(elements.flywheelSlider.disabled, false);
   // TEL slot 13 is mode + 1: 2 = semi auto; 0 (older firmware) is ignored.
   const telMode = (slot13) => ['TEL', 1, 0, 0, 0, 0, 0, 1500, 1500, 1500, 1500, 1500, 0, slot13, 1,
     'NaN', 'NaN', 'NaN', 1, 1500, 1500, 1, 0, 0, 0, 0, 1500, 0.0].join(',');
   line(telMode(2));
-  assert.match(elements.operatorMode.textContent, /SEMI AUTO/);
+  assert.match(run('MODE_NAMES[operatorMode]'), /SEMI AUTO/);
   line(telMode(0));
-  assert.match(elements.operatorMode.textContent, /SEMI AUTO/);   // not "FULL AUTO"
+  assert.match(run('MODE_NAMES[operatorMode]'), /SEMI AUTO/);   // not "FULL AUTO"
   // Any disarm drops the page back to full manual, like the firmware.
   await windowHandlers.keydown(key('Enter'));
   assert.equal(armed(), false);
-  assert.match(elements.operatorMode.textContent, /FULL MANUAL/);
+  assert.match(run('MODE_NAMES[operatorMode]'), /FULL MANUAL/);
   // Ground station: $WIRELESS turns the exact-angle widgets off (the radio
   // carries only up/stop/down); the D-pad's ANG jog is unchanged.
   // $WIRELESS field 10 carries the mode (-1 = not reported).
@@ -661,11 +675,11 @@ async function emergencyStopViaEnter() {
   await elements.enableControl.handlers.click();
   line('$WIRELESS,1,1,2,1,0,1,1,50,2');
   assert.equal(armed(), true);
-  assert.match(elements.operatorMode.textContent, /FULL MANUAL/);
+  assert.match(run('MODE_NAMES[operatorMode]'), /FULL MANUAL/);
   line('$WIRELESS,1,1,2,1,0,1,1,50,0');
-  assert.match(elements.operatorMode.textContent, /FULL AUTO/);
+  assert.match(run('MODE_NAMES[operatorMode]'), /FULL AUTO/);
   line('$WIRELESS,1,1,2,1,0,1,1,50,-1');
-  assert.match(elements.operatorMode.textContent, /FULL AUTO/);   // unknown: unchanged
+  assert.match(run('MODE_NAMES[operatorMode]'), /FULL AUTO/);   // unknown: unchanged
   assert.equal(elements.angleSlider.disabled, true);
   await start();
   writes.length = 0;

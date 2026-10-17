@@ -559,11 +559,6 @@
           <div class="metric"><div class="label">tx / 水平偏差</div><div class="value" id="tx">--</div></div>
           <div class="metric"><div class="label">ty / 垂直偏差</div><div class="value" id="ty">--</div></div>
           <div class="metric"><div class="label">distance / 相機距離</div><div class="value" id="distance">--</div><div class="subvalue" id="distanceRaw">相機到洞口的直線距離，填射擊表用這個</div></div>
-          <div class="metric"><div class="label">target id / 目標編號</div><div class="value" id="targetId">--</div></div>
-          <div class="metric"><div class="label">valid / 有效目標</div><div class="value" id="valid">--</div></div>
-          <div class="metric" id="shooterReadyCard"><div class="label">shooter ready / 發射準備</div><div class="value" id="shooterReady">--</div></div>
-          <div class="metric"><div class="label">operator mode / 操作模式</div><div class="value" id="operatorMode">--</div></div>
-          <div class="metric"><div class="label">warn bits / 警告碼</div><div class="value" id="warnBits">--</div></div>
         </div>
       </section>
 
@@ -694,7 +689,7 @@
   </main>
 
   <script>
-    const ids = ["tx", "ty", "distance", "targetId", "valid", "shooterReady", "operatorMode", "warnBits", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed", "aimState", "distanceRaw", "matchTimer", "matchState"];
+    const ids = ["tx", "ty", "distance", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed", "aimState", "distanceRaw", "matchTimer", "matchState"];
     const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     const connectButton = document.getElementById("connect");
     const demoButton = document.getElementById("demo");
@@ -716,7 +711,6 @@
     const layoutReset = document.getElementById("layoutReset");
     const dashboard = document.getElementById("dashboard");
     const panels = Array.from(document.querySelectorAll(".panel"));
-    const shooterReadyCard = document.getElementById("shooterReadyCard");
     const connection = document.getElementById("connection");
     const packetAge = document.getElementById("packetAge");
     const poseSource = document.getElementById("poseSource");
@@ -921,7 +915,6 @@
       controlArmedBadge.textContent = controlArmed ? `enabled / 已啟用 · ${modeName}`
         : enablePending ? "enabling / 啟用中" : "disabled / 未啟用";
       enableButton.textContent = controlArmed ? "Enabled / 輸出已啟用" : enablePending ? "Enabling… / 等待機器人確認" : "Enable / 啟用輸出";
-      el.operatorMode.textContent = modeName;
       // In the auto modes the shot table sets the flywheel, not the slider.
       // Nothing that moves the robot before the match is started (Y).
       flywheelSlider.disabled = !controlArmed || !matchStarted || operatorMode !== MODE_FULL_MANUAL;
@@ -1008,6 +1001,18 @@
       updateDistanceReadout(data);
       el.anglePulse.textContent = `${pulseUs} us`;
       el.aimState.textContent = aimStateText(data);
+    }
+
+    // "$VISION,<fresh>,<distanceCm>,<tx*2>,<ty*2>,<valid>,<targetId>" from
+    // the ground station (the robot's vision frame, tx / ty in half pixels).
+    // tx / ty only; the distance readout comes from $AIM.
+    function handleVisionStatus(line) {
+      const p = line.trim().split(",").map(Number);
+      if (p.length < 7 || p.slice(1).some((v) => !Number.isFinite(v))) return;
+      const [, fresh, , tx2, ty2, valid] = p;
+      const show = fresh === 1 && valid === 1;
+      el.tx.textContent = show ? (tx2 / 2).toFixed(1) : "--";
+      el.ty.textContent = show ? (ty2 / 2).toFixed(1) : "--";
     }
 
     function aimStateText(data) {
@@ -1368,13 +1373,7 @@
       el.tx.textContent = data.tx.toFixed(1);
       el.ty.textContent = data.ty.toFixed(1);
       updateDistanceReadout(data);
-      el.targetId.textContent = data.targetId;
-      el.valid.textContent = data.valid ? "1" : "0";
-      el.shooterReady.textContent = data.shooterReady ? "YES" : "NO";
-      shooterReadyCard.classList.toggle("state-ok", data.shooterReady);
-      shooterReadyCard.classList.toggle("state-bad", !data.shooterReady);
       setOperatorMode(data.operatorMode); // ignores -1 (not reported)
-      el.warnBits.textContent = data.warn;
       el.ch0.textContent = data.ch0;
       el.ch1.textContent = data.ch1;
       el.ch2.textContent = data.ch2;
@@ -1585,6 +1584,11 @@
       if (line.startsWith("$AIM,")) {
         linkKind = "ground";
         handleAimStatus(line);
+        return;
+      }
+      if (line.startsWith("$VISION,")) {
+        linkKind = "ground";
+        handleVisionStatus(line);
         return;
       }
       if (line.startsWith("$RFLINK,")) {

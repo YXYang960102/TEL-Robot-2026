@@ -4705,3 +4705,64 @@ Jeremy is changing it to 1:4 on the module.
 4. Drive for several minutes; there should be no `PC_TIMEOUT`.
 5. If it still drops, the log should now say why: `robot status says…`,
    `RF link lost`, `RF LQ low`, `PC_GAP` or `WRITE_SLOW`.
+
+## 2026-10-17 — Claude Code: tx / ty over the wireless link; vision panel trimmed
+
+**User Request:** With the camera connected, the Dashboard showed the
+distance over the wireless link but no tx/ty. Jeremy wanted tx/ty shown,
+and the vision panel cut down to distance, tx and ty.
+
+**Why:** The aim frame was full (46 bits), so tx/ty needed a frame of
+their own. With TLM now at 1:4 the uplink has room for it.
+
+**Changed:**
+- `RcControlMap`: new vision frame.
+
+  | Field | Contents |
+  |---|---|
+  | code | bits 15-14 = `01`; bits 0-13 = distance in cm, max 16383 |
+  | seq | tx·2 and ty·2, each 12-bit two's complement (0.5 px steps, ±1023.5 px) |
+  | flags | bit 0 valid; bits 1-4 = vision id |
+
+  - Status codes are at most 0x3FFF and aim frames have bit 15 set, so
+    the three never collide. The bridge's ST line field ranges still
+    hold, so the bridge is unchanged (same .bin, ee034481).
+- Mega:
+  - `AimUplink::sendVision()`. tx/ty/distance are 0 when not valid.
+  - Status slots are now status, aim, status, vision (were status,
+    status, aim). Status goes out every 200 ms; aim and vision every
+    400 ms each.
+- Ground: `RobotStatusTracker` keeps vision frames apart and emits
+  `$VISION,<fresh>,<cm>,<tx*2>,<ty*2>,<valid>,<id>` every 250 ms, in
+  half pixels because there is no float printf.
+- Dashboard:
+  - `handleVisionStatus` shows tx/ty, or `--` when the data is stale or
+    not valid.
+  - The vision panel keeps only tx, ty and distance. The targetId,
+    valid, shooterReady, operatorMode and warnBits cards and their code
+    were removed. The mode stays visible in the enable badge and the
+    mode menu.
+
+**Impact:**
+- Flash the Mega and the ground STM32 **together**. An older ground would
+  read a vision frame as a status with a bogus event.
+- The bridge and the Orin are unchanged.
+
+**Evidence:**
+- rc map `test_vision_frames`: round trip, clamps, no overlap with
+  status/aim.
+- `manual_control_test` (3 variants): slot order, and the new
+  `testVisionUplink`.
+- Ground `testVisionFrames`.
+- Page test covers `$VISION` and the removed card ids.
+- Vision link, operator target, shot table and control tests pass.
+- Builds pass: `megaatmega2560` (RAM 45.9%), axes, wired, drive,
+  elrs-link and the ground. Bridge sha unchanged.
+- Not run on hardware.
+
+**Next Test:**
+1. Flash the Mega and the ground STM32.
+2. Point the camera at a hole while on the wireless link.
+3. tx/ty should update about every 0.4 s and match the Orin window's
+   overlay.
+4. Moving the target out of view should show `--`.

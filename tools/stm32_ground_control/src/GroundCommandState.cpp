@@ -306,10 +306,20 @@ void RobotStatusTracker::reset(uint32_t nowMs) {
     haveAim = false;
     lastAim = rcmap_aim{};
     lastAimMs = nowMs;
+    haveVision = false;
+    lastVision = rcmap_vision{};
+    lastVisionMs = nowMs;
     lastReportMs = nowMs;
 }
 
 void RobotStatusTracker::onStatus(const rcmap_status& s, uint32_t nowMs, GroundEmitFn emit, void* ctx) {
+    rcmap_vision vision;
+    if (rcmap_vision_from_status(&s, &vision)) {
+        lastVision = vision;
+        haveVision = true;
+        lastVisionMs = nowMs;
+        return;
+    }
     rcmap_aim aim;
     if (rcmap_aim_from_status(&s, &aim)) {
         lastAim = aim;
@@ -371,5 +381,18 @@ void RobotStatusTracker::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
              static_cast<unsigned>(a.target_id),
              a.valid ? 1 : 0,
              static_cast<int>(a.aim_offset_px));
+    emitLine(emit, ctx, text);
+
+    // tx / ty in half pixels (no float printf on this board): the page
+    // divides by 2.
+    const bool visionFresh = haveVision && nowMs - lastVisionMs <= STALE_MS;
+    const rcmap_vision v = visionFresh ? lastVision : rcmap_vision{};
+    snprintf(text, sizeof(text), "$VISION,%d,%u,%d,%d,%d,%u",
+             visionFresh ? 1 : 0,
+             static_cast<unsigned>(v.distance_cm),
+             static_cast<int>(lroundf(v.tx_px * 2.0f)),
+             static_cast<int>(lroundf(v.ty_px * 2.0f)),
+             v.valid ? 1 : 0,
+             static_cast<unsigned>(v.target_id));
     emitLine(emit, ctx, text);
 }

@@ -113,6 +113,8 @@ public:
     // Then "$AIM,<fresh>,<distanceCm>,<elevationPulseUs>,<selectedId>,
     // <targetId>,<valid>,<aimOffsetPx>" from the latest aim frame (fresh 0
     // and zeros when none came within STALE_MS).
+    // Then "$VISION,<fresh>,<distanceCm>,<tx*2>,<ty*2>,<valid>,<targetId>"
+    // from the latest vision frame (tx / ty in half pixels), same rule.
     void tick(uint32_t nowMs, GroundEmitFn emit, void* ctx);
 
     bool fresh(uint32_t nowMs) const;
@@ -130,5 +132,8 @@ private:
     rcmap_aim lastAim{};
     bool haveAim = false;
     uint32_t lastAimMs = 0;
+    rcmap_vision lastVision{};
+    bool haveVision = false;
+    uint32_t lastVisionMs = 0;
     uint32_t lastReportMs = 0;
 };

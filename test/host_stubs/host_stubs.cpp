@@ -21,6 +21,8 @@ bool visionValid = false;
 double visionDistanceMm = 0.0;
 int visionTargetId = 8;       // the center hole, unless a test says otherwise
 uint8_t visionSelectedId = 0;
+double visionTx = 0.0;
+double visionTy = 0.0;
 int anglePulseUs = 1500;
 bool shooterReady = false;
 }
@@ -83,6 +85,8 @@ bool Vision::isConnected() { return hoststub::visionReady; }
 bool Vision::isVisionReady() { return hoststub::visionReady; }
 bool Vision::isValid() { return hoststub::visionValid; }
 double Vision::getDistance() { return hoststub::visionDistanceMm; }
+double Vision::getTx() { return hoststub::visionTx; }
+double Vision::getTy() { return hoststub::visionTy; }
 int Vision::getTargetId() { return hoststub::visionTargetId; }
 uint8_t Vision::getSelectedTarget() { return hoststub::visionSelectedId; }
 int Shooter::getAnglePulseUs() { return hoststub::anglePulseUs; }
@@ -98,6 +102,13 @@ void MechLink::sendStatus(uint8_t flags, unsigned long eventSeq, uint16_t eventC
         rec.aimFlags = flags;
         rec.aimSeq = eventSeq;
         rec.aimCode = eventCode;
+        return;
+    }
+    if ((eventCode & 0xC000u) == 0x4000u) { // vision frame: also apart
+        rec.visionCount++;
+        rec.visionFlags = flags;
+        rec.visionSeq = eventSeq;
+        rec.visionCode = eventCode;
         return;
     }
     rec.statusCount++;

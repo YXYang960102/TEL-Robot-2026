@@ -30,3 +30,20 @@ void AimUplink::send() {
     rcmap_aim_to_status(&a, &flags, &seq, &code);
     MechLink::sendStatus(flags, seq, code);
 }
+
+void AimUplink::sendVision() {
+    rcmap_vision v = {};
+    const bool valid = Vision::isValid();
+    const double mm = Vision::getDistance();
+    v.valid = valid;
+    v.distance_cm = static_cast<uint16_t>(valid && mm > 0.0 ? clampLong(lround(mm / 10.0), 1, 0x3FFF) : 0);
+    v.tx_px = static_cast<float>(valid ? Vision::getTx() : 0.0);
+    v.ty_px = static_cast<float>(valid ? Vision::getTy() : 0.0);
+    v.target_id = static_cast<uint8_t>(valid ? clampLong(Vision::getTargetId(), 0, 15) : 0);
+
+    uint8_t flags = 0;
+    uint32_t seq = 0;
+    uint16_t code = 0;
+    rcmap_vision_to_status(&v, &flags, &seq, &code);
+    MechLink::sendStatus(flags, seq, code);
+}

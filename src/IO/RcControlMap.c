@@ -179,6 +179,34 @@ bool rcmap_aim_from_status(const rcmap_status *s, rcmap_aim *out) {
     return true;
 }
 
+static uint32_t half_px_field(float px) {
+    int v = round_float(clamp_float(px, -1023.5f, 1023.5f) * 2.0f);
+    return (uint32_t)v & 0x0FFFu;
+}
+
+static float half_px_value(uint32_t field) {
+    int v = (int)(field & 0x0FFFu);
+    if (v >= 0x800) v -= 0x1000;
+    return (float)v / 2.0f;
+}
+
+void rcmap_vision_to_status(const rcmap_vision *v, uint8_t *flags, uint32_t *seq, uint16_t *code) {
+    const uint16_t cm = v->distance_cm > 0x3FFFu ? 0x3FFFu : v->distance_cm;
+    *code = (uint16_t)(RCMAP_VISION_FRAME_BIT | cm);
+    *seq = half_px_field(v->tx_px) | (half_px_field(v->ty_px) << 12);
+    *flags = (uint8_t)((v->valid ? 1u : 0u) | ((v->target_id & 0x0Fu) << 1));
+}
+
+bool rcmap_vision_from_status(const rcmap_status *s, rcmap_vision *out) {
+    if (!rcmap_status_is_vision(s->event_code)) return false;
+    out->distance_cm = (uint16_t)(s->event_code & 0x3FFFu);
+    out->tx_px = half_px_value(s->event_seq);
+    out->ty_px = half_px_value(s->event_seq >> 12);
+    out->valid = (s->flags & 1u) != 0u;
+    out->target_id = (uint8_t)((s->flags >> 1) & 0x0Fu);
+    return true;
+}
+
 bool rcmap_status_from_battery(uint16_t voltage, uint16_t current, uint32_t capacity,
                                uint8_t remaining, rcmap_status *out) {
     if ((voltage >> 8) != RCMAP_STATUS_MARKER) return false;

@@ -639,16 +639,20 @@ void ManualControl::sendStatusIfDue() {
         return;
     }
     lastStatusMs = now;
-    // Every third slot carries the aim frame (distance, elevation pulse,
-    // target) instead: status, status, aim. The ELRS telemetry slots that
-    // carry these back are sparse and keep only the latest frame, so status
-    // gets two thirds of them (2026-10-17 bench: 1:1 left status ~1 s
-    // apart). One line per 100 ms, so the robot bridge (which forwards the
-    // latest line every 100 ms) passes them all.
-    const bool aimSlot = statusSlot == 2;
-    statusSlot = static_cast<uint8_t>((statusSlot + 1) % 3);
-    if (aimSlot) {
+    // Slots: status, aim (distance, elevation pulse, target), status,
+    // vision (tx / ty / distance) -- status every 200 ms, aim and vision
+    // every 400 ms each (2026-10-17, with the ELRS TLM ratio raised to 1:4;
+    // it was status, status, aim at 1:32). One line per 100 ms, so the
+    // robot bridge (which forwards the latest line every 100 ms) passes
+    // them all.
+    const uint8_t slot = statusSlot;
+    statusSlot = static_cast<uint8_t>((statusSlot + 1) % 4);
+    if (slot == 1) {
         AimUplink::send();
+        return;
+    }
+    if (slot == 3) {
+        AimUplink::sendVision();
         return;
     }
     MechLink::sendStatus(statusFlags(), eventSeq,
