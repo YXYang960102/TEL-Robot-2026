@@ -1766,16 +1766,18 @@
       return Math.sign(value) * Math.min(1, (Math.abs(value) - GAMEPAD_DEADZONE) / (1 - GAMEPAD_DEADZONE));
     }
 
-    // Jeremy's polarity: turn right is T,-1,1 (left wheel back, right wheel
-    // forward), so stick right = +turn -> left = fwd - turn. The robot's
-    // ELRS decode mixes forward/turn the same way.
+    // Stick right = turn right = T,1,-1 (left wheel forward, right wheel
+    // back): on the robot (2026-10-17) the old T,-1,1 turned it the wrong
+    // way. Fixed here, so the wired and the wireless path (the ground
+    // station turns T into forward/turn and the Mega mixes it back) both
+    // follow.
     function gamepadTank(pad) {
       const profile = gamepadProfile(pad);
       const forward = -shapeAxis(pad.axes[profile.forwardAxis]); // stick up is negative
       const turn = shapeAxis(pad.axes[profile.turnAxis]);
       if (forward === 0 && turn === 0) return null;
       const round = (v) => Math.round(Math.max(-1, Math.min(1, v)) * 100) / 100;
-      return [round(forward - turn), round(forward + turn)];
+      return [round(forward + turn), round(forward - turn)];
     }
 
     // D-pad -> [turret, elevation]: right/up = +1, both of a pair = 0.

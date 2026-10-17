@@ -123,6 +123,12 @@ bool saw(const std::string& event) {
 
 [[maybe_unused]] bool nearly(double a, double b) { return fabs(a - b) < 1e-6; }
 
+// The operator's turret jog direction (TuningConstants::Rotate::
+// MANUAL_JOG_INVERTED, flipped after the 2026-10-17 robot test): ROT +1 /
+// nudge right reaches Shooter as this sign.
+[[maybe_unused]] constexpr double JOG = TuningConstants::Rotate::MANUAL_JOG_INVERTED ? -1.0 : 1.0;
+static_assert(TuningConstants::Rotate::MANUAL_JOG_INVERTED, "robot-verified 2026-10-17");
+
 // The camera sees the (selected) hole with a depth distance: 4 m, where the
 // placeholder shot tables give 0.80 = SHOOT_COMMAND.
 [[maybe_unused]] void targetInView() {
@@ -209,7 +215,7 @@ void testWiredScalingAndParsing() {
     step();
     using namespace ManualControlConstants;
     assert(nearly(rec.chassisLeft, CHASSIS_MANUAL_SCALE) && nearly(rec.chassisRight, -CHASSIS_MANUAL_SCALE));
-    assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, ROTATE_MANUAL_SCALE));
+    assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, JOG * ROTATE_MANUAL_SCALE));
     assert(nearly(rec.angleCommand, -ANGLE_MANUAL_SCALE) && nearly(rec.flywheelCommand, 1.0));
     for (const char* bad : {"FLY,nan", "FLY,inf", "ROT,-1e999", "T,2", "T,1,1,1", "FLY,abc",
                             "TGT,10", "TGT,-1", "TGT,", "TGT,5x", "AUTO,0", "AUTO,5", "AUTO,"}) {
@@ -382,10 +388,10 @@ void testWirelessCommands() {
     assert(nearly(rec.angleCommand, -ANGLE_MANUAL_SCALE));
     wireless.nudge = RCMAP_NUDGE_RIGHT;
     rcStep();
-    assert(nearly(rec.rotateCommand, ROTATE_MANUAL_SCALE) && nearly(rec.angleCommand, 0.0));
+    assert(nearly(rec.rotateCommand, JOG * ROTATE_MANUAL_SCALE) && nearly(rec.angleCommand, 0.0));
     wireless.nudge = RCMAP_NUDGE_LEFT;
     rcStep();
-    assert(nearly(rec.rotateCommand, -ROTATE_MANUAL_SCALE));
+    assert(nearly(rec.rotateCommand, -JOG * ROTATE_MANUAL_SCALE));
     wireless.nudge = RCMAP_NUDGE_CENTER;
     rcStep();
     assert(nearly(rec.rotateCommand, 0.0) && nearly(rec.angleCommand, 0.0));
@@ -1001,7 +1007,7 @@ int main() {
     assert(saw("MODE_FULL_MANUAL") && ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
     send("T,1,-1"); send("ROT,1"); send("ANG,-1"); send("FLY,0.6"); step();
     assert(nearly(rec.chassisLeft, 1.0) && nearly(rec.chassisRight, -1.0));
-    assert(nearly(rec.rotateCommand, 1.0) && nearly(rec.angleCommand, -1.0));
+    assert(nearly(rec.rotateCommand, JOG * 1.0) && nearly(rec.angleCommand, -1.0));
     assert(nearly(rec.flywheelCommand, 0.6));
     // No auto modes on the wired benches: M stays in full manual.
     send("M"); step();

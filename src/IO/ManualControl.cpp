@@ -614,7 +614,8 @@ void ManualControl::applyOutputs() {
     if (operatorMode != OperatorMode::FULL_MANUAL) {
         return; // turret and flywheel belong to Auto (runs right after this)
     }
-    Shooter::setRotateOpenLoop(rotateManualCommand * ROTATE_MANUAL_SCALE);
+    const double jogSign = TuningConstants::Rotate::MANUAL_JOG_INVERTED ? -1.0 : 1.0;
+    Shooter::setRotateOpenLoop(jogSign * rotateManualCommand * ROTATE_MANUAL_SCALE);
     Shooter::setFlywheelOpenLoop(flywheelCommand);
 }
 

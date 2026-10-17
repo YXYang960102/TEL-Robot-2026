@@ -4386,3 +4386,27 @@ its default):**
   Mega → bridge line, or the bridge's parse.
 - If `PC_TIMEOUT` persists, check whether the Dashboard window was occluded
   or in the background (Chrome timer throttling).
+
+## 2026-10-17 — Claude Code: direction fixes from the robot test (turning, turret jog)
+
+**Robot result (Jeremy):** stick left turned the robot right and stick right
+turned it left. The horizontal fine-adjust (turret jog) was also reversed.
+
+**Changed:**
+- Dashboard `gamepadTank()`: stick right is now `T,+turn,−turn`, left
+  wheel forward, where it used to be `T,−1,1`. Fixed in the page so both
+  the wired and the wireless paths follow, since the ground station turns
+  T into forward/turn and the Mega mixes it back. No reflash.
+  Forward/back unchanged.
+- New `TuningConstants::Rotate::MANUAL_JOG_INVERTED = true`.
+  `ManualControl::applyOutputs()` flips only the operator's full-manual
+  turret jog (D-pad / wireless nudge). `Rotate::INVERTED` stays false,
+  because the vision-follow direction was validated on the bench. The
+  auto-mode aim offset sign (+ = right) is unaffected.
+- Tests: page test turn expectations; `manual_control_test` uses a `JOG`
+  sign plus a `static_assert` pinning the robot-verified value.
+
+**Evidence:** page, control and `manual_control_test` (3 variants) pass, and
+the 4 Mega envs build. **Next:** reflash the Mega, check that stick
+left/right and D-pad left/right now match, and check that forward/back
+is still right.

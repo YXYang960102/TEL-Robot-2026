@@ -46,6 +46,13 @@ namespace Rotate {
 
 constexpr bool INVERTED = false;
 
+// The operator's turret jog (D-pad / wireless nudge left-right, full
+// manual): on the robot (2026-10-17) "right" turned the turret left. The
+// vision-follow direction (INVERTED, validated on the bench) is right, so
+// only the jog is flipped here -- flipping INVERTED would reverse vision
+// follow too. The auto-mode aim offset (+ = right) is unaffected.
+constexpr bool MANUAL_JOG_INVERTED = true;
+
 // Vision-follow (RotateControlMode::VISION_FOLLOW), PIDF on image-space tx
 // (src/Control/VisionFollowController.h). These are the gains Jeremy tuned
 // and accepted on the real turret servo on the A5 bench (2026-10-13:
