@@ -426,6 +426,9 @@ def write_xlsx(path, points):
     for i, r in enumerate(rows, 1):
         cs = "".join(cell(cell_name(i, j), v, 1 if i == 1 else 0) for j, v in enumerate(r, 1))
         sheet_rows.append(f'<row r="{i}">{cs}</row>')
+    # Excel's own check on 轉速, by its unit (no backslash inside the f-string
+    # below: Python before 3.12 rejects that).
+    FLY_RULE = 'OR(AND(E2="%",D2>=0,D2<=100),AND(E2="us",D2>=1000,D2<=2000,INT(D2)=D2))'
     dv = (
         '<dataValidations count="5">'
         '<dataValidation type="whole" allowBlank="1" showErrorMessage="1" errorTitle="洞口" '
@@ -436,7 +439,7 @@ def write_xlsx(path, points):
         f'error="仰角 500–2500 的整數 µs" sqref="C2:C{MAX_ROWS}"><formula1>500</formula1><formula2>2500</formula2></dataValidation>'
         '<dataValidation type="custom" allowBlank="1" showErrorMessage="1" errorTitle="轉速" '
         'error="單位 % 時 0–100；單位 us 時 1000–2000 的整數" '
-        f'sqref="D2:D{MAX_ROWS}"><formula1>{escape("OR(AND(E2=\"%\",D2>=0,D2<=100),AND(E2=\"us\",D2>=1000,D2<=2000,INT(D2)=D2))")}</formula1></dataValidation>'
+        f'sqref="D2:D{MAX_ROWS}"><formula1>{escape(FLY_RULE)}</formula1></dataValidation>'
         '<dataValidation type="list" allowBlank="1" showErrorMessage="1" errorTitle="轉速單位" '
         f'error="只能選 % 或 us" sqref="E2:E{MAX_ROWS}"><formula1>"%,us"</formula1></dataValidation>'
         '</dataValidations>')

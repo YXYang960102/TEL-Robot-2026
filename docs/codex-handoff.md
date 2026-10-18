@@ -5225,3 +5225,21 @@ program's current table: `--check` reports no change against
     unit, wrong-side pulse, non-integer pulse, % out of range, duplicate.
 - The round trip `--check` reports no change.
 - Not yet opened in real Excel.
+
+## 2026-10-19 — Claude Code: apply.py runs on Python before 3.12; dev merged to main
+
+**User Request:** push and merge to main.
+
+**Found while verifying the merge:** `tools/shot_table/apply.py` had a
+backslash inside an f-string expression (the 轉速 validation formula).
+Python 3.12+ allows that; 3.9 and 3.11 refuse to run the file. Jeremy's
+`python3` on PATH is now PlatformIO's 3.11, and earlier testing had used
+3.14.
+
+**Changed:** the formula is now in a plain variable (`FLY_RULE`).
+
+**Evidence:**
+- `--check` passes on Python 3.9.6, 3.11.7 and 3.14.7.
+- `--export` output is byte-identical (sheet1, helper sheet and chart
+  XML).
+- The strict-format cases behave the same on 3.9.
