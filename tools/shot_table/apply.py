@@ -12,9 +12,12 @@ one measured point per row:
   洞口      Dashboard key 1-9 (1 left-bottom, 2 left-mid, 3 left-top ... 9 right-top)
   距離(m)   the camera distance shown on the Dashboard while locked, 0.5-15 m, <= 2 decimals
   仰角(us)  elevation servo pulse, whole number 500-2500
-  轉速(%)   Falcon command 0-100, <= 1 decimal
+  轉速      Falcon command, in the unit of the next column
+  轉速單位  "%" (0-100, <= 1 decimal) or "us" (the Dashboard's Falcon PWM
+            pulse, whole number, on the forward side of 1500 -- 1000-1500
+            while Flywheel::INVERTED is true; converted to %)
 
-STRICT: those four headers must each appear exactly once, spelled exactly so.
+STRICT: those five headers must each appear exactly once, spelled exactly so.
 Other columns (notes, dates...) may be added anywhere, but need a header of
 their own; they are ignored. Rows may be in any order; empty rows are
 skipped. Any error -> nothing is written and nothing is uploaded.
@@ -40,7 +43,19 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 XLSX = os.path.join(ROOT, "tools", "shot_table", "shot_table.xlsx")
 HEADER = os.path.join(ROOT, "src", "Constants", "ShotTableData.h")
 SHEET = "射擊表"
-COLS = {"hole": "洞口", "dist": "距離(m)", "elev": "仰角(us)", "fly": "轉速(%)"}
+COLS = {"hole": "洞口", "dist": "距離(m)", "elev": "仰角(us)", "fly": "轉速", "unit": "轉速單位"}
+UNITS = ("%", "us")
+TUNING = os.path.join(ROOT, "src", "Constants", "TuningConstants.h")
+
+
+def flywheel_inverted():
+    """Flywheel::INVERTED from TuningConstants.h: which side of 1500 us is
+    the shooting direction (true = below), for the "us" unit."""
+    text = open(TUNING, encoding="utf-8").read()
+    m = re.search(r"namespace Flywheel \{.*?constexpr bool INVERTED = (true|false);", text, re.S)
+    if not m:
+        raise TableError("讀不到 TuningConstants.h 的 Flywheel::INVERTED，無法換算 us")
+    return m.group(1) == "true"
 
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
       "r": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
@@ -171,12 +186,13 @@ def parse_points(cells):
         raise TableError("\n".join(errors))
 
     points = {}
+    inverted = None  # read TuningConstants only if a row uses "us"
     last_row = max(r for (r, c) in cells)
     for row in range(2, last_row + 1):
         vals = {k: cells.get((row, c)) for k, c in found.items()}
         if all(v is None for v in vals.values()):
             if any((row, c) in cells for c in data_cols):
-                errors.append(f"第 {row} 列只有其他欄位有資料，四個必要欄位都是空的")
+                errors.append(f"第 {row} 列只有其他欄位有資料，必要欄位都是空的")
             continue
         missing = [COLS[k] for k, v in vals.items() if v is None]
         if missing:
@@ -192,9 +208,25 @@ def parse_points(cells):
             elev = number(vals["elev"], cell_name(row, found["elev"]), "仰角")
             if elev != elev.to_integral_value() or not 500 <= elev <= 2500:
                 raise TableError(f"{cell_name(row, found['elev'])}：仰角要是 500–2500 的整數 µs，現在是「{vals['elev']}」")
-            fly = number(vals["fly"], cell_name(row, found["fly"]), "轉速")
-            if not 0 <= fly <= 100 or decimals(fly) > 1:
-                raise TableError(f"{cell_name(row, found['fly'])}：轉速要在 0–100 %、最多 1 位小數，現在是「{vals['fly']}」")
+            unit = vals["unit"]
+            uref = cell_name(row, found["unit"])
+            if unit not in UNITS:
+                raise TableError(f"{uref}：轉速單位只能是「%」或「us」（用下拉選單），現在是「{unit}」")
+            fref = cell_name(row, found["fly"])
+            fly = number(vals["fly"], fref, "轉速")
+            if unit == "%":
+                if not 0 <= fly <= 100 or decimals(fly) > 1:
+                    raise TableError(f"{fref}：單位 % 時轉速要在 0–100、最多 1 位小數，現在是「{vals['fly']}」")
+                permille = int(fly * 10)
+            else:
+                if inverted is None:
+                    inverted = flywheel_inverted()
+                lo, hi = (1000, 1500) if inverted else (1500, 2000)
+                if fly != fly.to_integral_value() or not lo <= fly <= hi:
+                    side = "低於" if inverted else "高於"
+                    raise TableError(f"{fref}：單位 us 時轉速要是 {lo}–{hi} 的整數（正轉方向是{side} 1500），現在是「{vals['fly']}」")
+                # 500 us from neutral = 100% -> 1 us = 2 per mille.
+                permille = int(abs(int(fly) - 1500) * 2)
         except TableError as e:
             errors.append(str(e))
             continue
@@ -202,7 +234,7 @@ def parse_points(cells):
         if cm in points.setdefault(h, {}):
             errors.append(f"第 {row} 列：洞口 {h} 的 {dist} m 重複了（第 {points[h][cm][3]} 列已經有）")
             continue
-        points[h][cm] = (cm, int(fly * 10), int(elev), row)
+        points[h][cm] = (cm, permille, int(elev), row)
     if errors:
         raise TableError("\n".join(errors))
     if not points:
@@ -385,25 +417,28 @@ def write_xlsx(path, points):
             return f'<c r="{ref}" t="inlineStr"{s}><is><t>{escape(value)}</t></is></c>'
         return f'<c r="{ref}"{s}><v>{value}</v></c>'
 
-    # Sheet 1: the table the operator edits (only the four columns).
-    rows = [[COLS["hole"], COLS["dist"], COLS["elev"], COLS["fly"]]]
+    # Sheet 1: the table the operator edits (only the five columns).
+    rows = [[COLS["hole"], COLS["dist"], COLS["elev"], COLS["fly"], COLS["unit"]]]
     for h in range(1, 10):
         for cm, permille, us in points.get(h, []):
-            rows.append([h, round(cm / 100, 2), us, round(permille / 10, 1)])
+            rows.append([h, round(cm / 100, 2), us, round(permille / 10, 1), "%"])
     sheet_rows = []
     for i, r in enumerate(rows, 1):
         cs = "".join(cell(cell_name(i, j), v, 1 if i == 1 else 0) for j, v in enumerate(r, 1))
         sheet_rows.append(f'<row r="{i}">{cs}</row>')
     dv = (
-        '<dataValidations count="4">'
+        '<dataValidations count="5">'
         '<dataValidation type="whole" allowBlank="1" showErrorMessage="1" errorTitle="洞口" '
         f'error="洞口要是 1–9 的整數" sqref="A2:A{MAX_ROWS}"><formula1>1</formula1><formula2>9</formula2></dataValidation>'
         '<dataValidation type="decimal" allowBlank="1" showErrorMessage="1" errorTitle="距離" '
         f'error="距離 0.5–15 m" sqref="B2:B{MAX_ROWS}"><formula1>0.5</formula1><formula2>15</formula2></dataValidation>'
         '<dataValidation type="whole" allowBlank="1" showErrorMessage="1" errorTitle="仰角" '
         f'error="仰角 500–2500 的整數 µs" sqref="C2:C{MAX_ROWS}"><formula1>500</formula1><formula2>2500</formula2></dataValidation>'
-        '<dataValidation type="decimal" allowBlank="1" showErrorMessage="1" errorTitle="轉速" '
-        f'error="轉速 0–100 %" sqref="D2:D{MAX_ROWS}"><formula1>0</formula1><formula2>100</formula2></dataValidation>'
+        '<dataValidation type="custom" allowBlank="1" showErrorMessage="1" errorTitle="轉速" '
+        'error="單位 % 時 0–100；單位 us 時 1000–2000 的整數" '
+        f'sqref="D2:D{MAX_ROWS}"><formula1>{escape("OR(AND(E2=\"%\",D2>=0,D2<=100),AND(E2=\"us\",D2>=1000,D2<=2000,INT(D2)=D2))")}</formula1></dataValidation>'
+        '<dataValidation type="list" allowBlank="1" showErrorMessage="1" errorTitle="轉速單位" '
+        f'error="只能選 % 或 us" sqref="E2:E{MAX_ROWS}"><formula1>"%,us"</formula1></dataValidation>'
         '</dataValidations>')
     sheet1 = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -411,7 +446,7 @@ def write_xlsx(path, points):
         'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
         '<sheetViews><sheetView tabSelected="1" workbookViewId="0"><pane ySplit="1" topLeftCell="A2" '
         'activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
-        '<cols><col min="1" max="4" width="12" customWidth="1"/></cols>'
+        '<cols><col min="1" max="5" width="11" customWidth="1"/></cols>'
         f'<sheetData>{"".join(sheet_rows)}</sheetData>{dv}<drawing r:id="rId1"/></worksheet>')
 
     # Sheet 3 (hidden): for each hole, its points sorted by distance --
@@ -435,10 +470,12 @@ def write_xlsx(path, points):
             dref = cell_name(r, base)
             fd = f"IFERROR(SMALL(IF({hole_rng}={h},{dist_rng}),{n}),NA())"
             cs.append(f'<c r="{dref}"><f t="array" ref="{dref}">{escape(fd)}</f></c>')
-            for k, colname in ((1, "C"), (2, "D")):
+            match = f"MATCH(1,({hole_rng}={h})*({dist_rng}={dref}),0)"
+            fly_pct = (f'IF({t}!$E$2:$E${MAX_ROWS}="us",ABS({t}!$D$2:$D${MAX_ROWS}-1500)/5,'
+                       f'{t}!$D$2:$D${MAX_ROWS})')  # "us" rows shown as % too
+            for k, src in ((1, f"{t}!$C$2:$C${MAX_ROWS}"), (2, fly_pct)):
                 ref = cell_name(r, base + k)
-                f = (f"IFERROR(INDEX({t}!${colname}$2:${colname}${MAX_ROWS},"
-                     f"MATCH(1,({hole_rng}={h})*({dist_rng}={dref}),0)),NA())")
+                f = f"IFERROR(INDEX({src},{match}),NA())"
                 cs.append(f'<c r="{ref}"><f t="array" ref="{ref}">{escape(f)}</f></c>')
         helper_rows.append(f'<row r="{r}">{"".join(cs)}</row>')
     sheet3 = (
@@ -455,12 +492,13 @@ def write_xlsx(path, points):
         "   只想檢查：python3 tools/shot_table/apply.py --check",
         "",
         "格式（嚴格）",
-        "- 第 1 列是欄位名稱。「洞口」「距離(m)」「仰角(us)」「轉速(%)」四個必須各出現一次、名稱一字不差。",
+        "- 第 1 列是欄位名稱。「洞口」「距離(m)」「仰角(us)」「轉速」「轉速單位」五個必須各出現一次、名稱一字不差。",
         "- 若插入其他欄位，新欄位一定要有名稱；它們不會被讀取。",
         "- 洞口：Dashboard 的編號 1–9（1 左下、2 左中、3 左上 … 9 右上）。",
         "- 距離：鎖定目標時 Dashboard 顯示的相機距離（不是捲尺），0.5–15 m，最多 2 位小數。",
         "- 仰角：Dashboard 的仰角脈寬，500–2500 的整數。",
-        "- 轉速：Falcon 指令 0–100 %，最多 1 位小數。",
+        "- 轉速單位：用下拉選單選「%」或「us」，每一列可以不同。",
+        "- 轉速：單位 % 時 0–100、最多 1 位小數；單位 us 時填 Dashboard「Falcon PWM」的脈寬整數，必須在正轉那一側（目前是 1000–1500），會自動換算成 %。",
         "- 列的順序不重要；空白列會略過；同一個洞口的同一個距離不能重複。",
         f"- 資料請放在第 2–{MAX_ROWS} 列；每個洞口最多 {SORTED_ROWS} 個點會畫進曲線圖。",
         "- 任何一格不符合，就不會產生檔案、也不會燒錄，畫面會指出是哪一格。",

@@ -5192,3 +5192,36 @@ every edit, added row and deleted row.
 - The round trip `--check` reports no change. The strict-format cases are
   unchanged.
 - Not yet viewed in real Excel.
+
+## 2026-10-18 — Claude Code: shot table flywheel unit menu (% or us)
+
+**User Request:** the flywheel can be entered either as % or as the pulse,
+picked from a unit menu. Jeremy also confirmed that the Excel matches the
+program's current table: `--check` reports no change against
+`ShotTableData.h`, the 6 points from 2026-10-18.
+
+**Changed (`tools/shot_table/apply.py` and `shot_table.xlsx`):**
+- Headers are now 「洞口」「距離(m)」「仰角(us)」「轉速」「轉速單位」, all
+  strict and each exactly once. The old 「轉速(%)」 header is rejected
+  with a hint.
+- 轉速單位 is a dropdown (Excel list validation) with `%` or `us`, per
+  row.
+  - `%`: 0–100, at most 1 decimal.
+  - `us`: an integer on the forward side of 1500, read from
+    `Flywheel::INVERTED` in `TuningConstants.h` (true → 1000–1500).
+  - Conversion: per mille = |us − 1500| × 2, so 1290 µs gives 42.0%.
+  - A pulse on the reverse side, a non-integer pulse, or any other unit
+    text is an error.
+- Excel's own validation on 轉速 is a custom formula on its unit.
+- The chart helper converts `us` rows to % for the curves.
+- The export writes `%`. The generated header is unchanged
+  (per-mille storage).
+
+**Evidence:**
+- Crafted workbooks:
+  - accepted: mixed units with shared strings and reordered or extra
+    columns;
+  - rejected with cell-level messages: old header, missing unit, bad
+    unit, wrong-side pulse, non-integer pulse, % out of range, duplicate.
+- The round trip `--check` reports no change.
+- Not yet opened in real Excel.
