@@ -131,9 +131,8 @@ bool saw(const std::string& event) {
 [[maybe_unused]] constexpr double JOG = TuningConstants::Rotate::MANUAL_JOG_INVERTED ? -1.0 : 1.0;
 static_assert(TuningConstants::Rotate::MANUAL_JOG_INVERTED, "robot-verified 2026-10-17");
 
-// The camera sees the (selected) hole with a depth distance: 4 m, where the
-// shot tables give SHOOT_COMMAND (0.80 with the placeholders; both 0 while
-// the flywheel is off for turret testing, 2026-10-17).
+// The camera sees the (selected) hole with a depth distance: 4 m (the
+// shot table interpolates there; tests look the expected value up).
 [[maybe_unused]] void targetInView() {
     hoststub::visionValid = true;
     hoststub::visionDistanceMm = 4000.0;
@@ -703,14 +702,17 @@ void testSemiAutoFiresOnlyWhenReady() {
     targetInView();
     armWired();
     send("M"); step();                                    // semi-auto
-    // Auto has the turret and flywheel; the slider is ignored.
+    // Auto has the turret, flywheel and (measured table) elevation; the
+    // slider is ignored. The flywheel is that hole's table value at 4 m.
+    ShotTableLookup::Result shot = {0.0, 0.0};
+    assert(ShotTableLookup::lookupTarget(hoststub::visionTargetId, 4.0, shot));
     assert(rec.rotateMode == "vision");
-    assert(nearly(rec.flywheelCommand, TuningConstants::Flywheel::SHOOT_COMMAND));
+    assert(nearly(rec.flywheelCommand, shot.flywheelCommand));
     send("FLY,0.2"); step();
-    assert(nearly(rec.flywheelCommand, TuningConstants::Flywheel::SHOOT_COMMAND));
-    // The operator still drives the chassis and elevation.
-    send("T,1,1"); send("ANG,-1"); step();
-    assert(nearly(rec.chassisLeft, 1.0) && nearly(rec.angleCommand, -1.0));
+    assert(nearly(rec.flywheelCommand, shot.flywheelCommand));
+    // The operator still drives the chassis.
+    send("T,1,1"); step();
+    assert(nearly(rec.chassisLeft, 1.0));
 
     // Not locked yet: F is refused, not queued.
     Serial.output.clear();
@@ -804,19 +806,22 @@ void testElevationTargetCommands() {
     send("ANG,0"); step();
     assert(nearly(rec.angleCommand, 0.0));
 
-    // The shot table's elevation pulses are placeholders until measured:
-    // in auto with a target in view, Auto must not move the elevation, and
-    // the operator keeps it.
-    static_assert(!TuningConstants::ShotTable::ELEVATION_MEASURED,
-                  "update this test when the shot table's elevation is measured");
+    // The shot table's elevation is measured (2026-10-18): in auto with a
+    // target in view, Auto sets the elevation pulse from the table, and an
+    // absolute ANGT is refused.
+    static_assert(TuningConstants::ShotTable::ELEVATION_MEASURED,
+                  "with placeholder pulses, Auto must not move the elevation: restore the old check");
     hoststub::visionReady = true;
     hoststub::visionValid = true;
     hoststub::visionDistanceMm = 4000.0;
     send("M"); step();
     runArmed(200);
-    assert(rec.anglePulseSets == 0);
+    ShotTableLookup::Result expected = {0.0, 0.0};
+    assert(ShotTableLookup::lookupTarget(hoststub::visionTargetId, 4.0, expected));
+    assert(rec.anglePulseSets > 0 && nearly(rec.anglePulseUs, expected.elevationPulseUs));
+    Serial.output.clear();
     send("ANGT,100"); step();
-    assert(nearly(rec.angleTargetDegrees, 100.0) && !saw("REJECTED_AUTO_MODE"));
+    assert(saw("REJECTED_AUTO_MODE"));
 }
 
 void testWirelessMode() {
@@ -922,12 +927,14 @@ void testShotTableByHeight() {
     for (int id = 10; id <= 12; id++) assert(tableForVisionId(id).entries == BOTTOM_ROW);
     for (int id = 7; id <= 9; id++) assert(tableForVisionId(id).entries == MIDDLE_ROW);
     for (int id = 4; id <= 6; id++) assert(tableForVisionId(id).entries == TOP_ROW);
-    for (int id = 1; id <= 3; id++) assert(tableForVisionId(id).entries == BONUS_ROW);
-    for (int id : {0, 13, -1, 99}) assert(tableForVisionId(id).entries == nullptr);
-    // Each table: 2.5 .. 8.5 m every 0.5 m (the barrier is 2.5 m out).
-    for (const Table t : {tableForVisionId(10), tableForVisionId(7), tableForVisionId(4), tableForVisionId(1)}) {
-        assert(t.count == 13);
-        for (int i = 0; i < t.count; i++) assert(nearly(t.entries[i].distanceMeters, 2.5 + 0.5 * i));
+    // Bonus holes have no measured data yet: no table, never fired at.
+    for (int id : {0, 1, 2, 3, 13, -1, 99}) assert(tableForVisionId(id).entries == nullptr);
+    // Each table starts at 2.5 m (the barrier is 2.5 m out), ascending.
+    for (const Table t : {tableForVisionId(10), tableForVisionId(7), tableForVisionId(4)}) {
+        assert(t.count >= 2 && nearly(t.entries[0].distanceMeters, 2.5));
+        for (int i = 0; i + 1 < t.count; i++) {
+            assert(t.entries[i].distanceMeters < t.entries[i + 1].distanceMeters);
+        }
     }
 
     // Auto uses the frame's hole: the flywheel follows that hole's table.
@@ -947,7 +954,9 @@ void testShotTableByHeight() {
     send("M"); step();                                    // full auto
     assert(shotsDuring(2500) == 0);
     assert(nearly(rec.flywheelCommand, TuningConstants::Flywheel::SHOOT_COMMAND));
-    hoststub::visionTargetId = 2;                         // a bonus hole: has a table
+    hoststub::visionTargetId = 2;                         // a bonus hole: no table yet
+    assert(shotsDuring(2500) == 0);
+    hoststub::visionTargetId = 11;                        // bottom row: fired at
     assert(shotsDuring(2500) >= 2);
 }
 
@@ -984,13 +993,13 @@ void testFineAdjustWired() {
     // The same hole again is not a change: kept.
     send("TGT,4"); step();
     assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
-    // Up/down: Auto doesn't own the elevation until the table is measured,
-    // so they stay the manual jog and no elevation offset builds up.
-    static_assert(!TuningConstants::ShotTable::ELEVATION_MEASURED,
-                  "add the elevation-offset cases when the elevation is measured");
+    // Up/down: Auto owns the elevation now (measured table), so each press
+    // adds one elevation-offset step instead of jogging.
+    static_assert(TuningConstants::ShotTable::ELEVATION_MEASURED,
+                  "with placeholder pulses, up/down stay the manual jog: restore the old check");
+    const double up = TuningConstants::Angle::INVERTED ? -1.0 : 1.0;
     send("ANG,1"); step();
-    assert(nearly(ManualControl::getElevationOffsetUs(), 0.0));
-    assert(nearly(rec.angleCommand, ManualControlConstants::ANGLE_MANUAL_SCALE));
+    assert(nearly(ManualControl::getElevationOffsetUs(), up * ELEVATION_OFFSET_STEP_US));
     send("ANG,0"); step();
     // Disarm clears; so does a new Enable.
     send("X"); step();

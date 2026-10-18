@@ -45,6 +45,7 @@ int Shooter::anglePulseUs = Angle::MOTOR.neutralUs;
 int Shooter::rotatePulseUs = Rotate::MOTOR.neutralUs;
 int Shooter::flywheelPulseUs = Flywheel::MOTOR.neutralUs;
 unsigned long Shooter::flywheelSpinStartMs = 0;
+double Shooter::flywheelSpinCommand = 0.0;
 bool Shooter::flywheelReady = false;
 
 void Shooter::init() {
@@ -241,13 +242,19 @@ void Shooter::updateRotate() {
 }
 
 void Shooter::updateFlywheelReady() {
-    // No RPM feedback: "ready" means commanded at/above shoot speed for
-    // long enough that it has probably spun up.
-    // Never ready while stopped, even with SHOOT_COMMAND at 0 (2026-10-17:
-    // the autos run with the flywheel off for turret testing).
-    if (flywheelOpenLoopCommand > 0.0 && flywheelOpenLoopCommand >= Flywheel::SHOOT_COMMAND) {
-        if (flywheelSpinStartMs == 0) {
+    // No RPM feedback: "ready" means the command has been non-zero and
+    // steady long enough that the wheel has probably reached it. A change
+    // of more than FLYWHEEL_READY_BAND (a new distance / table value)
+    // restarts the wait. Never ready while stopped. (2026-10-18: was
+    // "at/above SHOOT_COMMAND", which the measured 42-46% table values
+    // could never reach.)
+    constexpr double FLYWHEEL_READY_BAND = 0.02;
+    if (flywheelOpenLoopCommand > 0.0) {
+        if (flywheelSpinStartMs == 0 ||
+            fabs(flywheelOpenLoopCommand - flywheelSpinCommand) > FLYWHEEL_READY_BAND) {
             flywheelSpinStartMs = millis();
+            if (flywheelSpinStartMs == 0) flywheelSpinStartMs = 1; // 0 means "not spinning"
+            flywheelSpinCommand = flywheelOpenLoopCommand;
         }
         flywheelReady = millis() - flywheelSpinStartMs >= Flywheel::SPIN_UP_MS;
     } else {

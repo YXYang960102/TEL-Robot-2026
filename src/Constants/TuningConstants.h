@@ -107,15 +107,14 @@ constexpr bool INVERTED = true;
 constexpr int STOP_TRIM_US = 10;
 
 // Auto-fire sequence (Auto::update()). No RPM/tachometer feedback exists for
-// this Falcon 500 (PWM command path is one-way) -- SHOOT_COMMAND/SPIN_UP_MS
-// are both provisional placeholders standing in for real speed feedback.
-// Re-tune against real shots once hardware is available; do not trust these
-// numbers unattended.
-// 0.0 with the shot table's flywheel column (Jeremy, 2026-10-17): the autos
-// leave the flywheel stopped while the turret follow is tested. Was 0.8.
-// A stopped flywheel is never "ready" (Shooter::updateFlywheelReady), so
-// the autos cannot fire meanwhile.
-constexpr double SHOOT_COMMAND = 0.0;
+// this Falcon 500 (PWM command path is one-way), so "ready" is time-based:
+// the flywheel counts as spun up SPIN_UP_MS after its command last changed
+// (Shooter::updateFlywheelReady). PROVISIONAL -- tune against real shots.
+// SHOOT_COMMAND: the autos' pre-spin with no target in view (Jeremy,
+// 2026-10-18: 50%); with a target the shot table's flywheel value is used.
+// It no longer sets the "ready" threshold (that made every table value
+// below it -- 42%, 46% -- never ready).
+constexpr double SHOOT_COMMAND = 0.5;
 constexpr uint32_t SPIN_UP_MS = 1500;
 
 }
@@ -162,108 +161,62 @@ namespace ShotTable {
 // confirm on the field): bottom 120 cm, middle 180 cm, top 240 cm, bonus
 // holes 290 cm.
 //
-// Rows every 0.5 m from 2.5 m (the barrier is 250 cm from the net, so the
-// robot is never closer) to 8.5 m; the key is the CAMERA's distance, so
-// read it off the Dashboard while locked on the hole, never a tape measure
-// (the camera's own bias is then calibrated in). Between rows: linear
-// interpolation. Below 2.5 m: the 2.5 m values. Beyond 8.5 m: extrapolated
-// along the 8.0 -> 8.5 m trend (Jeremy) -- the flywheel still stops at
-// 100% and the elevation at the servo's limits.
+// The key is the CAMERA's distance: read it off the Dashboard while locked
+// on the hole, never a tape measure (the camera's own bias is then
+// calibrated in). Between entries: linear interpolation. Below the first
+// entry: the first entry's values. Beyond the last entry: see
+// EXTRAPOLATE_PAST_LAST_ENTRY.
 //
 // Fill it from test shots: at each distance, adjust until it scores and
 // copy the Dashboard's pulse and the Falcon % here. Then use
 // ELEVATION_TRIM_US below for a single hole that is consistently high/low.
 //
-// FLYWHEEL COLUMN ALL 0.00 (Jeremy, 2026-10-17): turret-follow testing in
-// semi / full auto with the flywheel stopped (the same 1490 us stop pulse
-// as disabled -- Shooter's STOP_TRIM_US). Was 0.72 at 2.5 m rising 0.03 /
-// 0.5 m to 0.98 at 8.5 m, the same guess in all four rows. Put real values
-// back before shooting in the autos.
-//
-// PLACEHOLDERS: no real shots have been measured; all four tables are the
-// same guess. The elevation column is all neutral (1500 us) and is NOT
-// applied until ELEVATION_MEASURED is set true -- placeholder pulses must
-// never move the real elevation. Until then the operator keeps the
-// elevation in every mode.
+// FIRST FIELD DATA (Jeremy, 2026-10-18): the center column (Dashboard keys
+// 4 / 5 / 6), each applied to its whole row, at 2.5 m and 5 m only.
+// PROVISIONAL -- add 3.0 / 3.5 / 4.0 / 4.5 m and beyond. The top row's two
+// points are two different shots (2.5 m: low 1010 us at 100%; 5 m: lob
+// 2442 us at 80%), so the interpolation between them mixes the two and
+// probably misses; measure the top row's middle distances first.
 struct Entry {
     double distanceMeters;
     double flywheelCommand;
     double elevationPulseUs;
 };
-constexpr bool ELEVATION_MEASURED = false;
+// The elevation column is measured now: the autos set the elevation from
+// it (plus the operator's up/down fine-adjust).
+constexpr bool ELEVATION_MEASURED = true;
+
+// Beyond the last entry: false = hold the last entry's values (Jeremy,
+// 2026-10-18, while the tables stop at 5 m -- two points extrapolate
+// wildly, e.g. the middle row would fall to 24% at 6 m); true = extend the
+// last two entries' trend (his rule for past 8.5 m, once the tables reach
+// it).
+constexpr bool EXTRAPOLATE_PAST_LAST_ENTRY = false;
 
 // Bottom row, ~120 cm: keys 1, 4, 7 = Orin vision ids 10, 11, 12.
 constexpr Entry BOTTOM_ROW[] = {
-    {2.5, 0.00, 1500.0},
-    {3.0, 0.00, 1500.0},
-    {3.5, 0.00, 1500.0},
-    {4.0, 0.00, 1500.0},
-    {4.5, 0.00, 1500.0},
-    {5.0, 0.00, 1500.0},
-    {5.5, 0.00, 1500.0},
-    {6.0, 0.00, 1500.0},
-    {6.5, 0.00, 1500.0},
-    {7.0, 0.00, 1500.0},
-    {7.5, 0.00, 1500.0},
-    {8.0, 0.00, 1500.0},
-    {8.5, 0.00, 1500.0},
+    {2.5, 0.42, 2407.0},
+    {5.0, 0.43, 2183.0},
 };
 constexpr int BOTTOM_ROW_COUNT = sizeof(BOTTOM_ROW) / sizeof(BOTTOM_ROW[0]);
 
 // Middle row, ~180 cm: keys 2, 5, 8 = Orin vision ids 7, 8, 9.
 constexpr Entry MIDDLE_ROW[] = {
-    {2.5, 0.00, 1500.0},
-    {3.0, 0.00, 1500.0},
-    {3.5, 0.00, 1500.0},
-    {4.0, 0.00, 1500.0},
-    {4.5, 0.00, 1500.0},
-    {5.0, 0.00, 1500.0},
-    {5.5, 0.00, 1500.0},
-    {6.0, 0.00, 1500.0},
-    {6.5, 0.00, 1500.0},
-    {7.0, 0.00, 1500.0},
-    {7.5, 0.00, 1500.0},
-    {8.0, 0.00, 1500.0},
-    {8.5, 0.00, 1500.0},
+    {2.5, 1.00, 2500.0},
+    {5.0, 0.46, 2063.0},
 };
 constexpr int MIDDLE_ROW_COUNT = sizeof(MIDDLE_ROW) / sizeof(MIDDLE_ROW[0]);
 
 // Top row, ~240 cm: keys 3, 6, 9 = Orin vision ids 4, 5, 6.
 constexpr Entry TOP_ROW[] = {
-    {2.5, 0.00, 1500.0},
-    {3.0, 0.00, 1500.0},
-    {3.5, 0.00, 1500.0},
-    {4.0, 0.00, 1500.0},
-    {4.5, 0.00, 1500.0},
-    {5.0, 0.00, 1500.0},
-    {5.5, 0.00, 1500.0},
-    {6.0, 0.00, 1500.0},
-    {6.5, 0.00, 1500.0},
-    {7.0, 0.00, 1500.0},
-    {7.5, 0.00, 1500.0},
-    {8.0, 0.00, 1500.0},
-    {8.5, 0.00, 1500.0},
+    {2.5, 1.00, 1010.0},
+    {5.0, 0.80, 2442.0},
 };
 constexpr int TOP_ROW_COUNT = sizeof(TOP_ROW) / sizeof(TOP_ROW[0]);
 
-// Bonus small holes, ~290 cm: Orin vision ids 1, 2, 3 (not selectable;
-// only the Orin's own pick in full auto with no hole selected).
-constexpr Entry BONUS_ROW[] = {
-    {2.5, 0.00, 1500.0},
-    {3.0, 0.00, 1500.0},
-    {3.5, 0.00, 1500.0},
-    {4.0, 0.00, 1500.0},
-    {4.5, 0.00, 1500.0},
-    {5.0, 0.00, 1500.0},
-    {5.5, 0.00, 1500.0},
-    {6.0, 0.00, 1500.0},
-    {6.5, 0.00, 1500.0},
-    {7.0, 0.00, 1500.0},
-    {7.5, 0.00, 1500.0},
-    {8.0, 0.00, 1500.0},
-    {8.5, 0.00, 1500.0},
-};
-constexpr int BONUS_ROW_COUNT = sizeof(BONUS_ROW) / sizeof(BONUS_ROW[0]);
+// Bonus small holes (~290 cm, Orin vision ids 1-3): no data yet, so no
+// table -- the autos never fire at them (and don't move the elevation for
+// them). Only reachable as the Orin's own pick with no hole selected.
 
 // Per-hole elevation trim (us, added to its row's pulse), indexed by Orin
 // vision id. 0 unless one hole turns out consistently high or low.
@@ -281,9 +234,8 @@ struct Table {
 };
 
 // Orin vision id -> its height's table; {nullptr, 0} for 0 / unknown ids
-// (no table = Auto never fires at it).
+// and the bonus holes 1-3 (no table = Auto never fires at it).
 inline Table tableForVisionId(int visionId) {
-    if (visionId >= 1 && visionId <= 3) return {BONUS_ROW, BONUS_ROW_COUNT};
     if (visionId >= 4 && visionId <= 6) return {TOP_ROW, TOP_ROW_COUNT};
     if (visionId >= 7 && visionId <= 9) return {MIDDLE_ROW, MIDDLE_ROW_COUNT};
     if (visionId >= 10 && visionId <= 12) return {BOTTOM_ROW, BOTTOM_ROW_COUNT};
@@ -306,7 +258,7 @@ static_assert(Rotate::VISION_MAX_INTEGRAL_COMMAND >= 0.0 &&
 static_assert(Rotate::VISION_kIZONE_PX >= 0.0 && Rotate::VISION_READY_TOLERANCE_PX > 0.0,
               "Vision-follow pixel windows must be non-negative");
 static_assert(ShotTable::BOTTOM_ROW_COUNT >= 2 && ShotTable::MIDDLE_ROW_COUNT >= 2 &&
-              ShotTable::TOP_ROW_COUNT >= 2 && ShotTable::BONUS_ROW_COUNT >= 2,
+              ShotTable::TOP_ROW_COUNT >= 2,
               "Each shot table needs at least two entries to interpolate");
 static_assert(Auto::AIM_OFFSET_STEP_PX > 0.0 && Auto::AIM_OFFSET_MAX_PX >= Auto::AIM_OFFSET_STEP_PX &&
               Auto::ELEVATION_OFFSET_STEP_US > 0.0 &&

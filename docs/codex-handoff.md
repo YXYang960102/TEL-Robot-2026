@@ -4840,3 +4840,49 @@ tree (author not Claude) were reviewed, tested and committed.
 - No dedicated host test for the Chassis filter (Chassis is stubbed in
   the host tests).
 - Not run on hardware by Claude.
+
+## 2026-10-18 — Claude Code: first field shot data in the tables; flywheel "ready" time-based
+
+**User Request:** Jeremy shot the center column (Dashboard keys 4/5/6) at
+2.5 m and 5 m, and asked to load those values to check semi-auto lock and
+fire at a standstill.
+
+**Changed:**
+- `ShotTable`: one table per row, two entries each:
+
+  | Row | 2.5 m | 5 m |
+  |---|---|---|
+  | bottom | 0.42 / 2407 µs | 0.43 / 2183 µs |
+  | middle | 1.00 / 2500 µs | 0.46 / 2063 µs |
+  | top | 1.00 / 1010 µs | 0.80 / 2442 µs |
+
+  - The top row's two points are different shots (a flat shot at 2.5 m,
+    a lob at 5 m), so values interpolated between them are suspect.
+  - The bonus holes have **no table**, so the autos never fire at them.
+  - `ELEVATION_MEASURED` = true: the autos now set the elevation pulse
+    from the table plus the up/down offset.
+  - New `EXTRAPOLATE_PAST_LAST_ENTRY` = false. Past the last entry the
+    values are held (Jeremy's choice while the tables stop at 5 m).
+    `ShotTableLookup::lookup()` takes an `extrapolate` argument that
+    defaults to it.
+- `Flywheel::SHOOT_COMMAND` 0.0 → **0.5**: the pre-spin with no target
+  (Jeremy's choice). It is no longer the "ready" threshold.
+- `Shooter::updateFlywheelReady()`: ready means the command is > 0 and
+  has stayed within ±0.02 of where it settled for `SPIN_UP_MS`
+  (1500 ms). The old "≥ SHOOT_COMMAND" meant 42–46% table values were
+  never ready.
+- The existing tests (`shot_table_lookup_test`, `manual_control_test`)
+  were adapted to measured elevation, bonus without a table, and the
+  hold. No new test files.
+
+**Evidence:**
+- Table test passes; `manual_control_test` passes in all 3 variants;
+  page test passes.
+- Builds pass: `megaatmega2560`, axes and wired.
+- Not run on hardware.
+
+**Next Test:** at a standstill at 2.5 m and 5 m in semi auto, select
+keys 4, 5 and 6 in turn and check:
+1. the elevation moves to the table pulse;
+2. the flywheel goes to the table %;
+3. 1.5 s after the turret locks, RB fires.

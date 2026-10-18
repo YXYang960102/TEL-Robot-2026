@@ -6,10 +6,12 @@
 // (TuningConstants::ShotTable) with linear interpolation between the two
 // nearest entries:
 //   below the first entry: the first entry's values (clamped);
-//   beyond the last entry: extrapolated along the last two entries' trend
-//     (Jeremy, 2026-10-16: past 8.5 m, predict from the table rather than
-//     freeze at 8.5 m). The flywheel command is kept within 0..1; the
-//     elevation pulse is limited by Shooter::setAnglePulseUs().
+//   beyond the last entry: the last entry's values, or -- with
+//     extrapolate (ShotTable::EXTRAPOLATE_PAST_LAST_ENTRY) -- extended
+//     along the last two entries' trend (Jeremy, 2026-10-16: past 8.5 m,
+//     predict rather than freeze; held instead while the tables are short,
+//     2026-10-18). The flywheel command is kept within 0..1; the elevation
+//     pulse is limited by Shooter::setAnglePulseUs().
 // Header-only static methods -- pure logic, no Arduino dependency,
 // native-host-testable.
 class ShotTableLookup {
@@ -22,12 +24,16 @@ public:
     static Result lookup(
         double distanceMeters,
         const TuningConstants::ShotTable::Entry* table,
-        int count) {
+        int count,
+        bool extrapolate = TuningConstants::ShotTable::EXTRAPOLATE_PAST_LAST_ENTRY) {
         if (table == nullptr || count <= 0) {
             return {0.0, 0.0};
         }
         if (count == 1 || distanceMeters <= table[0].distanceMeters) {
             return {table[0].flywheelCommand, table[0].elevationPulseUs};
+        }
+        if (!extrapolate && distanceMeters >= table[count - 1].distanceMeters) {
+            return {table[count - 1].flywheelCommand, table[count - 1].elevationPulseUs};
         }
 
         int i = 0;
