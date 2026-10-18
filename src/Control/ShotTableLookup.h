@@ -29,33 +29,38 @@ public:
         if (table == nullptr || count <= 0) {
             return {0.0, 0.0};
         }
-        if (count == 1 || distanceMeters <= table[0].distanceMeters) {
-            return {table[0].flywheelCommand, table[0].elevationPulseUs};
+        if (count == 1 || distanceMeters <= meters(table[0])) {
+            return {flywheel(table[0]), elevation(table[0])};
         }
-        if (!extrapolate && distanceMeters >= table[count - 1].distanceMeters) {
-            return {table[count - 1].flywheelCommand, table[count - 1].elevationPulseUs};
+        if (!extrapolate && distanceMeters >= meters(table[count - 1])) {
+            return {flywheel(table[count - 1]), elevation(table[count - 1])};
         }
 
         int i = 0;
-        while (i < count - 2 && distanceMeters > table[i + 1].distanceMeters) {
+        while (i < count - 2 && distanceMeters > meters(table[i + 1])) {
             i++;
         }
         // table[i]..table[i+1] brackets the distance, or (beyond the last
         // entry) is the last segment, which t > 1 then extends.
         const auto& lower = table[i];
         const auto& upper = table[i + 1];
-        const double span = upper.distanceMeters - lower.distanceMeters;
-        const double t = span > 0.0 ? (distanceMeters - lower.distanceMeters) / span : 0.0;
-        const double flywheel =
-            lower.flywheelCommand + (upper.flywheelCommand - lower.flywheelCommand) * t;
+        const double span = meters(upper) - meters(lower);
+        const double t = span > 0.0 ? (distanceMeters - meters(lower)) / span : 0.0;
+        const double fly = flywheel(lower) + (flywheel(upper) - flywheel(lower)) * t;
         return {
-            flywheel < 0.0 ? 0.0 : (flywheel > 1.0 ? 1.0 : flywheel),
-            lower.elevationPulseUs + (upper.elevationPulseUs - lower.elevationPulseUs) * t,
+            fly < 0.0 ? 0.0 : (fly > 1.0 ? 1.0 : fly),
+            elevation(lower) + (elevation(upper) - elevation(lower)) * t,
         };
     }
 
+    // The generated table's integer units (ShotTableData::Point).
+    static double meters(const TuningConstants::ShotTable::Entry& e) { return e.distanceCm / 100.0; }
+    static double flywheel(const TuningConstants::ShotTable::Entry& e) { return e.flywheelPermille / 1000.0; }
+    static double elevation(const TuningConstants::ShotTable::Entry& e) { return e.elevationUs; }
+
     // The shot for one Orin target: its height's table
-    // (ShotTable::tableForVisionId) plus that hole's elevation trim.
+    // (ShotTable::tableForVisionId: the hole's, or its row center's) plus
+    // that hole's elevation trim.
     // False when the id has no table (0 / unknown): don't shoot at it.
     static bool lookupTarget(int visionId, double distanceMeters, Result& out) {
         const TuningConstants::ShotTable::Table table =

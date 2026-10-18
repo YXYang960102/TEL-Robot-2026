@@ -956,20 +956,18 @@ void testAutoNeedsDistance() {
 
 void testShotTableByHeight() {
     using namespace TuningConstants::ShotTable;
-    // Orin vision id -> its height's table: 10-12 bottom, 7-9 middle,
-    // 4-6 top, 1-3 bonus; nothing for 0 / unknown.
-    for (int id = 10; id <= 12; id++) assert(tableForVisionId(id).entries == BOTTOM_ROW);
-    for (int id = 7; id <= 9; id++) assert(tableForVisionId(id).entries == MIDDLE_ROW);
-    for (int id = 4; id <= 6; id++) assert(tableForVisionId(id).entries == TOP_ROW);
-    // Bonus holes have no measured data yet: no table, never fired at.
-    for (int id : {0, 1, 2, 3, 13, -1, 99}) assert(tableForVisionId(id).entries == nullptr);
-    // Each table starts at 2.5 m (the barrier is 2.5 m out), ascending.
-    for (const Table t : {tableForVisionId(10), tableForVisionId(7), tableForVisionId(4)}) {
-        assert(t.count >= 2 && nearly(t.entries[0].distanceMeters, 2.5));
-        for (int i = 0; i + 1 < t.count; i++) {
-            assert(t.entries[i].distanceMeters < t.entries[i + 1].distanceMeters);
-        }
+    // Orin vision id -> its Dashboard hole's generated table, or that row's
+    // center hole (keys 4 / 5 / 6) when the hole has no points; nothing for
+    // the bonus holes, 0 or unknown ids.
+    for (uint8_t hole = 1; hole <= 9; hole++) {
+        const int id = OperatorTarget::visionIdForHole(hole);
+        const uint8_t center = static_cast<uint8_t>(4 + (hole - 1) % 3);
+        const ShotTableData::Point* expected =
+            ShotTableData::HOLE_COUNTS[hole] > 0 ? ShotTableData::HOLE_POINTS[hole]
+                                                 : ShotTableData::HOLE_POINTS[center];
+        assert(tableForVisionId(id).entries == expected);
     }
+    for (int id : {0, 1, 2, 3, 13, -1, 99}) assert(tableForVisionId(id).entries == nullptr);
 
     // Auto uses the frame's hole: the flywheel follows that hole's table.
     reset();

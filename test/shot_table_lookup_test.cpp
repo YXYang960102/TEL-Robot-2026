@@ -12,10 +12,11 @@ bool near(double actual, double expected) {
     return fabs(actual - expected) <= 1e-9;
 }
 
+// {distance cm, flywheel per mille, elevation us} (ShotTableData::Point).
 constexpr TuningConstants::ShotTable::Entry kTable[] = {
-    {2.0, 0.70, 1800.0},
-    {3.0, 0.80, 1600.0},
-    {4.0, 0.90, 1400.0},
+    {200, 700, 1800},
+    {300, 800, 1600},
+    {400, 900, 1400},
 };
 constexpr int kCount = sizeof(kTable) / sizeof(kTable[0]);
 
@@ -88,28 +89,31 @@ int main() {
     }
     {
         auto r = ShotTableLookup::lookup(5.0, kTable, 1);
-        assert(near(r.flywheelCommand, kTable[0].flywheelCommand));
-        assert(near(r.elevationPulseUs, kTable[0].elevationPulseUs));
+        assert(near(r.flywheelCommand, ShotTableLookup::flywheel(kTable[0])));
+        assert(near(r.elevationPulseUs, ShotTableLookup::elevation(kTable[0])));
     }
 
-    // The real project tables (one per height): sorted, values in range,
-    // the midpoint of the first two entries interpolates to their average.
+    // The generated tables (tools/shot_table): every hole that resolves to a
+    // table is sorted and in range; the midpoint of its first two entries
+    // interpolates to their average.
     {
         using namespace TuningConstants::ShotTable;
-        for (int id : {10, 7, 4}) {  // bottom, middle, top
+        for (int id = 4; id <= 12; id++) {
             const Table t = tableForVisionId(id);
-            assert(t.entries != nullptr && t.count >= 2);
+            if (t.entries == nullptr) continue;
+            assert(t.count >= 1);
             for (int i = 0; i < t.count; i++) {
                 if (i + 1 < t.count) {
-                    assert(t.entries[i].distanceMeters < t.entries[i + 1].distanceMeters);
+                    assert(t.entries[i].distanceCm < t.entries[i + 1].distanceCm);
                 }
-                assert(t.entries[i].flywheelCommand >= 0.0 && t.entries[i].flywheelCommand <= 1.0);
-                assert(t.entries[i].elevationPulseUs >= 500.0 && t.entries[i].elevationPulseUs <= 2500.0);
+                assert(t.entries[i].flywheelPermille <= 1000);
+                assert(t.entries[i].elevationUs >= 500 && t.entries[i].elevationUs <= 2500);
             }
-            const double mid = (t.entries[0].distanceMeters + t.entries[1].distanceMeters) / 2.0;
+            if (t.count < 2) continue;
+            const double mid = (ShotTableLookup::meters(t.entries[0]) + ShotTableLookup::meters(t.entries[1])) / 2.0;
             auto r = ShotTableLookup::lookup(mid, t.entries, t.count);
-            assert(near(r.flywheelCommand,
-                        (t.entries[0].flywheelCommand + t.entries[1].flywheelCommand) / 2.0));
+            assert(fabs(r.flywheelCommand - (ShotTableLookup::flywheel(t.entries[0]) +
+                                             ShotTableLookup::flywheel(t.entries[1])) / 2.0) < 1e-6);
         }
         // Bonus holes: no data yet, no table.
         for (int id : {1, 2, 3}) assert(tableForVisionId(id).entries == nullptr);

@@ -5071,3 +5071,62 @@ the Falcon to Coast would allow returning to an instant neutral.
 - `manual_control_test` passes; Shooter is stubbed there, so the ramp is
   not host-tested.
 - Not run on hardware.
+
+## 2026-10-18 — Claude Code: shot table from Excel (tools/shot_table), one table per Dashboard hole
+
+**User Request:**
+- Keep the shot table in Excel: hole (Dashboard key) / distance /
+  elevation / flywheel.
+- Edit values and insert or delete rows and columns there.
+- One command writes the Constants table and uploads.
+- Strict format.
+- A hole with no data uses its row's center hole (agreed).
+
+**Changed:**
+- **`tools/shot_table/apply.py`.** Standard library only; it reads the
+  .xlsx with zipfile + ElementTree.
+  - Strict checks:
+    - sheet name 「射擊表」;
+    - headers 「洞口」「距離(m)」「仰角(us)」「轉速(%)」, each exactly
+      once and spelled exactly;
+    - any extra column must have a header (it is ignored);
+    - hole: integer 1–9;
+    - distance: 0.5–15 m, at most 2 decimals;
+    - elevation: integer 500–2500;
+    - flywheel: 0–100, at most 1 decimal;
+    - no duplicate hole + distance;
+    - no partial rows, merged cells or error cells.
+  - Float noise from the spreadsheet is normalised: 2.3500000000000001
+    is read as 2.35.
+  - It prints the per-point changes against the current header, then
+    writes `src/Constants/ShotTableData.h`. `--upload` runs `pio run -t
+    upload`, `--check` only validates, and `--export` rebuilds the
+    .xlsx from the header.
+  - Any error means nothing is written or uploaded.
+- **`tools/shot_table/shot_table.xlsx`.** Contains the 2026-10-18 points
+  (keys 4/5/6 at 2.5 and 5 m), a 「說明」 sheet, data validation on the
+  four columns, and a frozen header row.
+- **`ShotTableData.h` (generated).** `Point{distanceCm, flywheelPermille,
+  elevationUs}` in uint16 (6 bytes, versus 12 for the old double
+  entries), plus `HOLE_1..9`, `HOLE_POINTS[10]` and `HOLE_COUNTS[10]`.
+- **`TuningConstants::ShotTable`.**
+  - `Entry` is now `ShotTableData::Point`, and the row tables are gone.
+  - `tableForVisionId()` maps vision id → Dashboard hole through
+    `OperatorTarget::visionIdForHole`, then uses that hole's table, or the
+    same row's center hole (key 4 + (hole − 1) % 3), or nothing.
+  - The bonus holes 1–3 have no table.
+- **`ShotTableLookup`** converts the integer units.
+- **Tests and ignore list.** The existing table test and
+  `manual_control_test` were adapted; no new test files. `.gitignore`
+  covers Excel's `~$` lock files.
+
+**Evidence:**
+- Round trip: export → check reports "no change".
+- Crafted bad workbooks are each rejected with cell-level messages:
+  wrong header, duplicate header, data under an empty header, values
+  out of range, too many decimals, a duplicate point, a partial row,
+  text in a number cell.
+- An Excel-style workbook (shared strings, reordered and extra columns,
+  a blank row) is accepted.
+- Host tests pass; `megaatmega2560` builds (RAM 40.1%).
+- Not yet opened and saved in real Excel by Jeremy.

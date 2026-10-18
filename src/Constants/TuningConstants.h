@@ -2,6 +2,9 @@
 
 #include <stdint.h>
 
+#include "../Vision/OperatorTarget.h"
+#include "ShotTableData.h"
+
 // Centralizes the parameters that actually get changed at competition --
 // motor direction, flywheel speed, vision-follow tuning -- in one place, organized by mechanism namespace
 // (mirrors ShooterConstants.h's own Angle/Rotate/Flywheel grouping, plus
@@ -177,37 +180,20 @@ namespace ShotTable {
 //                     Dashboard "elevation pulse" readout (a positional
 //                     servo: a pulse is a position, no angle calibration).
 //
-// ONE TABLE PER HEIGHT, not per hole (Jeremy, 2026-10-16): the trajectory
-// depends on the hole's height and the distance to it, so the three holes
-// of a row share a table. Shooting a side hole at an angle needs no extra
-// table: the camera measures the distance to that hole itself (Orin
-// DEPTH_DISTANCE_MODE "range", straight-line camera -> hole), which is
-// longer at an angle, so the lookup lands on a farther row by itself.
-// Heights from the rules drawing (hole centers above the floor, approx.,
-// confirm on the field): bottom 120 cm, middle 180 cm, top 240 cm, bonus
-// holes 290 cm.
+// ONE TABLE PER DASHBOARD HOLE (key 1-9), generated from the Excel
+// tools/shot_table/shot_table.xlsx into ShotTableData.h (2026-10-18): edit
+// the Excel and run `python3 tools/shot_table/apply.py --upload`, never the
+// generated header. A hole with no points uses its row's center hole
+// (1/7 -> 4, 2/8 -> 5, 3/9 -> 6); with none there either, the autos never
+// fire at it. The bonus holes (vision ids 1-3) have no table.
 //
 // The key is the CAMERA's distance: read it off the Dashboard while locked
 // on the hole, never a tape measure (the camera's own bias is then
 // calibrated in). Between entries: linear interpolation. Below the first
 // entry: the first entry's values. Beyond the last entry: see
-// EXTRAPOLATE_PAST_LAST_ENTRY.
-//
-// Fill it from test shots: at each distance, adjust until it scores and
-// copy the Dashboard's pulse and the Falcon % here. Then use
-// ELEVATION_TRIM_US below for a single hole that is consistently high/low.
-//
-// FIRST FIELD DATA (Jeremy, 2026-10-18): the center column (Dashboard keys
-// 4 / 5 / 6), each applied to its whole row, at 2.5 m and 5 m only.
-// PROVISIONAL -- add 3.0 / 3.5 / 4.0 / 4.5 m and beyond. The top row's two
-// points are two different shots (2.5 m: low 1010 us at 100%; 5 m: lob
-// 2442 us at 80%), so the interpolation between them mixes the two and
-// probably misses; measure the top row's middle distances first.
-struct Entry {
-    double distanceMeters;
-    double flywheelCommand;
-    double elevationPulseUs;
-};
+// EXTRAPOLATE_PAST_LAST_ENTRY. ELEVATION_TRIM_US below adds a per-hole
+// offset on top, if ever needed.
+using Entry = ShotTableData::Point;
 // The elevation column is measured now: the autos set the elevation from
 // it (plus the operator's up/down fine-adjust).
 constexpr bool ELEVATION_MEASURED = true;
@@ -218,31 +204,6 @@ constexpr bool ELEVATION_MEASURED = true;
 // last two entries' trend (his rule for past 8.5 m, once the tables reach
 // it).
 constexpr bool EXTRAPOLATE_PAST_LAST_ENTRY = false;
-
-// Bottom row, ~120 cm: keys 1, 4, 7 = Orin vision ids 10, 11, 12.
-constexpr Entry BOTTOM_ROW[] = {
-    {2.5, 0.42, 2407.0},
-    {5.0, 0.43, 2183.0},
-};
-constexpr int BOTTOM_ROW_COUNT = sizeof(BOTTOM_ROW) / sizeof(BOTTOM_ROW[0]);
-
-// Middle row, ~180 cm: keys 2, 5, 8 = Orin vision ids 7, 8, 9.
-constexpr Entry MIDDLE_ROW[] = {
-    {2.5, 1.00, 2500.0},
-    {5.0, 0.46, 2063.0},
-};
-constexpr int MIDDLE_ROW_COUNT = sizeof(MIDDLE_ROW) / sizeof(MIDDLE_ROW[0]);
-
-// Top row, ~240 cm: keys 3, 6, 9 = Orin vision ids 4, 5, 6.
-constexpr Entry TOP_ROW[] = {
-    {2.5, 1.00, 1010.0},
-    {5.0, 0.80, 2442.0},
-};
-constexpr int TOP_ROW_COUNT = sizeof(TOP_ROW) / sizeof(TOP_ROW[0]);
-
-// Bonus small holes (~290 cm, Orin vision ids 1-3): no data yet, so no
-// table -- the autos never fire at them (and don't move the elevation for
-// them). Only reachable as the Orin's own pick with no hole selected.
 
 // Per-hole elevation trim (us, added to its row's pulse), indexed by Orin
 // vision id. 0 unless one hole turns out consistently high or low.
@@ -259,12 +220,21 @@ struct Table {
     int count;
 };
 
-// Orin vision id -> its height's table; {nullptr, 0} for 0 / unknown ids
-// and the bonus holes 1-3 (no table = Auto never fires at it).
+// Orin vision id -> its hole's table (Dashboard key via OperatorTarget),
+// or that row's center hole when the hole has no points; {nullptr, 0} for
+// 0, the bonus holes 1-3, unknown ids and an empty row (Auto never fires).
 inline Table tableForVisionId(int visionId) {
-    if (visionId >= 4 && visionId <= 6) return {TOP_ROW, TOP_ROW_COUNT};
-    if (visionId >= 7 && visionId <= 9) return {MIDDLE_ROW, MIDDLE_ROW_COUNT};
-    if (visionId >= 10 && visionId <= 12) return {BOTTOM_ROW, BOTTOM_ROW_COUNT};
+    for (uint8_t hole = 1; hole <= 9; hole++) {
+        if (OperatorTarget::visionIdForHole(hole) != visionId) continue;
+        if (ShotTableData::HOLE_COUNTS[hole] > 0) {
+            return {ShotTableData::HOLE_POINTS[hole], ShotTableData::HOLE_COUNTS[hole]};
+        }
+        const uint8_t center = static_cast<uint8_t>(4 + (hole - 1) % 3); // same row, middle column
+        if (ShotTableData::HOLE_COUNTS[center] > 0) {
+            return {ShotTableData::HOLE_POINTS[center], ShotTableData::HOLE_COUNTS[center]};
+        }
+        return {nullptr, 0};
+    }
     return {nullptr, 0};
 }
 
@@ -286,9 +256,6 @@ static_assert(Rotate::VISION_MAX_INTEGRAL_COMMAND >= 0.0 &&
               "Vision-follow integral limit must fit inside the command limit");
 static_assert(Rotate::VISION_kIZONE_PX >= 0.0 && Rotate::VISION_READY_TOLERANCE_PX > 0.0,
               "Vision-follow pixel windows must be non-negative");
-static_assert(ShotTable::BOTTOM_ROW_COUNT >= 2 && ShotTable::MIDDLE_ROW_COUNT >= 2 &&
-              ShotTable::TOP_ROW_COUNT >= 2,
-              "Each shot table needs at least two entries to interpolate");
 static_assert(Auto::AIM_OFFSET_STEP_PX > 0.0 && Auto::AIM_OFFSET_MAX_PX >= Auto::AIM_OFFSET_STEP_PX &&
               Auto::ELEVATION_OFFSET_STEP_US > 0.0 &&
               Auto::ELEVATION_OFFSET_MAX_US >= Auto::ELEVATION_OFFSET_STEP_US,
