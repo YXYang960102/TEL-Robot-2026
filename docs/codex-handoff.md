@@ -5037,3 +5037,37 @@ b1d6e1b and 562b817, which were not flashed yet.
    ramp, and there should be no reset.
 3. If it still resets, the power wiring needs checking (the elevation
    servo should have its own supply).
+
+## 2026-10-18 — Claude Code: flywheel ramps down too; spin-down after disable (option B)
+
+**User Request:** ramp the flywheel down as well, and on disable let it
+spin down rather than stop instantly. The hard stop is bad for the motor.
+
+**Why:**
+- At neutral the Falcon applies its own Neutral Mode. This borrowed unit
+  is evidently set to Brake, and PWM can't change that.
+- Claude recommended setting the Falcon to Coast in Phoenix Tuner (A).
+  Jeremy chose B: software spin-down.
+
+**Changed:**
+- New `Flywheel::RAMP_DOWN_PER_SECOND` = 0.5.
+- `Shooter::rampFlywheel()` now limits both directions.
+- **Disabled.** `Shooter::update()` still stops the turret and elevation
+  at once (`stopAll`), but then ramps the flywheel output down to 0 and
+  writes it. The Falcon is **still driven** during this spin-down
+  (≤ 2 s from 100%), then it gets the 1490 µs stop trim.
+- `stopAll()` no longer zeroes the output or the ramp clock. It writes
+  the current output (no jump) and zeroes the command.
+- `init()` sets the output to 0.
+- Re-enabling during the spin-down continues from the current output.
+
+**Safety note:** a disable (including link loss and watchdogs) no longer
+cuts the flywheel drive instantly. It ramps down over up to 2 s. Setting
+the Falcon to Coast would allow returning to an instant neutral.
+
+**Evidence:**
+- Mega envs build: production, axes, wired, drive, gamepad motor and
+  vision rotate.
+- `manual_control_test` passes; Shooter is stubbed there, so the ramp is
+  not host-tested.
+- Not run on hardware.

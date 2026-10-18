@@ -69,12 +69,20 @@ void Shooter::init() {
         }
     }
     angleJogLastMs = millis();
+    flywheelOutputCommand = 0.0;
+    flywheelRampLastMs = millis();
     stopAll();
 }
 
 void Shooter::update() {
     if (!outputsEnabled) {
         stopAll();
+        // Disabled: the turret and elevation stop at once, but the flywheel
+        // spins down along the ramp (Jeremy, 2026-10-18: this Falcon is in
+        // Brake mode, so an instant neutral stops it hard). It is still
+        // driven until the ramp reaches 0 -- at most 1 / RAMP_DOWN s.
+        rampFlywheel();
+        writeFlywheelCommand(flywheelOutputCommand);
         return;
     }
     updateAngle();
@@ -94,7 +102,10 @@ void Shooter::rampFlywheel() {
         flywheelOutputCommand = flywheelOpenLoopCommand - flywheelOutputCommand > step
             ? flywheelOutputCommand + step : flywheelOpenLoopCommand;
     } else {
-        flywheelOutputCommand = flywheelOpenLoopCommand; // down / stop: at once
+        // Down too (2026-10-18), including the spin-down after a disable.
+        const double step = Flywheel::RAMP_DOWN_PER_SECOND * elapsed / 1000.0;
+        flywheelOutputCommand = flywheelOutputCommand - flywheelOpenLoopCommand > step
+            ? flywheelOutputCommand - step : flywheelOpenLoopCommand;
     }
 }
 
@@ -103,9 +114,7 @@ void Shooter::stopAll() {
     rotateMode = RotateControlMode::DISABLED;
     angleManualCommand = 0.0;
     rotateManualCommand = 0.0;
-    flywheelOpenLoopCommand = 0.0;
-    flywheelOutputCommand = 0.0;
-    flywheelRampLastMs = millis();
+    flywheelOpenLoopCommand = 0.0; // the output ramps down to it (rampFlywheel)
     flywheelSpinStartMs = 0;
     flywheelReady = false;
     rotateReady = false;
@@ -113,7 +122,7 @@ void Shooter::stopAll() {
     rotateVisionFollow.reset();
     releaseAngle();
     writeRotateCommand(0.0);
-    writeFlywheelCommand(0.0);
+    writeFlywheelCommand(flywheelOutputCommand); // no jump: update() ramps it down
 }
 
 void Shooter::setOutputsEnabled(bool enabled) {

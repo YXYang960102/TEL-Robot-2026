@@ -121,9 +121,13 @@ constexpr uint32_t SPIN_UP_MS = 1500;
 // Ramp-up limit on the Falcon command, in every mode (2026-10-18: an
 // instant 46% -> 80% jump in semi auto, together with the elevation move,
 // drew enough current to reset the Mega). 0.5 = 50% per second, so 0 -> 80%
-// takes 1.6 s. Slowing down / stopping is immediate. The "ready" wait
-// (SPIN_UP_MS) starts once the ramp has reached the command.
+// takes 1.6 s. The "ready" wait (SPIN_UP_MS) starts once the ramp has
+// reached the command.
 constexpr double RAMP_UP_PER_SECOND = 0.5;
+// Ramp-down limit, also used after a disable / stop (Jeremy, 2026-10-18:
+// this Falcon brakes hard at neutral, so the flywheel spins down instead,
+// still driven, then neutral). 0.5 = from 80% to stop in 1.6 s.
+constexpr double RAMP_DOWN_PER_SECOND = 0.5;
 
 }
 
@@ -270,7 +274,8 @@ inline double elevationTrimUs(int visionId) {
 
 }
 
-static_assert(Flywheel::RAMP_UP_PER_SECOND > 0.0 && Auto::ELEVATION_SLEW_US_PER_SECOND > 0.0,
+static_assert(Flywheel::RAMP_UP_PER_SECOND > 0.0 && Flywheel::RAMP_DOWN_PER_SECOND > 0.0 &&
+              Auto::ELEVATION_SLEW_US_PER_SECOND > 0.0,
               "Flywheel ramp and elevation slew must be positive");
 static_assert(Manual::COMMAND_FILTER_TIME_CONSTANT_MS >= 0.0,
               "Chassis command filter time constant must not be negative");

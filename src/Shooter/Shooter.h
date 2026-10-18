@@ -103,7 +103,8 @@ private:
     static unsigned long flywheelSpinStartMs;
     static double flywheelSpinCommand; // the command the spin-up timer started at
     // What actually goes to the Falcon: flywheelOpenLoopCommand, reached
-    // at Flywheel::RAMP_UP_PER_SECOND going up, at once going down.
+    // at Flywheel::RAMP_UP_PER_SECOND going up and RAMP_DOWN_PER_SECOND
+    // going down -- also after a disable (spin-down, then neutral).
     static double flywheelOutputCommand;
     static unsigned long flywheelRampLastMs;
     static void rampFlywheel();
