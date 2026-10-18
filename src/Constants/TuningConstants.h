@@ -2,6 +2,9 @@
 
 #include <stdint.h>
 
+#include "../Vision/OperatorTarget.h"
+#include "ShotTableData.h"
+
 // Centralizes the parameters that actually get changed at competition --
 // motor direction, flywheel speed, vision-follow tuning -- in one place, organized by mechanism namespace
 // (mirrors ShooterConstants.h's own Angle/Rotate/Flywheel grouping, plus
@@ -27,13 +30,23 @@ constexpr bool INVERTED = false;
 }
 
 namespace RightDrive {
-constexpr bool INVERTED = true;
+constexpr bool INVERTED = false;
 }
 
 namespace Manual {
 constexpr double COMMAND_DEADBAND = 0.04;
 constexpr double MIN_COMMAND = -1.0;
 constexpr double MAX_COMMAND = 1.0;
+
+// Chassis output smoothing (Chassis::update()). An exponential filter on
+// the final left/right command before it becomes a pulse, time constant in
+// ms: output tracks a step input to ~63% in this many ms, ~95% in 3x this.
+// Smooths frame-to-frame stick/RF noise so it doesn't land directly on the
+// PWM pins; does NOT apply to stop()/disable(), which still snap straight
+// to neutral. 80 ms is a first guess -- fast enough that an intentional
+// stick move still feels immediate, slow enough to average out single-frame
+// jitter at ~10-15 ms/loop. TUNE ON THE ROBOT.
+constexpr double COMMAND_FILTER_TIME_CONSTANT_MS = 80.0;
 }
 
 namespace Angle {
@@ -45,6 +58,13 @@ constexpr bool INVERTED = false;
 namespace Rotate {
 
 constexpr bool INVERTED = false;
+
+// The operator's turret jog (D-pad / wireless nudge left-right, full
+// manual): on the robot (2026-10-17) "right" turned the turret left. The
+// vision-follow direction (INVERTED, validated on the bench) is right, so
+// only the jog is flipped here -- flipping INVERTED would reverse vision
+// follow too. The auto-mode aim offset (+ = right) is unaffected.
+constexpr bool MANUAL_JOG_INVERTED = true;
 
 // Vision-follow (RotateControlMode::VISION_FOLLOW), PIDF on image-space tx
 // (src/Control/VisionFollowController.h). These are the gains Jeremy tuned
@@ -76,70 +96,159 @@ constexpr double VISION_READY_TOLERANCE_PX = 5.0;
 
 namespace Flywheel {
 
-constexpr bool INVERTED = false;
+// true since the 2026-10-17 robot test (Jeremy): the slider's direction is
+// the shooting direction with the pulse going below 1500 us.
+constexpr bool INVERTED = true;
+
+// Stop trim (Jeremy, 2026-10-17): this Falcon creeps backwards at the
+// 1500 us neutral (D25 and GND checked), so "stopped" (command 0: disabled,
+// before Y, slider at 0) sends this many us toward the slider's spin
+// direction instead -- 1490 us with INVERTED = true. TUNE ON THE ROBOT:
+// still creeping backwards -> raise (15, 20); creeping forwards -> lower
+// (5). 0 = plain 1500 (a normally configured Falcon). Capped at 30 us in
+// ShooterConstants.h so a typo can't spin a disabled flywheel.
+constexpr int STOP_TRIM_US = 10;
 
 // Auto-fire sequence (Auto::update()). No RPM/tachometer feedback exists for
-// this Falcon 500 (PWM command path is one-way) -- SHOOT_COMMAND/SPIN_UP_MS
-// are both provisional placeholders standing in for real speed feedback.
-// Re-tune against real shots once hardware is available; do not trust these
-// numbers unattended.
-constexpr double SHOOT_COMMAND = 0.8;
+// this Falcon 500 (PWM command path is one-way), so "ready" is time-based:
+// the flywheel counts as spun up SPIN_UP_MS after its command last changed
+// (Shooter::updateFlywheelReady). PROVISIONAL -- tune against real shots.
+// SHOOT_COMMAND: the autos' pre-spin with no target in view (Jeremy,
+// 2026-10-18: 50%, then 20%); with a target the shot table's flywheel
+// value (+ the LT / RT offset) is used.
+// It no longer sets the "ready" threshold (that made every table value
+// below it -- 42%, 46% -- never ready).
+constexpr double SHOOT_COMMAND = 0.2;
 constexpr uint32_t SPIN_UP_MS = 1500;
+
+// Ramp-up limit on the Falcon command, in every mode (2026-10-18: an
+// instant 46% -> 80% jump in semi auto, together with the elevation move,
+// drew enough current to reset the Mega). 0.5 = 50% per second, so 0 -> 80%
+// takes 1.6 s. The "ready" wait (SPIN_UP_MS) starts once the ramp has
+// reached the command.
+constexpr double RAMP_UP_PER_SECOND = 0.5;
+// Ramp-down limit, also used after a disable / stop (Jeremy, 2026-10-18:
+// this Falcon brakes hard at neutral, so the flywheel spins down instead,
+// still driven, then neutral). 0.5 = from 80% to stop in 1.6 s.
+constexpr double RAMP_DOWN_PER_SECOND = 0.5;
 
 }
 
 namespace Auto {
+
+// Auto moves the elevation toward the shot table's pulse at most this fast
+// instead of jumping (2026-10-18, current limiting with the flywheel ramp):
+// 400 us/s, e.g. 2063 -> 2442 us in ~0.95 s. The D-pad jog in full manual
+// keeps its own Angle::POSITION_RATE_US_PER_SECOND.
+constexpr double ELEVATION_SLEW_US_PER_SECOND = 400.0;
+
+// After the target drops out of a frame, Auto keeps its last shot (flywheel
+// and elevation) this long before falling back to the pre-spin (2026-10-18:
+// single-frame vision dropouts pulsed the flywheel). Firing still needs a
+// target in the current frame.
+constexpr uint32_t TARGET_HOLD_MS = 500;
 
 // Minimum time from one auto shot to the next (src/Auto/Auto.cpp). The
 // feed tower's own lockout (DribblerConstants::Tower::COOLDOWN_MS, 1000 ms)
 // also applies, so the real full-auto rate is whichever is longer.
 constexpr uint32_t COOLDOWN_MS = 300;
 
+// Operator fine-adjust in the auto modes (Jeremy, 2026-10-16): each arrow
+// press (wireless: each nudge from center) adds one step; a new target hole,
+// Enable and disarm clear both. PROVISIONAL step sizes -- tune on the field.
+//   left/right: the turret aims this many pixels right (+) / left (-) of
+//     the hole's center (vision-follow drives tx + offset to 0).
+//   up/down: added to the shot table's elevation pulse; only once the
+//     table is measured (ShotTable::ELEVATION_MEASURED), until then up/down
+//     stay the manual elevation jog.
+// 20 px (2026-10-18, was 5): 5 px x kP 0.01 = a ~25 us turret command,
+// inside the servo's deadband, so a press barely moved the turret.
+constexpr double AIM_OFFSET_STEP_PX = 20.0;
+constexpr double AIM_OFFSET_MAX_PX = 100.0;
+constexpr double ELEVATION_OFFSET_STEP_US = 10.0;
+constexpr double ELEVATION_OFFSET_MAX_US = 200.0;
+
 }
 
 namespace ShotTable {
 
-// Distance (meters, measured from Vision) -> flywheel command and
-// elevation servo pulse. Both are the actual actuator values to send:
+// Camera distance (meters, Vision::getDistance() / 1000) -> flywheel command
+// and elevation servo pulse, the actual actuator values to send:
 //   flywheelCommand   open-loop Falcon command 0..1 (no speed feedback,
 //                     so not an RPM)
 //   elevationPulseUs  the elevation servo's target pulse, as shown on the
-//                     Dashboard "elevation pulse" readout. The elevation is
-//                     a positional servo, so a pulse is a position; storing
-//                     the pulse (not an angle) needs no angle calibration.
-// Fill it from test shots: at each distance, adjust until it scores and
-// copy the Dashboard's pulse and the Falcon % here.
+//                     Dashboard "elevation pulse" readout (a positional
+//                     servo: a pulse is a position, no angle calibration).
 //
-// PLACEHOLDERS: no real shots have been measured. The flywheel column is a
-// guess; the elevation column is all neutral (1500 us) and is NOT applied
-// until ELEVATION_MEASURED is set true -- placeholder pulses must never
-// move the real elevation. Until then the operator keeps the elevation in
-// every mode.
-struct Entry {
-    double distanceMeters;
-    double flywheelCommand;
-    double elevationPulseUs;
+// ONE TABLE PER DASHBOARD HOLE (key 1-9), generated from the Excel
+// tools/shot_table/shot_table.xlsx into ShotTableData.h (2026-10-18): edit
+// the Excel and run `python3 tools/shot_table/apply.py --upload`, never the
+// generated header. A hole with no points uses its row's center hole
+// (1/7 -> 4, 2/8 -> 5, 3/9 -> 6); with none there either, the autos never
+// fire at it. The bonus holes (vision ids 1-3) have no table.
+//
+// The key is the CAMERA's distance: read it off the Dashboard while locked
+// on the hole, never a tape measure (the camera's own bias is then
+// calibrated in). Between entries: linear interpolation. Below the first
+// entry: the first entry's values. Beyond the last entry: see
+// EXTRAPOLATE_PAST_LAST_ENTRY. ELEVATION_TRIM_US below adds a per-hole
+// offset on top, if ever needed.
+using Entry = ShotTableData::Point;
+// The elevation column is measured now: the autos set the elevation from
+// it (plus the operator's up/down fine-adjust).
+constexpr bool ELEVATION_MEASURED = true;
+
+// Beyond the last entry: false = hold the last entry's values (Jeremy,
+// 2026-10-18, while the tables stop at 5 m -- two points extrapolate
+// wildly, e.g. the middle row would fall to 24% at 6 m); true = extend the
+// last two entries' trend (his rule for past 8.5 m, once the tables reach
+// it).
+constexpr bool EXTRAPOLATE_PAST_LAST_ENTRY = false;
+
+// Per-hole elevation trim (us, added to its row's pulse), indexed by Orin
+// vision id. 0 unless one hole turns out consistently high or low.
+constexpr double ELEVATION_TRIM_US[13] = {
+    0.0,            // 0: no target
+    0.0, 0.0, 0.0,  // 1-3: bonus holes
+    0.0, 0.0, 0.0,  // 4-6: top row, keys 3 6 9
+    0.0, 0.0, 0.0,  // 7-9: middle row, keys 2 5 8
+    0.0, 0.0, 0.0,  // 10-12: bottom row, keys 1 4 7
 };
-constexpr bool ELEVATION_MEASURED = false;
-constexpr Entry TABLE[] = {
-    {2.0, 0.70, 1500.0},
-    {2.5, 0.72, 1500.0},
-    {3.0, 0.75, 1500.0},
-    {3.5, 0.78, 1500.0},
-    {4.0, 0.80, 1500.0},
-    {4.5, 0.82, 1500.0},
-    {5.0, 0.84, 1500.0},
-    {5.5, 0.86, 1500.0},
-    {6.0, 0.88, 1500.0},
-    {6.5, 0.90, 1500.0},
-    {7.0, 0.92, 1500.0},
-    {7.5, 0.94, 1500.0},
-    {8.0, 0.96, 1500.0},
+
+struct Table {
+    const Entry* entries;
+    int count;
 };
-constexpr int TABLE_COUNT = sizeof(TABLE) / sizeof(TABLE[0]);
+
+// Orin vision id -> its hole's table (Dashboard key via OperatorTarget),
+// or that row's center hole when the hole has no points; {nullptr, 0} for
+// 0, the bonus holes 1-3, unknown ids and an empty row (Auto never fires).
+inline Table tableForVisionId(int visionId) {
+    for (uint8_t hole = 1; hole <= 9; hole++) {
+        if (OperatorTarget::visionIdForHole(hole) != visionId) continue;
+        if (ShotTableData::HOLE_COUNTS[hole] > 0) {
+            return {ShotTableData::HOLE_POINTS[hole], ShotTableData::HOLE_COUNTS[hole]};
+        }
+        const uint8_t center = static_cast<uint8_t>(4 + (hole - 1) % 3); // same row, middle column
+        if (ShotTableData::HOLE_COUNTS[center] > 0) {
+            return {ShotTableData::HOLE_POINTS[center], ShotTableData::HOLE_COUNTS[center]};
+        }
+        return {nullptr, 0};
+    }
+    return {nullptr, 0};
+}
+
+inline double elevationTrimUs(int visionId) {
+    return visionId >= 0 && visionId <= 12 ? ELEVATION_TRIM_US[visionId] : 0.0;
+}
 
 }
 
+static_assert(Flywheel::RAMP_UP_PER_SECOND > 0.0 && Flywheel::RAMP_DOWN_PER_SECOND > 0.0 &&
+              Auto::ELEVATION_SLEW_US_PER_SECOND > 0.0,
+              "Flywheel ramp and elevation slew must be positive");
+static_assert(Manual::COMMAND_FILTER_TIME_CONSTANT_MS >= 0.0,
+              "Chassis command filter time constant must not be negative");
 static_assert(Rotate::VISION_MAX_COMMAND > 0.0 && Rotate::VISION_MAX_COMMAND <= 1.0,
               "Vision-follow command limit out of range");
 static_assert(Rotate::VISION_MAX_INTEGRAL_COMMAND >= 0.0 &&
@@ -147,6 +256,9 @@ static_assert(Rotate::VISION_MAX_INTEGRAL_COMMAND >= 0.0 &&
               "Vision-follow integral limit must fit inside the command limit");
 static_assert(Rotate::VISION_kIZONE_PX >= 0.0 && Rotate::VISION_READY_TOLERANCE_PX > 0.0,
               "Vision-follow pixel windows must be non-negative");
-static_assert(ShotTable::TABLE_COUNT >= 2, "Shot table needs at least two entries to interpolate");
+static_assert(Auto::AIM_OFFSET_STEP_PX > 0.0 && Auto::AIM_OFFSET_MAX_PX >= Auto::AIM_OFFSET_STEP_PX &&
+              Auto::ELEVATION_OFFSET_STEP_US > 0.0 &&
+              Auto::ELEVATION_OFFSET_MAX_US >= Auto::ELEVATION_OFFSET_STEP_US,
+              "Fine-adjust steps must be positive and fit inside their limits");
 
 }

@@ -34,6 +34,13 @@ public:
     // while signalLost. ManualControl decodes the mode from the frame itself.
     static int modeChannel;
 
+    // Milliseconds since the last valid "RC,..." line, for telemetry (e.g.
+    // checking the real ELRS/bridge update rate against LINE_TIMEOUT_MS
+    // with the chassis output-disabled or the drive motors unpowered,
+    // rather than guessing). Keeps growing (never received = a large,
+    // still-growing number) rather than wrapping to something small.
+    static unsigned long lastLineAgeMs();
+
     static void sendStatus(uint8_t flags, unsigned long eventSeq, uint16_t eventCode);
 
 private:

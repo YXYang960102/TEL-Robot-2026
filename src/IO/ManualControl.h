@@ -9,27 +9,41 @@
 // Operator control of the robot, from two sources that share one set of
 // rules:
 //   - Wired: line protocol on USB `Serial` from tools/dashboard/index.html
-//     (E/X/K, T,<l>,<r>, ROT,<d>, ANG,<d>, ANGT,<deg>, FLY,<0..1>,
-//     F, L, R, M).
+//     (E/X/K, T,<l>,<r>, ROT,<d>, ANG,<d>, ANGT,<deg>, FLY,<0..1>, FLYO,<-20..20>,
+//     TGT,<0..9>, AUTO,<1..4>, MODE,<0..2>, F, M).
 //   - Wireless: CRSF channels from the ELRS link via MechLink, decoded with
-//     RcControlMap (arm level on CH5, axes, F/L event counters, mode on CH4).
+//     RcControlMap table v2 (forward/turn, target hole, mode, fire, arm,
+//     nudge, auto path).
 //
 // Control authority: exactly one source owns the robot while armed. Enable
 // from the other source is refused (ENABLE_REJECTED_OTHER_SOURCE), and its
-// motion/F/L commands are refused (REJECTED_NOT_OWNER). An explicit stop
+// motion/F/TGT/AUTO commands are refused (REJECTED_NOT_OWNER). An explicit stop
 // (wired X) always disarms whoever owns it; the wireless arm level going
 // low only disarms a wireless session (low is the ground station's idle
 // state, so it can't mean "stop the wired session").
 //
-// Wireless enable is edge-triggered: CH5 has to be seen low and then high.
-// After an RF dropout the edge detector re-arms only once it sees CH5 low
-// again, so recovering the link never re-enables on its own.
+// Wireless enable is edge-triggered: CH6 has to be seen low and then high.
+// Fire (CH5) and auto path (CH8) act on their rising edge too. After an RF
+// dropout every edge detector re-arms only once it sees the channel
+// released again, so recovering the link never re-enables or fires on its
+// own.
+//
+// Target hole (TGT / CH3): main.cpp passes it to Vision (the Orin locks on
+// that hole) and Auto uses that hole's shot table. The auto path
+// (AUTO / CH8) can start once per Enable, and every path started since
+// boot is remembered for the Dashboard; the paths themselves are not built
+// yet.
+//
+// Fine-adjust in the auto modes: each arrow press (ROT/ANG going from 0 to
+// +-1; wireless: CH7 leaving center) adds a step to the aim offset
+// (left/right) or, once the shot table's elevation is measured, the
+// elevation offset (up/down). A new hole, Enable and disarm clear both.
 //
 // Operator mode (OperatorMode.h): M cycles FULL_MANUAL -> SEMI_AUTO ->
 // FULL_AUTO while armed (wireless: CH4 level). It is FULL_MANUAL whenever
 // disarmed and at every Enable; a wireless Enable whose CH4 isn't manual is
-// refused. In the auto modes this class still owns safety, the chassis,
-// elevation and conveyor, but leaves the turret and flywheel to Auto, and
+// refused. In the auto modes this class still owns safety, the chassis
+// and elevation, but leaves the turret and flywheel to Auto, and
 // F becomes a fire request that Auto takes (takeFireRequest()).
 class ManualControl {
 public:
@@ -52,6 +66,18 @@ public:
     // Lets Auto report what it did on the same "$EVENT" / status channel.
     static void reportEvent(rcmap_event event);
 
+    static uint8_t getTarget();               // 0 = none, 1..9
+    static uint8_t getAutoPathThisEnable();   // 0 = none, 1..4
+    static uint8_t getAutoPathsUsedMask();    // bit n = path n started since boot
+    // Fine-adjust (TuningConstants::Auto): + = aim right / elevation up.
+    static double getAimOffsetPx();
+    static double getElevationOffsetUs();
+    // The autos' flywheel offset in percent (-20..20, LT / RT; 2026-10-18):
+    // added to the shot table's value. Wired FLYO,<n> or CH4 in the autos;
+    // 0 in full manual, after a mode change and on every Enable / disarm.
+    static int getFlywheelOffsetPct();
+    static constexpr int NUDGE_NEEDS_RELEASE = 2; // see nudgePressed()
+
 private:
     // Wired line protocol
     static void readIncomingLines();
@@ -69,7 +95,10 @@ private:
     static void disarm(rcmap_event reason);
     static void clearCommands();
     static void triggerFeed();
-    static void toggleRotateMode();
+    static void selectTarget(uint8_t hole);
+    static void updateFineAdjust();
+    static void clearFineAdjust();
+    static void requestAutoPath(uint8_t path);
     static void cycleOperatorMode();
     static void setOperatorMode(OperatorMode mode);
     static void handleFire();
@@ -92,19 +121,27 @@ private:
     static unsigned long lastFrameCount;
     static unsigned long lastValidWirelessMs;
     static bool wirelessArmPrev;
-    static rcmap_counter feedCounter;
-    static rcmap_counter lmodeCounter;
+    static bool wirelessFirePrev;
+    static uint8_t wirelessAutoPrev;
 
     static double tankLeftCommand;
     static double tankRightCommand;
     static double rotateManualCommand;
     static double angleManualCommand;
     static double flywheelCommand;
-    static bool rotateManualActive; // L: false = vision-follow, true = manual jog
     static OperatorMode operatorMode;
     static bool fireRequested;
+    static uint8_t target;
+    static uint8_t autoPathThisEnable;
+    static uint8_t autoPathsUsedMask;
+    static double aimOffsetPx;
+    static double elevationOffsetUs;
+    static int flywheelOffsetPct;
+    static int rotateNudgePrev; // sign of the last ROT/nudge, for press edges
+    static int angleNudgePrev;
 
     static unsigned long eventSeq;
     static uint16_t lastEventCode;
     static unsigned long lastStatusMs;
+    static uint8_t statusSlot; // 0, 2 = status, 1 = aim frame, 3 = vision frame
 };

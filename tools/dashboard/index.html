@@ -90,6 +90,25 @@
 
     input:focus { border-color: var(--cyan); }
 
+    select {
+      min-height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #11161b;
+      color: var(--text);
+      padding: 0 8px;
+      font: inherit;
+    }
+
+    .menu-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 16px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
     main {
       display: grid;
       grid-template-columns: 1.25fr 0.75fr;
@@ -153,10 +172,6 @@
       font-size: 12px;
     }
 
-    .panel.compact .risk {
-      font-size: 16px;
-    }
-
     .panel.tiny .section-title {
       font-size: 10px;
       padding: 7px 8px;
@@ -179,9 +194,7 @@
     }
 
     .panel.tiny .label,
-    .panel.tiny .subvalue,
-    .panel.tiny .hint-list,
-    .panel.tiny .stream-placeholder {
+    .panel.tiny .subvalue {
       font-size: 10px;
     }
 
@@ -193,10 +206,6 @@
     .panel.tiny td {
       padding: 6px 8px;
       font-size: 11px;
-    }
-
-    .panel.tiny .risk {
-      font-size: 14px;
     }
 
     main.custom-layout .panel {
@@ -352,6 +361,32 @@
       background: rgba(232, 91, 91, 0.14);
     }
 
+    /* 3x3 target holes, drawn as seen from the robot: left column = 1-3. */
+    #matchTimer.done { color: var(--red); }
+
+    .hole-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 24px);
+      gap: 3px;
+      margin-top: 6px;
+    }
+
+    .hole-grid span {
+      height: 18px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 18px;
+      text-align: center;
+    }
+
+    .hole-grid span.selected {
+      border-color: var(--cyan);
+      background: rgba(83, 183, 232, 0.25);
+      color: var(--text);
+    }
+
     .stream-controls {
       display: grid;
       grid-template-columns: minmax(180px, 1fr) auto;
@@ -359,39 +394,6 @@
       padding: 10px 12px;
       border-bottom: 1px solid var(--line);
       background: #14181d;
-    }
-
-    .stream-frame {
-      position: relative;
-      display: grid;
-      place-items: center;
-      min-height: 320px;
-      background: #090d11;
-      overflow: hidden;
-    }
-
-    .stream-frame img {
-      display: none;
-      width: 100%;
-      height: 100%;
-      min-height: 320px;
-      object-fit: contain;
-      background: #090d11;
-    }
-
-    .stream-frame.connected img {
-      display: block;
-    }
-
-    .stream-placeholder {
-      padding: 18px;
-      color: var(--muted);
-      text-align: center;
-      line-height: 1.6;
-    }
-
-    .stream-frame.connected .stream-placeholder {
-      display: none;
     }
 
     .label {
@@ -507,39 +509,6 @@
       font-weight: 650;
     }
 
-    .risk {
-      padding: 12px;
-      font-size: 18px;
-      font-weight: 750;
-    }
-
-    .risk.ok { color: var(--green); }
-    .risk.warn { color: var(--yellow); }
-    .risk.bad { color: var(--red); }
-
-    .risk-card {
-      display: grid;
-      align-content: center;
-      min-height: 78px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      background: var(--panel-2);
-    }
-
-    .hint-list {
-      display: grid;
-      gap: 8px;
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    .hint-list div {
-      padding: 8px 10px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      background: var(--panel-2);
-    }
-
     .layout-help {
       display: none;
       margin: 0 14px 10px;
@@ -589,70 +558,83 @@
         <div class="grid">
           <div class="metric"><div class="label">tx / 水平偏差</div><div class="value" id="tx">--</div></div>
           <div class="metric"><div class="label">ty / 垂直偏差</div><div class="value" id="ty">--</div></div>
-          <div class="metric"><div class="label">distance / 距離</div><div class="value" id="distance">--</div><div class="subvalue">目前單位依 YOLO 輸出</div></div>
-          <div class="metric"><div class="label">target id / 目標編號</div><div class="value" id="targetId">--</div></div>
-          <div class="metric"><div class="label">valid / 有效目標</div><div class="value" id="valid">--</div></div>
-          <div class="metric" id="shooterReadyCard"><div class="label">shooter ready / 發射準備</div><div class="value" id="shooterReady">--</div></div>
-          <div class="metric"><div class="label">operator mode / 操作模式</div><div class="value" id="operatorMode">--</div></div>
-          <div class="metric"><div class="label">warn bits / 警告碼</div><div class="value" id="warnBits">--</div></div>
+          <div class="metric"><div class="label">distance / 相機距離</div><div class="value" id="distance">--</div><div class="subvalue" id="distanceRaw">相機到洞口的直線距離，填射擊表用這個</div></div>
         </div>
       </section>
 
-      <section class="panel" data-panel="control" style="margin-top:14px">
+      <section class="panel" data-panel="setup" data-fixed-density style="margin-top:14px">
         <div class="section-title">
-          <span>Manual Control / 手動操控（USB 接 Mega＝有線，接地面 STM32＝無線）</span>
+          <span>Match Setup / 模式與自動路徑</span>
+          <span>Enable 前選好</span>
+        </div>
+        <div class="menu-row" style="border-bottom:0">
+          <label class="label">模式 / mode
+            <select id="startMode" aria-label="Operator mode">
+              <option value="2" selected>全手動 FULL MANUAL</option>
+              <option value="1">半自動 SEMI AUTO</option>
+              <option value="0">全自動 FULL AUTO</option>
+            </select>
+          </label>
+          <label class="label">自動路徑 / auto path
+            <select id="autoPathSelect" aria-label="Auto path">
+              <option value="0" selected>None 不跑</option>
+              <option value="1">左一 left 1</option>
+              <option value="2">左二 left 2</option>
+              <option value="3">右一 right 1</option>
+              <option value="4">右二 right 2</option>
+            </select>
+          </label>
+          <span class="label">Enable 後機器人不動，按手把 Y（或「開始比賽」）才套用：先切到這個模式，再跑一次這條路徑。比賽中改模式（或按 X / A / B）會立刻切換。</span>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="operate" data-fixed-density style="margin-top:14px">
+        <div class="section-title">
+          <span>Enable &amp; Outputs / 啟用與輸出（USB 接 Mega＝有線，接地面 STM32＝無線）</span>
           <span id="controlArmedBadge">disabled / 未啟用</span>
         </div>
         <div class="stream-controls">
           <button id="enableControl" disabled>Enable / 啟用輸出</button>
-          <span class="label">W/S/A/D 底盤・R 水平輸送帶開關・F 發射・M 模式（全手動→半自動→全自動）・←→ 水平・↑↓ 仰角（按住移動）・手把：搖桿 前後/轉向、Y（飛行搖桿上方鈕）發射・L 手動/視覺切換・Enter 停用・Space 停用並斷線</span>
+          <span class="label">Xbox 手把：左蘑菇頭 前後・右蘑菇頭 轉向・十字鍵 ↑↓ 仰角 ←→ 水平（全手動按住移動；自動模式每按一下微調一格）・X 全自動・A 半自動・B 全手動・RB 發射・LB 轉台回正（待 AS5600）・Y 開始比賽｜鍵盤：1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・0 回到 AI 自選・Enter 停用・Space 停用並斷線</span>
         </div>
-        <div class="grid">
-          <div class="metric"><div class="label">left / right pulse / 左右輪脈衝</div><div class="value" id="chassisPulses">--</div></div>
-          <div class="metric"><div class="label">control owner / 控制權</div><div class="value" id="controlOwner">--</div></div>
-          <div class="metric"><div class="label">feed tower / 送球塔</div><div class="value" id="towerState">--</div><div class="subvalue">trigger pulses sent, no ball sensor / 已送觸發次數，無球感測</div></div>
-          <div class="metric"><div class="label">gamepad / 手把</div><div class="value" id="gamepadState">none / 未連接</div><div class="subvalue" id="gamepadInputs">按手把任一鍵讓瀏覽器偵測</div></div>
-          <div class="metric"><div class="label">wireless link / 無線狀態</div><div class="value" id="wirelessState">--</div><div class="subvalue" id="rfLinkState">ground station only / 僅接地面站時</div></div>
-          <div class="metric"><div class="label">rotate / angle mode / 旋轉・俯仰模式</div><div class="value" id="shooterAxisMode">--</div></div>
-          <div class="metric"><div class="label">elevation pulse / 仰角脈寬</div><div class="value" id="anglePulse">--</div><div class="subvalue">500–2500 us, no limit switch / 無限位，量機構兩端</div></div>
-          <div class="metric"><div class="label">Falcon PWM / 飛輪 PWM</div><div class="value" id="falconPwm">--</div><div class="subvalue">command ratio, not RPM / 指令佔比，非轉速</div></div>
+        <div class="stream-controls">
+          <button id="startMatch" disabled>開始比賽 / Start（Y）</button>
+          <div>
+            <div class="value" id="matchTimer">3:00</div>
+            <div class="subvalue" id="matchState">Enable 後按 Y 開始；開始前機器人不會動</div>
+          </div>
         </div>
         <div class="stream-controls">
           <input id="flywheelSlider" type="range" min="0" max="100" step="1" value="0" disabled aria-label="Falcon command ratio">
           <span class="label" id="flywheelSliderValue">Falcon 指令 0%（Enter/Space/逾時自動歸零）</span>
         </div>
-        <div class="stream-controls">
+        <div class="stream-controls" style="border-bottom:0">
           <input id="angleSlider" type="range" min="0" max="270" step="1" value="135" disabled aria-label="Elevation target angle">
           <input id="angleInput" type="number" step="0.5" placeholder="仰角 °" disabled style="width:90px" aria-label="Elevation target angle (degrees)">
           <button id="angleSet" disabled>設定仰角 / Set</button>
-          <span class="label" id="angleValue">仰角目標 --°（↑↓ 按住移動；輸入角度後按「設定」，Enter 仍是停止）</span>
+          <span class="label" id="angleValue">仰角目標 --°（十字鍵 ↑↓ 按住移動；輸入角度後按「設定」，Enter 仍是停止）</span>
         </div>
       </section>
 
-      <section class="panel" data-panel="stream" style="margin-top:14px">
+      <section class="panel" data-panel="control" style="margin-top:14px">
         <div class="section-title">
-          <span>Vision Stream / 視覺串流</span>
-          <span id="streamStatus">not connected / 未連線</span>
+          <span>Manual Control / 手動操控狀態</span>
+          <span>readouts / 讀值</span>
         </div>
-        <div class="stream-controls">
-          <input id="streamUrl" type="url" placeholder="http://jetson-ip:5000/video_feed">
-          <button id="streamApply">套用串流</button>
+        <div class="grid">
+          <div class="metric"><div class="label">target hole / 目標洞（1–9）</div><div class="value" id="targetHole">none / 未選</div>
+            <div class="hole-grid" aria-label="target holes"><span id="hole3">3</span><span id="hole6">6</span><span id="hole9">9</span><span id="hole2">2</span><span id="hole5">5</span><span id="hole8">8</span><span id="hole1">1</span><span id="hole4">4</span><span id="hole7">7</span></div>
+            <div class="subvalue" id="aimState">--</div></div>
+          <div class="metric"><div class="label">Falcon PWM / 飛輪 PWM</div><div class="value" id="falconPwm">--</div><div class="subvalue">command ratio, not RPM / 指令佔比，非轉速</div></div>
+          <div class="metric"><div class="label">elevation pulse / 仰角脈寬</div><div class="value" id="anglePulse">--</div><div class="subvalue">500–2500 us, no limit switch / 無限位，量機構兩端</div></div>
+          <div class="metric"><div class="label">wireless link / 無線狀態</div><div class="value" id="wirelessState">--</div><div class="subvalue" id="rfLinkState">ground station only / 僅接地面站時</div></div>
+          <div class="metric"><div class="label">control owner / 控制權</div><div class="value" id="controlOwner">--</div></div>
+          <div class="metric"><div class="label">feed tower / 送球塔</div><div class="value" id="towerState">--</div><div class="subvalue">trigger pulses sent, no ball sensor / 已送觸發次數，無球感測</div></div>
+          <div class="metric"><div class="label">auto path / 本次啟用的自動路徑</div><div class="value" id="autoPath">未啟動 / not started</div><div class="subvalue" id="autoPathsUsed">--</div></div>
+          <div class="metric"><div class="label">rotate / angle mode / 旋轉・俯仰模式</div><div class="value" id="shooterAxisMode">--</div></div>
+          <div class="metric"><div class="label">left / right pulse / 左右輪脈衝</div><div class="value" id="chassisPulses">--</div></div>
+          <div class="metric"><div class="label">gamepad / 手把</div><div class="value" id="gamepadState">none / 未連接</div><div class="subvalue" id="gamepadInputs">按手把任一鍵讓瀏覽器偵測</div></div>
         </div>
-        <div class="stream-frame" id="streamFrame">
-          <img id="streamImage" alt="Vision stream / 視覺串流">
-          <div class="stream-placeholder">
-            輸入 Jetson 的 HTTP/MJPEG 串流網址後按「套用串流」。<br>
-            例如：<span>http://192.168.20.50:5000/video_feed</span>
-          </div>
-        </div>
-      </section>
-
-      <section class="panel" data-panel="trace" style="margin-top:14px">
-        <div class="section-title">
-          <span>Realtime Trace / 即時曲線</span>
-          <span>tx / distance 偏差 / 距離</span>
-        </div>
-        <canvas id="chart" width="900" height="260"></canvas>
       </section>
 
       <div class="layout-two">
@@ -681,32 +663,15 @@
     </div>
 
     <div class="side">
-      <section class="panel vertical-panel" data-panel="safety">
-        <div class="section-title">
-          <span class="title-stack"><strong>Safety</strong><span>安全</span></span>
-          <span>即時判斷</span>
-        </div>
-        <div class="vertical-body">
-          <div class="risk-card">
-            <div class="risk" id="risk">等待資料</div>
-          </div>
-          <div class="hint-list">
-            <div>valid = 0：停止自動前進</div>
-            <div>distance 太近：停止或後退</div>
-            <div>tx 偏太大：先原地轉向</div>
-          </div>
-        </div>
-      </section>
-
       <section class="panel" data-panel="sbus">
         <div class="section-title"><span>MechLink / 無線鏈路</span><span>ELRS receiver / 接收機</span></div>
         <table>
           <tbody>
-            <tr><td>left / 左輪 (CH1)</td><td id="ch0">--</td></tr>
-            <tr><td>right / 右輪 (CH2)</td><td id="ch1">--</td></tr>
+            <tr><td>forward / 前後 (CH1)</td><td id="ch0">--</td></tr>
+            <tr><td>turn / 轉向 (CH2)</td><td id="ch1">--</td></tr>
             <tr><td>mode / 模式 (CH4)</td><td id="ch2">--</td></tr>
-            <tr><td>arm / 啟用開關 (CH5)</td><td id="ch3">--</td></tr>
-            <tr><td>F counter / 送球計數 (CH8)</td><td id="ch8">--</td></tr>
+            <tr><td>arm / 啟用開關 (CH6)</td><td id="ch3">--</td></tr>
+            <tr><td>fire / 發射 (CH5)</td><td id="ch8">--</td></tr>
           </tbody>
         </table>
       </section>
@@ -724,11 +689,17 @@
   </main>
 
   <script>
-    const ids = ["tx", "ty", "distance", "targetId", "valid", "shooterReady", "operatorMode", "warnBits", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse", "gamepadState", "gamepadInputs"];
+    const ids = ["tx", "ty", "distance", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed", "aimState", "distanceRaw", "matchTimer", "matchState"];
     const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     const connectButton = document.getElementById("connect");
     const demoButton = document.getElementById("demo");
     const enableButton = document.getElementById("enableControl");
+    // Dashboard menus (Jeremy, 2026-10-16): the mode and auto path picked
+    // before Enable are applied right after the robot confirms it (the
+    // robot itself always enables in full manual).
+    const startModeSelect = document.getElementById("startMode");
+    const autoPathSelect = document.getElementById("autoPathSelect");
+    const startMatchButton = document.getElementById("startMatch");
     const controlArmedBadge = document.getElementById("controlArmedBadge");
     const flywheelSlider = document.getElementById("flywheelSlider");
     const flywheelSliderValue = document.getElementById("flywheelSliderValue");
@@ -740,22 +711,13 @@
     const layoutReset = document.getElementById("layoutReset");
     const dashboard = document.getElementById("dashboard");
     const panels = Array.from(document.querySelectorAll(".panel"));
-    const shooterReadyCard = document.getElementById("shooterReadyCard");
     const connection = document.getElementById("connection");
     const packetAge = document.getElementById("packetAge");
     const poseSource = document.getElementById("poseSource");
-    const risk = document.getElementById("risk");
     const log = document.getElementById("log");
     const rate = document.getElementById("rate");
-    const chart = document.getElementById("chart");
-    const ctx = chart.getContext("2d");
     const fieldCanvas = document.getElementById("fieldCanvas");
     const fieldCtx = fieldCanvas.getContext("2d");
-    const streamUrl = document.getElementById("streamUrl");
-    const streamApply = document.getElementById("streamApply");
-    const streamFrame = document.getElementById("streamFrame");
-    const streamImage = document.getElementById("streamImage");
-    const streamStatus = document.getElementById("streamStatus");
 
     let port;
     let reader;
@@ -768,9 +730,7 @@
     let layoutEditing = false;
     let activeDrag;
     let activeResize;
-    const history = [];
     const layoutKey = "tel-dashboard-layout-v1";
-    const streamKey = "tel-dashboard-stream-url-v1";
     const resizeDirections = ["n", "s", "e", "w", "ne", "nw", "se", "sw"];
 
     // Keyboard control (src/IO/ManualControl.cpp protocol). The same lines
@@ -778,10 +738,26 @@
     // (tools/stm32_ground_control, wireless over ELRS) -- see
     // docs/codex-handoff.md.
     const CONTROL_HEARTBEAT_MS = 75;
+    // Stall evidence (2026-10-17, ground PC_TIMEOUTs): log a heartbeat tick
+    // that came this late (the page was busy) or a serial write that took
+    // this long (USB backpressure). The ground stops motion after 300 ms.
+    const HEARTBEAT_GAP_LOG_MS = 250;
+    let lastHeartbeatTickMs = null;
+    let statusMismatchLogged = false;
+    // The autos' flywheel offset (LT / RT), percent; the robot clamps the
+    // same range (RCMAP_AUTO_OFFSET_MAX_PCT).
+    const FLYWHEEL_OFFSET_MAX_PCT = 20;
+    let flywheelOffsetPct = 0;
+    // RF link log (ground $RFLINK): lost / back, and an LQ below
+    // RF_LQ_LOG_LOW until it recovers above RF_LQ_LOG_OK.
+    const RF_LQ_LOG_LOW = 50;
+    const RF_LQ_LOG_OK = 70;
+    let rfLinkLogged = null;
+    let rfLqLowLogged = false;
     // After E, wait this long for the robot to confirm OUTPUTS_ENABLED.
     // Wireless confirmation rides the ELRS telemetry uplink, so it is
     // slower than wired; 3 s is generous for both.
-    const ENABLE_PENDING_TIMEOUT_MS = 3000;
+    const ENABLE_PENDING_TIMEOUT_MS = 5000; // 3 s was too tight for sparse ELRS telemetry (2026-10-17)
     const OWNER_NAMES = ["none / 無", "wired / 有線", "wireless / 無線"];
     const MODE_FULL_MANUAL = 2;
     const MODE_NAMES = { 0: "FULL AUTO / 全自動", 1: "SEMI AUTO / 半自動", 2: "FULL MANUAL / 全手動" };
@@ -794,7 +770,14 @@
     let controlArmed = false;
     let gamepadDrive = null;         // [left, right] while the gamepad stick is pushed
     let gamepadNeedsCenter = false;  // after Enable, until the stick is centered once
-    let gamepadFireWasDown = false;
+    let gamepadButtonsPrev = new Set(); // for press edges
+    let dpadRotate = 0, dpadAngle = 0;   // D-pad: turret / elevation
+    // Match flow (Jeremy, 2026-10-17): Enable -> robot holds still -> Y (or
+    // the Start button) applies the menus and starts the 3:00 countdown.
+    // Before the start nothing that moves the robot is sent.
+    const MATCH_MS = 3 * 60 * 1000;
+    let matchStarted = false;
+    let matchEndsAt = 0; // performance.now() deadline; 0 = never started
     let operatorMode = 2; // MODE_FULL_MANUAL
     let enablePending = false;
     let enablePendingSince = 0;
@@ -811,7 +794,18 @@
     // Lets this page (deployed from dev) work with any robot's firmware.
     let absoluteElevation = false;
     let flywheelRatio = 0;
-    const heldKeys = new Set();
+
+    // 3x3 target hole (keys 1-9) and auto paths (Q W E R), phase 1: the
+    // robot records them (TEL slots 32-34 on USB). Through the ground
+    // station there is no such telemetry, so the page shows what it sent,
+    // once the robot's TARGET_SELECTED / AUTO_PATH_STARTED event comes back.
+    const HOLE_NAMES = ["", "左下", "左中", "左上", "中下", "中", "中上", "右下", "右中", "右上"];
+    const AUTO_PATH_NAMES = ["", "左一", "左二", "右一", "右二"];
+    let targetHole = 0;
+    let autoPathThisEnable = 0;
+    let autoPathsUsedMask = 0;
+    let robotReportsTarget = false;  // TEL slots 32-34 seen
+    let sentTarget = 0, sentAutoPath = 0;
 
     // Must match src/Shooter/Shooter.h's enums (no sensors on the shooter
     // head since 2026-10-14: no profiled/closed-loop modes any more).
@@ -826,11 +820,15 @@
         enablePending = false;
         linkKind = "unknown";
         absoluteElevation = false;
+        robotReportsTarget = false;
         setControlArmed(false);
       }
     }
 
     function setControlArmed(armed) {
+      // An Enable this page asked for, confirmed just now.
+      const justEnabled = armed && !controlArmed && enablePending;
+      if (armed !== controlArmed) statusMismatchLogged = false; // log anew per enable
       controlArmed = armed;
       if (armed) {
         enablePending = false;
@@ -842,11 +840,65 @@
         // The firmware drops back to full manual on every disarm.
         operatorMode = MODE_FULL_MANUAL;
         tankLeft = 0; tankRight = 0; rotateAxis = 0; angleAxis = 0;
+        dpadRotate = 0; dpadAngle = 0;
         gamepadDrive = null;
-        heldKeys.clear();
+        // A new Enable waits for Y again (the countdown itself runs on).
+        matchStarted = false;
+        flywheelOffsetPct = 0;
         setFlywheelSlider(0);
       }
       updateControlUi();
+      if (justEnabled) {
+        // Every Enable starts on the AI's own target pick (the robot resets
+        // it too); the menus wait for Y.
+        sentTarget = 0;
+        if (!robotReportsTarget) {
+          targetHole = 0;
+          autoPathThisEnable = 0;
+          renderTargetAndAuto();
+        }
+      }
+    }
+
+    // Y / the Start button: the mode menu's mode (if not full manual), then
+    // the path menu's auto path (if not None; the robot runs one per
+    // Enable), and the 3:00 countdown. Once per Enable.
+    async function startMatch() {
+      if (!controlArmed || matchStarted) return;
+      matchStarted = true;
+      matchEndsAt = performance.now() + MATCH_MS;
+      // A stick held while pressing Y must not drive: center it once.
+      gamepadNeedsCenter = true;
+      updateControlUi();
+      renderMatchTimer();
+      appendControlLog("match started / 比賽開始");
+      const mode = Number(startModeSelect.value);
+      if (mode in MODE_NAMES && mode !== MODE_FULL_MANUAL) await sendControl(`MODE,${mode}`);
+      const path = Number(autoPathSelect.value);
+      if (path >= 1 && path <= 4) {
+        sentAutoPath = path;
+        await sendControl(`AUTO,${path}`);
+      }
+    }
+
+    // X / A / B or the menu: before the start it only picks the mode Y
+    // will apply; during the match it switches right away.
+    async function selectMode(mode) {
+      if (!(mode in MODE_NAMES)) return;
+      startModeSelect.value = String(mode);
+      if (controlArmed && matchStarted) await sendControl(`MODE,${mode}`);
+    }
+
+    function renderMatchTimer() {
+      const left = matchEndsAt === 0 ? MATCH_MS : Math.max(0, matchEndsAt - performance.now());
+      const seconds = Math.ceil(left / 1000);
+      el.matchTimer.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+      el.matchTimer.classList.toggle("done", matchEndsAt !== 0 && left === 0);
+      el.matchState.textContent = matchStarted
+        ? (left === 0 ? "time up / 時間到" : "running / 比賽中")
+        : controlArmed ? "enabled — press Y / 已啟用，按 Y 開始（機器人不會動）"
+                       : matchEndsAt !== 0 && left > 0 ? "running, disabled / 倒數中（未啟用）"
+                                                       : "Enable 後按 Y 開始；開始前機器人不會動";
     }
 
     // 0 full auto / 1 semi auto / 2 full manual (src/IO/OperatorMode.h).
@@ -855,7 +907,11 @@
     function setOperatorMode(mode) {
       if (!(mode in MODE_NAMES) || mode === operatorMode) return;
       operatorMode = mode;
-      // The firmware zeroes the flywheel on every mode change.
+      // While enabled the menu shows the robot's mode (M, or the menu
+      // itself); after a disarm it keeps it as the next Enable's mode.
+      if (controlArmed) startModeSelect.value = String(mode);
+      // The firmware zeroes the flywheel (and its offset) on every mode change.
+      flywheelOffsetPct = 0;
       setFlywheelSlider(0);
       updateControlUi();
     }
@@ -865,15 +921,18 @@
       controlArmedBadge.textContent = controlArmed ? `enabled / 已啟用 · ${modeName}`
         : enablePending ? "enabling / 啟用中" : "disabled / 未啟用";
       enableButton.textContent = controlArmed ? "Enabled / 輸出已啟用" : enablePending ? "Enabling… / 等待機器人確認" : "Enable / 啟用輸出";
-      el.operatorMode.textContent = modeName;
       // In the auto modes the shot table sets the flywheel, not the slider.
-      flywheelSlider.disabled = !controlArmed || operatorMode !== MODE_FULL_MANUAL;
+      // Nothing that moves the robot before the match is started (Y).
+      flywheelSlider.disabled = !controlArmed || !matchStarted || operatorMode !== MODE_FULL_MANUAL;
+      startMatchButton.disabled = !controlArmed || matchStarted;
+      renderFlywheelLabel();
       // Elevation is an absolute target angle (positional servo). In an
       // auto mode the robot answers REJECTED_AUTO_MODE if Auto owns it.
-      const angleEditable = controlArmed && absoluteElevation;
+      const angleEditable = controlArmed && matchStarted && absoluteElevation;
       angleSlider.disabled = !angleEditable;
       angleInput.disabled = !angleEditable;
       angleSetButton.disabled = !angleEditable;
+      renderMatchTimer();
     }
 
     // The firmware zeroes the flywheel on every disarm (Enter, Space,
@@ -882,13 +941,26 @@
     function setFlywheelSlider(ratio) {
       flywheelRatio = ratio;
       flywheelSlider.value = String(Math.round(ratio * 100));
-      flywheelSliderValue.textContent = `Falcon 指令 ${Math.round(ratio * 100)}%（Enter/Space/逾時自動歸零）`;
+      renderFlywheelLabel();
+    }
+
+    function renderFlywheelLabel() {
+      if (operatorMode !== MODE_FULL_MANUAL && controlArmed) {
+        const signed = `${flywheelOffsetPct > 0 ? "+" : ""}${flywheelOffsetPct}`;
+        flywheelSliderValue.textContent = `射擊表轉速微調 ${signed}%（LT −1 / RT +1，換洞、換模式歸零）`;
+        return;
+      }
+      flywheelSliderValue.textContent =
+        `Falcon 指令 ${Math.round(flywheelRatio * 100)}%（LT −1 / RT +1；Enter/Space/逾時自動歸零）`;
     }
 
     async function sendControl(command) {
       if (!writer) return;
       try {
+        const started = performance.now();
         await writer.write(encoder.encode(`${command}\n`));
+        const took = performance.now() - started;
+        if (took > HEARTBEAT_GAP_LOG_MS) appendControlLog(`WRITE_SLOW ${Math.round(took)}ms (USB)`);
       } catch (error) {
         appendControlLog(`WRITE_ERROR ${error.message}`);
       }
@@ -898,43 +970,97 @@
       log.textContent = `${new Date().toLocaleTimeString()} ${message}\n${log.textContent}`.slice(0, 5000);
     }
 
-    function setStreamStatus(state, text) {
-      streamStatus.textContent = text;
-      streamFrame.classList.toggle("connected", state === "connected");
+    // Keys 1-9 -> holes: columns left to right, each from the bottom up
+    // (1 left-bottom, 2 left-mid, 3 left-top, ... 9 right-top).
+    function targetForKey(key) {
+      return /^[1-9]$/.test(key) ? Number(key) : 0;
     }
 
-    function applyStreamUrl(url) {
-      const nextUrl = url.trim();
-      if (!nextUrl) {
-        streamImage.removeAttribute("src");
-        localStorage.removeItem(streamKey);
-        setStreamStatus("idle", "not connected / 未連線");
+    // Slots 35-37 plus the frame (slots 5/6): is the camera locked on the
+    // hole the operator chose? The Mega only passes that hole's frames on,
+    // so valid=1 with the same id means "seen".
+    // The camera's distance to the target in meters, or null when there
+    // is no valid target with a depth distance.
+    function distanceMeters(data) {
+      return data.valid && Number.isFinite(data.distance) && data.distance > 0
+        ? data.distance / 1000 : null;
+    }
+
+    // Orin depth distance, mm (DEPTH_DISTANCE_MODE "range": straight line
+    // camera -> hole). Shown in m, the shot table's unit; 0 / no valid
+    // target = nothing measured, not "0 m". From TEL (USB) or $AIM (radio).
+    function updateDistanceReadout(data) {
+      const meters = distanceMeters(data);
+      el.distance.textContent = meters === null ? "--" : `${meters.toFixed(2)} m`;
+      el.distanceRaw.textContent = meters === null
+        ? "看不到目標 / no target"
+        : `${data.distance.toFixed(0)} mm · 相機到洞口的直線距離，填射擊表用這個`;
+    }
+
+    // "$AIM,<fresh>,<distanceCm>,<elevationPulseUs>,<selectedId>,
+    // <targetId>,<valid>,<aimOffsetPx>" from the ground station: the robot's
+    // aim frame over the radio (2026-10-17). On the Mega's USB the TEL line
+    // carries all of this instead.
+    function handleAimStatus(line) {
+      const p = line.trim().split(",").map(Number);
+      if (p.length < 8 || p.slice(1).some((v) => !Number.isFinite(v))) return;
+      const [, fresh, distanceCm, pulseUs, selectedId, targetId, valid, aimOffsetPx] = p;
+      if (!fresh) {
+        el.distance.textContent = "--";
+        el.distanceRaw.textContent = "no robot aim data / 收不到機器人視覺資料";
+        el.aimState.textContent = "--";
         return;
       }
-
-      localStorage.setItem(streamKey, nextUrl);
-      setStreamStatus("loading", "loading / 載入中");
-      const separator = nextUrl.includes("?") ? "&" : "?";
-      streamImage.src = `${nextUrl}${separator}t=${Date.now()}`;
+      const data = {
+        valid: valid === 1, distance: distanceCm * 10, targetId, visionTargetId: selectedId,
+        aimOffsetPx, elevationOffsetUs: NaN,
+      };
+      updateDistanceReadout(data);
+      el.anglePulse.textContent = `${pulseUs} us`;
+      el.aimState.textContent = aimStateText(data);
     }
 
-    streamApply.addEventListener("click", () => {
-      applyStreamUrl(streamUrl.value);
-    });
+    // "$VISION,<fresh>,<flywheelUs>,<tx*2>,<ty*2>,<valid>,<targetId>" from
+    // the ground station (the robot's vision frame, tx / ty in half pixels,
+    // plus the Falcon's actual PWM pulse). The distance comes from $AIM.
+    function handleVisionStatus(line) {
+      const p = line.trim().split(",").map(Number);
+      if (p.length < 7 || p.slice(1).some((v) => !Number.isFinite(v))) return;
+      const [, fresh, flywheelUs, tx2, ty2, valid] = p;
+      const show = fresh === 1 && valid === 1;
+      el.tx.textContent = show ? (tx2 / 2).toFixed(1) : "--";
+      el.ty.textContent = show ? (ty2 / 2).toFixed(1) : "--";
+      // Same format as the wired TEL readout: pulse, and its share of the
+      // 500 us from neutral (1490 at rest is the stop trim).
+      el.falconPwm.textContent = fresh === 1 && flywheelUs > 0
+        ? `${flywheelUs} us (${(Math.abs(flywheelUs - 1500) / 5).toFixed(1)}%)` : "--";
+    }
 
-    streamUrl.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        applyStreamUrl(streamUrl.value);
+    function aimStateText(data) {
+      const signed = (v) => `${v > 0 ? "+" : ""}${v}`;
+      // The wireless aim frame has no elevation offset (NaN): left out.
+      const offsets = `微調 水平 ${signed(data.aimOffsetPx)} px` +
+        (Number.isFinite(data.elevationOffsetUs) ? ` · 仰角 ${signed(data.elevationOffsetUs)} µs` : "");
+      const meters = distanceMeters(data);
+      const range = meters === null ? "" : ` ${meters.toFixed(2)} m`;
+      if (data.visionTargetId === 0) {
+        return `AI 自選${meters === null ? "" : ` #${data.targetId}${range}`} · ${offsets}`;
       }
-    });
+      const seen = data.valid && data.targetId === data.visionTargetId;
+      return `視覺 #${data.visionTargetId} ${seen ? `已看到 ✓${range}` : "看不到"} · ${offsets}`;
+    }
 
-    streamImage.addEventListener("load", () => {
-      setStreamStatus("connected", "connected / 已連線");
-    });
-
-    streamImage.addEventListener("error", () => {
-      setStreamStatus("error", "stream error / 串流錯誤");
-    });
+    function renderTargetAndAuto() {
+      el.targetHole.textContent = targetHole ? `${targetHole} · ${HOLE_NAMES[targetHole]}` : "none / 未選";
+      for (let n = 1; n <= 9; n++) {
+        document.getElementById(`hole${n}`).classList.toggle("selected", n === targetHole);
+      }
+      el.autoPath.textContent = autoPathThisEnable
+        ? `已啟動 ${AUTO_PATH_NAMES[autoPathThisEnable]}`
+        : "未啟動 / not started";
+      const used = [1, 2, 3, 4].filter((p) => autoPathsUsedMask & (1 << p)).map((p) => AUTO_PATH_NAMES[p]);
+      el.autoPathsUsed.textContent = `${robotReportsTarget ? "開機後已用" : "本頁送出紀錄"}：${used.length ? used.join("、") : "無"}`;
+    }
 
     function readSavedLayout() {
       try {
@@ -948,10 +1074,7 @@
       const existing = Object.values(layout).filter(Boolean);
       const maxBottom = existing.reduce((max, item) => Math.max(max, item.y + item.h), 0);
       const defaultWidth = Math.min(760, Math.max(360, dashboard.clientWidth - 28));
-      const defaults = {
-        stream: { x: 0, y: maxBottom + 14, w: defaultWidth, h: 430 }
-      };
-      return defaults[panel.dataset.panel] || {
+      return {
         x: 0,
         y: maxBottom + 14,
         w: defaultWidth,
@@ -977,6 +1100,8 @@
 
     function updatePanelDensity() {
       panels.forEach((panel) => {
+        // A naturally short panel (the setup menus) keeps its normal size.
+        if (panel.hasAttribute("data-fixed-density")) return;
         const w = panel.offsetWidth || panel.getBoundingClientRect().width;
         const h = panel.offsetHeight || panel.getBoundingClientRect().height;
         const tiny = w < 330 || h < 210;
@@ -1011,7 +1136,11 @@
 
     function applyLayout(layout) {
       dashboard.classList.add("custom-layout");
-      const nextLayout = { ...layout };
+      // Only panels that still exist (a layout saved before a panel was
+      // removed would otherwise keep its space at the bottom).
+      const known = new Set(Array.from(panels, (panel) => panel.dataset.panel));
+      const nextLayout = Object.fromEntries(
+        Object.entries(layout).filter(([key]) => known.has(key)));
       panels.forEach((panel) => {
         const key = panel.dataset.panel;
         const item = nextLayout[key] || getFallbackPanelLayout(nextLayout, panel);
@@ -1025,7 +1154,6 @@
       localStorage.setItem(layoutKey, JSON.stringify(nextLayout));
       updateDashboardHeight(nextLayout);
       updatePanelDensity();
-      drawChart();
       drawField(latestData || {});
     }
 
@@ -1068,7 +1196,6 @@
         panel.style.height = "";
         panel.style.marginTop = "";
       });
-      drawChart();
       drawField(latestData || {});
     }
 
@@ -1169,7 +1296,6 @@
         panel.style.height = `${Math.round(height)}px`;
         updatePanelDensity();
         updateDashboardHeight(captureCurrentLayout());
-        drawChart();
         drawField(latestData || {});
         return;
       }
@@ -1199,7 +1325,6 @@
     window.addEventListener("mouseup", saveLayout);
     window.addEventListener("resize", () => {
       updatePanelDensity();
-      drawChart();
       drawField(latestData || {});
     });
 
@@ -1214,11 +1339,6 @@
       applyLayout(savedLayout);
     }
 
-    const savedStreamUrl = localStorage.getItem(streamKey) || "";
-    if (savedStreamUrl) {
-      streamUrl.value = savedStreamUrl;
-      applyStreamUrl(savedStreamUrl);
-    }
 
     function parseTelemetry(line) {
       const p = line.trim().split(",");
@@ -1255,36 +1375,29 @@
         anglePulseUs: p.length > 28 ? Number(p[28]) : NaN,
         angleTargetDeg: p.length > 29 ? Number(p[29]) : NaN,
         angleMinDeg: p.length > 30 ? Number(p[30]) : NaN,
-        angleMaxDeg: p.length > 31 ? Number(p[31]) : NaN
+        angleMaxDeg: p.length > 31 ? Number(p[31]) : NaN,
+        // 32-34: target hole (0 = none), auto path this Enable (0 = none),
+        // auto paths used since boot (bit n = path n).
+        targetHole: p.length > 32 ? Number(p[32]) : NaN,
+        autoPathThisEnable: p.length > 33 ? Number(p[33]) : NaN,
+        autoPathsUsedMask: p.length > 34 ? Number(p[34]) : NaN,
+        // 35-37 (Orin protocol v2): the hole as sent to the Orin (vision id
+        // 0 / 4..12) and the operator's fine-adjust (aim px, + = right;
+        // elevation us).
+        visionTargetId: p.length > 35 ? Number(p[35]) : NaN,
+        aimOffsetPx: p.length > 36 ? Number(p[36]) : NaN,
+        elevationOffsetUs: p.length > 37 ? Number(p[37]) : NaN,
+        // Slot 38 (appended 2026-10-17): ms since the last valid "RC,..."
+        // line from the robot STM32 bridge (MechLink::lastLineAgeMs()).
+        rcFrameAgeMs: p.length > 38 ? Number(p[38]) : NaN
       };
-    }
-
-    function updateRisk(data) {
-      risk.className = "risk ok";
-      risk.textContent = "安全";
-      if (!data.valid) {
-        risk.className = "risk warn";
-        risk.textContent = "沒有目標，禁止自動前進";
-      } else if (data.warn & 2) {
-        risk.className = "risk bad";
-        risk.textContent = "距離太近，應停止或後退";
-      } else if (data.warn & 4) {
-        risk.className = "risk warn";
-        risk.textContent = "偏差過大，只建議原地轉向";
-      }
     }
 
     function updateMetrics(data) {
       el.tx.textContent = data.tx.toFixed(1);
       el.ty.textContent = data.ty.toFixed(1);
-      el.distance.textContent = data.distance.toFixed(0);
-      el.targetId.textContent = data.targetId;
-      el.valid.textContent = data.valid ? "1" : "0";
-      el.shooterReady.textContent = data.shooterReady ? "YES" : "NO";
-      shooterReadyCard.classList.toggle("state-ok", data.shooterReady);
-      shooterReadyCard.classList.toggle("state-bad", !data.shooterReady);
+      updateDistanceReadout(data);
       setOperatorMode(data.operatorMode); // ignores -1 (not reported)
-      el.warnBits.textContent = data.warn;
       el.ch0.textContent = data.ch0;
       el.ch1.textContent = data.ch1;
       el.ch2.textContent = data.ch2;
@@ -1292,12 +1405,18 @@
       el.ch8.textContent = data.ch8;
       updateControlMetrics(data);
       updatePose(data);
-      updateRisk(data);
     }
 
     function updateControlMetrics(data) {
       if (Number.isFinite(data.leftPulseUs) && Number.isFinite(data.rightPulseUs)) {
         el.chassisPulses.textContent = `${data.leftPulseUs} / ${data.rightPulseUs} us`;
+      }
+      if (Number.isFinite(data.rcFrameAgeMs)) {
+        // TEL only arrives with the page on the Mega's USB, never through the
+        // ground station, so this never overwrites the $RFLINK text.
+        // 200 = MechLink::LINE_TIMEOUT_MS (Mega treats the RF link as lost).
+        el.rfLinkState.textContent = `RC 幀齡 ${data.rcFrameAgeMs} ms` +
+          (data.rcFrameAgeMs >= 200 ? " ⚠ 逾時（≥200）" : "（逾時 200）");
       }
       if (Number.isFinite(data.controlOwner)) {
         el.controlOwner.textContent = OWNER_NAMES[data.controlOwner] ?? `#${data.controlOwner}`;
@@ -1324,7 +1443,19 @@
         angleSlider.max = String(data.angleMaxDeg);
         // Don't yank the slider out from under the operator's hand.
         if (document.activeElement !== angleSlider) angleSlider.value = String(Math.round(data.angleTargetDeg));
-        angleValue.textContent = `仰角目標 ${data.angleTargetDeg.toFixed(1)}° · ${data.anglePulseUs} us（範圍 ${data.angleMinDeg.toFixed(0)}–${data.angleMaxDeg.toFixed(0)}°；↑↓ 按住移動；輸入角度後按「設定」，Enter 仍是停止）`;
+        angleValue.textContent = `仰角目標 ${data.angleTargetDeg.toFixed(1)}° · ${data.anglePulseUs} us（範圍 ${data.angleMinDeg.toFixed(0)}–${data.angleMaxDeg.toFixed(0)}°；十字鍵 ↑↓ 按住移動；輸入角度後按「設定」，Enter 仍是停止）`;
+      }
+      if (Number.isFinite(data.targetHole) && Number.isFinite(data.autoPathThisEnable) &&
+          Number.isFinite(data.autoPathsUsedMask)) {
+        robotReportsTarget = true;
+        targetHole = data.targetHole;
+        autoPathThisEnable = data.autoPathThisEnable;
+        autoPathsUsedMask = data.autoPathsUsedMask;
+        renderTargetAndAuto();
+      }
+      if (Number.isFinite(data.visionTargetId) && Number.isFinite(data.aimOffsetPx) &&
+          Number.isFinite(data.elevationOffsetUs)) {
+        el.aimState.textContent = aimStateText(data);
       }
       if (Number.isFinite(data.falconPulseUs) && Number.isFinite(data.falconRatioPct)) {
         el.falconPwm.textContent = `${data.falconPulseUs} us (${data.falconRatioPct.toFixed(1)}%)`;
@@ -1354,20 +1485,6 @@
 
     function isInsideRobotZone(x, y) {
       return x >= 40 && x <= 360 && y >= 640 && y <= 1060;
-    }
-
-    function drawChart() {
-      ctx.clearRect(0, 0, chart.width, chart.height);
-      ctx.strokeStyle = "#303944";
-      ctx.lineWidth = 1;
-      for (let y = 40; y < chart.height; y += 40) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(chart.width, y);
-        ctx.stroke();
-      }
-      drawLine("tx", "#53b7e8", -200, 200);
-      drawLine("distance", "#36c275", 0, 2500);
     }
 
     function drawField(data = {}) {
@@ -1452,19 +1569,11 @@
       }
     }
 
-    function drawLine(key, color, min, max) {
-      if (history.length < 2) return;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      history.forEach((item, i) => {
-        const x = (i / Math.max(history.length - 1, 1)) * chart.width;
-        const n = Math.max(0, Math.min(1, (item[key] - min) / (max - min)));
-        const y = chart.height - n * chart.height;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      });
-      ctx.stroke();
+    // CRSF link statistics RSSI byte: the spec says "dBm * -1" (45 = -45
+    // dBm), but this ELRS TX sends a signed byte (232 = -24 dBm, seen on the
+    // 2026-10-17 bench at close range). Above 127 it can only be the latter.
+    function rssiDbm(raw) {
+      return raw > 127 ? raw - 256 : -raw;
     }
 
     function handleLine(line) {
@@ -1476,6 +1585,14 @@
         if (DISARM_EVENTS.includes(eventName)) setControlArmed(false);
         if (eventName in MODE_EVENTS && controlArmed) setOperatorMode(MODE_EVENTS[eventName]);
         if (ENABLE_REJECT_EVENTS.includes(eventName) && enablePending) failEnable(eventName);
+        if (!robotReportsTarget) {
+          if (eventName === "TARGET_SELECTED") targetHole = sentTarget;
+          if (eventName === "AUTO_PATH_STARTED" && sentAutoPath) {
+            autoPathThisEnable = sentAutoPath;
+            autoPathsUsedMask |= 1 << sentAutoPath;
+          }
+          renderTargetAndAuto();
+        }
         appendControlLog(eventName);
         return;
       }
@@ -1495,12 +1612,34 @@
         handleWirelessStatus(line);
         return;
       }
+      if (line.startsWith("$AIM,")) {
+        linkKind = "ground";
+        handleAimStatus(line);
+        return;
+      }
+      if (line.startsWith("$VISION,")) {
+        linkKind = "ground";
+        handleVisionStatus(line);
+        return;
+      }
       if (line.startsWith("$RFLINK,")) {
         linkKind = "ground";
         const p = line.trim().split(",");
-        el.rfLinkState.textContent = p[1] === "1"
-          ? `RF LQ up ${p[2]}% / down ${p[3]}% · RSSI -${p[4]} dBm`
+        const rfUp = p[1] === "1";
+        el.rfLinkState.textContent = rfUp
+          ? `RF LQ up ${p[2]}% / down ${p[3]}% · RSSI ${rssiDbm(Number(p[4]))} dBm`
           : "RF link lost / 無線電斷線";
+        if (rfLinkLogged !== null && rfUp !== rfLinkLogged) {
+          appendControlLog(rfUp ? "RF link back / 無線電恢復" : "RF link lost / 無線電斷線");
+        }
+        rfLinkLogged = rfUp;
+        const worstLq = Math.min(Number(p[2]), Number(p[3]));
+        if (rfUp && !rfLqLowLogged && worstLq < RF_LQ_LOG_LOW) {
+          appendControlLog(`RF LQ low / 訊號品質低: up ${p[2]}% down ${p[3]}%`);
+          rfLqLowLogged = true;
+        } else if (rfLqLowLogged && rfUp && worstLq > RF_LQ_LOG_OK) {
+          rfLqLowLogged = false;
+        }
         return;
       }
 
@@ -1510,10 +1649,7 @@
       latestData = data;
       lastPacketAt = performance.now();
       packetCount += 1;
-      history.push(data);
-      if (history.length > 180) history.shift();
       updateMetrics(data);
-      drawChart();
       log.textContent = `${line}\n${log.textContent}`.slice(0, 5000);
     }
 
@@ -1644,42 +1780,58 @@
       lastRateAt = now;
     }, 1000);
 
-    // --- Keyboard control (W/S/A/D/F/L/arrows/Enter/Space) ---
+    // --- Operator input (Jeremy, 2026-10-17) ---
     // src/IO/ManualControl.cpp protocol, wired or through the ground station.
-
-    function tankCommand() {
-      const forward = (heldKeys.has("w") ? 1 : 0) - (heldKeys.has("s") ? 1 : 0);
-      // A = left wheel forward + right wheel backward (Jeremy's explicit
-      // intent, opposite the usual "nose" convention) -- confirm on real
-      // hardware, don't silently invert if it looks backwards.
-      const turnLeft = heldKeys.has("a") ? 1 : 0;
-      const turnRight = heldKeys.has("d") ? 1 : 0;
-      let left = forward + turnLeft - turnRight;
-      let right = forward - turnLeft + turnRight;
-      left = Math.max(-1, Math.min(1, left));
-      right = Math.max(-1, Math.min(1, right));
-      return [left, right];
-    }
-
-    function rotateCommand() {
-      return (heldKeys.has("arrowright") ? 1 : 0) - (heldKeys.has("arrowleft") ? 1 : 0);
-    }
-
-    // Gamepad (browser Gamepad API: Xbox-style pads and flight sticks).
-    // One stick drives -- Y forward/back, X turn, analog -- plus one fire
-    // button (= F). Everything else stays on the keyboard (Jeremy,
-    // 2026-10-16). Pads with the browser's "standard" mapping (Xbox layout)
-    // use the left stick and Y; anything else (a flight stick) uses axes 0/1
-    // and button 0 until its real fire button is known -- the gamepad
-    // readout shows which button index is pressed.
+    // Keyboard: 1-9 / 0 (target hole), Enter (disable), Space (stop and
+    // disconnect). Everything else is on the gamepad.
+    //
+    // Gamepad (browser Gamepad API). Xbox ("standard" mapping) is the default:
+    //   left stick Y = forward/back, right stick X = turn (analog)
+    //   D-pad up/down = elevation, left/right = turret (hold-to-move in full
+    //     manual; in the auto modes the robot makes each press one
+    //     fine-adjust step)
+    //   X / A / B = full auto / semi auto / full manual
+    //   RB = fire, LB = turret home (needs the AS5600: not fitted yet)
+    //   Y = start the match (menus + 3:00 countdown)
+    // Any other pad (a flight stick): axes 0/1 drive, button 0 fires, and the
+    // Dashboard's Start button starts the match.
     const GAMEPAD_DEADZONE = 0.15;
+    // Inner wheel at full forward + full turn, as a fraction of the outer
+    // wheel (Jeremy, 2026-10-17): -0.5 = the inner wheel runs backwards at
+    // half speed. Must stay above -1. Turn alone stays equal and opposite.
+    const TURN_INNER_RATIO = -0.5;
+    const DRIVE_TURN_GAIN = (1 - TURN_INNER_RATIO) / (1 + TURN_INNER_RATIO);
     const GAMEPAD_PROFILES = {
-      standard: { label: "Xbox", turnAxis: 0, forwardAxis: 1, fireButton: 3 },
-      other: { label: "flight stick", turnAxis: 0, forwardAxis: 1, fireButton: 0 },
+      // 2026-10-18 (Jeremy): LB fires and RB is turret home (swapped from
+      // RB / LB); LT / RT are buttons: flywheel -1% / +1% per press.
+      standard: {
+        label: "Xbox", forwardAxis: 1, turnAxis: 2, fireButton: 4, startButton: 3, homeButton: 5,
+        flywheelDownButton: 6, flywheelUpButton: 7,
+        modeButtons: { 2: 0, 0: 1, 1: 2 }, // X full auto, A semi auto, B full manual
+        dpad: { up: 12, down: 13, left: 14, right: 15 },
+      },
+      // The team's Xbox-style pad (Vendor 11c1) in D-input mode on macOS:
+      // Chrome gives it no "standard" mapping. Read off on the robot
+      // 2026-10-17: A 0, B 1, X 3, Y 4, LB 6, RB 7; left stick Y = axis 1,
+      // right stick X = axis 2; the D-pad is a hat switch on axis 9.
+      // LT 8, RT 9 as buttons (their analog axes 3 / 4 are not used).
+      vendor11c1: {
+        label: "Xbox (11c1)", forwardAxis: 1, turnAxis: 2, fireButton: 6, startButton: 4, homeButton: 7,
+        flywheelDownButton: 8, flywheelUpButton: 9,
+        modeButtons: { 3: 0, 0: 1, 1: 2 }, // X full auto, A semi auto, B full manual
+        dpad: { hatAxis: 9 },
+      },
+      other: {
+        label: "flight stick", forwardAxis: 1, turnAxis: 0, fireButton: 0, startButton: -1, homeButton: -1,
+        flywheelDownButton: -1, flywheelUpButton: -1,
+        modeButtons: {}, dpad: null,
+      },
     };
 
     function gamepadProfile(pad) {
-      return pad.mapping === "standard" ? GAMEPAD_PROFILES.standard : GAMEPAD_PROFILES.other;
+      if (pad.mapping === "standard") return GAMEPAD_PROFILES.standard;
+      if (/Vendor:\s*11c1\b/i.test(pad.id || "")) return GAMEPAD_PROFILES.vendor11c1;
+      return GAMEPAD_PROFILES.other;
     }
 
     // Deadzone, then rescale so just past the deadzone is ~0, not a jump.
@@ -1688,15 +1840,57 @@
       return Math.sign(value) * Math.min(1, (Math.abs(value) - GAMEPAD_DEADZONE) / (1 - GAMEPAD_DEADZONE));
     }
 
-    // Same mixing as the keyboard: D (turn right) is T,-1,1 and A is
-    // T,1,-1 (Jeremy's polarity), so stick right = +turn -> left = fwd - turn.
+    // Stick right = turn right = T,1,-1 (left wheel forward, right wheel
+    // back): on the robot (2026-10-17) the old T,-1,1 turned it the wrong
+    // way. Fixed here, so the wired and the wireless path (the ground
+    // station turns T into forward/turn and the Mega mixes it back) both
+    // follow.
+    // Turn gain blends from 1 with no forward (turn alone = equal and
+    // opposite) to DRIVE_TURN_GAIN at full forward, where left = 1 + g and
+    // right = 1 - g scale to a ratio of exactly TURN_INNER_RATIO. Both wheels
+    // are then scaled by the larger one instead of each being clipped, so
+    // the ratio survives: plain clipping turned full forward + full turn
+    // into (1, 0), the inner wheel stopped (2026-10-17).
     function gamepadTank(pad) {
       const profile = gamepadProfile(pad);
       const forward = -shapeAxis(pad.axes[profile.forwardAxis]); // stick up is negative
       const turn = shapeAxis(pad.axes[profile.turnAxis]);
       if (forward === 0 && turn === 0) return null;
+      const gain = 1 + (DRIVE_TURN_GAIN - 1) * Math.abs(forward);
+      let left = forward + turn * gain;
+      let right = forward - turn * gain;
+      const scale = Math.max(1, Math.abs(left), Math.abs(right));
+      left /= scale;
+      right /= scale;
       const round = (v) => Math.round(Math.max(-1, Math.min(1, v)) * 100) / 100;
-      return [round(forward - turn), round(forward + turn)];
+      return [round(left), round(right)];
+    }
+
+    // D-pad -> [turret, elevation]: right/up = +1, both of a pair = 0.
+    // A hat switch reports one axis: -1 + k * 2/7 for k = 0..7 = up, up-right,
+    // right, down-right, down, down-left, left, up-left; released is ~1.29
+    // (out of range). Pad 11c1, 2026-10-17: up -1, right -0.43, down 0.14,
+    // left 0.71.
+    const HAT_DIRECTIONS = [[0, 1], [1, 1], [1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1]];
+    function hatAxes(value) {
+      if (!Number.isFinite(value) || value < -1.1 || value > 1.1) return [0, 0];
+      const k = Math.round((value + 1) * 3.5);
+      return HAT_DIRECTIONS[k] ?? [0, 0];
+    }
+
+    function dpadAxes(down, dpad, axes = []) {
+      if (!dpad) return [0, 0];
+      if (dpad.hatAxis !== undefined) return hatAxes(axes[dpad.hatAxis]);
+      const on = (b) => (down.has(b) ? 1 : 0);
+      return [on(dpad.right) - on(dpad.left), on(dpad.up) - on(dpad.down)];
+    }
+
+    function rotateCommand() {
+      return dpadRotate;
+    }
+
+    function angleCommand() {
+      return dpadAngle;
     }
 
     function firstGamepad() {
@@ -1709,9 +1903,11 @@
       if (!pad) {
         el.gamepadState.textContent = "none / 未連接";
         el.gamepadInputs.textContent = "按手把任一鍵讓瀏覽器偵測";
-        gamepadFireWasDown = false;
+        gamepadButtonsPrev = new Set();
+        dpadRotate = 0; dpadAngle = 0;
+        if (controlArmed) await sendAllAxesIfChanged(); // unplugged mid-jog: stop
         if (gamepadDrive !== null) {
-          // Unplugged mid-drive: back to the keyboard (zero if no key held).
+          // Unplugged mid-drive: stop.
           gamepadDrive = null;
           if (controlArmed) await sendTankIfChanged();
         }
@@ -1719,18 +1915,30 @@
       }
       const profile = gamepadProfile(pad);
       const pressed = pad.buttons.map((b, i) => (b && b.pressed ? i : -1)).filter((i) => i >= 0);
+      const down = new Set(pressed);
+      const prev = gamepadButtonsPrev;
+      gamepadButtonsPrev = down;
+      // One action per press; holding repeats nothing, and a press made
+      // while disabled never fires later.
+      const edge = (b) => b >= 0 && down.has(b) && !prev.has(b);
       el.gamepadState.textContent = `${profile.label} · ${pad.id.slice(0, 32)}`;
+      // Every axis and pressed button, so a pad the browser doesn't map as
+      // "standard" (e.g. a D-input pad on macOS) can be mapped by hand.
+      const axesText = Array.from(pad.axes, (v, i) => `${i}:${(v ?? 0).toFixed(2)}`).join(" ");
       el.gamepadInputs.textContent =
-        `X ${(pad.axes[profile.turnAxis] ?? 0).toFixed(2)} · Y ${(pad.axes[profile.forwardAxis] ?? 0).toFixed(2)}` +
-        ` · 按鈕 [${pressed.join(",")}] · 發射=按鈕 ${profile.fireButton}`;
+        `mapping: ${pad.mapping || "非標準"} · 軸 [${axesText}] · 按鈕 [${pressed.join(",")}]`;
 
-      const fireDown = pressed.includes(profile.fireButton);
-      const fireEdge = fireDown && !gamepadFireWasDown;
-      gamepadFireWasDown = fireDown;
+      for (const [button, mode] of Object.entries(profile.modeButtons)) {
+        if (edge(Number(button))) await selectMode(mode);
+      }
       if (!controlArmed) {
         gamepadDrive = null;
         return;
       }
+      if (edge(profile.startButton)) await startMatch();
+      if (edge(profile.homeButton)) appendControlLog("turret home / 轉台回正：AS5600 尚未安裝，之後實作");
+      if (!matchStarted) return; // the robot holds still until Y
+
       let drive = gamepadTank(pad);
       if (drive === null) gamepadNeedsCenter = false;
       if (gamepadNeedsCenter) drive = null;
@@ -1738,20 +1946,41 @@
         gamepadDrive = drive;
         await sendTankIfChanged();
       }
-      if (fireEdge) await sendControl("F");
+      [dpadRotate, dpadAngle] = dpadAxes(down, profile.dpad, pad.axes);
+      await sendAllAxesIfChanged();
+      if (edge(profile.fireButton)) await sendControl("F");
+      if (edge(profile.flywheelDownButton)) await nudgeFlywheel(-1);
+      if (edge(profile.flywheelUpButton)) await nudgeFlywheel(1);
+    }
+
+    // LT / RT: one press = 1%. Full manual: the Falcon slider itself. The
+    // autos: an offset on top of the shot table (FLYO, -20..20), dropped on
+    // a mode change, a new hole, Enable and disarm (the robot drops it too).
+    async function nudgeFlywheel(stepPct) {
+      if (!controlArmed || !matchStarted) return;
+      if (operatorMode === MODE_FULL_MANUAL) {
+        const pct = Math.max(0, Math.min(100, Math.round(flywheelRatio * 100) + stepPct));
+        setFlywheelSlider(pct / 100);
+        await sendControl(`FLY,${flywheelRatio.toFixed(2)}`);
+        return;
+      }
+      await setFlywheelOffset(flywheelOffsetPct + stepPct);
+    }
+
+    async function setFlywheelOffset(pct, { send = true } = {}) {
+      const next = Math.max(-FLYWHEEL_OFFSET_MAX_PCT, Math.min(FLYWHEEL_OFFSET_MAX_PCT, pct));
+      const changed = next !== flywheelOffsetPct;
+      flywheelOffsetPct = next;
+      renderFlywheelLabel();
+      if (changed && send && controlArmed) await sendControl(`FLYO,${flywheelOffsetPct}`);
     }
 
     async function sendTankIfChanged() {
-      // The stick wins while it is pushed; otherwise the keyboard.
-      const [left, right] = gamepadDrive ?? tankCommand();
+      const [left, right] = gamepadDrive ?? [0, 0];
       if (left !== tankLeft || right !== tankRight) {
         tankLeft = left; tankRight = right;
         await sendControl(`T,${left},${right}`);
       }
-    }
-
-    function angleCommand() {
-      return (heldKeys.has("arrowup") ? 1 : 0) - (heldKeys.has("arrowdown") ? 1 : 0);
     }
 
     async function sendAngleIfChanged() {
@@ -1816,13 +2045,23 @@
       el.towerState.textContent = feedBusy ? "busy / 冷卻中" : "ready / 可觸發";
       el.shooterAxisMode.textContent = rotateManual ? "manual / 手動" : "vision / 視覺";
       const wirelessOwned = armed === 1 && owner === 2;
-      if (controlArmed && !wirelessOwned) setControlArmed(false);
-      else if (!controlArmed && enablePending && wirelessOwned) setControlArmed(true);
+      // Status rides the sparse ELRS uplink and can be seconds old, so it
+      // never disarms this page (2026-10-17: a late "disarmed" from the
+      // previous enable kept stopping the heartbeat -> ground PC_TIMEOUT).
+      // Disarming comes from the robot's events and the ground's releases;
+      // either way the robot is safe (it needs a new CH6 edge to enable, and
+      // the ground releases 1.5 s after this page goes quiet). A mismatch is
+      // logged once so a real drop is still visible.
+      const mismatch = controlArmed && !wirelessOwned;
+      if (mismatch && !statusMismatchLogged) {
+        appendControlLog(`robot status says ${armed ? "armed" : "disarmed"} (owner ${OWNER_NAMES[owner] ?? owner}, ${ageMs} ms old) / 狀態顯示未由無線啟用`);
+      }
+      statusMismatchLogged = mismatch;
+      if (!controlArmed && enablePending && wirelessOwned) setControlArmed(true);
       if (controlArmed && Number.isInteger(mode) && mode >= 0) setOperatorMode(mode);
     }
 
     enableButton.addEventListener("click", async () => {
-      heldKeys.clear();
       // Drop focus so a later Space/Enter can't re-activate this button.
       enableButton.blur();
       if (controlArmed || enablePending) return;
@@ -1832,20 +2071,35 @@
       await sendControl("E");
     });
 
+    startModeSelect.addEventListener("change", async () => {
+      // Drop focus so Enter / Space go back to the robot.
+      startModeSelect.blur();
+      await selectMode(Number(startModeSelect.value));
+    });
+
+    startMatchButton.addEventListener("click", async () => {
+      startMatchButton.blur();
+      await startMatch();
+    });
+
+    autoPathSelect.addEventListener("change", () => {
+      autoPathSelect.blur(); // takes effect at the next Enable
+    });
+
     angleSlider.addEventListener("input", async () => {
-      if (!controlArmed) return;
+      if (!controlArmed || !matchStarted) return;
       await sendControl(`ANGT,${Number(angleSlider.value)}`);
     });
 
     angleSetButton.addEventListener("click", async () => {
       angleSetButton.blur();
       const degrees = Number(angleInput.value);
-      if (!controlArmed || angleInput.value === "" || !Number.isFinite(degrees)) return;
+      if (!controlArmed || !matchStarted || angleInput.value === "" || !Number.isFinite(degrees)) return;
       await sendControl(`ANGT,${degrees}`);
     });
 
     flywheelSlider.addEventListener("input", async () => {
-      if (!controlArmed || operatorMode !== MODE_FULL_MANUAL) {
+      if (!controlArmed || !matchStarted || operatorMode !== MODE_FULL_MANUAL) {
         setFlywheelSlider(0);
         return;
       }
@@ -1853,12 +2107,9 @@
       await sendControl(`FLY,${flywheelRatio.toFixed(2)}`);
     });
 
-    // Arrows up/down: the elevation's hold-to-move jog (ANG) on every
-    // firmware and on the radio; the slider / number box set an exact angle.
-    const MOVEMENT_KEYS = new Set(["w", "s", "a", "d", "arrowleft", "arrowright", "arrowup", "arrowdown"]);
     const NON_TEXT_INPUT_TYPES = new Set(["range", "checkbox", "radio", "button", "submit", "reset"]);
 
-    // Only real text entry (the stream URL box, layout fields, etc.) is
+    // Only real text entry (the elevation angle box, layout fields, etc.) is
     // exempt from keyboard control; the Falcon range slider is not, so
     // Enter/Space still stop the robot while it has focus.
     function isTypingTarget(target) {
@@ -1868,7 +2119,6 @@
     }
 
     async function sendAllAxesIfChanged() {
-      await sendTankIfChanged();
       await sendRotateIfChanged();
       await sendAngleIfChanged();
     }
@@ -1878,7 +2128,7 @@
       const typing = isTypingTarget(event.target);
 
       // Stop keys win over text boxes while armed: Enter/Space must stop the
-      // robot even if focus happens to be in the stream URL box. Disarmed,
+      // robot even if focus happens to be in a text box. Disarmed,
       // text boxes keep their normal Enter/Space behavior.
       if (key === "enter" || key === " ") {
         if (typing && !controlArmed && !enablePending) return;
@@ -1888,36 +2138,16 @@
         else await emergencyDisconnect();
         return;
       }
-      if (typing || !controlArmed) return;
-
-      if (MOVEMENT_KEYS.has(key)) {
+      if (typing || !controlArmed || event.repeat) return;
+      const hole = targetForKey(key);
+      if (hole || key === "0") {
+        // 1-9: that hole; 0: back to the AI's own pick.
         event.preventDefault();
-        heldKeys.add(key);
-        await sendAllAxesIfChanged();
-        return;
+        sentTarget = hole;
+        await sendControl(`TGT,${hole}`);
+        // A new hole starts from its own table value.
+        await setFlywheelOffset(0);
       }
-      if ((key === "f" || key === "l" || key === "r" || key === "m") && !event.repeat) {
-        event.preventDefault();
-        await sendControl(key.toUpperCase());
-      }
-    });
-
-    // Releases are honored no matter where focus is: if focus moved into a
-    // text box while a key was held, the keyup still has to clear it, or
-    // the heartbeat would keep resending the stale direction.
-    window.addEventListener("keyup", async (event) => {
-      const key = event.key.toLowerCase();
-      if (!heldKeys.has(key)) return;
-      heldKeys.delete(key);
-      if (!controlArmed) return;
-      await sendAllAxesIfChanged();
-    });
-
-    // Moving focus into a text box mid-hold also releases everything held.
-    document.addEventListener("focusin", async (event) => {
-      if (!isTypingTarget(event.target) || heldKeys.size === 0) return;
-      heldKeys.clear();
-      if (controlArmed) await sendAllAxesIfChanged();
     });
 
     window.addEventListener("blur", () => { if (controlArmed || enablePending) emergencyStop(); });
@@ -1927,6 +2157,17 @@
 
     async function sendHeartbeat() {
       if (!port) return;
+      // Measured only while enabled / enabling (a background tab's slow
+      // ticks before Enable are not a stall).
+      const tickMs = performance.now();
+      if (!controlArmed && !enablePending) {
+        lastHeartbeatTickMs = null;
+      } else {
+        if (lastHeartbeatTickMs !== null && tickMs - lastHeartbeatTickMs > HEARTBEAT_GAP_LOG_MS) {
+          appendControlLog(`PC_GAP ${Math.round(tickMs - lastHeartbeatTickMs)}ms (page busy)`);
+        }
+        lastHeartbeatTickMs = tickMs;
+      }
       if (enablePending && performance.now() - enablePendingSince > ENABLE_PENDING_TIMEOUT_MS) {
         await failEnable("no confirmation / 沒收到機器人確認");
         return;
@@ -1943,14 +2184,17 @@
       if (rotateAxis !== 0) { await sendControl(`ROT,${rotateAxis}`); sent = true; }
       if (angleAxis !== 0) { await sendControl(`ANG,${angleAxis}`); sent = true; }
       if (flywheelRatio !== 0) { await sendControl(`FLY,${flywheelRatio.toFixed(2)}`); sent = true; }
+      if (flywheelOffsetPct !== 0) { await sendControl(`FLYO,${flywheelOffsetPct}`); sent = true; }
       if (!sent) await sendControl("K");
     }
 
     setInterval(sendHeartbeat, CONTROL_HEARTBEAT_MS);
     setInterval(pollGamepad, 20);
+    setInterval(renderMatchTimer, 200);
 
     updatePanelDensity();
     drawField();
+    renderTargetAndAuto();
   </script>
 </body>
 </html>

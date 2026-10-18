@@ -5,38 +5,51 @@
  *   - the ground STM32 (tools/stm32_ground_control): PC command state ->
  *     CRSF RC channels (rcmap_encode),
  *   - the Mega (src/IO/ManualControl.cpp): RC channels -> the same command
- *     state the wired USB protocol produces (rcmap_decode + counters),
+ *     state the wired USB protocol produces (rcmap_decode),
  *   - the status uplink (Mega -> robot bridge -> CRSF Battery frame ->
  *     ground), and
  *   - host tests.
  * Pure C, no libc beyond stdint/stdbool, so it builds for AVR, STM32 and
- * the host unchanged. See docs/codex-handoff.md 2026-10-11 "wireless
- * control" for the design.
+ * the host unchanged.
  *
- * Channel table (CRSF channel numbers are 1-based, array index = N-1).
- * ELRS's default "Hybrid" switch mode sends CH1-4 at full resolution every
- * packet, CH5 (AUX1) as a 2-position switch every packet, and CH6+ as
- * 6-position values round-robin (~8 packets per refresh), so anything that
- * needs fine resolution lives in CH1-4 and everything in CH6+ only ever
- * uses 3 or 6 well-separated levels.
+ * Channel table v2 (2026-10-16, the team's competition control table; CRSF
+ * channel numbers are 1-based, array index = N-1). ELRS's "Hybrid" switch
+ * mode sends CH1-4 at full resolution every packet, CH5 (AUX1) as a
+ * 2-position switch every packet, and CH6+ as 6-position values
+ * round-robin, so anything with more than 6 levels lives in CH1-4 and the
+ * fire button gets CH5 (every packet, so a 100 ms press is never missed).
  *
- *   CH1  left drive      1000..2000 us  = -1..+1
- *   CH2  right drive     1000..2000 us  = -1..+1
- *   CH3  flywheel        1000..2000 us  = 0..1 open-loop ratio (not RPM)
- *   CH4  operator mode   2000 / 1750 / 1500 = FULL_MANUAL / SEMI_AUTO / FULL_AUTO
- *   CH5  arm             1000 = disarmed, 2000 = enable requested
- *   CH6  rotate jog      1000/1500/2000 = -1/0/+1
- *   CH7  angle jog       1000/1500/2000 = -1/0/+1
- *   CH8  F event counter 6 levels, 1000 + 200*k, k = 0..5
- *   CH9  L event counter 6 levels, 1000 + 200*k, k = 0..5
- *   CH10 horizontal conveyor 1000 = off, 2000 = on (state, not toggle)
+ *   CH1  forward/back    1000..2000 us = -1..+1 (continuous)
+ *   CH2  turn            1000..2000 us = -1..+1 (continuous; +1 = right)
+ *   CH3  target hole     1000 + 100*k, k = 0..9 (0 = none, 1..9 = the
+ *                        3x3 holes: 1 left-bottom .. 9 right-top)
+ *   CH4  operator mode + Falcon (2026-10-17):
+ *          2000                FULL_MANUAL, flywheel 0
+ *          1750                SEMI_AUTO
+ *          1500                FULL_AUTO
+ *          1000 + 300*f        FULL_MANUAL, flywheel f (0 < f <= 1; 3 us = 1%)
+ *        In the autos the level carries the operator's flywheel offset
+ *        (2026-10-18, LT / RT): level + 4 us per 1%, -20..+20%, so semi
+ *        auto spans 1670..1830 and full auto 1420..1580, inside their
+ *        bands. Exactly 1750 / 1500 = offset 0 (what an older ground sends).
+ *        The flywheel shares CH4 because only CH1-4 are full resolution
+ *        and it only matters in full manual (the autos run it from the
+ *        shot table). 1300..1399 is a gap: a frame there is rejected. The
+ *        three old levels are unchanged, so a ground STM32 still on the
+ *        previous image can never make the robot spin the flywheel.
+ *   CH5  fire            1000 = released, 2000 = pressed (the ground holds
+ *                        it 100 ms per press; the robot acts on low->high)
+ *   CH6  arm             1000 = disarmed, 2000 = enable requested
+ *   CH7  nudge           1000 + 200*k, k = 0..4: center / up / down /
+ *                        left / right (elevation up/down, turret left/right)
+ *   CH8  auto path       1000 + 200*k, k = 0..4: none / 1 / 2 / 3 / 4
+ *                        (keys Q W E R = left 1, left 2, right 1, right 2)
+ *   CH9, CH10            unused (sent as 1500)
  *
- * Event counters instead of "button held" levels: one press advances the
- * counter by exactly one level. A receiver fires one action only when it
- * sees +1; repeated packets carry the same level (no repeat), a lost packet
- * is covered by the next one, and after a reconnect the first level seen is
- * taken as the new baseline, so presses made during an outage are never
- * replayed. A jump of more than one level is ignored (EVENT_SKIPPED).
+ * The level channels decode to the nearest level within a tolerance and a
+ * frame with any channel between levels is rejected as corrupt, not
+ * guessed. RCMAP_CHANNEL_COUNT stays 10 so the robot bridge's "RC,..."
+ * line (and its firmware image) is unchanged.
  */
 
 #include <stdbool.h>
@@ -46,19 +59,28 @@
 extern "C" {
 #endif
 
-#define RCMAP_CH_LEFT 0u
-#define RCMAP_CH_RIGHT 1u
-#define RCMAP_CH_FLYWHEEL 2u
+#define RCMAP_CH_FORWARD 0u
+#define RCMAP_CH_TURN 1u
+#define RCMAP_CH_TARGET 2u
 #define RCMAP_CH_MODE 3u
-#define RCMAP_CH_ARM 4u
-#define RCMAP_CH_ROTATE 5u
-#define RCMAP_CH_ANGLE 6u
-#define RCMAP_CH_FEED_COUNTER 7u
-#define RCMAP_CH_LMODE_COUNTER 8u
-#define RCMAP_CH_CONVEYOR 9u
+#define RCMAP_CH_FIRE 4u
+#define RCMAP_CH_ARM 5u
+#define RCMAP_CH_NUDGE 6u
+#define RCMAP_CH_AUTO 7u
 #define RCMAP_CHANNEL_COUNT 10u
 
-#define RCMAP_COUNTER_LEVELS 6u
+#define RCMAP_TARGET_NONE 0u
+#define RCMAP_TARGET_MAX 9u
+
+#define RCMAP_NUDGE_CENTER 0u
+#define RCMAP_NUDGE_UP 1u
+#define RCMAP_NUDGE_DOWN 2u
+#define RCMAP_NUDGE_LEFT 3u
+#define RCMAP_NUDGE_RIGHT 4u
+
+#define RCMAP_AUTO_NONE 0u
+#define RCMAP_AUTO_PATHS 4u /* 1..4 */
+
 /* Operator mode on CH4 (a full-resolution channel). Ids match the
  * firmware's OperatorMode enum order. The ground sends exactly the *_US
  * values; the robot decodes with thresholds halfway between them. */
@@ -68,12 +90,20 @@ extern "C" {
 #define RCMAP_MODE_FULL_AUTO_US 1500
 #define RCMAP_MODE_SEMI_AUTO_US 1750
 #define RCMAP_MODE_FULL_MANUAL_US 2000
-#define RCMAP_MODE_FULL_AUTO_MIN_US 1250
+#define RCMAP_MODE_FULL_AUTO_MIN_US 1400
 #define RCMAP_MODE_SEMI_AUTO_MIN_US 1625
 #define RCMAP_MODE_FULL_MANUAL_MIN_US 1875
+/* Full manual with the flywheel on: 1000 us = 0 .. 1300 us = 1.0. */
+#define RCMAP_FLYWHEEL_BASE_US 1000
+#define RCMAP_FLYWHEEL_SPAN_US 300
+#define RCMAP_FLYWHEEL_MAX_US (RCMAP_FLYWHEEL_BASE_US + RCMAP_FLYWHEEL_SPAN_US)
+/* Auto modes: the shot table's flywheel + this offset (percent). */
+#define RCMAP_AUTO_OFFSET_US_PER_PCT 4
+#define RCMAP_AUTO_OFFSET_MAX_PCT 20
 
 /* Fail-safe: anything that isn't clearly an auto level (including 0 from a
- * zero-initialized command, or a value below 1250 us) reads as manual. */
+ * zero-initialized command, the flywheel range, or the gap below 1400 us)
+ * reads as manual. rcmap_decode is stricter: it rejects the gap. */
 static inline uint8_t rcmap_mode_from_us(int us) {
     if (us >= RCMAP_MODE_FULL_MANUAL_MIN_US) return RCMAP_MODE_FULL_MANUAL;
     if (us >= RCMAP_MODE_SEMI_AUTO_MIN_US) return RCMAP_MODE_SEMI_AUTO;
@@ -87,42 +117,31 @@ static inline int rcmap_mode_to_us(uint8_t mode) {
 }
 
 typedef struct {
-    float left;            /* -1..1 */
-    float right;           /* -1..1 */
-    float flywheel;        /* 0..1 */
-    bool conveyor;         /* CH10: persistent on/off request */
-    bool armed;            /* CH5 high = enable requested */
-    int8_t rotate;         /* -1, 0, +1 */
-    int8_t angle;          /* -1, 0, +1 */
-    uint8_t feed_counter;  /* 0..5 */
-    uint8_t lmode_counter; /* 0..5 */
-    int mode_us;           /* CH4; encode sends rcmap_mode_to_us(rcmap_mode_from_us(mode_us)) */
+    float forward;     /* -1..1 */
+    float turn;        /* -1..1, +1 = right */
+    uint8_t target;    /* 0 = none, 1..9 */
+    int mode_us;       /* CH4 mode; encode uses rcmap_mode_from_us(mode_us),
+                          decode returns the mode's exact level */
+    float flywheel;    /* CH4 too: 0..1, sent only in full manual; decode
+                          gives 0 outside full manual, in 1% steps */
+    int8_t flywheel_offset_pct; /* CH4 too: -20..20, sent only in the autos;
+                                   decode gives 0 in full manual */
+    bool fire;         /* CH5 high = fire pressed */
+    bool armed;        /* CH6 high = enable requested */
+    uint8_t nudge;     /* RCMAP_NUDGE_* */
+    uint8_t auto_path; /* 0 = none, 1..4 */
 } rcmap_command;
 
-/* Fills ch_us[16]; channels beyond RCMAP_CHANNEL_COUNT are set to 1500. */
+/* Fills ch_us[16]; channels beyond the table are set to 1500. Out-of-range
+ * fields are clamped (axes) or sent as their neutral level. */
 void rcmap_encode(const rcmap_command *c, int ch_us[16]);
 
 /* Decodes the first RCMAP_CHANNEL_COUNT entries of ch_us. Returns false
- * (out untouched) if any used channel is outside 900..2100 us or a counter
- * channel isn't near one of its 6 levels -- the caller should treat that
- * frame as invalid, not guess. Arm is fail-safe: only >= 1750 us counts as
- * "enable requested". */
+ * (out untouched) if any channel is outside 900..2100 us or a level channel
+ * isn't near one of its levels -- the caller should treat that frame as
+ * invalid, not guess. Fire and arm are fail-safe: only >= 1750 us counts
+ * as pressed / enable requested. */
 bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out);
-
-typedef struct {
-    bool have_baseline;
-    uint8_t level;
-} rcmap_counter;
-
-#define RCMAP_COUNTER_NONE 0
-#define RCMAP_COUNTER_EVENT 1
-#define RCMAP_COUNTER_SKIPPED (-1)
-
-void rcmap_counter_reset(rcmap_counter *c);
-/* Feed one decoded level. Returns RCMAP_COUNTER_EVENT exactly once per +1
- * step, RCMAP_COUNTER_NONE for no change or a fresh baseline, and
- * RCMAP_COUNTER_SKIPPED (baseline moved, no action) for a jump > 1. */
-int rcmap_counter_update(rcmap_counter *c, uint8_t level);
 
 /* ---- Status uplink (Mega -> ground) ---------------------------------- */
 
@@ -156,15 +175,18 @@ typedef enum {
     RCMAP_EVENT_BAD_COMMAND,
     RCMAP_EVENT_UNKNOWN_COMMAND,
     RCMAP_EVENT_COMMAND_TOO_LONG,
-    RCMAP_EVENT_EVENT_SKIPPED,
-    RCMAP_EVENT_CONVEYOR_ON,
-    RCMAP_EVENT_CONVEYOR_OFF,
+    RCMAP_EVENT_EVENT_SKIPPED,  /* retired with the v1 counters; number kept */
+    RCMAP_EVENT_CONVEYOR_ON,    /* retired: the tower drives the conveyor */
+    RCMAP_EVENT_CONVEYOR_OFF,   /* retired */
     RCMAP_EVENT_MODE_FULL_MANUAL,
     RCMAP_EVENT_MODE_SEMI_AUTO,
     RCMAP_EVENT_MODE_FULL_AUTO,
     RCMAP_EVENT_FIRE_NOT_READY,
     RCMAP_EVENT_ENABLE_REJECTED_NOT_MANUAL,
     RCMAP_EVENT_REJECTED_AUTO_MODE,
+    RCMAP_EVENT_TARGET_SELECTED,
+    RCMAP_EVENT_AUTO_PATH_STARTED,
+    RCMAP_EVENT_AUTO_PATH_REJECTED,
     RCMAP_EVENT_COUNT
 } rcmap_event;
 
@@ -205,6 +227,62 @@ void rcmap_status_to_battery(const rcmap_status *s, uint16_t *voltage, uint16_t 
 /* False if the marker doesn't match (a real battery frame, or garbage). */
 bool rcmap_status_from_battery(uint16_t voltage, uint16_t current, uint32_t capacity,
                                uint8_t remaining, rcmap_status *out);
+
+/* Aim frames (2026-10-17): the Mega alternates its 100 ms status slot
+ * between the status above and an aim frame, so the wireless Dashboard can
+ * show the camera distance and the elevation pulse. Same "ST,<flags>,
+ * <seq>,<code>" line and Battery frame -- the robot bridge forwards it
+ * unchanged (its field ranges: flags <= 255, seq <= 0xFFFFFF, code <=
+ * 65535), so the bridge firmware needed no change.
+ *   code  bit 15 = 1 (aim frame; a status code is at most 0x3FFF),
+ *         bits 0-14 = camera distance in cm (0 = none, max 32767)
+ *   seq   bits 0-11 elevation pulse us, 12-15 vision id sent to the Orin,
+ *         16-19 vision id of the frame in hand, 20 valid
+ *   flags aim offset px as int8 (+ = right) */
+#define RCMAP_AIM_FRAME_BIT 0x8000u
+typedef struct {
+    uint16_t distance_cm;
+    uint16_t elevation_pulse_us;
+    uint8_t selected_id;
+    uint8_t target_id;
+    bool valid;
+    int8_t aim_offset_px;
+} rcmap_aim;
+
+static inline bool rcmap_status_is_aim(uint16_t code) { return (code & RCMAP_AIM_FRAME_BIT) != 0u; }
+/* Out-of-range values are clamped (distance, pulse) or masked (ids). */
+void rcmap_aim_to_status(const rcmap_aim *a, uint8_t *flags, uint32_t *seq, uint16_t *code);
+/* False if s is not an aim frame. */
+bool rcmap_aim_from_status(const rcmap_status *s, rcmap_aim *out);
+
+/* Vision frames (2026-10-17): tx / ty for the wireless Dashboard, in the
+ * same ST line / Battery frame. The Mega's 100 ms slots go status, aim,
+ * status, vision.
+ *   code  bits 15-14 = 01 (a status code is at most 0x3FFF, an aim frame
+ *         has bit 15 set), bits 0-13 = the Falcon's actual PWM pulse in us
+ *         (2026-10-18; was the camera distance, which the aim frame
+ *         already carries)
+ *   seq   bits 0-11 tx * 2, bits 12-23 ty * 2, both 12-bit two's
+ *         complement: 0.5 px steps, +-1023.5 px
+ *   flags bit 0 valid, bits 1-4 vision id of the frame in hand
+ * A ground STM32 older than this reads it as a status with a bogus event:
+ * reflash the ground together with the Mega. */
+#define RCMAP_VISION_FRAME_BIT 0x4000u
+typedef struct {
+    uint16_t flywheel_pulse_us; /* what D25 sends now, max 16383 */
+    float tx_px;
+    float ty_px;
+    bool valid;
+    uint8_t target_id;
+} rcmap_vision;
+
+static inline bool rcmap_status_is_vision(uint16_t code) {
+    return (code & 0xC000u) == RCMAP_VISION_FRAME_BIT;
+}
+/* Out-of-range values are clamped (pulse, tx, ty) or masked (id). */
+void rcmap_vision_to_status(const rcmap_vision *v, uint8_t *flags, uint32_t *seq, uint16_t *code);
+/* False if s is not a vision frame. */
+bool rcmap_vision_from_status(const rcmap_status *s, rcmap_vision *out);
 
 #ifdef __cplusplus
 }

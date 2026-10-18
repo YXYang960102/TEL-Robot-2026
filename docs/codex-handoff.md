@@ -3456,3 +3456,1794 @@ approved the plan.
   ROT value is refused, and X / E clear a held arrow.
 - The env builds and the page test passes. The ←/→ path itself has not
   been run on hardware.
+
+## 2026-10-16 — Claude Code: control table v2, phase 1 (channels + keys + fire)
+
+**User Request:** implement the team's competition control table in
+phases. Jeremy approved "分階段：先通道＋按鍵＋發射".
+
+The spec:
+- One stick: Y = forward/back, X = turn.
+- Fire: the flight stick's top button (Xbox Y for now).
+- Keyboard:
+  - Enter = disable; Space = stop and disconnect.
+  - 1–9 = the 3×3 holes: 1 left-bottom, 2 left-mid, 3 left-top,
+    4 mid-bottom, 5 center, 6 mid-top, 7 right-bottom, 8 right-mid,
+    9 right-top.
+  - Arrows = elevation / turret fine adjust.
+  - M = mode.
+  - Q W E R = auto paths left 1, left 2, right 1, right 2.
+
+**Discussion Result (Jeremy's answers):**
+- Arm stays, moved to CH6.
+- Hole selection is recorded only. AI aiming at the chosen hole is phase 2,
+  and a turret AS5600 is coming later.
+- QWER: only the trigger flow for now.
+- Flywheel: no wireless flywheel channel. Phase 2 drives it from the 3×3
+  hole, using a shot table of hole + distance → elevation and flywheel.
+- The Mega conveyor output (D45) and the R key are removed; the tower side
+  drives the conveyor.
+- Auto paths run "once": both once per Enable **and** a record since boot
+  shown on the Dashboard.
+- M order stays full manual → semi auto → full auto.
+
+**Why the channels are laid out this way:** ELRS Hybrid mode sends CH1–4 at
+full resolution every packet and CH5 as a 2-position switch every packet.
+CH6 and above are 6-position values, sent round robin. So:
+- the 10-level hole goes in CH3;
+- fire goes in CH5, so a 100 ms press can't be missed;
+- the 5-level nudge and auto-path channels go in CH7 and CH8.
+
+`RCMAP_CHANNEL_COUNT` stays 10, so the robot bridge's `RC,…` line is
+unchanged. Its image is unchanged too: sha 99b017a4…, rebuilt and
+compared.
+
+**Changed:**
+- `src/IO/RcControlMap.{h,c}`: channel table v2.
+
+  | CH | Function | Encoding |
+  |----|----------|----------|
+  | CH1 | forward | continuous |
+  | CH2 | turn | continuous |
+  | CH3 | hole | 1000+100k (k 0–9), ±40 µs |
+  | CH4 | mode | 2000 / 1750 / 1500 |
+  | CH5 | fire | ≥1750 µs = on |
+  | CH6 | arm | ≥1750 µs = on |
+  | CH7 | nudge | 1000+200k (center/up/down/left/right), ±90 µs |
+  | CH8 | auto | 1000+200k (none/1–4), ±90 µs |
+
+  - The tolerances cover ELRS's 988/1193/1398/1602/1807 steps.
+  - A frame with a value between levels is rejected, never guessed.
+  - The counter API is removed. New events: `TARGET_SELECTED`,
+    `AUTO_PATH_STARTED`, `AUTO_PATH_REJECTED`. `EVENT_SKIPPED` and
+    `CONVEYOR_*` are kept as retired slots, so the codes don't shift.
+- `src/IO/ManualControl.{h,cpp}`:
+  - Wired commands added: `TGT,<0..9>` and `AUTO,<1..4>`. `R` and `L` are
+    removed and are now `UNKNOWN_COMMAND`. In full manual the turret is
+    always manual.
+  - Wireless decode:
+    - Arm, fire and auto act only on their edge (auto from none to a
+      path).
+    - Arcade becomes tank: left = fwd − turn, right = fwd + turn (the
+      Dashboard's polarity).
+    - Nudge drives an angle or rotate jog.
+    - No wireless flywheel.
+    - An RF outage re-arms all three edge detectors, so nothing held
+      through it is replayed.
+  - `AUTO` is refused (`AUTO_PATH_REJECTED`) for an invalid path, on the
+    wired-only benches, and when a path has already run in this Enable.
+  - The used-path mask is kept until reboot.
+- Conveyor removed:
+  - Gone from `DribblerConstants`, `Dribbler`, the Pins assert and the
+    pincheck.
+  - `test/conveyor_esc_test.cpp` deleted.
+  - Env `mega_drive_conveyor_test` renamed to `mega_drive_test`, and flag
+    `TEL_DRIVE_CONVEYOR_ONLY` to `TEL_DRIVE_ONLY`.
+- `MechLink` failsafe values are v2: hole, fire, arm, nudge and auto =
+  1000; mode = 2000 (manual).
+- Telemetry: TEL slots 7–11 are now forward, turn, mode, arm and fire.
+  Appended slots: 32 = hole, 33 = auto path this Enable, 34 = paths-used
+  mask (bit n = path n).
+- Ground STM32 (`GroundCommandState`):
+  - `T` becomes forward = (l+r)/2, turn = (r−l)/2.
+  - ROT / ANG become nudge; elevation wins if both are held.
+  - `F` holds fire for 100 ms.
+  - `TGT` sets the hole, which is held after the key is released.
+  - `AUTO` sends the path for 200 ms; a press during that pulse is
+    ignored.
+  - FLY / ANGT are accepted but have no channel.
+- Dashboard:
+  - Keys 1–9 send `TGT,n`; Q W E R send `AUTO,1..4`; neither
+    auto-repeats.
+  - **The keyboard no longer drives or fires.** WASD, F, R and L are
+    removed (W/E/R/Q are now auto-path keys). The stick drives and its
+    button fires. Arrows, M, Enter and Space are unchanged.
+  - New cards: "target hole", with a 3×3 grid drawn left column = 1–3
+    from the bottom, and "auto path" (this Enable + used).
+  - On USB the cards come from TEL 32–34. Through the ground station there
+    is no such telemetry, so the page shows what it sent once the robot's
+    event comes back. Its record is labelled "本頁送出紀錄" (page-sent
+    record), not "since boot".
+  - The MechLink table relabelled.
+- Benches: the ELRS link bench prints the v2 fields. The gamepad bench
+  accepts TGT / AUTO and no longer lists L / R.
+- Docs: the ground README protocol table and test/README.
+
+**Calculation (examples):**
+- Hole 7: CH3 = 1000 + 100·7 = 1700 µs → CRSF (1700−1500)·8/5 + 992 =
+  1312.
+- Nudge LEFT (k=3): 1600 µs, which ELRS 6-position sends as 1602
+  (error 2 ≤ 90).
+- Stick full right with no forward: turn = +1 → left = −1, right = +1,
+  the same as `T,-1,1`.
+
+**Impact:**
+- Ground and robot must be flashed together: v1 and v2 channel tables are
+  incompatible, so a v1 ground's frames are rejected as corrupt and the
+  robot watchdog disarms it.
+- The Dashboard must be the new version for keys 1–9 / QWER.
+- Unchanged: the wired protocol's T / ROT / ANG / ANGT / FLY / F / M, the
+  M order, Auto's behavior, and the PIN_TABLE_CONFIRMED gate.
+
+**Evidence:**
+- All 8 PIO envs build. The ground pio build passes. The bridge
+  `build.py` sha is unchanged and its dist artifacts were restored.
+- `manual_control_test` was rewritten for v2 and passes in three
+  variants: confirmed, unconfirmed gate, and wired-manual (the
+  wired-manual one needs `TEL_HOST_TEST_PIN_TABLE_CONFIRMED`; this is
+  older behavior and test/README now says so). Coverage includes:
+  - TGT / AUTO refused while disarmed, bad values, same hole twice gives no
+    second event;
+  - one auto path per Enable, the mask kept after X / E and cleared only by
+    init;
+  - the wired-only bench refuses AUTO;
+  - forward/turn mix and clamping, all four nudge directions, no wireless
+    flywheel;
+  - fire held = one shot, fire held through an outage is not replayed,
+    fire while disarmed does not latch;
+  - wireless target and auto edges, auto held through an outage does not
+    start;
+  - a corrupt CH3 times out; authority for fire / auto.
+- The rc_control_map, ground host test, gamepad, Dashboard page/control
+  tests and every other host test pass. A browser check of the cards
+  looked right.
+- **Nothing was run on hardware.**
+
+**Next Test:**
+1. Flash the ground and the robot Mega together (`mega_elrs_link_test`
+   first).
+2. With the motors off, press the stick button, 1–9 and QWER. Expect
+   `FEED_TRIGGER_SENT`, `TARGET_SELECTED` and `AUTO_PATH_STARTED`, and the
+   second QWER in an Enable should give `REJECTED`.
+3. Then, wheels off the ground, check the stick direction and the
+   arrows.
+
+**Phase 2 (not started):**
+- Semi-auto AI lock on the chosen hole (Orin protocol, with Codex/YOLO).
+- Per-hole shot table (hole + distance → elevation and flywheel).
+- Fine-adjust offsets stored on the Mega, cleared on a hole change.
+- The auto paths themselves (need localization).
+- The flight stick's real fire-button index.
+- The turret AS5600.
+
+
+## 2026-10-16 — Codex: approved operator selection, Orin protocol v2
+
+**User Request / Discussion Result:** Jeremy said 「那你可以開始改了」 after
+reviewing Claude's scope lock. Implemented only selected-hole transport/override;
+recognition, tracking/memory, depth algorithms and config values unchanged.
+
+**Changed / Added / Why:** YOLO_Detect_single serial_tx.py stores selected_target_id
+from strict MEGA_TARGET,2,0|4..12 (invalid commands preserve prior choice; not a
+heartbeat). target_manager.select gains optional selected_target_id=0; nonzero
+requires exactly one matching reliable hole, otherwise None, without auto fallback.
+Override leaves automatic state untouched, bypasses auto ranking/red priority/
+shot budget/stable-frame delay. Zero executes original code. vision_main polls
+serial in standalone serial mode too and passes selection to manager. Its main()
+explicitly constructs protocol_version=2; config and constructor legacy default
+remain 1 to preserve existing parameter values. Deploy matching Mega v2.
+Added docs/operator-selection-v2.md and tests/test_operator_selection.py; recovery
+fake link now models enabled and selected_target_id. No new runtime dependencies.
+
+**Flow / Calculation:** Mega converts key→vision only once, e.g. key1→10;
+Orin receives MEGA_TARGET,2,10→matches id10→existing depth resolver→five-field
+packet. tx=cx-width//2, ty=cy-height//2, pixels right/down positive; e.g.
+(250,350),1000x800 gives -250,-50. Distance mm. Missing selected target outputs
+0,0,0,0,0. Depth-only still invalid. Webcam's existing valid=1,distance=0 remains
+bench-only behavior; Mega competition must gate usable distance. Selection held
+until valid replacement/0 (including reconnect); production --wait-for-mega and
+Mega returned-id checks remain required. 100ms selection resend is Mega-owned;
+300ms numeric timeout Mega-owned, existing Orin heartbeat timeout 1s unchanged.
+
+**Evidence:** PYTHONDONTWRITEBYTECODE=1 venv/bin/python -m unittest discover -s tests:
+54 tests PASS, including original 46. git diff --check PASS. New cases cover nine
+choices, fragments, malformed/version mismatch, heartbeats, missing/ambiguous/
+unreliable targets, auto-state preservation, depth-only gate, full synthetic
+positional grid and mocked real session output. No hardware/recording validation,
+no flash, commit, push or deployment. Pre-existing handoff edits and Thumbs.db
+preserved. TEL runtime not modified.
+
+**Limits / Next Test:** IDs derive from geometric layout/anchors, not YOLO class.
+Full-grid synthetic numbering passes; partial cold-start, tilt, occlusion and
+flow drift are not certified. Existing automatic target-loss reset deferral remains.
+Claude may implement Mega phase2 against docs/operator-selection-v2.md: statuses
+v2, MEGA_TARGET vision ids, returned-id/valid/range/timeout gates. With outputs
+disabled, test each physical hole, covering chosen hole, rapid switches and peer
+restarts before enabling mechanisms. Do not claim competition readiness from host
+suite. See YOLO_Detect_single/docs/operator-selection-v2.md for full contract.
+
+## 2026-10-16 — Claude Code: Mega side of Orin protocol v2 (selected hole, per-hole shot tables, fine-adjust)
+
+**User Request:** implement the Mega side against Codex's
+`YOLO_Detect_single/docs/operator-selection-v2.md`. Jeremy decided:
+- **B**: both semi-auto and full auto shoot the selected hole; with no hole
+  selected, the AI picks.
+- Fine-adjust steps for now: 5 px horizontal, 10 µs elevation.
+- The 9 per-hole tables start as copies of the current table.
+
+**Changed:**
+- **Hole numbering.** `src/Vision/OperatorTarget.h` (new) is the only
+  place that converts a key to a vision id:
+  `4 + (2 − rowFromBottom)·3 + col`. For example, key 1 → 10 and key 9 → 6.
+  `static_assert` pins all 9 values.
+- **`Vision`** (protocol v2):
+  - `PROTOCOL_VERSION` is now 2, so v1 lifecycle lines are refused.
+  - `MEGA_TARGET,2,<id>` is sent right after `MEGA_READY`, immediately on
+    every change, and with every heartbeat (100 ms).
+  - `setSelectedTarget()`: changing the selection drops the frame in hand
+    at once.
+  - `storeTarget()`: while a hole is selected, a frame for any other id is
+    `valid=false`. The link itself still counts as connected.
+- **`main.cpp`**: after `ManualControl::update()` it calls
+  `Vision::setSelectedTarget(visionIdForHole(getTarget()))`, so a switch
+  takes effect before `Auto` runs in the same loop.
+- **`Auto`**:
+  - `hasTarget` = valid **and distance > 0**. Without a distance it can
+    aim but `ready` is false, so it never fires. This covers the webcam
+    case of valid=1 with distance 0.
+  - The flywheel comes from `ShotTable::tableForHole(target)`.
+  - Elevation = table pulse + elevation offset, but only once
+    `ELEVATION_MEASURED` is true. It is still false.
+  - `Shooter::setRotateAimOffsetPx(aim offset)`.
+- **`Shooter`**: vision-follow takes `tx + aimOffsetPx` as its input. A
+  positive offset makes the turret aim to the right of the hole. Example:
+  R = +10, and the loop locks when the target is at tx = −10. `stopAll`
+  clears it.
+- **`ManualControl`**, fine-adjust:
+  - In semi-auto and full auto, one arrow press adds one step. A press is
+    the direction changing to non-zero, from 0 or straight to the opposite
+    side. Wired ROT,1 resent every heartbeat and wireless CH7 repeated
+    every frame do not add more.
+  - Left/right → aim px, clamped to ±100.
+  - Up/down → elevation µs, clamped to ±200, with the same direction as
+    `ANG,1`. Up/down only change Auto's elevation **once Auto owns it**;
+    until then they stay the manual elevation jog.
+  - A new hole, Enable and disarm all clear the offsets. A key still held
+    after a clear must be released before it counts again.
+  - Full manual: no change, the arrows are still hold-to-move.
+- **`TuningConstants`**:
+  - `ShotTable::HOLE_1..HOLE_9` plus `BY_HOLE` / `tableForHole()`. All are
+    placeholder copies of `TABLE`.
+  - `Auto::AIM_OFFSET_*` and `ELEVATION_OFFSET_*`.
+- **Telemetry**: appended slots 35 = vision id sent to the Orin,
+  36 = aim offset px, 37 = elevation offset µs.
+- **Dashboard**: the target-hole card has a new line: "視覺 #id 已看到 ✓ /
+  看不到 · 微調 水平/仰角", or "AI 自選" (the AI picks) when no hole is
+  selected.
+- **`mega_vision_rotate_test` bench**: `PROTOCOL_VERSION` is now 2. It sends
+  no `MEGA_TARGET`, so the Orin picks on its own. Without this change, the
+  bench would also stop working once the Orin is updated.
+
+**Added tests:**
+- `test/operator_target_test.cpp`: key → id for all 9 holes, and the
+  frame-match rule.
+- `test/vision_link_test.cpp`: runs the **real Vision.cpp** with
+  `test/vision_stubs/Arduino.h`. Covers:
+  - READY / HEARTBEAT / TARGET packet order;
+  - v1 refused;
+  - a switch drops the current frame;
+  - another id or a bonus hole is invalid;
+  - `0,0,0,0,0`;
+  - stale frames;
+  - resending to a restarted Orin.
+- `manual_control_test`, new cases: no distance means no fire, each hole's
+  own table, wired and wireless fine-adjust (step, hold, change of
+  direction, clamp, clear on hole switch, a held key needs a release,
+  disarm). The fire tests now place a target with a distance in view.
+
+**Evidence:**
+- All 8 Mega envs build. megaatmega2560 RAM went from 2073 to 3547 B (43%);
+  the 1.4 KB added is the per-hole tables in SRAM, and they can move to
+  PROGMEM if that ever gets tight.
+- Ground pio builds. The bridge is unaffected because RcControlMap did not
+  change.
+- All host and page tests pass.
+- **Not run on hardware.**
+
+**Impact:** **The Orin (YOLO_Detect_single with Codex's v2 changes) and this
+Mega firmware must be deployed together**, because a v1/v2 mix refuses the
+other side and vision stops working. Unchanged: the turret PIDF gains,
+`ELEVATION_MEASURED = false`, and full-manual behavior.
+
+**Next Test** (outputs off or motors disconnected, Orin and Mega flashed at
+the same time):
+1. Press keys 1–9 in turn. The Dashboard should show the matching vision
+   id (#10 / #7 / #4 …). The Orin should frame that physical hole and show
+   "已看到 ✓".
+2. Cover the selected hole. It should show "看不到", with no fallback to
+   another hole.
+3. Switch holes quickly, and restart the Orin and the Mega each once.
+4. Then, with outputs on and in semi-auto, check the direction of the
+   left/right fine-adjust: pressing → should make the turret aim to the
+   right of the hole.
+
+## 2026-10-16 — Claude Code: shot tables by height (3 rows + bonus), extrapolation beyond 8.5 m
+
+**User Request / Discussion Result:** Jeremy asked how to lay out the table
+for "every hole has a different elevation and speed, and those change with
+distance". Agreed with Jeremy, including after he checked the diagram:
+- The trajectory depends on the hole's height and the distance to it, so
+  the three holes of a row share one table.
+- An angled shot needs no extra table. The Orin's `DEPTH_DISTANCE_MODE =
+  "range"` measures the straight-line distance from the camera to the
+  selected hole, which is already longer at an angle.
+- Each hole gets one elevation trim.
+- Tables run from 2.5 m, because the rules put the barrier 250 cm from the
+  net.
+- The bonus holes are at a different height, so they get their own table
+  (Jeremy: **A**).
+- Beyond 8.5 m, predict along the 8.0 → 8.5 trend (Jeremy).
+
+**Changed (supersedes the 9 per-hole tables from 95632be):**
+- `TuningConstants::ShotTable`: `BOTTOM_ROW` / `MIDDLE_ROW` / `TOP_ROW` /
+  `BONUS_ROW`.
+  - Each table is 2.5–8.5 m in 0.5 m steps (13 entries) of {flywheel,
+    elevation pulse}. All four are the same placeholder for now.
+  - `ELEVATION_TRIM_US[13]` is indexed by Orin vision id, and the comments
+    give the matching keys.
+  - `tableForVisionId()`:
+
+    | Vision id | Table | Keys |
+    |---|---|---|
+    | 10–12 | bottom | 1 4 7 |
+    | 7–9 | middle | 2 5 8 |
+    | 4–6 | top | 3 6 9 |
+    | 1–3 | bonus | — |
+    | 0 / unknown | none | — |
+  - Approximate heights read from the rules drawing (to be measured on the
+    field): 120 / 180 / 240 / 290 cm.
+- `ShotTableLookup::lookup`:
+  - Beyond the last entry it extrapolates linearly along the last segment.
+    The flywheel stays within 0–1; the elevation is limited by
+    `Shooter::setAnglePulseUs` to MIN/MAX.
+  - Below the first entry it clamps to that entry.
+  - A null table is a no-op.
+- `ShotTableLookup::lookupTarget(id, m, out)` = the id's height table +
+  that hole's trim. It returns false when the id has no table.
+- `Auto`: the table is chosen from the **frame's id**. With a hole
+  selected, Vision only passes that hole's frames; with none selected, it
+  is the Orin's own pick, so the bonus holes also get the right table.
+  `hasTarget` = valid && distance > 0 && the id has a table, so an id with
+  no table is never fired at.
+
+**Calculation:** placeholder table, 8.0 m = 0.96 and 8.5 m = 0.98, so
+9.0 m → 0.98 + (0.98 − 0.96) = 1.00, and 9.5 m is also 1.00 because the
+flywheel is capped there. The elevation uses the same trend and is capped
+by the servo limits.
+
+**Evidence:**
+- All 8 Mega envs build. megaatmega2560 RAM went from 3547 to 2587 B
+  (31.6%).
+- `shot_table_lookup_test` was updated and now prints its result:
+  extrapolation 4.5 m → 0.95 / 1300 µs, flywheel cap, null table, all four
+  real tables, `lookupTarget` + trim.
+- New `manual_control_test` case `testShotTableByHeight`:
+  - id → table for all 12 ids;
+  - every table is 2.5 + 0.5·i;
+  - Auto uses the frame id's table;
+  - id 0 never fires;
+  - a bonus hole has a table and fires.
+- All other host and page tests pass. Nothing has run on hardware.
+
+**Next Test:**
+1. Measure the actual hole heights on the field.
+2. With the turret locked (Dashboard shows "已看到 ✓"), read the **camera
+   distance** shown on the Dashboard. Fill each row's flywheel and elevation
+   at 2.5–8.5 m.
+3. Use the trims only for a single hole that is consistently off.
+4. Once the elevation values are real, set `ELEVATION_MEASURED = true`.
+
+## 2026-10-16 — Claude Code: pins confirmed (tower trigger D21), production Enable allowed
+
+**User Request:** Jeremy gave the feed tower trigger pin as **D21**. The
+other pins are the competition ones he confirmed on 2026-10-14 ("正式比賽還是一樣").
+
+**Changed:**
+- `DribblerConstants::Tower::TRIGGER_PIN` changed from 2 (a provisional
+  placeholder) to 21.
+- `Pins.h`: `PIN_TABLE_CONFIRMED = true`. The comment lists every confirmed
+  pin:
+
+  | Pin | Use |
+  |-----|-----|
+  | D48 / D46 | chassis right / left |
+  | D23 | turret |
+  | D24 | elevation |
+  | D25 | Falcon |
+  | D21 | tower trigger |
+  | Serial1 D18 / D19 | Orin |
+  | Serial2 D16 / D17 | ELRS bridge |
+- The Enable gate code is unchanged. Setting the flag back to false
+  disables Enable again.
+- `TEL_HOST_TEST_PIN_TABLE_CONFIRMED` is still a hard error on Arduino. In
+  the host tests, `=true` runs the armed suite, `=false` runs the refusal
+  suite, and leaving it unset now behaves like the firmware (armed).
+  test/README has the matching commands.
+
+**Risk to check on hardware:** D21 is also the Mega 2560's I2C SCL line,
+and the board has a 10 kΩ pull-up to 5 V on it. While the Mega is in reset
+or the bootloader (power-up, upload, reset button), before
+`Dribbler::init()` drives the pin LOW, the trigger line can sit HIGH. If
+the tower acts on a HIGH **level**, it may feed a ball every time the Mega
+resets.
+
+Check it:
+- **Multimeter:** hold the Mega's RESET button and measure D21 to GND. If
+  it reads about 5 V, the risk is real.
+- **Live test:** with the tower connected and no ball loaded, press reset
+  on the Mega and watch whether the tower moves.
+
+Fixes, if needed:
+- On the tower side, act only on a rising edge, and ignore the first
+  stretch after power-up.
+- Or add a 1 kΩ pull-down from D21 to GND. That divides 5 V × 1k/11k ≈
+  0.45 V, which reads LOW, and it doesn't fight the Mega's push-pull output.
+- Or move the trigger to a pin without a pull-up (D20/D21 both have one).
+
+**Evidence:**
+- All 8 Mega envs build, and `Dribbler.cpp.o` / `main.cpp.o` were rebuilt
+  after the header change.
+- `manual_control_test` passes in four variants: true, false, unset, and
+  wired-manual.
+- The gamepad and Dashboard page tests pass.
+- Not run on hardware.
+
+## 2026-10-16 — Claude Code: Dashboard mode / auto-path menus, MODE command, target reset per Enable
+
+**User Request:**
+- Add two mouse-driven menus to the Dashboard:
+  - **Mode**: picked before Enable, and the robot runs in that mode once
+    enabled. M can still switch modes at any time.
+  - **Auto path**: None / left 1 / left 2 / right 1 / right 2. This menu
+    replaces the QWER keys. None means no path runs.
+- Mode behavior:
+  - Full auto shoots on its own.
+  - Semi auto gives the chassis to the operator. The AI locks a target on
+    its own at first; a digit key switches the target, and the robot waits
+    for the fire signal.
+  - Full manual hands everything to the operator.
+- Jeremy chose "**every Enable resets the target to 0, and key 0 returns
+  to the AI's pick**".
+- Each step of an auto path has its own speed. The paths themselves will
+  come later.
+
+**Changed:**
+- Firmware `ManualControl`:
+  - New wired command `MODE,<0..2>` (0 full auto, 1 semi, 2 manual) sets
+    the mode directly. The wired benches stay in full manual, the same as
+    with M.
+  - `requestEnable` resets `target` to 0, so every Enable starts on the
+    Orin's own pick.
+  - **Enable itself still always starts in full manual.** That safety rule
+    is unchanged; the Dashboard sends `MODE` only after the robot confirms
+    Enable.
+- Ground `GroundCommandState`:
+  - `MODE,<n>` sets CH4 to that level and emits
+    `$GROUND_EVENT,MODE_*` (shared `emitModeEvent()`).
+  - `E` resets `cmd.target` to 0. CH3 is held on the ground, so without
+    this the robot would take the old hole straight back after re-enabling.
+- Dashboard:
+  - New "模式" and "自動路徑" menus under the Enable button.
+  - Once the robot confirms Enable (`setControlArmed`: `justEnabled`),
+    `applyStartMenus()` sends `MODE,n` (skipped for full manual) and then
+    `AUTO,n` (skipped for None). It also resets the local target and auto
+    display.
+  - Changing the mode menu while enabled sends `MODE,n` immediately. While
+    enabled, the mode menu follows the mode the robot reports; after a
+    disarm it keeps that value as the next start mode.
+  - Changing the path menu takes effect at the next Enable.
+  - Both menus drop focus after a change, so arrows, Enter and Space go
+    back to robot control.
+  - **QWER removed.** The 0 key sends `TGT,0`. Auto-path names are now
+    左一 / 左二 / 右一 / 右二.
+- Auto-path content (timed steps, a speed per step) is not done yet.
+  `AUTO` currently only triggers and records.
+
+**Evidence:**
+- All 8 Mega envs and the ground pio build pass.
+- `manual_control_test`, new case `testModeCommandAndTargetReset`:
+  - `MODE` 0/1/2;
+  - bad values;
+  - refused while disarmed;
+  - M still cycles from the current mode;
+  - the target is reset by Enable;
+  - 0 returns to the AI's pick;
+  - the wired-manual bench stays manual on `MODE`.
+- Ground host test:
+  - `MODE` levels;
+  - bad values;
+  - `MODE` while not enabled is refused;
+  - `E` resets the target.
+- Dashboard page test:
+  - the menus send `E` → `MODE,1` → `AUTO,3` after the confirmation;
+  - nothing is sent before the confirmation;
+  - the mode menu follows the reported mode;
+  - changing the mode menu while enabled sends `MODE`;
+  - changing the path menu sends nothing;
+  - QWER send nothing;
+  - 0 sends `TGT,0`.
+- A browser check of the layout looked right.
+- Not run on hardware.
+
+**Compatibility:** this Dashboard sends `MODE`, which older firmware or an
+older ground station rejects as `UNKNOWN_COMMAND`. In that case the robot
+just stays in full manual, which is safe. The Dashboard, the Mega and the
+ground station should all be updated together.
+
+## 2026-10-16 — Claude Code: Dashboard realtime trace and vision stream panels removed
+
+**User Request:** Jeremy asked to remove "即時曲線" (the realtime trace) and
+"串流" (the vision stream).
+
+**Changed (`tools/dashboard/index.html` only):**
+- Removed the `data-panel="stream"` panel: MJPEG URL box, image, status,
+  the `tel-dashboard-stream-url-v1` localStorage key, and the `.stream-frame`
+  / `.stream-placeholder` CSS.
+- Removed the `data-panel="trace"` panel: `#chart` canvas, `drawChart()`,
+  `drawLine()`, and the 180-frame `history`.
+- `.stream-controls` stays, because the control panel's slider / button
+  rows use it.
+- `applyLayout()` now keeps only the panels that still exist. Without this,
+  a previously saved layout would keep the removed panels' space at the
+  bottom of the page.
+- The tx / ty / distance readouts, the field view, the log and the other
+  panels are unchanged.
+
+**Evidence:**
+- The Dashboard page and control tests pass. The test's "text box" is now
+  the elevation angle input, and a new assertion checks that the two panels
+  are gone.
+- In a real browser:
+  - demo mode updates the readouts with no console errors;
+  - editing the layout with an old saved layout containing stream / trace
+    prunes them correctly.
+
+## 2026-10-16 — Claude Code: Dashboard shows the vision distance in meters
+
+**User Request:** show the distance that vision measures on the Dashboard.
+
+**Changed (`tools/dashboard/index.html`):**
+- The Vision panel's distance card already existed. Before this change it
+  showed raw mm with the note "目前單位依 YOLO 輸出", and it showed 0 when
+  there was no target.
+- It now reads "相機距離" and shows **meters with 2 decimals**, which is
+  the shot table's unit. The line below it gives the original mm and the
+  note "相機到洞口的直線距離，填射擊表用這個".
+- With no valid target, or a distance of 0, it shows "--" / "看不到目標",
+  never "0 m".
+- The control panel's target-hole card also shows the distance:
+  - "視覺 #10 已看到 ✓ 3.50 m"
+  - "AI 自選 #11 3.50 m"
+- New helper `distanceMeters(data)`: valid && distance > 0 ? mm / 1000 :
+  null.
+
+**Limit:** this distance comes from TEL telemetry, so it is only available
+when the Dashboard is connected to the **Mega's USB**. The ground station's
+wireless status uplink has no distance field, so a wireless connection
+shows nothing here. Shot-table calibration therefore has to be done over
+USB.
+
+**Evidence:**
+- The Dashboard page and control tests pass, with new assertions for 3.50 m
+  / 3500 mm, the no-target case, and the AI-pick distance.
+- In a real browser, demo mode shows "1.62 m · 1616 mm".
+
+## 2026-10-16 — Claude Code: Dashboard mode / auto-path menus moved to their own panel
+
+**User Request:** Jeremy sent a screenshot: "把這兩個選單單獨拉出來" (pull
+these two menus out on their own).
+
+**Changed (`tools/dashboard/index.html`):**
+- The "模式" and "自動路徑" menus moved out of the Manual Control panel
+  into a new `data-panel="setup"` panel, "Match Setup / 模式與自動路徑".
+  It sits directly above Manual Control and can be dragged and resized
+  like the other panels. The element ids and behavior are unchanged.
+- This panel is naturally short (about 130 px), and `updatePanelDensity()`
+  treats any panel under 210 px as tiny and shrinks its text to 10 px. The
+  panel is marked `data-fixed-density` so the density pass skips it.
+- With an older saved layout, the new panel is placed using the existing
+  fallback.
+
+**Evidence:**
+- The page test passes, with a new assertion that both menus are in the
+  setup panel and not in the control panel.
+- In a real browser: panel order is vision → setup → control, and the text
+  is back to normal size.
+
+## 2026-10-16 — Claude Code: Dashboard safety panel removed; Enable / Falcon / elevation in their own panel
+
+**User Request:** delete the safety panel. Move Enable, the speed slider and
+the elevation set out of the Manual Control panel into a panel of their own.
+
+**Changed (`tools/dashboard/index.html`):**
+- Deleted the `data-panel="safety"` panel. Removed with it: `#risk`,
+  `updateRisk()`, the `.risk` / `.risk-card` / `.hint-list` CSS, and the
+  matching compact / tiny rules.
+- New `data-panel="operate"` panel, "Enable & Outputs / 啟用與輸出". It
+  sits right below Match Setup and holds:
+  - the Enable button, the key hint text, and the armed badge
+    `#controlArmedBadge`;
+  - the Falcon slider;
+  - the elevation slider, number box and Set button.
+
+  The panel uses `data-fixed-density` so it never shrinks to the small-text
+  layout. Element ids are unchanged, so no JS changed.
+- The Manual Control panel keeps only the readout cards; its title is now
+  "手動操控狀態".
+- Panel order: vision → setup → operate → control → field / telemetry,
+  with sbus / log on the side.
+
+**Evidence:**
+- The page and control tests pass, with new assertions:
+  - Enable, the slider and Set are inside the operate panel, not the
+    control panel;
+  - the safety panel is gone.
+- In a real browser: demo mode works with no console errors, and the panel
+  order and layout look right.
+
+## 2026-10-17 — Claude Code: Xbox gamepad layout, match start (Y) + 3:00 countdown, keyboard trimmed
+
+**User Request (Jeremy):**
+- The gamepad uses the Xbox layout by default:
+
+  | Control | Action |
+  |---|---|
+  | Left stick Y | forward / back |
+  | Right stick X | turn |
+  | D-pad | elevation / turret fine adjust |
+  | X / A / B | full auto / semi auto / full manual |
+  | RB | fire |
+  | LB | turret home (AS5600, later) |
+  | Y | start the auto modes and show a 3:00 countdown |
+- Flow: connect → pick the path (and mode) → Enable, **and the robot does
+  not move (sticks dead)** → press Y to run everything.
+- The countdown starts on the first Y. At 0 it only shows 0:00 and does
+  nothing else.
+- Remove M and the arrows from the keyboard.
+
+**Changed (`tools/dashboard/index.html` only; firmware, ground station and
+Orin are unchanged):**
+- `GAMEPAD_PROFILES.standard` (browser Gamepad API "standard" mapping):
+
+  | Field | Value |
+  |---|---|
+  | forwardAxis | 1 |
+  | turnAxis | 2 |
+  | fireButton | 5 (RB) |
+  | startButton | 3 (Y) |
+  | homeButton | 4 (LB) |
+  | modeButtons | {X(2) → 0, A(0) → 1, B(1) → 2} |
+  | dpad | 12–15 |
+
+  `other` (flight stick) stays axes 0/1 with fire on button 0, and has no
+  start or mode buttons; the new Start button and the menu cover those.
+- Every button acts once per press, through `gamepadButtonsPrev`. A press
+  made while disabled is never replayed later.
+- `pollGamepad()`:
+  - Mode buttons work at any time through `selectMode()`. Before the start
+    they only set the menu; during the match they send `MODE,n`.
+  - Once enabled, Y → `startMatch()`.
+  - LB only logs "AS5600 尚未安裝".
+  - **Before `matchStarted` it returns without sending any motion.**
+  - After the start: the stick (center first again) → T, the D-pad →
+    `dpadAxes()` → ROT/ANG through the existing hold-to-move path. In the
+    auto modes the firmware still turns each press into one fine-adjust
+    step. RB → F.
+- `startMatch()` (Y or the new "開始比賽 / Start（Y）" button):
+  - once per Enable;
+  - sends `MODE,n` (skipped for full manual), then `AUTO,n` (skipped for
+    None);
+  - `matchEndsAt = now + 3:00`.
+
+  The menus are no longer applied at Enable, only at Y. Enable still
+  resets the target display to the AI's pick.
+- Before the start the Falcon slider, the elevation slider/box/Set and
+  Start-while-pending are all disabled or ignored. The heartbeat only
+  sends K.
+- A disarm clears `matchStarted`, so a new Enable waits for Y again, but
+  the running countdown keeps going. `renderMatchTimer()` runs every
+  200 ms and on every UI update:
+  - shows m:ss;
+  - at 0 shows "0:00" in red ("時間到") and changes nothing else;
+  - a new Y restarts it from 3:00.
+- Keyboard: only 1–9 / 0, Enter and Space are left. M, the arrows, the
+  keyup handler and the focusin hold-release handler are removed, because
+  nothing on the keyboard is held any more.
+
+**AS5600 turret home: design recorded, not implemented (Jeremy:
+"先記著之後做"):**
+- **Hardware:**
+  - The AS5600 sits on the turret motor shaft, which drives the turret's
+    big pulley through a belt at 180 : 36.5. One turret turn is about
+    4.93 magnet turns.
+  - The turret only travels about 180°, which is about 2.47 magnet turns,
+    or about 56 counts per turret degree.
+  - It will use I2C on D20 / D21. **The feed tower trigger (D21 today) has
+    to move first** (Jeremy: "送球塔的腳位之後會改").
+- **Multi-turn counting:**
+  - `delta = raw − last`; if delta > 2048, subtract 4096; if delta <
+    −2048, add 4096; `total += delta`.
+  - The magnet must move less than 2048 counts between reads. At 2 rev/s
+    that is about 80 counts per 10 ms, so it is safe.
+- **Home (Jeremy):**
+  - On the robot, pick a setpoint inside the first magnet turn (0–4095)
+    as the origin, and count left/right from there.
+  - At boot, if the turret is inside that first turn, a dedicated **turret
+    PIDF (separate from the vision-follow PIDF)** brings it to the
+    setpoint.
+  - Otherwise, LB brings it back to the setpoint.
+  - LB: one press drives to center and stops. In the auto modes it pauses
+    vision-follow, then hands the turret back.
+- **Caveat to raise with Jeremy when this is built:** the same raw count
+  repeats about every 73° of turret travel (one magnet turn). At boot the
+  Mega cannot tell which turn it is in, so it assumes the nearest one. The
+  automatic home is only right if the turret is powered up within about
+  ±36° of center (half a magnet turn). If it starts at, say, 90°, it
+  locks onto the wrong turn and "home" lands about 73° off. Options when
+  implementing:
+  - mark the turret for power-up;
+  - home against a mechanical end (the AS5600 count stops changing) once;
+  - add a switch.
+  - Also add software limits of about ±85°.
+
+**Evidence:**
+- `dashboard_control_test` now pins the Xbox map (axes, RB / LB / Y,
+  X / A / B → modes, the D-pad) and `dpadAxes()`.
+- `dashboard_page_test` was rewritten for the new flow and covers:
+  - nothing moves before Y (stick, D-pad, RB, slider), only K;
+  - digits still go out, and X / A / B only set the menu;
+  - Y sends `MODE` / `AUTO` once, starts 3:00, then 2:00 and 0:01; a second
+    Y does nothing;
+  - disarm stops the match but not the clock; at 0 the robot stays
+    enabled;
+  - the ground station sends `MODE,1` / `AUTO,3` only at Y;
+  - X / A / B and the menu during the match;
+  - LB does nothing except the log line;
+  - right stick X turn, left stick Y forward, the other axes are ignored;
+  - RB fires and Y doesn't;
+  - unplugging zeroes T / ROT;
+  - the flight-stick profile;
+  - the keyboard M / arrows are gone.
+- In a real browser the layout is right and the console has no errors.
+- Not run on hardware.
+
+## 2026-10-17 — Claude Code: aim frames on the wireless uplink (distance / elevation pulse over the radio)
+
+**User Request:** the Dashboard shows the camera distance and the elevation
+pulse only on the Mega's USB, because they live in the TEL line. Jeremy:
+"好，現在做" — make them show through the ground station too.
+
+**Why this design:**
+- The uplink stays on the CRSF **Battery** frame, chosen earlier because a
+  custom frame type may not survive ELRS.
+- The robot bridge forwards any `ST,<flags>,<seq>,<code>` line within its
+  field ranges (flags ≤ 255, seq ≤ 0xFFFFFF, code ≤ 65535), so the aim
+  data rides in those three fields and **the bridge needs no change**. The
+  rebuilt image sha is still 99b017a4….
+- One line per 100 ms keeps it safe with the bridge's "latest line every
+  100 ms" forwarding.
+
+**Changed:**
+- `RcControlMap.{h,c}`: aim frame codec.
+  - code: bit 15 = aim frame, bits 0–14 = distance in cm (0 = none).
+  - seq: bits 0–11 elevation pulse µs, 12–15 vision id sent to the Orin,
+    16–19 the frame's vision id, bit 20 valid.
+  - flags: aim offset px as int8.
+  - New functions `rcmap_aim_to_status()`, `rcmap_aim_from_status()`,
+    `rcmap_status_is_aim()`.
+  - A status code is at most 0x3FFF (12-bit event plus mode + 1 in bits
+    12–15), so the two kinds can never be confused. The test checks every
+    event × mode.
+- New `src/IO/AimUplink.{h,cpp}` builds the frame from:
+  - `Vision::isValid` / `getDistance` (mm → cm; 0 when invalid);
+  - `getSelectedTarget`, `getTargetId`;
+  - `Shooter::getAnglePulseUs`;
+  - `ManualControl::getAimOffsetPx`.
+- `ManualControl::sendStatusIfDue()` alternates the 100 ms slot: status,
+  aim, status, aim, starting with status. **Status and aim each now go out
+  every 200 ms**, well inside the ground's 1 s staleness window. Events
+  therefore reach the ground up to about 100 ms later.
+- Ground `RobotStatusTracker`:
+  - An aim frame is stored apart and never emits `$EVENT` or touches the
+    status / flags.
+  - `tick()` emits `$AIM,<fresh>,<distanceCm>,<elevationPulseUs>,
+    <selectedId>,<targetId>,<valid>,<aimOffsetPx>` after `$WIRELESS`.
+  - `fresh` is 0, with zeros, after 1 s without an aim frame.
+- Dashboard: `handleAimStatus()` fills the camera-distance card, the
+  elevation pulse readout and the target-hole line from `$AIM`.
+  `updateDistanceReadout()` is now shared with the TEL path. The radio
+  carries no elevation offset, so the target line omits it there.
+- `tools/stm32_elrs_robot_bridge`: test-only changes.
+  - The host test now proves the bridge parses an aim `ST` line, and that
+    it decodes back.
+  - `build.py` links `RcControlMap.c` into that host test.
+  - The firmware image is unchanged.
+
+**Compatibility:** an old ground with new Mega firmware would read aim frames
+as status, with garbage flags. **Flash the ground and the Mega together**;
+they are already being flashed together on 2026-10-17. An old Mega with the
+new ground just shows `$AIM,0,...`.
+
+**Evidence:**
+- All 8 Mega envs build (RAM 2594 B). The ground pio build passes. The
+  bridge `build.py` passes its host test and the sha is unchanged.
+- `rc_control_map_test`:
+  - aim round trip through the Battery frame;
+  - clamps;
+  - no status code ever looks like an aim frame.
+- `manual_control_test` new case `testAimUplink`:
+  - status-first alternation, 5 / 5 per second;
+  - content with and without a target;
+  - status frames unaffected.
+
+  `testStatusUplink` waits updated from 120 to 220 ms.
+- Ground `testAimFrames`:
+  - no `$EVENT`, flags untouched, the `$AIM` line, the next event still
+    reported;
+  - stale, and never heard.
+- Dashboard page test: `$AIM` seen / not seen / AI pick / stale /
+  malformed.
+- All other host and page tests pass.
+- **Not run on hardware.** The Battery-frame uplink itself is still
+  unproven over the air until the 2026-10-17 wireless test.
+
+## 2026-10-17 — Claude Code: wireless uplink works on hardware; slower-telemetry tuning
+
+**Hardware result (Jeremy, first wireless bench of the day):**
+- The Battery-frame status uplink **works over the air**, for the first
+  time. The Dashboard showed "disarmed / none · 489 ms" with RF LQ 96–99%
+  up and down.
+- The readout kept flipping to "no robot status", because status frames
+  arrived up to about 1 s apart. ELRS sends telemetry only in sparse slots
+  (default ratio about 1:64), keeps only the latest Battery frame, and
+  status and aim frames now share those slots.
+- RSSI showed "-232 dBm": a display bug.
+
+**Changed (Jeremy chose the code-side fix first; ELRS Telem Ratio left at
+its default):**
+- Ground `RobotStatusTracker::STALE_MS` goes from 1 s to **3 s** for both
+  `$WIRELESS` and `$AIM`. This is display only; the robot still disarms
+  itself on RC loss.
+- Mega `sendStatusIfDue()`: slots are now **status, status, aim**
+  (`statusSlot` 0 / 1 / 2) instead of 1:1, so status gets two thirds of the
+  sparse telemetry slots.
+- Dashboard:
+  - `ENABLE_PENDING_TIMEOUT_MS` goes from 3 s to **5 s**.
+  - New `rssiDbm()`: above 127 the byte is a signed value (232 means
+    −24 dBm); otherwise it follows the spec ("dBm × −1", 45 means −45 dBm).
+
+**Evidence:**
+- Ground host test updated (still fresh at 1 s, stale at 3.05 s) and
+  passes.
+- `manual_control_test` passes, with the slot pattern now S S A (6 status
+  and 3 aim frames in 900 ms).
+- Dashboard tests pass (5 s pending, RSSI −45 / −24).
+- The four ManualControl envs and the ground pio build pass. The bridge is
+  untouched.
+
+**Next:**
+- Reflash the Mega and the ground station, then watch the age number in
+  "wireless link".
+- If it still flips, raise the ELRS Telem Ratio to 1:8 or 1:4 (ELRS Lua on
+  an EdgeTX radio; it is stored on the TX).
+
+## 2026-10-17 — Claude Code: wireless bench results and link robustness (robot bridge reflashed, 11c1 pad, PC timeout, buffers)
+
+**Hardware results (2026-10-17 morning, Jeremy):**
+- **Root cause of "Enable always fails"**: the robot's ELRS bridge STM32
+  still ran the 2026-10-11 `16f26be` image. It sends **9** RC channels;
+  `RCMAP_CHANNEL_COUNT` became 10 in `d7b6cbe` (10-12), so `MechLink`
+  rejected every line.
+  - TEL slots 7–11 were stuck at the `setSafe` values
+    1500,1500,2000,1000,1000.
+  - Meanwhile the bridge LED stayed solid and the Battery-frame uplink
+    worked.
+  - Claude had wrongly said the bridge needed no reflash, because the repo
+    image sha was unchanged.
+  - After reflashing `dist/` (99b017a4, 10 channels), **wireless Enable
+    works end to end** (OUTPUTS_ENABLED and match start over the radio).
+- The team's pad is Vendor 11c1 in D-input mode with no "standard" mapping.
+  A profile was added in `0384adc`: hat D-pad on axis 9, RB fire, Y start.
+- Two remaining issues: repeated `ground: PC_TIMEOUT` (the ground station
+  heard no Dashboard line for 250 ms) and occasional
+  `UNKNOWN_EVENT_CODE`.
+
+**Changed:**
+- Ground `PC_TIMEOUT_MS` 250 → **500 ms**. The Dashboard sends at least
+  every 75 ms.
+- Ground `RobotStatusTracker::onStatus`: a status whose event code is ≥
+  `RCMAP_EVENT_COUNT` is corrupt and is dropped whole: no `$EVENT`, flags
+  untouched, freshness not renewed.
+- Mega production envs: `SERIAL_RX_BUFFER_SIZE` / `SERIAL_TX_BUFFER_SIZE`
+  64 → 256, the same as the ELRS bench that passed on 10-11. This is so the
+  TEL print can't block the loop long enough to overflow Serial2 RX. RAM
+  goes from 2594 to 3746 B (45.7%).
+
+**Evidence:**
+- Ground host test passes: still armed at 251 ms, released at 501 ms;
+  corrupt status dropped.
+- Ground pio and the four production-family Mega envs build.
+- Hardware retest pending (reflash ground + Mega).
+
+**Open:**
+- Where corrupt status frames come from is not yet known. Candidates: the
+  Mega → bridge line, or the bridge's parse.
+- If `PC_TIMEOUT` persists, check whether the Dashboard window was occluded
+  or in the background (Chrome timer throttling).
+
+## 2026-10-17 — Claude Code: direction fixes from the robot test (turning, turret jog)
+
+**Robot result (Jeremy):** stick left turned the robot right and stick right
+turned it left. The horizontal fine-adjust (turret jog) was also reversed.
+
+**Changed:**
+- Dashboard `gamepadTank()`: stick right is now `T,+turn,−turn`, left
+  wheel forward, where it used to be `T,−1,1`. Fixed in the page so both
+  the wired and the wireless paths follow, since the ground station turns
+  T into forward/turn and the Mega mixes it back. No reflash.
+  Forward/back unchanged.
+- New `TuningConstants::Rotate::MANUAL_JOG_INVERTED = true`.
+  `ManualControl::applyOutputs()` flips only the operator's full-manual
+  turret jog (D-pad / wireless nudge). `Rotate::INVERTED` stays false,
+  because the vision-follow direction was validated on the bench. The
+  auto-mode aim offset sign (+ = right) is unaffected.
+- Tests: page test turn expectations; `manual_control_test` uses a `JOG`
+  sign plus a `static_assert` pinning the robot-verified value.
+
+**Evidence:** page, control and `manual_control_test` (3 variants) pass, and
+the 4 Mega envs build. **Next:** reflash the Mega, check that stick
+left/right and D-pad left/right now match, and check that forward/back
+is still right.
+
+## 2026-10-17 — Claude Code: feed tower trigger moved D21 → D22
+
+**User Request:** Jeremy asked whether the trigger idles LOW, worried that
+the tower "fires by itself now and then". Decision: move the trigger to
+**D22**.
+
+**Why:**
+- In production the trigger idles LOW (driven) and pulses HIGH for 100 ms
+  per shot.
+- But D21 is the Mega 2560's I2C SCL, which has an on-board pull-up.
+  Whenever the pin is not driven, it sits **HIGH**:
+  - during reset, boot and upload;
+  - in every bench build that doesn't drive the tower
+    (`mega_elrs_link_test`, `mega_serial1_test`, the wired / drive / axes
+    benches, and so on).
+- D22 has no pull-up, and D20/D21 are left free for the turret AS5600
+  (I2C).
+
+**Changed:**
+- `DribblerConstants::Tower::TRIGGER_PIN` 21 → 22.
+- Comments updated in `DribblerConstants.h` and the `Pins.h` pin list.
+- The pincheck passes; the outputs are D22–D25, D45 and D46.
+
+**Remaining:**
+- D22 still floats until `Dribbler::init()`, and in benches that don't
+  drive it. A pull-down (about 1–10 kΩ) on the tower's input, or
+  rising-edge triggering on the tower side, keeps it safe.
+- **Rewire the trigger to D22 before flashing.**
+
+**Evidence:** `manual_control_test` passes in 3 variants and the 4 Mega
+production-family envs build. Not run on hardware.
+
+## 2026-10-17 — Claude Code: Falcon slider over the wireless link (CH4)
+
+**User Request:** Jeremy asked for the Dashboard's Falcon slider to work
+over the wireless link too. Until now the radio had no flywheel channel
+(table v2), so the slider did nothing while wireless. He chose option B:
+the flywheel shares CH4 with the mode, at 1% steps. Option A was 6 levels
+on CH9.
+
+**Discussion Result / Why:**
+- Only CH1–4 are full resolution in ELRS Hybrid; CH6 and up have 6
+  positions.
+- The flywheel only matters in full manual, because in the autos the
+  shot table drives it. So it can share CH4 with the mode.
+
+**Changed:** new CH4 layout (`RcControlMap.h`):
+
+| CH4 value | Meaning |
+|---|---|
+| 2000 µs | full manual, flywheel 0 (unchanged) |
+| 1750 µs | semi auto (unchanged) |
+| 1500 µs | full auto (unchanged) |
+| 1000 + 300·f µs, 0 < f ≤ 1 | full manual with the flywheel at f (3 µs = 1%) |
+| 1300–1399 µs | gap; `rcmap_decode` rejects the frame |
+
+- `RCMAP_MODE_FULL_AUTO_MIN_US` moved 1250 → 1400.
+- `rcmap_command.flywheel` added.
+  - Encode: sent only in full manual, rounded to whole percent; NaN or
+    ≤ 0 sends 2000.
+  - Decode: rounds to the nearest 1%, 0 outside full manual, and returns
+    the exact mode level in `mode_us`.
+- Ground STM32:
+  - `FLY,<0..1>` is now parsed. It is BAD_COMMAND outside 0..1 and is
+    kept only in full manual.
+  - A mode change (`MODE`/`M`), `E`, `X` and a PC timeout set it to 0.
+  - `ANGT` stays no-channel.
+- Mega `processWirelessFrame`:
+  - `flywheelCommand = c.flywheel`. `applyOutputs` already uses it only
+    in full manual.
+  - A wireless Enable whose CH4 carries a flywheel speed is refused with
+    `ENABLE_REJECTED_NOT_MANUAL`.
+
+**Safety and compatibility:**
+- The three old levels are unchanged. A ground STM32 still on the old
+  image therefore can never make a new Mega spin the flywheel.
+- A new ground with an old Mega:
+  - Values ≥ 1250 µs read as full auto. That is a flywheel above about
+    83%, so the old Mega would switch modes.
+  - Lower values are ignored, since the old Mega forces the flywheel to 0.
+  - Reflash both together.
+- The Dashboard was not changed: it already gates the slider on armed +
+  match started + full manual and resends FLY with the heartbeat.
+
+**Impact:** reflash the Mega and the ground STM32. Robot bridge: no; a
+rebuild gives the same `.bin`, sha256 99b017a463ba3163…, because it links
+only the status helpers. Orin: no.
+
+**Evidence:**
+- `rc_control_map_test`: every 1% round-trips, also with ±1 µs jitter;
+  the gap is rejected; old levels decode with the flywheel at 0.
+- `manual_control_test` (3 variants) adds `testWirelessFlywheel`: speed
+  in manual, 0 in semi auto, 0 on link loss, Enable refused when the
+  speed isn't 0.
+- Ground host test adds `testFlywheel`.
+- Vision, operator-target, shot-table and the two Dashboard tests pass.
+- Builds pass:
+  - `megaatmega2560` (RAM 45.7%);
+  - `mega_wired_manual_test`, `mega_drive_test`, `mega_manual_axes_test`
+    and `mega_elrs_link_test`;
+  - the ground STM32.
+- Not run on hardware.
+
+**Next Test:** after reflashing both boards: Enable over the radio, Y,
+full manual, slider 10% → 30%. The Falcon should follow and the Mega TEL
+mode channel should read about 1030 → 1090. Switching to semi auto must
+drop it, as must releasing Enable.
+
+**Separate open hardware item:** the Falcon turns slowly at the 1500 µs
+neutral even though D25 and GND are confirmed. The code always outputs
+1500 when stopped. Suspects: the Falcon's own neutral/deadband
+configuration (it is borrowed from another team) or its PWM calibration.
+Check the LED colour at neutral and unplug the signal wire to confirm.
+
+## 2026-10-17 — Claude Code: two-stage PC watchdog on the ground STM32 + stall logging
+
+**User Request:** Jeremy reported "still drops now and then" after
+flashing 90092ec. The log showed `ground: PC_TIMEOUT`: the ground STM32 had
+heard nothing from the Dashboard for more than 500 ms, and released the
+enable. That meant a new Enable and a new Y mid-match. He approved:
+diagnostics plus a two-stage timeout.
+
+**Why:**
+- The ground's loop reads USB before it checks the timeout, with the same
+  `now`, so its own stalls can't fake a timeout.
+- That leaves a page stall or a USB stall. The log could not tell which.
+- The old one-stage design made every hiccup cost the whole match state.
+
+**Changed:**
+- `GroundCommandState`:
+  - `PC_HOLD_MS` = 300. Above it, `holdMotion()` sets forward, turn,
+    nudge and flywheel to neutral, keeps arm/mode/target, and prints
+    `$GROUND_EVENT,PC_HOLD` once. The next accepted line prints
+    `$GROUND_EVENT,PC_RESUMED,<silent ms>` and clears the hold.
+  - `PC_TIMEOUT_MS` 500 → 1500. Above it the enable is released and
+    `$GROUND_EVENT,PC_TIMEOUT` is printed, unchanged. Old Dashboards
+    still recognise it.
+  - Every accepted line goes through `notePcLine()`. Rejected or unknown
+    lines still don't count as the PC being alive.
+- Dashboard:
+  - `PC_GAP <ms> (page busy)` is logged when a heartbeat tick runs more
+    than 250 ms late. This is measured only while enabled or enabling, and
+    resets on disarm.
+  - `WRITE_SLOW <ms> (USB)` is logged when `writer.write` takes more
+    than 250 ms.
+  - The hold and resume events are log-only and do not disarm.
+
+**Impact:**
+- A frozen PC now stops motion in 300 ms (was 500) and disarms at 1.5 s
+  (was 0.5 s).
+- Reflash only the ground STM32. The Dashboard updates through Pages on
+  push. The Mega, bridge and Orin are unchanged.
+
+**Evidence:**
+- Ground host test `testPcWatchdog` rewritten to cover: hold at 301 ms
+  with arm/mode/target kept, printed once; resume with the gap (640);
+  outputs return on the resends; a rejected line is not alive; timeout at
+  1501 ms; no stale resume after a new E; quiet while disarmed.
+- Page test covers: hold/resume don't disarm; PC_GAP is logged at
+  625 ms and not at 75 ms or while disarmed; no false gap on the first
+  tick after Enable; WRITE_SLOW.
+- Control test passes. The ground firmware builds. Not run on hardware.
+
+**Next Test:** use the robot normally. When it hiccups, the log
+should show `ground: PC_HOLD` and then `PC_RESUMED,<ms>`, and the robot
+should keep its enable. A `PC_GAP` next to it means the page was busy.
+`WRITE_SLOW`, or a large `PC_RESUMED` with no `PC_GAP`, means USB or the
+hub.
+
+## 2026-10-17 — Claude Code: Falcon stop trim + Flywheel INVERTED committed
+
+**User Request:** The flywheel creeps backwards when it should be still,
+even though D25 and GND are confirmed. Jeremy asked to send a small
+forward value at rest instead. He also asked to commit his local
+`Flywheel::INVERTED = true`, which he had already flashed after the robot
+test.
+
+**Changed:**
+- `TuningConstants::Flywheel::INVERTED = true`. This is Jeremy's value,
+  now committed.
+- New `TuningConstants::Flywheel::STOP_TRIM_US = 10`, with a
+  `static_assert` in ShooterConstants.h limiting it to 0..30 µs.
+- `Shooter::writeFlywheelCommand()`: a command ≤ 0 becomes
+  `STOP_TRIM_US / 500` and goes through the same `commandToPulseUs()`
+  INVERTED handling.
+  - "Stopped" covers disabled (`stopAll`), before Y, and the slider at 0.
+  - Commands above 0 are unchanged.
+  - `init()` still sends a plain 1500 for the very first pulse;
+    `stopAll()` right after it applies the trim.
+
+**Calculation:** 10 µs → command 0.02. INVERTED gives −0.02, so the pulse
+is 1500 + 0.02·(1000 − 1500) = **1490 µs**. Not inverted it would be
+1510 µs. Checked values:
+
+| Trim (µs) | Pulse, INVERTED | Pulse, not inverted |
+|---|---|---|
+| 5 | 1495 | 1505 |
+| 15 | 1485 | 1515 |
+| 20 | 1480 | 1520 |
+| 30 | 1470 | 1530 |
+
+The Falcon's neutral deadband is about ±4%, roughly ±20 µs.
+
+**Why:**
+- This borrowed Falcon reads 1500 as slightly reverse, probably because
+  of its own neutral or deadband configuration.
+- The trim is a robot-specific workaround. Set it back to 0 for a Falcon
+  that is configured normally.
+- The 30 µs cap stops a typo from spinning a disabled flywheel.
+
+**Impact:** reflash the Mega only. The Dashboard's Falcon PWM readout will
+show 1490 at rest.
+
+**Evidence:**
+- Mega envs build: `megaatmega2560`, manual axes, wired manual, drive,
+  gamepad motor and vision rotate.
+- `manual_control_test` passes.
+- The pulse arithmetic was checked on the host (table above).
+- Not run on hardware.
+
+**Next Test:**
+1. Flash, then leave the robot disabled and watch the flywheel.
+2. Still creeping backwards: raise the trim to 15, then 20.
+3. Creeping forwards: lower it to 5.
+4. Then Enable, Y, and check that the slider at 0 is also still.
+
+## 2026-10-17 — Claude Code: wireless enable/disconnect fixes (bridge, ground, Dashboard)
+
+**User Request:** after 34fd71f the link kept dropping:
+`PC_HOLD` → `PC_TIMEOUT`, "no confirmation" on the first Enable, and
+`OUTPUTS_ENABLED` arriving 6 s after E. Jeremy approved fixing all of it.
+The ELRS TX OLED shows 150Hz 25mW 1:32 TLM (not 1:64 as assumed before).
+Jeremy is changing it to 1:4 on the module.
+
+**Causes found:**
+1. **Robot bridge.**
+   - Any line from the Mega not starting with `ST,` was stored and
+     re-sent as a `TEL_CHUNK` (0x7F) frame every 20 ms, forever.
+   - The production Mega only sends `ST,`. But one garbled line (a Mega
+     reset or upload mid-line) is enough to start about 40 custom frames
+     a second, which compete with the Battery status frames for ELRS's
+     telemetry slots.
+   - This is a likely cause of multi-second status lag. It is unproven:
+     the ground doesn't count frame types.
+2. **Dashboard.** A *fresh* `$WIRELESS` (received within 3 s, but its
+   content possibly seconds old) saying "not armed by wireless" disarmed
+   the page silently. The heartbeat stopped, and the ground then fired
+   `PC_HOLD` and `PC_TIMEOUT`. This matches 6:57:47 and 7:02:06.
+3. **Ground.** E while CH6 was already high did `release()` + arm in the
+   same instant, so CH6 never went low on air. The robot (which needs a
+   low→high edge, and after an RC outage first needs a low) never
+   confirmed: "no confirmation", and only a second press worked.
+
+**Changed:**
+- Bridge `main.c`: non-`ST,` lines are dropped, and the TEL_CHUNK sender
+  and `TEL_CHUNK_SEND_PERIOD_MS` are removed. Only status goes up.
+  - New image: 2584 bytes, sha256 `ee0344818ee2b1c2…`.
+  - **Reflash the robot bridge.**
+- Ground `GroundCommandState`:
+  - `enabled` (E accepted) is separate from CH6 (`cmd.armed`).
+  - `ARM_LOW_MS` = 200: CH6 rises only after it has been low for 200 ms,
+    at once if it already was.
+  - `enableEpoch()` is bumped on E and on a real release; `main.cpp`
+    then calls `RobotStatusTracker::invalidate()`, so `fresh` = 0 until
+    the next status. Events still come through.
+  - LED follows `isEnabled()`.
+- Dashboard:
+  - `$WIRELESS` no longer disarms the page. It can still confirm a
+    pending Enable. A mismatch is logged once per enable.
+  - Disarm comes from robot events (`DISARM_EVENTS`) and ground
+    releases.
+  - Safe either way: the robot needs a new CH6 edge, and the ground
+    releases 1.5 s after the page goes quiet.
+  - `$RFLINK` changes are logged: lost / back, and LQ below 50% (once
+    until it recovers above 70%).
+
+**Evidence:**
+- Ground host tests add `testArmEdge` (immediate raise; 200 ms low
+  when re-enabling from high; X then quick E; release during the wait;
+  epoch) and `testStatusInvalidate`. `testInputHardening` was adjusted.
+- Page test: a status mismatch is logged once and does not disarm; the
+  robot event does; RF logging.
+- Control, rc map and manual_control tests pass. The bridge build.py
+  runs its host test, then the cross-build and checks. The ground
+  firmware builds.
+- Not run on hardware.
+
+**Next Test:**
+1. Reflash the bridge and the ground.
+2. Set TLM 1:4.
+3. Enable once: it should confirm in about 1 s.
+4. Drive for several minutes; there should be no `PC_TIMEOUT`.
+5. If it still drops, the log should now say why: `robot status says…`,
+   `RF link lost`, `RF LQ low`, `PC_GAP` or `WRITE_SLOW`.
+
+## 2026-10-17 — Claude Code: tx / ty over the wireless link; vision panel trimmed
+
+**User Request:** With the camera connected, the Dashboard showed the
+distance over the wireless link but no tx/ty. Jeremy wanted tx/ty shown,
+and the vision panel cut down to distance, tx and ty.
+
+**Why:** The aim frame was full (46 bits), so tx/ty needed a frame of
+their own. With TLM now at 1:4 the uplink has room for it.
+
+**Changed:**
+- `RcControlMap`: new vision frame.
+
+  | Field | Contents |
+  |---|---|
+  | code | bits 15-14 = `01`; bits 0-13 = distance in cm, max 16383 |
+  | seq | tx·2 and ty·2, each 12-bit two's complement (0.5 px steps, ±1023.5 px) |
+  | flags | bit 0 valid; bits 1-4 = vision id |
+
+  - Status codes are at most 0x3FFF and aim frames have bit 15 set, so
+    the three never collide. The bridge's ST line field ranges still
+    hold, so the bridge is unchanged (same .bin, ee034481).
+- Mega:
+  - `AimUplink::sendVision()`. tx/ty/distance are 0 when not valid.
+  - Status slots are now status, aim, status, vision (were status,
+    status, aim). Status goes out every 200 ms; aim and vision every
+    400 ms each.
+- Ground: `RobotStatusTracker` keeps vision frames apart and emits
+  `$VISION,<fresh>,<cm>,<tx*2>,<ty*2>,<valid>,<id>` every 250 ms, in
+  half pixels because there is no float printf.
+- Dashboard:
+  - `handleVisionStatus` shows tx/ty, or `--` when the data is stale or
+    not valid.
+  - The vision panel keeps only tx, ty and distance. The targetId,
+    valid, shooterReady, operatorMode and warnBits cards and their code
+    were removed. The mode stays visible in the enable badge and the
+    mode menu.
+
+**Impact:**
+- Flash the Mega and the ground STM32 **together**. An older ground would
+  read a vision frame as a status with a bogus event.
+- The bridge and the Orin are unchanged.
+
+**Evidence:**
+- rc map `test_vision_frames`: round trip, clamps, no overlap with
+  status/aim.
+- `manual_control_test` (3 variants): slot order, and the new
+  `testVisionUplink`.
+- Ground `testVisionFrames`.
+- Page test covers `$VISION` and the removed card ids.
+- Vision link, operator target, shot table and control tests pass.
+- Builds pass: `megaatmega2560` (RAM 45.9%), axes, wired, drive,
+  elrs-link and the ground. Bridge sha unchanged.
+- Not run on hardware.
+
+**Next Test:**
+1. Flash the Mega and the ground STM32.
+2. Point the camera at a hole while on the wireless link.
+3. tx/ty should update about every 0.4 s and match the Orin window's
+   overlay.
+4. Moving the target out of view should show `--`.
+
+## 2026-10-17 — Claude Code: flywheel at 0 in the autos for turret-follow testing
+
+**User Request:** Jeremy wants to test the turret vision-follow in semi
+auto without the flywheel running. He asked for the shot-table flywheel
+values to be 0.0, not a switch, so that the flywheel behaves as it does
+when manually disabled.
+
+**Changed:**
+- Every flywheel entry in all four `ShotTable` rows is 0.00. They were
+  0.72 at 2.5 m, rising 0.03 per 0.5 m to 0.98 at 8.5 m; the old values
+  are noted in a comment.
+- `Flywheel::SHOOT_COMMAND` 0.8 → 0.0. This is the no-target command in
+  the autos, so the flywheel stays stopped there too. With command 0,
+  `writeFlywheelCommand` sends the same stop-trim pulse as when disabled:
+  1490 µs (`STOP_TRIM_US` 10 with INVERTED).
+- `Shooter::updateFlywheelReady()` is now ready only if the command is
+  > 0 *and* ≥ SHOOT_COMMAND. Otherwise SHOOT_COMMAND 0 would have made a
+  stopped flywheel "ready" after 1.5 s, and the autos could have fed a
+  ball into it.
+- `shot_table_lookup_test` asserts the interpolation as a midpoint within
+  range rather than strictly increasing. A test comment was updated.
+
+**Impact:**
+- Semi and full auto: the turret follows; the flywheel stays stopped;
+  the autos never fire.
+- Full manual: unchanged; the Dashboard slider still works.
+- Reflash the Mega only.
+- **Restore the table and SHOOT_COMMAND before any shooting in the
+  autos.**
+
+**Evidence:**
+- `manual_control_test` (3 variants), `shot_table_lookup_test`.
+- Builds pass: `megaatmega2560`, axes and wired.
+- Not run on hardware.
+
+**Note:** Jeremy's working tree had uncommitted changes that are not
+Claude's: a chassis command filter (`COMMAND_FILTER_TIME_CONSTANT_MS`),
+plus edits to MechLink, Telemetry and the Dashboard. They were left
+untouched. Flashing from that folder includes them.
+
+## 2026-10-18 — Claude Code: committed Jeremy's working-tree drive changes (597c614)
+
+**User Request:** "push everything on dev". Uncommitted edits in Jeremy's
+tree (author not Claude) were reviewed, tested and committed.
+
+**What they do:**
+- **Chassis output filter.** An exponential filter on the left/right
+  command, tau `COMMAND_FILTER_TIME_CONSTANT_MS` = 80 ms, with
+  α = dt/(dt+τ). It reaches 63% of a step in 80 ms and 95% in 240 ms.
+  `stop()` and disable snap straight to neutral (safety stops are never
+  eased). The first tick after an enable snaps to the target.
+- **Rescaled deadband.** `applyDeadband` now returns
+  (|c| − 0.04)/(1 − 0.04) with the sign kept, instead of a step at 0.04.
+- **TEL slot 38: `MechLink::lastLineAgeMs()`.** The time since the last
+  valid RC line. The wired Dashboard shows it in the RF link cell, with
+  a ⚠ at ≥ 200 ms (LINE_TIMEOUT_MS).
+- **Dashboard gamepad mix.**
+  - `TURN_INNER_RATIO` = −0.5 and `DRIVE_TURN_GAIN` = (1−r)/(1+r) = 3.
+    The turn gain blends from 1 at no forward to 3 at full forward.
+  - Both wheels are scaled by the larger one rather than clipped.
+  - Examples: full forward + full turn gives (1, −0.5), where it used to
+    clip to (1, 0). Turn alone still gives (1, −1).
+  - The wireless path inverts exactly (ground: forward = (l+r)/2,
+    turn = (r−l)/2; Mega mixes back), so the ratio survives.
+  - Note: at full forward a small turn is 3× stronger than before.
+
+**Evidence:**
+- Page, control, manual_control (2 variants) and gamepad_motor tests
+  pass.
+- Builds pass: `megaatmega2560`, axes, wired and drive.
+- No dedicated host test for the Chassis filter (Chassis is stubbed in
+  the host tests).
+- Not run on hardware by Claude.
+
+## 2026-10-18 — Claude Code: first field shot data in the tables; flywheel "ready" time-based
+
+**User Request:** Jeremy shot the center column (Dashboard keys 4/5/6) at
+2.5 m and 5 m, and asked to load those values to check semi-auto lock and
+fire at a standstill.
+
+**Changed:**
+- `ShotTable`: one table per row, two entries each:
+
+  | Row | 2.5 m | 5 m |
+  |---|---|---|
+  | bottom | 0.42 / 2407 µs | 0.43 / 2183 µs |
+  | middle | 1.00 / 2500 µs | 0.46 / 2063 µs |
+  | top | 1.00 / 1010 µs | 0.80 / 2442 µs |
+
+  - The top row's two points are different shots (a flat shot at 2.5 m,
+    a lob at 5 m), so values interpolated between them are suspect.
+  - The bonus holes have **no table**, so the autos never fire at them.
+  - `ELEVATION_MEASURED` = true: the autos now set the elevation pulse
+    from the table plus the up/down offset.
+  - New `EXTRAPOLATE_PAST_LAST_ENTRY` = false. Past the last entry the
+    values are held (Jeremy's choice while the tables stop at 5 m).
+    `ShotTableLookup::lookup()` takes an `extrapolate` argument that
+    defaults to it.
+- `Flywheel::SHOOT_COMMAND` 0.0 → **0.5**: the pre-spin with no target
+  (Jeremy's choice). It is no longer the "ready" threshold.
+- `Shooter::updateFlywheelReady()`: ready means the command is > 0 and
+  has stayed within ±0.02 of where it settled for `SPIN_UP_MS`
+  (1500 ms). The old "≥ SHOOT_COMMAND" meant 42–46% table values were
+  never ready.
+- The existing tests (`shot_table_lookup_test`, `manual_control_test`)
+  were adapted to measured elevation, bonus without a table, and the
+  hold. No new test files.
+
+**Evidence:**
+- Table test passes; `manual_control_test` passes in all 3 variants;
+  page test passes.
+- Builds pass: `megaatmega2560`, axes and wired.
+- Not run on hardware.
+
+**Next Test:** at a standstill at 2.5 m and 5 m in semi auto, select
+keys 4, 5 and 6 in turn and check:
+1. the elevation moves to the table pulse;
+2. the flywheel goes to the table %;
+3. 1.5 s after the turret locks, RB fires.
+
+## 2026-10-18 — Claude Code: pad remap (LB fire / RB home, LT/RT ±1%), auto flywheel offset, aim step 20 px, pre-spin 20%
+
+**User Request:**
+- Pre-spin with no target at 20%.
+- Semi auto's left/right fine-adjust "does nothing".
+- Swap RB and LB.
+- LT and RT become buttons: −1% / +1% Falcon per press, in semi auto
+  and full manual.
+- The 11c1 pad reads LT = button 8 and RT = button 9; their analog axes
+  3 and 4 are not used.
+
+**Why:** the aim fine-adjust worked but was invisible. 5 px × kP 0.01 is
+a 0.05 command, about 25 µs on the turret servo, which is inside its
+deadband; only the slow integral moved it.
+
+**Changed:**
+- `Flywheel::SHOOT_COMMAND` 0.5 → 0.2.
+- `Auto::AIM_OFFSET_STEP_PX` 5 → 20 px (max stays 100).
+- **Auto flywheel offset.** In semi and full auto, LT/RT adjust an
+  offset of −20..+20% that is added to the shot table's value.
+  - Dashboard sends `FLYO,<n>` (absolute). The robot clamps
+    table + offset to 0..1. It is not added to the no-target pre-spin.
+  - Mega: `ManualControl::flywheelOffsetPct`, set by wired `FLYO` or by
+    CH4 (wireless).
+  - It is cleared on a mode change, Enable and disarm. The Dashboard
+    also sends `FLYO,0` after every `TGT` (new hole).
+  - `Auto` adds it to `shot.flywheelCommand`.
+- **CH4 encoding (`RcControlMap`).** In the autos the level carries the
+  offset: level + 4 µs per 1%. That gives semi 1670–1830 and full
+  1420–1580, both inside their bands.
+  - Exact 1750 / 1500 means offset 0, so an older ground STM32 stays
+    compatible.
+  - An older Mega reads the same mode and simply ignores the offset.
+  - Decoding rounds to the nearest 1%, so ±1 µs link noise is absorbed.
+- **Ground STM32.** Parses `FLYO,<-20..20>` (BAD_COMMAND outside that
+  range or for a non-integer). It keeps the value only in the autos and
+  resets it on a mode change, E, X and a PC timeout.
+- **Dashboard.** Profiles: Xbox fire 4 (LB), home 5 (RB), LT 6, RT 7;
+  11c1 fire 6, home 7, LT 8, RT 9.
+  - `nudgeFlywheel()`: in full manual, the slider ±1% (`FLY`); in the
+    autos, the offset (`FLYO`).
+  - The heartbeat resends `FLYO` while it is non-zero.
+  - The label shows the offset in the autos.
+
+**Evidence:**
+- The existing tests were extended: rc map (offset round trip with
+  ±1 µs, clamp, manual ignored), ground (`FLYO`), `manual_control_test`
+  (FLYO adds / refuses / clears; 3 variants), and the page and control
+  tests (new map, LT/RT in manual and auto, reset on hole and mode).
+- Builds pass: Mega (4 envs) and the ground. Bridge sha unchanged
+  (ee034481).
+- Not run on hardware.
+
+**Impact:** flash the Mega and the ground STM32 together. The Dashboard
+updates through Pages after a push. The bridge and the Orin are
+unchanged.
+
+## 2026-10-18 — Claude Code: Auto target hold 0.5 s; Falcon pulse on the wireless Dashboard
+
+**User Request:**
+- While locked in semi auto, the flywheel "jumps up and down".
+- Jeremy wants to see the Falcon's ESC value while adjusting over the
+  radio.
+- Push when done.
+
+**Why it jumped:** this was not the radio, because Auto runs on the Mega
+from the Orin's UART frames (~11 fps).
+- Any single frame that is invalid, has distance 0, or is for another
+  hole made `hasTarget` false at once.
+- The flywheel then dropped to the pre-spin (`SHOOT_COMMAND`, 20%)
+  until the next good frame about 90 ms later.
+- Each drop also restarted the 1.5 s "ready" wait (a change of more
+  than 2%), so frequent drops could block firing altogether.
+
+**Changed:**
+- **Target hold.** New `TuningConstants::Auto::TARGET_HOLD_MS` = 500.
+  - `Auto` keeps the last target's table flywheel and elevation pulse for
+    that long after the target drops. The LT/RT offset and the elevation
+    offset are still applied on top.
+  - The hold does not cross a new hole selection
+    (`Vision::getSelectedTarget`), and it is cleared in full manual and
+    without vision.
+  - Firing still needs a target in the current frame (`ready` uses
+    `hasTarget`).
+- **Vision frame field.** Code bits 0–13 are now the Falcon's actual
+  pulse (`Shooter::getFlywheelPulseUs`) instead of the distance, which
+  the aim frame already carries.
+  - `rcmap_vision.flywheel_pulse_us`; ground `$VISION,<fresh>,<flywheelUs>,...`.
+  - The Dashboard shows it in "Falcon PWM" over the radio as `1290 us
+    (42.0%)`, where % = |pulse − 1500| / 5. At rest this reads 1490 us,
+    the stop trim.
+- Tests: the existing ones were adjusted (vision frame field; a hold
+  check in the semi-auto test); the host stubs gained
+  `getFlywheelPulseUs`. No new test files.
+
+**Evidence:**
+- All host tests pass.
+- Builds pass: Mega (4 envs; RAM 40.2%, down from 45.9% because the
+  shot tables are smaller) and the ground. Bridge sha unchanged.
+- Not run on hardware.
+
+**Impact:** flash the Mega and the ground STM32 together. This bundles
+b1d6e1b and 562b817, which were not flashed yet.
+
+## 2026-10-18 — Claude Code: flywheel ramp-up limit and Auto elevation slew (current limiting)
+
+**User Request:**
+- At 5 m in semi auto, keys 4 and 5 switch fine, but key 6 (top row)
+  stops the flywheel, and only disable + Enable brings it back.
+- Jeremy agrees it is likely a current surge, and asked for the
+  elevation and flywheel to move slowly.
+
+**Why:**
+- Switching middle → top jumped the flywheel 46% → 80% and the elevation
+  2063 → 2442 µs in the same instant.
+- A Mega reset matches the symptom: it boots disarmed and needs a fresh
+  CH6 low → high, hence disable + Enable.
+- The same values had worked in full manual, where they were reached
+  gradually with the slider and D-pad.
+
+**Changed:**
+- **Flywheel ramp.** New `Flywheel::RAMP_UP_PER_SECOND` = 0.5.
+  - `Shooter::rampFlywheel()` moves the output toward the command at up
+    to 50% per second when going up (0 → 80% takes 1.6 s). Going down,
+    and `stopAll` / disable, take effect at once.
+  - It applies in every mode, so the manual slider is ramped too.
+  - "Ready" and `getFlywheelCommand()` now use the ramped output, so the
+    1.5 s `SPIN_UP_MS` wait starts only once the ramp arrives.
+- **Elevation slew.** New `Auto::ELEVATION_SLEW_US_PER_SECOND` = 400.
+  - Auto moves the elevation toward table + offset at that rate instead
+    of `setAnglePulseUs(target)` in one jump. For example,
+    2063 → 2442 µs takes ~0.95 s.
+  - Each step is limited to 100 ms worth after a stall. The full-manual
+    D-pad jog is unchanged (1000 µs/s).
+- **Tests.** The host stub's `setAnglePulseUs` now moves `anglePulseUs`,
+  which is reset per test. The elevation and aim-uplink tests allow for
+  the slew. No new test files.
+
+**Evidence:**
+- `manual_control_test` (3 variants), the table test and the page test
+  pass.
+- Builds pass: `megaatmega2560`, axes, wired, drive and gamepad motor.
+- Not run on hardware.
+
+**Next Test:**
+1. Flash the Mega.
+2. Switch 5 → 6 at 5 m: the elevation should glide, the flywheel should
+   ramp, and there should be no reset.
+3. If it still resets, the power wiring needs checking (the elevation
+   servo should have its own supply).
+
+## 2026-10-18 — Claude Code: flywheel ramps down too; spin-down after disable (option B)
+
+**User Request:** ramp the flywheel down as well, and on disable let it
+spin down rather than stop instantly. The hard stop is bad for the motor.
+
+**Why:**
+- At neutral the Falcon applies its own Neutral Mode. This borrowed unit
+  is evidently set to Brake, and PWM can't change that.
+- Claude recommended setting the Falcon to Coast in Phoenix Tuner (A).
+  Jeremy chose B: software spin-down.
+
+**Changed:**
+- New `Flywheel::RAMP_DOWN_PER_SECOND` = 0.5.
+- `Shooter::rampFlywheel()` now limits both directions.
+- **Disabled.** `Shooter::update()` still stops the turret and elevation
+  at once (`stopAll`), but then ramps the flywheel output down to 0 and
+  writes it. The Falcon is **still driven** during this spin-down
+  (≤ 2 s from 100%), then it gets the 1490 µs stop trim.
+- `stopAll()` no longer zeroes the output or the ramp clock. It writes
+  the current output (no jump) and zeroes the command.
+- `init()` sets the output to 0.
+- Re-enabling during the spin-down continues from the current output.
+
+**Safety note:** a disable (including link loss and watchdogs) no longer
+cuts the flywheel drive instantly. It ramps down over up to 2 s. Setting
+the Falcon to Coast would allow returning to an instant neutral.
+
+**Evidence:**
+- Mega envs build: production, axes, wired, drive, gamepad motor and
+  vision rotate.
+- `manual_control_test` passes; Shooter is stubbed there, so the ramp is
+  not host-tested.
+- Not run on hardware.
+
+## 2026-10-18 — Claude Code: shot table from Excel (tools/shot_table), one table per Dashboard hole
+
+**User Request:**
+- Keep the shot table in Excel: hole (Dashboard key) / distance /
+  elevation / flywheel.
+- Edit values and insert or delete rows and columns there.
+- One command writes the Constants table and uploads.
+- Strict format.
+- A hole with no data uses its row's center hole (agreed).
+
+**Changed:**
+- **`tools/shot_table/apply.py`.** Standard library only; it reads the
+  .xlsx with zipfile + ElementTree.
+  - Strict checks:
+    - sheet name 「射擊表」;
+    - headers 「洞口」「距離(m)」「仰角(us)」「轉速(%)」, each exactly
+      once and spelled exactly;
+    - any extra column must have a header (it is ignored);
+    - hole: integer 1–9;
+    - distance: 0.5–15 m, at most 2 decimals;
+    - elevation: integer 500–2500;
+    - flywheel: 0–100, at most 1 decimal;
+    - no duplicate hole + distance;
+    - no partial rows, merged cells or error cells.
+  - Float noise from the spreadsheet is normalised: 2.3500000000000001
+    is read as 2.35.
+  - It prints the per-point changes against the current header, then
+    writes `src/Constants/ShotTableData.h`. `--upload` runs `pio run -t
+    upload`, `--check` only validates, and `--export` rebuilds the
+    .xlsx from the header.
+  - Any error means nothing is written or uploaded.
+- **`tools/shot_table/shot_table.xlsx`.** Contains the 2026-10-18 points
+  (keys 4/5/6 at 2.5 and 5 m), a 「說明」 sheet, data validation on the
+  four columns, and a frozen header row.
+- **`ShotTableData.h` (generated).** `Point{distanceCm, flywheelPermille,
+  elevationUs}` in uint16 (6 bytes, versus 12 for the old double
+  entries), plus `HOLE_1..9`, `HOLE_POINTS[10]` and `HOLE_COUNTS[10]`.
+- **`TuningConstants::ShotTable`.**
+  - `Entry` is now `ShotTableData::Point`, and the row tables are gone.
+  - `tableForVisionId()` maps vision id → Dashboard hole through
+    `OperatorTarget::visionIdForHole`, then uses that hole's table, or the
+    same row's center hole (key 4 + (hole − 1) % 3), or nothing.
+  - The bonus holes 1–3 have no table.
+- **`ShotTableLookup`** converts the integer units.
+- **Tests and ignore list.** The existing table test and
+  `manual_control_test` were adapted; no new test files. `.gitignore`
+  covers Excel's `~$` lock files.
+
+**Evidence:**
+- Round trip: export → check reports "no change".
+- Crafted bad workbooks are each rejected with cell-level messages:
+  wrong header, duplicate header, data under an empty header, values
+  out of range, too many decimals, a duplicate point, a partial row,
+  text in a number cell.
+- An Excel-style workbook (shared strings, reordered and extra columns,
+  a blank row) is accepted.
+- Host tests pass; `megaatmega2560` builds (RAM 40.1%).
+- Not yet opened and saved in real Excel by Jeremy.
+
+## 2026-10-18 — Claude Code: shot_table.xlsx without the notes column, plus self-updating distance curves
+
+**User Request:** drop the 備註 column. Next to the table, add charts of
+elevation and flywheel against the distance to the target that follow
+every edit, added row and deleted row.
+
+**Changed (`tools/shot_table/apply.py` writer and `shot_table.xlsx`):**
+- 「射擊表」 has only the four columns.
+- New hidden sheet 「圖表資料」. For each hole there are three columns
+  (distance, elevation, flywheel), sorted by distance with array formulas
+  over 「射擊表」!A2:D500:
+  - distance: `SMALL(IF(hole=k, distance), n)`;
+  - elevation and flywheel: `INDEX/MATCH` on hole = k and distance = that
+    distance;
+  - `NA()` where empty, so Excel leaves gaps.
+- Two scatter-with-lines charts sit beside the table (columns F–O):
+  「仰角曲線（各洞口）」, y 500–2500 µs; and 「轉速曲線（各洞口）」,
+  y 0–100%. Each has one series per hole (1–9), x = distance (m), up to
+  60 points per hole.
+- `calcPr fullCalcOnLoad`, so Excel computes the formulas on open.
+- `apply.py` still reads only 「射擊表」, so the strict rules are
+  unchanged.
+
+**Evidence:**
+- Every XML part is well-formed. openpyxl 3.1.5 (the markitdown venv)
+  loads the workbook: 3 sheets (helper hidden), 2 charts with 9 series
+  each, the array formulas, and data validation on A–D 2:500.
+- `--check` round trip reports "no change". The crafted strict-format
+  cases still behave as before.
+- **Not yet opened in real Excel**, so Jeremy needs to confirm that the
+  curves render and update.
+
+## 2026-10-18 — Claude Code: three per-height shooting curves in shot_table.xlsx
+
+**User Request:**
+- Three charts, one per height of the center column (holes 4/5/6).
+- Physically the shooting curve leaves the origin and bends up-right,
+  approaching a slanted line. More points refine it, but it is never
+  exactly straight.
+
+**Changed:**
+- `apply.py`'s writer now has `CHART_HOLES` = 4 (bottom, ~120 cm),
+  5 (middle, ~180 cm) and 6 (top, ~240 cm).
+- The hidden 「圖表資料」 sheet covers only those three holes, sorted by
+  distance.
+- Each chart (`_height_chart_xml`):
+  - x = distance to the target (axis from 0);
+  - flywheel %, left axis 0–100: markers plus an Excel **power trendline**
+    (y = a·x^b, through the origin);
+  - elevation µs, right axis 500–2500: markers plus a dashed line.
+- The charts are stacked beside the table.
+- Help text, README: the trendline is a visual check only; the Mega
+  still interpolates linearly between the measured points.
+
+**Evidence:**
+- All parts are well-formed. openpyxl loads 3 charts with power
+  trendlines on the flywheel series; the XML shows the elevation series
+  on a secondary right axis.
+- The round trip `--check` reports no change. The strict-format cases are
+  unchanged.
+- Not yet viewed in real Excel.
+
+## 2026-10-18 — Claude Code: shot table flywheel unit menu (% or us)
+
+**User Request:** the flywheel can be entered either as % or as the pulse,
+picked from a unit menu. Jeremy also confirmed that the Excel matches the
+program's current table: `--check` reports no change against
+`ShotTableData.h`, the 6 points from 2026-10-18.
+
+**Changed (`tools/shot_table/apply.py` and `shot_table.xlsx`):**
+- Headers are now 「洞口」「距離(m)」「仰角(us)」「轉速」「轉速單位」, all
+  strict and each exactly once. The old 「轉速(%)」 header is rejected
+  with a hint.
+- 轉速單位 is a dropdown (Excel list validation) with `%` or `us`, per
+  row.
+  - `%`: 0–100, at most 1 decimal.
+  - `us`: an integer on the forward side of 1500, read from
+    `Flywheel::INVERTED` in `TuningConstants.h` (true → 1000–1500).
+  - Conversion: per mille = |us − 1500| × 2, so 1290 µs gives 42.0%.
+  - A pulse on the reverse side, a non-integer pulse, or any other unit
+    text is an error.
+- Excel's own validation on 轉速 is a custom formula on its unit.
+- The chart helper converts `us` rows to % for the curves.
+- The export writes `%`. The generated header is unchanged
+  (per-mille storage).
+
+**Evidence:**
+- Crafted workbooks:
+  - accepted: mixed units with shared strings and reordered or extra
+    columns;
+  - rejected with cell-level messages: old header, missing unit, bad
+    unit, wrong-side pulse, non-integer pulse, % out of range, duplicate.
+- The round trip `--check` reports no change.
+- Not yet opened in real Excel.
+
+## 2026-10-19 — Claude Code: apply.py runs on Python before 3.12; dev merged to main
+
+**User Request:** push and merge to main.
+
+**Found while verifying the merge:** `tools/shot_table/apply.py` had a
+backslash inside an f-string expression (the 轉速 validation formula).
+Python 3.12+ allows that; 3.9 and 3.11 refuse to run the file. Jeremy's
+`python3` on PATH is now PlatformIO's 3.11, and earlier testing had used
+3.14.
+
+**Changed:** the formula is now in a plain variable (`FLY_RULE`).
+
+**Evidence:**
+- `--check` passes on Python 3.9.6, 3.11.7 and 3.14.7.
+- `--export` output is byte-identical (sheet1, helper sheet and chart
+  XML).
+- The strict-format cases behave the same on 3.9.

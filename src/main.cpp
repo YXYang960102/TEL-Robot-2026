@@ -3,6 +3,7 @@
 #include "Auto/Auto.h"
 #include "IO/MechLink.h"
 #include "IO/ManualControl.h"
+#include "Vision/OperatorTarget.h"
 #include "Vision/Vision.h"
 #include "Shooter/Shooter.h"
 #include "Dribbler/Dribbler.h"
@@ -21,7 +22,6 @@ namespace pincheck {
 constexpr uint8_t OUTPUTS[] = {
     ChassisConstants::LeftDrive::SIGNAL_PIN,
     ChassisConstants::RightDrive::SIGNAL_PIN,
-    DribblerConstants::Conveyor::SIGNAL_PIN,
     DribblerConstants::Tower::TRIGGER_PIN,
     ShooterConstants::Angle::ANGLE_PIN,
     ShooterConstants::Rotate::SIGNAL_PIN,
@@ -74,6 +74,10 @@ void loop() {
     // Chassis/Dribbler/Shooter calls while armed, before Auto::update(),
     // which steps aside whenever ManualControl::isActive().
     ManualControl::update();
+
+    // The operator's hole (keys 1-9 / CH3) -> the Orin's numbering. Before
+    // Auto, so a switch drops the old hole's frame in this same loop.
+    Vision::setSelectedTarget(OperatorTarget::visionIdForHole(ManualControl::getTarget()));
 
     // Rotate mode arbitration and the auto-fire sequence both live in
     // Auto::update() now (moved out of here 2026-10-06) so "what mode is

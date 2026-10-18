@@ -9,7 +9,7 @@
 #include "../Constants/TuningConstants.h"
 #include "../Dribbler/Dribbler.h"
 #include "../Shooter/Shooter.h"
-#include "../Vision/Vision.h"
+#include "AimUplink.h"
 #include "MechLink.h"
 
 using Owner = ManualControl::Owner;
@@ -26,24 +26,29 @@ unsigned long ManualControl::lastWiredCommandMs = 0;
 unsigned long ManualControl::lastFrameCount = 0;
 unsigned long ManualControl::lastValidWirelessMs = 0;
 bool ManualControl::wirelessArmPrev = true;
-rcmap_counter ManualControl::feedCounter;
-rcmap_counter ManualControl::lmodeCounter;
+bool ManualControl::wirelessFirePrev = true;
+uint8_t ManualControl::wirelessAutoPrev = RCMAP_AUTO_NONE;
 
 double ManualControl::tankLeftCommand = 0.0;
 double ManualControl::tankRightCommand = 0.0;
 double ManualControl::rotateManualCommand = 0.0;
 double ManualControl::angleManualCommand = 0.0;
 double ManualControl::flywheelCommand = 0.0;
-// Defaults to manual (not vision-follow): vision-follow would otherwise
-// start driving the turret toward whatever Vision locks onto the instant
-// outputs are enabled, with no explicit per-axis operator action.
-bool ManualControl::rotateManualActive = true;
 OperatorMode ManualControl::operatorMode = OperatorMode::FULL_MANUAL;
 bool ManualControl::fireRequested = false;
+uint8_t ManualControl::target = RCMAP_TARGET_NONE;
+uint8_t ManualControl::autoPathThisEnable = RCMAP_AUTO_NONE;
+uint8_t ManualControl::autoPathsUsedMask = 0;
+double ManualControl::aimOffsetPx = 0.0;
+double ManualControl::elevationOffsetUs = 0.0;
+int ManualControl::flywheelOffsetPct = 0;
+int ManualControl::rotateNudgePrev = 0;
+int ManualControl::angleNudgePrev = 0;
 
 unsigned long ManualControl::eventSeq = 0;
 uint16_t ManualControl::lastEventCode = RCMAP_EVENT_NONE;
 unsigned long ManualControl::lastStatusMs = 0;
+uint8_t ManualControl::statusSlot = 0;
 
 void ManualControl::init() {
     commandLength = 0;
@@ -56,9 +61,13 @@ void ManualControl::init() {
     lastValidWirelessMs = millis();
     resetWirelessTracking();
     clearCommands();
+    target = RCMAP_TARGET_NONE;
+    autoPathThisEnable = RCMAP_AUTO_NONE;
+    autoPathsUsedMask = 0;
     eventSeq = 0;
     lastEventCode = RCMAP_EVENT_NONE;
     lastStatusMs = millis();
+    statusSlot = 0; // status first
 }
 
 void ManualControl::update() {
@@ -69,6 +78,7 @@ void ManualControl::update() {
     processWirelessFrame();
 
     if (owner != Owner::NONE) {
+        updateFineAdjust();
         applyOutputs();
     }
     sendStatusIfDue();
@@ -110,6 +120,18 @@ bool ManualControl::takeFireRequest() {
 
 void ManualControl::reportEvent(rcmap_event event) {
     sendEvent(event);
+}
+
+uint8_t ManualControl::getTarget() {
+    return target;
+}
+
+uint8_t ManualControl::getAutoPathThisEnable() {
+    return autoPathThisEnable;
+}
+
+uint8_t ManualControl::getAutoPathsUsedMask() {
+    return autoPathsUsedMask;
 }
 
 // ---------------------------------------------------------------- wired
@@ -179,12 +201,24 @@ void ManualControl::processCommand(char* command) {
     const bool isAngle = strncmp(command, "ANG,", 4) == 0;
     const bool isFlywheel = strncmp(command, "FLY,", 4) == 0;
     // Elevation as an absolute angle (Dashboard slider / number box):
-    // ANGT,<deg> = go to. The arrows still use the ANG hold-to-move jog.
+    // ANGT,<deg> = go to. The arrows use the ANG hold-to-move jog.
     const bool isAngleTarget = strncmp(command, "ANGT,", 5) == 0;
-    const bool isSingle = command[1] == '\0' &&
-        (command[0] == 'F' || command[0] == 'L' || command[0] == 'R' || command[0] == 'M');
+    // TGT,<0..9>: the 3x3 target hole (keys 1-9; 0 = none).
+    const bool isTarget = strncmp(command, "TGT,", 4) == 0;
+    // AUTO,<1..4>: start auto path 1-4 (the Dashboard's path menu sends it
+    // right after Enable).
+    const bool isAutoPath = strncmp(command, "AUTO,", 5) == 0;
+    // MODE,<0..2>: go straight to an operator mode (0 full auto, 1 semi
+    // auto, 2 full manual) -- the Dashboard's mode menu, sent right after
+    // Enable. Enable itself still always starts in full manual.
+    const bool isModeSet = strncmp(command, "MODE,", 5) == 0;
+    // FLYO,<-20..20>: the autos' flywheel offset in percent (LT / RT on the
+    // pad), added to the shot table. Absolute, so a resend is harmless.
+    const bool isFlywheelOffset = strncmp(command, "FLYO,", 5) == 0;
+    const bool isSingle = command[1] == '\0' && (command[0] == 'F' || command[0] == 'M');
 
-    if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle && !isAngleTarget) {
+    if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle && !isAngleTarget &&
+        !isTarget && !isAutoPath && !isModeSet && !isFlywheelOffset) {
         sendEvent(RCMAP_EVENT_UNKNOWN_COMMAND);
         return;
     }
@@ -227,6 +261,34 @@ void ManualControl::processCommand(char* command) {
         }
         return;
     }
+    if (isTarget || isAutoPath || isModeSet || isFlywheelOffset) {
+        const char* digits = command + (isTarget ? 4 : 5);
+        char* end = nullptr;
+        const long n = strtol(digits, &end, 10);
+        const long maximum = isTarget ? RCMAP_TARGET_MAX
+                           : isAutoPath ? RCMAP_AUTO_PATHS
+                           : isFlywheelOffset ? RCMAP_AUTO_OFFSET_MAX_PCT
+                                        : static_cast<long>(OperatorMode::FULL_MANUAL);
+        const long minimum = isAutoPath ? 1 : isFlywheelOffset ? -RCMAP_AUTO_OFFSET_MAX_PCT : 0;
+        if (end == digits || *end != '\0' || n < minimum || n > maximum) {
+            sendEvent(RCMAP_EVENT_BAD_COMMAND);
+            return;
+        }
+        refreshWiredWatchdog();
+        if (isFlywheelOffset) {
+            // Only meaningful in the autos (full manual has the slider).
+            flywheelOffsetPct = operatorMode == OperatorMode::FULL_MANUAL ? 0 : static_cast<int>(n);
+        } else if (isTarget) {
+            selectTarget(static_cast<uint8_t>(n));
+        } else if (isAutoPath) {
+            requestAutoPath(static_cast<uint8_t>(n));
+        } else if (ManualControlConstants::WIRED_MANUAL_ONLY) {
+            sendEvent(RCMAP_EVENT_MODE_FULL_MANUAL); // benches stay manual, like M
+        } else {
+            setOperatorMode(static_cast<OperatorMode>(n));
+        }
+        return;
+    }
     if (isRotate || isAngle || isFlywheel) {
         double value = 0.0;
         const double minimum = isFlywheel ? 0.0 : -1.0;
@@ -246,15 +308,10 @@ void ManualControl::processCommand(char* command) {
     }
 
     refreshWiredWatchdog();
-    if (command[0] == 'R') {
-        Dribbler::setConveyor(!Dribbler::isConveyorOn());
-        sendEvent(Dribbler::isConveyorOn() ? RCMAP_EVENT_CONVEYOR_ON : RCMAP_EVENT_CONVEYOR_OFF);
-    } else if (command[0] == 'F') {
+    if (command[0] == 'F') {
         handleFire();
-    } else if (command[0] == 'M') {
-        cycleOperatorMode();
     } else {
-        toggleRotateMode();
+        cycleOperatorMode();
     }
 }
 
@@ -284,12 +341,11 @@ bool ManualControl::parseValue(char* args, double minimum, double maximum, doubl
 // ------------------------------------------------------------- wireless
 
 void ManualControl::resetWirelessTracking() {
-    // Require CH5 to be seen low before the next enable, and take the next
-    // counter levels as a fresh baseline: nothing from before an outage is
-    // ever replayed.
+    // Require arm, fire and auto to be seen released before they can act
+    // again: nothing held through an outage is ever replayed.
     wirelessArmPrev = true;
-    rcmap_counter_reset(&feedCounter);
-    rcmap_counter_reset(&lmodeCounter);
+    wirelessFirePrev = true;
+    wirelessAutoPrev = 0xFF; // "unknown": needs a NONE first
 }
 
 void ManualControl::processWirelessFrame() {
@@ -313,38 +369,41 @@ void ManualControl::processWirelessFrame() {
     }
     const uint8_t frameMode = rcmap_mode_from_us(c.mode_us);
     if (rising) {
-        // An Enable must never start in an auto mode: the ground station
-        // resets CH4 to manual when it raises the arm channel, so anything
-        // else here is stale or corrupt.
-        if (frameMode != RCMAP_MODE_FULL_MANUAL) {
+        // An Enable must never start in an auto mode or with the flywheel
+        // on: the ground station resets CH4 to manual, flywheel 0, when it
+        // raises the arm channel, so anything else here is stale or corrupt.
+        if (frameMode != RCMAP_MODE_FULL_MANUAL || c.flywheel > 0.0f) {
             sendEvent(RCMAP_EVENT_ENABLE_REJECTED_NOT_MANUAL);
         } else {
             requestEnable(Owner::WIRELESS);
         }
     }
 
-    // Counters always track, so presses made while not owning the robot
-    // can't fire later.
-    const int feed = rcmap_counter_update(&feedCounter, c.feed_counter);
-    const int lmode = rcmap_counter_update(&lmodeCounter, c.lmode_counter);
+    // Edges are tracked on every frame, so a press made while not owning
+    // the robot can't act later.
+    const bool fireEdge = c.fire && !wirelessFirePrev;
+    wirelessFirePrev = c.fire;
+    const bool autoEdge = c.auto_path != RCMAP_AUTO_NONE && wirelessAutoPrev == RCMAP_AUTO_NONE;
+    wirelessAutoPrev = c.auto_path;
 
     if (owner == Owner::WIRELESS) {
-        if (Dribbler::isConveyorOn() != c.conveyor) {
-            Dribbler::setConveyor(c.conveyor);
-            sendEvent(c.conveyor ? RCMAP_EVENT_CONVEYOR_ON : RCMAP_EVENT_CONVEYOR_OFF);
-        }
-        tankLeftCommand = c.left;
-        tankRightCommand = c.right;
-        rotateManualCommand = c.rotate;
-        angleManualCommand = c.angle;
-        flywheelCommand = c.flywheel;
+        // Arcade -> tank with the same polarity as the Dashboard: turn +1
+        // (stick right) = left wheel back, right wheel forward.
+        tankLeftCommand = constrain(c.forward - c.turn, -1.0, 1.0);
+        tankRightCommand = constrain(c.forward + c.turn, -1.0, 1.0);
+        // Nudge (arrows): one direction at a time; held = hold-to-move jog.
+        angleManualCommand = c.nudge == RCMAP_NUDGE_UP ? 1.0 : (c.nudge == RCMAP_NUDGE_DOWN ? -1.0 : 0.0);
+        rotateManualCommand = c.nudge == RCMAP_NUDGE_RIGHT ? 1.0 : (c.nudge == RCMAP_NUDGE_LEFT ? -1.0 : 0.0);
         setOperatorMode(static_cast<OperatorMode>(frameMode));
-        if (feed == RCMAP_COUNTER_EVENT) handleFire();
-        if (lmode == RCMAP_COUNTER_EVENT) toggleRotateMode();
-        if (feed == RCMAP_COUNTER_SKIPPED || lmode == RCMAP_COUNTER_SKIPPED) {
-            sendEvent(RCMAP_EVENT_EVENT_SKIPPED);
-        }
-    } else if (feed == RCMAP_COUNTER_EVENT || lmode == RCMAP_COUNTER_EVENT) {
+        // The Dashboard's Falcon slider, on CH4 with the mode (decode gives
+        // 0 outside full manual; applyOutputs only uses it in full manual).
+        flywheelCommand = c.flywheel;
+        // ...and in the autos the LT / RT flywheel offset (0 in manual).
+        flywheelOffsetPct = c.flywheel_offset_pct;
+        selectTarget(c.target);
+        if (fireEdge) handleFire();
+        if (autoEdge) requestAutoPath(c.auto_path);
+    } else if (fireEdge || autoEdge) {
         sendEvent(owner == Owner::NONE ? RCMAP_EVENT_REJECTED_DISARMED
                                        : RCMAP_EVENT_REJECTED_NOT_OWNER);
     }
@@ -369,6 +428,12 @@ void ManualControl::requestEnable(Owner source) {
     Shooter::setOutputsEnabled(true);
     owner = source;
     timedOut = false;
+    // One auto path per Enable; the since-boot record (mask) is kept.
+    autoPathThisEnable = RCMAP_AUTO_NONE;
+    // Every Enable starts on the Orin's own pick (Jeremy, 2026-10-16:
+    // semi-auto first locks whatever the AI picks, digit keys switch, 0 goes
+    // back). Silent: the Enable event already says what happened.
+    target = RCMAP_TARGET_NONE;
     refreshWiredWatchdog();
     lastValidWirelessMs = millis();
     sendEvent(RCMAP_EVENT_OUTPUTS_ENABLED);
@@ -409,10 +474,69 @@ void ManualControl::clearCommands() {
     rotateManualCommand = 0.0;
     angleManualCommand = 0.0;
     flywheelCommand = 0.0;
-    rotateManualActive = true;
+    flywheelOffsetPct = 0;
     // Disarm and every Enable start over in full manual, with no stale F.
     operatorMode = OperatorMode::FULL_MANUAL;
     fireRequested = false;
+    clearFineAdjust();
+}
+
+void ManualControl::clearFineAdjust() {
+    aimOffsetPx = 0.0;
+    elevationOffsetUs = 0.0;
+    // An arrow still held from before needs a release before it counts.
+    rotateNudgePrev = NUDGE_NEEDS_RELEASE;
+    angleNudgePrev = NUDGE_NEEDS_RELEASE;
+}
+
+namespace {
+int signOf(double v) { return v > 0.0 ? 1 : (v < 0.0 ? -1 : 0); }
+double clampAbs(double v, double limit) { return v > limit ? limit : (v < -limit ? -limit : v); }
+
+// One arrow press: the direction changes to a non-zero one (from 0, or
+// straight from the other side). Holding repeats the same value -- the
+// Dashboard resends ROT,1 every heartbeat, the radio repeats CH7 every
+// frame -- and adds nothing. After a clear, a held arrow first has to be
+// released.
+bool nudgePressed(int now, int& prev) {
+    const bool pressed = now != 0 && now != prev && prev != ManualControl::NUDGE_NEEDS_RELEASE;
+    if (!(prev == ManualControl::NUDGE_NEEDS_RELEASE && now != 0)) prev = now;
+    return pressed;
+}
+}
+
+void ManualControl::updateFineAdjust() {
+    using namespace TuningConstants::Auto;
+    const int rotateNow = signOf(rotateManualCommand);
+    const int angleNow = signOf(angleManualCommand);
+    const bool rotatePress = nudgePressed(rotateNow, rotateNudgePrev);
+    const bool anglePress = nudgePressed(angleNow, angleNudgePrev);
+    if (operatorMode == OperatorMode::FULL_MANUAL) {
+        return; // manual: the arrows are the hold-to-move jog
+    }
+    if (rotatePress) {
+        aimOffsetPx = clampAbs(aimOffsetPx + rotateNow * AIM_OFFSET_STEP_PX, AIM_OFFSET_MAX_PX);
+    }
+    // Up/down only adjust Auto's elevation once Auto owns it; until the
+    // shot table is measured they stay the manual jog (applyOutputs).
+    if (anglePress && autoOwnsElevation()) {
+        // Same direction as the jog: "up" moves the pulse the way ANG,1 does.
+        const int up = TuningConstants::Angle::INVERTED ? -1 : 1;
+        elevationOffsetUs = clampAbs(elevationOffsetUs + angleNow * up * ELEVATION_OFFSET_STEP_US,
+                                     ELEVATION_OFFSET_MAX_US);
+    }
+}
+
+int ManualControl::getFlywheelOffsetPct() {
+    return flywheelOffsetPct;
+}
+
+double ManualControl::getAimOffsetPx() {
+    return aimOffsetPx;
+}
+
+double ManualControl::getElevationOffsetUs() {
+    return elevationOffsetUs;
 }
 
 void ManualControl::triggerFeed() {
@@ -433,6 +557,32 @@ void ManualControl::handleFire() {
     }
 }
 
+void ManualControl::selectTarget(uint8_t hole) {
+    if (hole > RCMAP_TARGET_MAX || hole == target) {
+        return;
+    }
+    // main.cpp hands it to Vision (MEGA_TARGET -> the Orin locks on this
+    // hole) and Auto looks it up in that hole's shot table.
+    target = hole;
+    // Offsets belong to the hole they were set for.
+    clearFineAdjust();
+    sendEvent(RCMAP_EVENT_TARGET_SELECTED);
+}
+
+void ManualControl::requestAutoPath(uint8_t path) {
+    // Once per Enable (any of the four), and only where Auto exists.
+    if (ManualControlConstants::WIRED_MANUAL_ONLY || path < 1 || path > RCMAP_AUTO_PATHS ||
+        autoPathThisEnable != RCMAP_AUTO_NONE) {
+        sendEvent(RCMAP_EVENT_AUTO_PATH_REJECTED);
+        return;
+    }
+    // Phase 1: the trigger, the once-per-Enable rule and the record are
+    // real; the path itself (driving) needs chassis localization first.
+    autoPathThisEnable = path;
+    autoPathsUsedMask = static_cast<uint8_t>(autoPathsUsedMask | (1u << path));
+    sendEvent(RCMAP_EVENT_AUTO_PATH_STARTED);
+}
+
 bool ManualControl::autoOwnsElevation() {
     return operatorMode != OperatorMode::FULL_MANUAL &&
            TuningConstants::ShotTable::ELEVATION_MEASURED;
@@ -440,7 +590,7 @@ bool ManualControl::autoOwnsElevation() {
 
 void ManualControl::cycleOperatorMode() {
     if (ManualControlConstants::WIRED_MANUAL_ONLY) {
-        // Wired benches have no camera/auto path: stay manual, like L.
+        // Wired benches have no camera/auto path: stay manual.
         sendEvent(RCMAP_EVENT_MODE_FULL_MANUAL);
         return;
     }
@@ -459,21 +609,11 @@ void ManualControl::setOperatorMode(OperatorMode mode) {
     // value, and entering it must not carry a manual jog.
     rotateManualCommand = 0.0;
     flywheelCommand = 0.0;
+    flywheelOffsetPct = 0;
     fireRequested = false;
     sendEvent(mode == OperatorMode::FULL_MANUAL ? RCMAP_EVENT_MODE_FULL_MANUAL
               : mode == OperatorMode::SEMI_AUTO ? RCMAP_EVENT_MODE_SEMI_AUTO
                                                 : RCMAP_EVENT_MODE_FULL_AUTO);
-}
-
-void ManualControl::toggleRotateMode() {
-    if (ManualControlConstants::WIRED_MANUAL_ONLY) {
-        rotateManualActive = true;
-        sendEvent(RCMAP_EVENT_ROTATE_MANUAL);
-        return;
-    }
-    rotateManualActive = !rotateManualActive;
-    rotateManualCommand = 0.0; // clear any stale manual jog
-    sendEvent(rotateManualActive ? RCMAP_EVENT_ROTATE_MANUAL : RCMAP_EVENT_ROTATE_VISION_FOLLOW);
 }
 
 void ManualControl::applyOutputs() {
@@ -483,8 +623,8 @@ void ManualControl::applyOutputs() {
         tankRightCommand * CHASSIS_MANUAL_SCALE);
 
     // Elevation: the operator's, unless Auto sets it from the shot table
-    // (auto mode and a calibrated elevation map). The open-loop call also
-    // holds an absolute ANGT target (zero jog = stay put).
+    // (auto mode and a measured table). The open-loop call also holds an
+    // absolute ANGT target (zero jog = stay put).
     if (!autoOwnsElevation()) {
         Shooter::setAngleOpenLoop(angleManualCommand * ANGLE_MANUAL_SCALE);
     }
@@ -492,13 +632,8 @@ void ManualControl::applyOutputs() {
     if (operatorMode != OperatorMode::FULL_MANUAL) {
         return; // turret and flywheel belong to Auto (runs right after this)
     }
-    if (rotateManualActive) {
-        Shooter::setRotateOpenLoop(rotateManualCommand * ROTATE_MANUAL_SCALE);
-    } else if (Vision::isConnected() && Vision::isVisionReady()) {
-        Shooter::setRotateVisionFollow();
-    } else {
-        Shooter::disableRotate();
-    }
+    const double jogSign = TuningConstants::Rotate::MANUAL_JOG_INVERTED ? -1.0 : 1.0;
+    Shooter::setRotateOpenLoop(jogSign * rotateManualCommand * ROTATE_MANUAL_SCALE);
     Shooter::setFlywheelOpenLoop(flywheelCommand);
 }
 
@@ -509,7 +644,7 @@ uint8_t ManualControl::statusFlags() {
     if (owner == Owner::WIRED) flags |= RCMAP_STATUS_OWNER_WIRED;
     if (PIN_TABLE_CONFIRMED) flags |= RCMAP_STATUS_PINS_CONFIRMED;
     if (Dribbler::isBusy()) flags |= RCMAP_STATUS_FEED_BUSY;
-    if (rotateManualActive) flags |= RCMAP_STATUS_ROTATE_MANUAL;
+    if (getOperatorMode() == OperatorMode::FULL_MANUAL) flags |= RCMAP_STATUS_ROTATE_MANUAL;
     if (!MechLink::signalLost) flags |= RCMAP_STATUS_RC_LINK_OK;
     return flags;
 }
@@ -520,6 +655,22 @@ void ManualControl::sendStatusIfDue() {
         return;
     }
     lastStatusMs = now;
+    // Slots: status, aim (distance, elevation pulse, target), status,
+    // vision (tx / ty / distance) -- status every 200 ms, aim and vision
+    // every 400 ms each (2026-10-17, with the ELRS TLM ratio raised to 1:4;
+    // it was status, status, aim at 1:32). One line per 100 ms, so the
+    // robot bridge (which forwards the latest line every 100 ms) passes
+    // them all.
+    const uint8_t slot = statusSlot;
+    statusSlot = static_cast<uint8_t>((statusSlot + 1) % 4);
+    if (slot == 1) {
+        AimUplink::send();
+        return;
+    }
+    if (slot == 3) {
+        AimUplink::sendVision();
+        return;
+    }
     MechLink::sendStatus(statusFlags(), eventSeq,
                          rcmap_status_code(lastEventCode, static_cast<uint8_t>(getOperatorMode())));
 }

@@ -126,5 +126,7 @@ static_assert(Rotate::MIN_PULSE_US < Rotate::NEUTRAL_US, "Invalid rotate minimum
 static_assert(Rotate::NEUTRAL_US < Rotate::MAX_PULSE_US, "Invalid rotate maximum PWM");
 static_assert(Flywheel::MIN_PULSE_US < Flywheel::NEUTRAL_US, "Invalid flywheel minimum PWM");
 static_assert(Flywheel::NEUTRAL_US < Flywheel::MAX_PULSE_US, "Invalid flywheel maximum PWM");
+static_assert(Flywheel::STOP_TRIM_US >= 0 && Flywheel::STOP_TRIM_US <= 30,
+              "Flywheel stop trim must stay inside the Falcon's neutral deadband (~20 us)");
 
 }

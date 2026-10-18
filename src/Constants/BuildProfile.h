@@ -6,17 +6,17 @@
 //   env                       flags                                   drives
 //   megaatmega2560            (none)                                  everything
 //   mega_wired_manual_test    WIRED_MANUAL_ONLY                       everything, USB only
-//   mega_drive_conveyor_test  + DRIVE_CONVEYOR_ONLY                   chassis + conveyor
+//   mega_drive_test           + DRIVE_ONLY                            chassis only
 //   mega_manual_axes_test     + MANUAL_AXES_TEST + MANUAL_FLYWHEEL_TEST  + turret, elevation, flywheel
 //
 // This is the only place that tests the macros. Everything else reads the
 // constants below, so a bench restriction is one `if`, not an #ifdef.
 
-#if defined(TEL_DRIVE_CONVEYOR_ONLY) && !defined(TEL_WIRED_MANUAL_ONLY)
+#if defined(TEL_DRIVE_ONLY) && !defined(TEL_WIRED_MANUAL_ONLY)
 #error "The partial-hardware benches are wired-manual only"
 #endif
-#if defined(TEL_MANUAL_AXES_TEST) && !defined(TEL_DRIVE_CONVEYOR_ONLY)
-#error "The manual-axes bench builds on the drive+conveyor bench"
+#if defined(TEL_MANUAL_AXES_TEST) && !defined(TEL_DRIVE_ONLY)
+#error "The manual-axes bench builds on the drive bench"
 #endif
 #if defined(TEL_MANUAL_FLYWHEEL_TEST) && !defined(TEL_MANUAL_AXES_TEST)
 #error "The flywheel bench requires the manual-axes bench"
@@ -25,12 +25,12 @@
 namespace BuildProfile {
 
 #ifdef TEL_WIRED_MANUAL_ONLY
-constexpr bool WIRED_MANUAL_ONLY = true;  // no wireless control, no Auto, L stays manual
+constexpr bool WIRED_MANUAL_ONLY = true;  // no wireless control, no Auto, no auto paths
 #else
 constexpr bool WIRED_MANUAL_ONLY = false;
 #endif
 
-#ifdef TEL_DRIVE_CONVEYOR_ONLY
+#ifdef TEL_DRIVE_ONLY
 constexpr bool PARTIAL_HARDWARE_BENCH = true;
 #else
 constexpr bool PARTIAL_HARDWARE_BENCH = false;

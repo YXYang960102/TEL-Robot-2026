@@ -28,7 +28,6 @@
 #define USART1_BRR_VALUE 0x8Bu
 
 #define RC_FORWARD_PERIOD_MS 20u      /* how often a "CH,..." line goes to the Mega */
-#define TEL_CHUNK_SEND_PERIOD_MS 20u  /* how often one TEL_CHUNK frame goes to ES900RX */
 
 /* No fresh validated RC_CHANNELS frame from ES900RX for this long = RF
    lost: the LED drops to slow blink AND "CH,..." forwarding to the Mega

@@ -4,28 +4,12 @@
 
 using namespace DribblerConstants;
 
-Servo Dribbler::conveyorEsc;
-bool Dribbler::conveyorOn = false;
-
-void Dribbler::setConveyor(bool on) {
-    conveyorOn = on;
-    if (!Conveyor::CONFIGURED || !conveyorEsc.attached()) return;
-    conveyorEsc.writeMicroseconds(on ? Conveyor::RUN_PULSE_US : Conveyor::STOP_PULSE_US);
-}
-
-bool Dribbler::isConveyorOn() { return conveyorOn; }
-
 bool Dribbler::pulseActive = false;
 bool Dribbler::everTriggered = false;
 unsigned long Dribbler::pulseStartMs = 0;
 unsigned long Dribbler::triggerCount = 0;
 
 void Dribbler::init() {
-    setConveyor(false);
-    if (Conveyor::CONFIGURED) {
-        conveyorEsc.attach(Conveyor::SIGNAL_PIN);
-        setConveyor(false);
-    }
     // Drive the line inactive before switching the pin to output, so it
     // never glitches active during boot. (Before this runs the pin floats:
     // the tower side should have a pull-down.)
@@ -47,7 +31,6 @@ void Dribbler::update() {
 }
 
 void Dribbler::stop() {
-    setConveyor(false);
     writeLine(false);
     pulseActive = false;
 }

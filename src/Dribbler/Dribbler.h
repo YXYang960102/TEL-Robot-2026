@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Arduino.h>
-#include <Servo.h>
 
 #include "../Constants/DribblerConstants.h"
 
@@ -10,14 +9,11 @@
 // then refuses further triggers for the tower's cycle time.
 class Dribbler {
 public:
-    static void setConveyor(bool on);
-    static bool isConveyorOn();
     static void init();
     static void update();
 
-    // Drops the line LOW immediately (cutting any pulse short) and stops
-    // the conveyor. Does not shorten the lockout: the tower may still be
-    // mid-cycle.
+    // Drops the line LOW immediately (cutting any pulse short). Does not
+    // shorten the lockout: the tower may still be mid-cycle.
     static void stop();
 
     // One ball. Returns false (and sends nothing) while a pulse or the
@@ -32,8 +28,6 @@ public:
 private:
     static void writeLine(bool active);
 
-    static Servo conveyorEsc;
-    static bool conveyorOn;
     static bool pulseActive;
     static bool everTriggered;
     static unsigned long pulseStartMs;

@@ -19,6 +19,12 @@ Recorder rec;
 bool visionReady = false;
 bool visionValid = false;
 double visionDistanceMm = 0.0;
+int visionTargetId = 8;       // the center hole, unless a test says otherwise
+uint8_t visionSelectedId = 0;
+double visionTx = 0.0;
+double visionTy = 0.0;
+int anglePulseUs = 1500;
+int flywheelPulseUs = 1490;
 bool shooterReady = false;
 }
 
@@ -56,6 +62,7 @@ void Shooter::setRotateOpenLoop(double command) {
     rec.rotateCommand = command;
 }
 void Shooter::setRotateVisionFollow() { rec.rotateMode = "vision"; }
+void Shooter::setRotateAimOffsetPx(double offsetPx) { rec.aimOffsetPx = offsetPx; }
 void Shooter::disableRotate() {
     rec.rotateMode = "disabled";
     rec.rotateCommand = 0.0;
@@ -69,6 +76,8 @@ bool Shooter::setAngleTargetDegrees(double degrees) {
 bool Shooter::setAnglePulseUs(double pulseUs) {
     rec.anglePulseUs = pulseUs;
     rec.anglePulseSets++;
+    // The servo target moves (Auto's elevation slew reads it back).
+    hoststub::anglePulseUs = static_cast<int>(pulseUs + 0.5);
     return true;
 }
 void Shooter::setFlywheelOpenLoop(double command) { rec.flywheelCommand = command; }
@@ -79,6 +88,12 @@ bool Vision::isConnected() { return hoststub::visionReady; }
 bool Vision::isVisionReady() { return hoststub::visionReady; }
 bool Vision::isValid() { return hoststub::visionValid; }
 double Vision::getDistance() { return hoststub::visionDistanceMm; }
+double Vision::getTx() { return hoststub::visionTx; }
+double Vision::getTy() { return hoststub::visionTy; }
+int Vision::getTargetId() { return hoststub::visionTargetId; }
+uint8_t Vision::getSelectedTarget() { return hoststub::visionSelectedId; }
+int Shooter::getAnglePulseUs() { return hoststub::anglePulseUs; }
+int Shooter::getFlywheelPulseUs() { return hoststub::flywheelPulseUs; }
 
 int MechLink::channels[RCMAP_CHANNEL_COUNT];
 unsigned long MechLink::frameCount = 0;
@@ -86,6 +101,20 @@ bool MechLink::signalLost = true;
 int MechLink::modeChannel = RCMAP_MODE_FULL_MANUAL_US;
 
 void MechLink::sendStatus(uint8_t flags, unsigned long eventSeq, uint16_t eventCode) {
+    if (eventCode & 0x8000u) { // aim frame (RcControlMap.h): recorded apart from status
+        rec.aimCount++;
+        rec.aimFlags = flags;
+        rec.aimSeq = eventSeq;
+        rec.aimCode = eventCode;
+        return;
+    }
+    if ((eventCode & 0xC000u) == 0x4000u) { // vision frame: also apart
+        rec.visionCount++;
+        rec.visionFlags = flags;
+        rec.visionSeq = eventSeq;
+        rec.visionCode = eventCode;
+        return;
+    }
     rec.statusCount++;
     rec.statusFlags = flags;
     rec.statusSeq = eventSeq;

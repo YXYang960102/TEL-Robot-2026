@@ -37,6 +37,7 @@ bool haveLinkStats = false;
 uint8_t uplinkLq = 0;
 uint8_t downlinkLq = 0;
 uint8_t uplinkRssi = 0;
+uint32_t seenEnableEpoch = 0;
 
 void emitToPc(void*, const char* line) {
     Serial.println(line);
@@ -77,7 +78,7 @@ void updateLed(uint32_t now) {
     // fresh robot status; solid = robot reports armed. A convenience only:
     // the Dashboard's numbers are the real evidence.
     bool on = false;
-    if (state.command().armed) {
+    if (state.isEnabled()) {
         on = (tracker.fresh(now) && (tracker.flags() & RCMAP_STATUS_ARMED))
                  ? true
                  : (now % 1000) < 500;
@@ -105,6 +106,11 @@ void loop() {
         state.rxByte(static_cast<char>(Serial.read()), now, emitToPc, nullptr);
     }
     state.tick(now, emitToPc, nullptr);
+    // An E or a release makes the last robot status out of date.
+    if (state.enableEpoch() != seenEnableEpoch) {
+        seenEnableEpoch = state.enableEpoch();
+        tracker.invalidate();
+    }
 
     if (now - lastRcMs >= RC_PERIOD_MS) {
         lastRcMs = now;

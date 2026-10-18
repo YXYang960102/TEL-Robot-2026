@@ -49,6 +49,9 @@ public:
     // Turret driven by the camera: VisionFollowController on Vision::getTx()
     // every update().
     static void setRotateVisionFollow();
+    // Operator fine-adjust: vision-follow aims this many px right (+) of
+    // the target's center. 0 = straight at it.
+    static void setRotateAimOffsetPx(double offsetPx);
 
     // Status
     // Turret locked on target: |tx| within VISION_READY_TOLERANCE_PX for
@@ -56,9 +59,9 @@ public:
     static bool isRotateReady();
     // Time-based proxy only: no RPM/tachometer feedback exists for the
     // Falcon 500 flywheel (PWM command path is one-way). True once the
-    // commanded output has stayed at/above Flywheel::SHOOT_COMMAND for at
-    // least Flywheel::SPIN_UP_MS. Re-verify against real shots before
-    // trusting it.
+    // commanded output has been non-zero and steady (within
+    // FLYWHEEL_READY_BAND of where it settled) for Flywheel::SPIN_UP_MS.
+    // Re-verify against real shots before trusting it.
     static bool isFlywheelReady();
     // Ready to fire: turret locked and flywheel spun up (the same two
     // conditions Auto checks before feeding).
@@ -90,6 +93,7 @@ private:
     static RotateControlMode rotateMode;
     static bool outputsEnabled;
     static bool rotateReady;
+    static double rotateAimOffsetPx;
     static double angleManualCommand;
     static double rotateManualCommand;
     static double flywheelOpenLoopCommand;
@@ -97,5 +101,12 @@ private:
     static int rotatePulseUs;
     static int flywheelPulseUs;
     static unsigned long flywheelSpinStartMs;
+    static double flywheelSpinCommand; // the command the spin-up timer started at
+    // What actually goes to the Falcon: flywheelOpenLoopCommand, reached
+    // at Flywheel::RAMP_UP_PER_SECOND going up and RAMP_DOWN_PER_SECOND
+    // going down -- also after a disable (spin-down, then neutral).
+    static double flywheelOutputCommand;
+    static unsigned long flywheelRampLastMs;
+    static void rampFlywheel();
     static bool flywheelReady;
 };

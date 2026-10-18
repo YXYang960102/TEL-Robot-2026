@@ -46,18 +46,17 @@ void Telemetry::update() {
     Serial.print(",");
     Serial.print(Vision::isValid() ? 1 : 0);
     Serial.print(",");
-    // The five legacy SBUS-era slots now carry the wireless channels the
-    // operator actually controls (table in src/IO/RcControlMap.h): left
-    // drive, right drive, operator mode, arm, F counter.
-    Serial.print(MechLink::channels[RCMAP_CH_LEFT]);
+    // Slots 7-11: raw wireless channels (table v2 in src/IO/RcControlMap.h):
+    // forward, turn, operator mode, arm, fire.
+    Serial.print(MechLink::channels[RCMAP_CH_FORWARD]);
     Serial.print(",");
-    Serial.print(MechLink::channels[RCMAP_CH_RIGHT]);
+    Serial.print(MechLink::channels[RCMAP_CH_TURN]);
     Serial.print(",");
     Serial.print(MechLink::modeChannel);
     Serial.print(",");
     Serial.print(MechLink::channels[RCMAP_CH_ARM]);
     Serial.print(",");
-    Serial.print(MechLink::channels[RCMAP_CH_FEED_COUNTER]);
+    Serial.print(MechLink::channels[RCMAP_CH_FIRE]);
     Serial.print(",");
     Serial.print(Shooter::isReady() ? 1 : 0);
     Serial.print(",");
@@ -106,5 +105,32 @@ void Telemetry::update() {
     Serial.print(",");
     Serial.print(Shooter::getAngleMinDegrees(), 1);
     Serial.print(",");
-    Serial.println(Shooter::getAngleMaxDegrees(), 1);
+    Serial.print(Shooter::getAngleMaxDegrees(), 1);
+    Serial.print(",");
+    // Slots 32-34 (appended 2026-10-16): selected target hole (0 = none,
+    // 1..9), the auto path started this Enable (0 = none, 1..4), and a bit
+    // mask of every auto path started since boot (bit n = path n).
+    Serial.print(ManualControl::getTarget());
+    Serial.print(",");
+    Serial.print(ManualControl::getAutoPathThisEnable());
+    Serial.print(",");
+    Serial.print(ManualControl::getAutoPathsUsedMask());
+    Serial.print(",");
+    // Slots 35-37 (appended 2026-10-16, Orin protocol v2): the hole as sent
+    // to the Orin (vision id 0 / 4..12), and the operator's fine-adjust
+    // (aim px, + = right; elevation us). Slots 5/6 (target id / valid)
+    // already only show the selected hole's frame.
+    Serial.print(Vision::getSelectedTarget());
+    Serial.print(",");
+    Serial.print(ManualControl::getAimOffsetPx(), 0);
+    Serial.print(",");
+    Serial.print(ManualControl::getElevationOffsetUs(), 0);
+    Serial.print(",");
+    // Slot 38 (appended 2026-10-17): ms since the last valid "RC,..." line
+    // from the robot STM32 bridge, so the real ELRS/bridge update rate can
+    // be read live (Dashboard) instead of assumed -- compare against
+    // MechLink's own LINE_TIMEOUT_MS (200) and
+    // ManualControlConstants::COMMAND_TIMEOUT_MS (250). Bench-check this
+    // with the chassis output-disabled or the drive motors unpowered.
+    Serial.println(MechLink::lastLineAgeMs());
 }

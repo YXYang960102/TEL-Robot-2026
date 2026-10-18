@@ -33,7 +33,7 @@ with tempfile.TemporaryDirectory() as tmp:
     subprocess.run([host_cc, '-Wall', '-Wextra', '-Werror', '-std=c11',
                      '-I', str(root / 'src'), '-I', str(common_src), '-I', str(rcmap_src),
                      str(root / 'test/host_test_ch_line_format.c'),
-                     str(root / 'src/ch_line_format.c'),
+                     str(root / 'src/ch_line_format.c'), str(rcmap_src / 'RcControlMap.c'),
                      '-o', str(host_test_bin)], check=True)
     subprocess.run([str(host_test_bin)], check=True)
 

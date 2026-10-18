@@ -20,16 +20,31 @@ struct Recorder {
     unsigned long angleTargetSets = 0;
     double anglePulseUs = 0.0;         // Auto's shot-table pulse
     unsigned long anglePulseSets = 0;
+    double aimOffsetPx = 0.0;          // Shooter::setRotateAimOffsetPx
     unsigned long statusCount = 0;
     uint8_t statusFlags = 0;
     unsigned long statusSeq = 0;
     uint16_t statusCode = 0;
+    unsigned long aimCount = 0;        // aim frames (code bit 15), kept apart
+    uint8_t aimFlags = 0;
+    unsigned long aimSeq = 0;
+    uint16_t aimCode = 0;
+    unsigned long visionCount = 0;     // vision frames (code bits 15-14 = 01)
+    uint8_t visionFlags = 0;
+    unsigned long visionSeq = 0;
+    uint16_t visionCode = 0;
 };
 
 extern Recorder rec;
 extern bool visionReady;      // Vision::isConnected()/isVisionReady()
 extern bool visionValid;      // Vision::isValid() (a target is locked)
 extern double visionDistanceMm;
+extern int visionTargetId;    // Vision::getTargetId() (Orin vision id)
+extern uint8_t visionSelectedId; // Vision::getSelectedTarget()
+extern double visionTx;          // Vision::getTx()
+extern double visionTy;          // Vision::getTy()
+extern int anglePulseUs;      // Shooter::getAnglePulseUs()
+extern int flywheelPulseUs;   // Shooter::getFlywheelPulseUs()
 extern bool shooterReady;     // Shooter::isReady() (turret locked && flywheel up)
 
 }

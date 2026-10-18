@@ -4,12 +4,12 @@
 // Dashboard (tools/dashboard/index.html) over USB, keyboard or gamepad:
 // the joystick X axis (or keyboard A/D) is the "turn" part of the tank
 // command, and that turn drives the motor. Nothing else is attached or
-// written -- no chassis, shooter, tower, conveyor or Serial1/2 traffic.
+// written -- no chassis, shooter, tower or Serial1/2 traffic.
 //
 // It speaks just enough of the production wired protocol for the
 // Dashboard's Enable handshake, watchdog and readouts to work unchanged:
-//   E / X / K, T,<left>,<right>, ROT,<d>; FLY/ANG/F/L/R/M are accepted
-//   (they keep the link alive) but drive nothing here.
+//   E / X / K, T,<left>,<right>, ROT,<d>; FLY/ANG/TGT/AUTO/F/M are
+//   accepted (they keep the link alive) but drive nothing here.
 //   $EVENT,OUTPUTS_ENABLED / OUTPUTS_DISABLED / COMMAND_TIMEOUT /
 //   REJECTED_DISARMED / BAD_COMMAND / UNKNOWN_COMMAND, and a TEL line in
 //   the production field layout (armed in slot 18, the A5 pulse in slot 19,
@@ -96,8 +96,9 @@ void handleLine(char* text) {
     const bool isRotate = strncmp(text, "ROT,", 4) == 0;
     const bool known = isTank || isRotate || strcmp(text, "K") == 0 ||
         strncmp(text, "FLY,", 4) == 0 ||
-        strncmp(text, "ANG", 3) == 0 ||
-        (text[1] == '\0' && strchr("FLRM", text[0]) != nullptr);
+        strncmp(text, "ANG", 3) == 0 || strncmp(text, "TGT,", 4) == 0 ||
+        strncmp(text, "AUTO,", 5) == 0 ||
+        (text[1] == '\0' && strchr("FM", text[0]) != nullptr);
     if (!known) {
         event("UNKNOWN_COMMAND");
         return;

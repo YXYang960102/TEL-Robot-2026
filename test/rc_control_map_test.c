@@ -1,9 +1,8 @@
-/* Host test for src/IO/RcControlMap.c: encode/decode round trip, decoding
- * the values ELRS actually emits in Hybrid mode (6-position AUX channels
- * spread evenly over 988..2012 us, 2-position AUX1 at 988/2012), invalid
- * frames, the event-counter rules (one action per +1, no repeat, no replay
- * after a reconnect, skipped jumps), and the status-in-battery-frame
- * packing. */
+/* Host test for src/IO/RcControlMap.c (channel table v2): encode/decode
+ * round trip, decoding the values ELRS actually emits in Hybrid mode
+ * (6-position AUX channels at 988/1193/1398/1602/1807/2012 us, 2-position
+ * AUX1 at 988/2012), invalid frames, the operator mode, and the
+ * status-in-battery-frame packing. */
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -21,107 +20,89 @@ static rcmap_command base(void) {
 
 static void test_round_trip(void) {
     rcmap_command c = base();
-    c.left = 1.0f; c.right = -1.0f; c.flywheel = 0.4f; c.armed = true;
-    c.rotate = -1; c.angle = 1; c.feed_counter = 3; c.lmode_counter = 5;
+    c.forward = 1.0f; c.turn = -0.5f; c.target = 7; c.mode_us = RCMAP_MODE_SEMI_AUTO_US;
+    c.fire = true; c.armed = true; c.nudge = RCMAP_NUDGE_LEFT; c.auto_path = 3;
     int ch[16];
     rcmap_encode(&c, ch);
-    assert(ch[0] == 2000 && ch[1] == 1000 && ch[2] == 1400 && ch[3] == 2000);
-    assert(ch[4] == 2000 && ch[5] == 1000 && ch[6] == 2000 && ch[7] == 1600 && ch[8] == 2000);
-    for (int i = RCMAP_CHANNEL_COUNT; i < 16; i++) assert(ch[i] == 1500);
+    assert(ch[RCMAP_CH_FORWARD] == 2000 && ch[RCMAP_CH_TURN] == 1250);
+    assert(ch[RCMAP_CH_TARGET] == 1700 && ch[RCMAP_CH_MODE] == 1750);
+    assert(ch[RCMAP_CH_FIRE] == 2000 && ch[RCMAP_CH_ARM] == 2000);
+    assert(ch[RCMAP_CH_NUDGE] == 1600 && ch[RCMAP_CH_AUTO] == 1600);
+    assert(ch[8] == 1500 && ch[9] == 1500 && ch[15] == 1500);
     rcmap_command d;
-    assert(rcmap_decode(ch, 16, &d));
-    assert(near(d.left, 1.0f) && near(d.right, -1.0f) && near(d.flywheel, 0.4f));
-    assert(d.armed && d.rotate == -1 && d.angle == 1);
-    assert(d.feed_counter == 3 && d.lmode_counter == 5 && d.mode_us == 2000);
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    assert(near(d.forward, 1.0f) && near(d.turn, -0.5f));
+    assert(d.target == 7 && d.fire && d.armed && d.nudge == RCMAP_NUDGE_LEFT && d.auto_path == 3);
+    assert(rcmap_mode_from_us(d.mode_us) == RCMAP_MODE_SEMI_AUTO);
 
-    /* Disarmed, neutral defaults. */
-    c = base();
-    rcmap_encode(&c, ch);
-    assert(rcmap_decode(ch, 16, &d));
-    assert(!d.armed && near(d.left, 0) && near(d.right, 0) && d.flywheel == 0.0f);
-    assert(d.rotate == 0 && d.angle == 0 && d.feed_counter == 0);
+    /* All-zero command = everything neutral / released / none. */
+    rcmap_encode(&(rcmap_command){0}, ch);
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    assert(!d.armed && !d.fire && near(d.forward, 0) && near(d.turn, 0));
+    assert(d.target == RCMAP_TARGET_NONE && d.nudge == RCMAP_NUDGE_CENTER && d.auto_path == RCMAP_AUTO_NONE);
+    assert(ch[RCMAP_CH_MODE] == RCMAP_MODE_FULL_MANUAL_US);
 
-    /* Out-of-range inputs are clamped, NaN goes neutral. */
+    /* Out-of-range fields: axes clamp, NaN is neutral, bad levels send none. */
     c = base();
-    c.left = 5.0f; c.right = NAN; c.flywheel = -3.0f;
+    c.forward = 5.0f; c.turn = NAN; c.target = 12; c.nudge = 9; c.auto_path = 7;
     rcmap_encode(&c, ch);
-    assert(ch[0] == 2000 && ch[1] == 1500 && ch[2] == 1000);
+    assert(ch[RCMAP_CH_FORWARD] == 2000 && ch[RCMAP_CH_TURN] == 1500);
+    assert(ch[RCMAP_CH_TARGET] == 1000 && ch[RCMAP_CH_NUDGE] == 1000 && ch[RCMAP_CH_AUTO] == 1000);
+
+    /* Every target hole round-trips. */
+    for (uint8_t k = 0; k <= RCMAP_TARGET_MAX; k++) {
+        c = base(); c.target = k;
+        rcmap_encode(&c, ch);
+        assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.target == k);
+    }
 }
 
 static void test_elrs_hybrid_values(void) {
-    /* What ELRS Hybrid mode emits for a 6-position AUX channel and the
-       2-position AUX1, i.e. not our exact encoded values. */
+    /* What the robot actually receives: CH1-4 as sent (+-1 us), CH5
+     * 988/2012, CH6+ snapped to the 6-position grid. */
     const int six[6] = {988, 1193, 1398, 1602, 1807, 2012};
-    int ch[16];
     rcmap_command d;
-    for (int k = 0; k < 6; k++) {
-        for (int i = 0; i < 16; i++) ch[i] = 1500;
-        ch[4] = 2012;
-        ch[5] = 1398; /* 1500 quantized down */
-        ch[6] = 1602; /* 1500 quantized up */
-        ch[7] = six[k];
-        ch[8] = six[(k + 2) % 6];
-        assert(rcmap_decode(ch, 16, &d));
-        assert(d.feed_counter == k && d.lmode_counter == (k + 2) % 6);
-        assert(d.armed && d.rotate == 0 && d.angle == 0);
+    for (uint8_t k = 0; k < 5; k++) {
+        int ch[16] = {1500, 1500, 1501, 2000, 988, 2012, six[k], six[4 - k], 1500, 1500};
+        assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+        assert(d.nudge == k && d.auto_path == 4 - k && d.armed && !d.fire);
+        assert(d.target == RCMAP_TARGET_NONE + 5); /* 1501 -> hole 5 */
     }
-    ch[4] = 988;
-    ch[5] = 988;
-    ch[6] = 2012;
-    assert(rcmap_decode(ch, 16, &d));
-    assert(!d.armed && d.rotate == -1 && d.angle == 1);
-    ch[4] = 1500; /* anything not clearly high is NOT armed */
-    assert(rcmap_decode(ch, 16, &d) && !d.armed);
+    int ch[16] = {1500, 1500, 1000, 2000, 2012, 988, 988, 988, 1500, 1500};
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.fire && !d.armed);
 }
 
 static void test_invalid_frames(void) {
+    int ok[16] = {1500, 1500, 1000, 2000, 1000, 1000, 1000, 1000, 1500, 1500};
+    rcmap_command d = base();
+    assert(rcmap_decode(ok, RCMAP_CHANNEL_COUNT, &d));
     int ch[16];
-    rcmap_command c = base();
-    rcmap_encode(&c, ch);
-    rcmap_command d;
-    memset(&d, 0x5A, sizeof d);
-    const rcmap_command before = d;
-
-    int bad[16];
-    memcpy(bad, ch, sizeof ch);
-    bad[0] = 850; /* below 900 */
-    assert(!rcmap_decode(bad, 16, &d));
-    memcpy(bad, ch, sizeof ch);
-    bad[2] = 2200;
-    assert(!rcmap_decode(bad, 16, &d));
-    memcpy(bad, ch, sizeof ch);
-    bad[7] = 1100; /* halfway between two counter levels */
-    assert(!rcmap_decode(bad, 16, &d));
-    assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT - 1, &d)); /* too few channels */
-    assert(memcmp(&d, &before, sizeof d) == 0); /* untouched */
-}
-
-static void test_counter_rules(void) {
-    rcmap_counter c;
-    rcmap_counter_reset(&c);
-    /* First level after (re)connect is only a baseline: no replay. */
-    assert(rcmap_counter_update(&c, 4) == RCMAP_COUNTER_NONE);
-    /* Same level repeated across many packets: nothing. */
-    for (int i = 0; i < 20; i++) assert(rcmap_counter_update(&c, 4) == RCMAP_COUNTER_NONE);
-    /* +1: exactly one event, then quiet again. */
-    assert(rcmap_counter_update(&c, 5) == RCMAP_COUNTER_EVENT);
-    assert(rcmap_counter_update(&c, 5) == RCMAP_COUNTER_NONE);
-    /* Wrap 5 -> 0 is +1. */
-    assert(rcmap_counter_update(&c, 0) == RCMAP_COUNTER_EVENT);
-    /* Jump of +2 (two presses squeezed into one gap): ignored, rebaselined. */
-    assert(rcmap_counter_update(&c, 2) == RCMAP_COUNTER_SKIPPED);
-    assert(rcmap_counter_update(&c, 3) == RCMAP_COUNTER_EVENT);
-    /* Going backwards (= +5 mod 6) is also a skip, never an action. */
-    assert(rcmap_counter_update(&c, 2) == RCMAP_COUNTER_SKIPPED);
-    /* Reconnect: reset, then the stale level from before is a baseline. */
-    rcmap_counter_reset(&c);
-    assert(rcmap_counter_update(&c, 3) == RCMAP_COUNTER_NONE);
+    /* Any channel outside 900..2100 us rejects the whole frame. */
+    for (uint8_t i = 0; i < RCMAP_CHANNEL_COUNT; i++) {
+        memcpy(ch, ok, sizeof ch); ch[i] = 2200;
+        assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+        memcpy(ch, ok, sizeof ch); ch[i] = 800;
+        assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    }
+    /* Level channels between levels are corrupt, not rounded. */
+    memcpy(ch, ok, sizeof ch); ch[RCMAP_CH_TARGET] = 1150;  /* between holes 1 and 2 */
+    assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    memcpy(ch, ok, sizeof ch); ch[RCMAP_CH_NUDGE] = 1100;   /* between center and up */
+    assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    memcpy(ch, ok, sizeof ch); ch[RCMAP_CH_AUTO] = 2000;    /* a 6th level: not used */
+    assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    /* Too few channels. */
+    assert(!rcmap_decode(ok, RCMAP_CHANNEL_COUNT - 1, &d));
+    /* Fire/arm are fail-safe: only >= 1750 counts as on. */
+    memcpy(ch, ok, sizeof ch); ch[RCMAP_CH_FIRE] = 1700; ch[RCMAP_CH_ARM] = 1749;
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && !d.fire && !d.armed);
 }
 
 static void test_event_names_and_status(void) {
     assert(strcmp(rcmap_event_name(RCMAP_EVENT_OUTPUTS_ENABLED), "OUTPUTS_ENABLED") == 0);
     assert(strcmp(rcmap_event_name(RCMAP_EVENT_FEED_BUSY), "FEED_BUSY") == 0);
     assert(strcmp(rcmap_event_name(RCMAP_EVENT_EVENT_SKIPPED), "EVENT_SKIPPED") == 0);
+    assert(strcmp(rcmap_event_name(RCMAP_EVENT_AUTO_PATH_STARTED), "AUTO_PATH_STARTED") == 0);
     assert(strcmp(rcmap_event_name(999), "UNKNOWN_EVENT_CODE") == 0);
 
     rcmap_status s = {RCMAP_STATUS_ARMED | RCMAP_STATUS_OWNER_WIRELESS, RCMAP_EVENT_FEED_TRIGGER_SENT,
@@ -147,8 +128,8 @@ static void test_operator_mode(void) {
      * not auto; boundaries sit halfway between the sent levels. */
     assert(rcmap_mode_from_us(0) == RCMAP_MODE_FULL_MANUAL);
     assert(rcmap_mode_from_us(1000) == RCMAP_MODE_FULL_MANUAL);
-    assert(rcmap_mode_from_us(1249) == RCMAP_MODE_FULL_MANUAL);
-    assert(rcmap_mode_from_us(1250) == RCMAP_MODE_FULL_AUTO);
+    assert(rcmap_mode_from_us(1399) == RCMAP_MODE_FULL_MANUAL);
+    assert(rcmap_mode_from_us(1400) == RCMAP_MODE_FULL_AUTO);
     assert(rcmap_mode_from_us(1624) == RCMAP_MODE_FULL_AUTO);
     assert(rcmap_mode_from_us(1625) == RCMAP_MODE_SEMI_AUTO);
     assert(rcmap_mode_from_us(1874) == RCMAP_MODE_SEMI_AUTO);
@@ -198,12 +179,198 @@ static void test_operator_mode(void) {
                   "ENABLE_REJECTED_NOT_MANUAL") == 0);
 }
 
+/* Aim frames: alternate with status in the same ST line / Battery frame. */
+static void test_vision_frames(void) {
+    rcmap_vision v;
+    memset(&v, 0, sizeof v);
+    v.flywheel_pulse_us = 1290; v.tx_px = -62.5f; v.ty_px = 20.4f; v.valid = true; v.target_id = 10;
+    rcmap_status s;
+    memset(&s, 0, sizeof s);
+    rcmap_vision_to_status(&v, &s.flags, &s.event_seq, &s.event_code);
+    /* Never mistaken for status or aim; the ST line field ranges hold. */
+    assert(rcmap_status_is_vision(s.event_code) && !rcmap_status_is_aim(s.event_code));
+    assert(s.event_seq <= 0xFFFFFFu);
+    rcmap_aim a;
+    assert(!rcmap_aim_from_status(&s, &a));
+    rcmap_vision back;
+    assert(rcmap_vision_from_status(&s, &back));
+    assert(back.flywheel_pulse_us == 1290 && back.valid && back.target_id == 10);
+    assert(back.tx_px == -62.5f && back.ty_px == 20.5f); /* 0.5 px steps */
+    /* Clamps: pulse 16383 us, tx / ty +-1023.5 px. */
+    v.flywheel_pulse_us = 40000; v.tx_px = 5000.0f; v.ty_px = -5000.0f; v.valid = false; v.target_id = 0;
+    rcmap_vision_to_status(&v, &s.flags, &s.event_seq, &s.event_code);
+    assert(rcmap_vision_from_status(&s, &back));
+    assert(back.flywheel_pulse_us == 0x3FFF && back.tx_px == 1023.5f && back.ty_px == -1023.5f && !back.valid);
+    /* Status codes (<= 0x3FFF) and aim frames are not vision frames. */
+    for (uint8_t m = 0; m <= RCMAP_MODE_FULL_MANUAL; m++) {
+        assert(!rcmap_status_is_vision(rcmap_status_code(RCMAP_EVENT_COUNT - 1, m)));
+    }
+    assert(!rcmap_status_is_vision(RCMAP_AIM_FRAME_BIT | 0x4000u));
+}
+
+static void test_flywheel_on_mode_channel(void) {
+    rcmap_command c = base();
+    c.mode_us = RCMAP_MODE_FULL_MANUAL_US;
+    int ch[16];
+    rcmap_command d;
+    /* Off = the plain manual level, so an older ground's values mean the
+     * same thing. */
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_MODE] == 2000);
+    /* Every 1% step round-trips exactly, also with the link's +-1 us. */
+    for (int p = 1; p <= 100; p++) {
+        c.flywheel = (float)p / 100.0f;
+        rcmap_encode(&c, ch);
+        assert(ch[RCMAP_CH_MODE] == 1000 + 3 * p);
+        for (int jitter = -1; jitter <= 1; jitter++) {
+            int jittered[16];
+            memcpy(jittered, ch, sizeof ch);
+            jittered[RCMAP_CH_MODE] += jitter;
+            assert(rcmap_decode(jittered, RCMAP_CHANNEL_COUNT, &d));
+            assert(rcmap_mode_from_us(d.mode_us) == RCMAP_MODE_FULL_MANUAL);
+            assert(d.mode_us == RCMAP_MODE_FULL_MANUAL_US);
+            assert(near(d.flywheel, (float)p / 100.0f));
+        }
+    }
+    /* Clamped, and NaN is off. */
+    c.flywheel = 1.7f;
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_MODE] == 1300);
+    c.flywheel = -0.3f;
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_MODE] == 2000);
+    c.flywheel = NAN;
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_MODE] == 2000);
+    /* Never sent outside full manual. */
+    c.flywheel = 0.8f;
+    c.mode_us = RCMAP_MODE_SEMI_AUTO_US;
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_MODE] == RCMAP_MODE_SEMI_AUTO_US);
+    c.mode_us = RCMAP_MODE_FULL_AUTO_US;
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_MODE] == RCMAP_MODE_FULL_AUTO_US);
+    /* The old levels decode with the flywheel off. */
+    const int levels[3] = {RCMAP_MODE_FULL_AUTO_US, RCMAP_MODE_SEMI_AUTO_US,
+                           RCMAP_MODE_FULL_MANUAL_US};
+    for (int i = 0; i < 3; i++) {
+        ch[RCMAP_CH_MODE] = levels[i];
+        assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+        assert(d.mode_us == levels[i] && d.flywheel == 0.0f);
+    }
+    /* ELRS end point below 1000 = off; the gap is rejected, not guessed. */
+    ch[RCMAP_CH_MODE] = 988;
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.flywheel == 0.0f);
+    for (int us = 1304; us < RCMAP_MODE_FULL_AUTO_MIN_US; us++) {
+        ch[RCMAP_CH_MODE] = us;
+        assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    }
+    ch[RCMAP_CH_MODE] = RCMAP_MODE_FULL_AUTO_MIN_US;
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    assert(rcmap_mode_from_us(d.mode_us) == RCMAP_MODE_FULL_AUTO && d.flywheel == 0.0f);
+
+    /* Auto flywheel offset (LT / RT): level + 4 us per 1%, +-20%, every
+     * value round-trips (also with +-1 us) and stays in its mode's band;
+     * never sent or decoded in full manual. */
+    const int auto_modes[2] = {RCMAP_MODE_SEMI_AUTO_US, RCMAP_MODE_FULL_AUTO_US};
+    for (int m = 0; m < 2; m++) {
+        for (int off = -RCMAP_AUTO_OFFSET_MAX_PCT; off <= RCMAP_AUTO_OFFSET_MAX_PCT; off++) {
+            rcmap_command a = base();
+            a.mode_us = auto_modes[m];
+            a.flywheel_offset_pct = (int8_t)off;
+            rcmap_encode(&a, ch);
+            assert(ch[RCMAP_CH_MODE] == auto_modes[m] + 4 * off);
+            for (int jitter = -1; jitter <= 1; jitter++) {
+                int j[16];
+                memcpy(j, ch, sizeof ch);
+                j[RCMAP_CH_MODE] += jitter;
+                assert(rcmap_decode(j, RCMAP_CHANNEL_COUNT, &d));
+                assert(d.mode_us == auto_modes[m] && d.flywheel_offset_pct == off);
+            }
+        }
+    }
+    c = base();
+    c.mode_us = RCMAP_MODE_SEMI_AUTO_US;
+    c.flywheel_offset_pct = 90;                       /* clamped */
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_MODE] == RCMAP_MODE_SEMI_AUTO_US + 80);
+    c.mode_us = RCMAP_MODE_FULL_MANUAL_US;            /* manual: ignored */
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_MODE] == RCMAP_MODE_FULL_MANUAL_US);
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.flywheel_offset_pct == 0);
+}
+
+static void test_aim_frames(void) {
+    /* A status code can never look like an aim frame: every event x mode. */
+    for (uint16_t e = 0; e < 0x1000u; e++) {
+        for (uint8_t m = 0; m <= RCMAP_MODE_FULL_MANUAL; m++) {
+            assert(!rcmap_status_is_aim(rcmap_status_code(e, m)));
+        }
+        assert(!rcmap_status_is_aim(e)); /* older firmware: no mode */
+    }
+
+    rcmap_aim a = {0};
+    a.distance_cm = 352;            /* 3.52 m */
+    a.elevation_pulse_us = 1620;
+    a.selected_id = 10;             /* key 1 */
+    a.target_id = 10;
+    a.valid = true;
+    a.aim_offset_px = -15;
+    uint8_t flags;
+    uint32_t seq;
+    uint16_t code;
+    rcmap_aim_to_status(&a, &flags, &seq, &code);
+    /* Within the robot bridge's ST-line field ranges (flags <= 255 is the
+     * type; seq <= 0xFFFFFF, code <= 65535). */
+    assert(seq <= 0xFFFFFFu);
+    assert(rcmap_status_is_aim(code));
+
+    /* Mega -> bridge (Battery) -> ground, exactly like a status frame. */
+    rcmap_status st = {0};
+    st.flags = flags;
+    st.event_seq = seq;
+    st.event_code = code;
+    st.rolling = 7;
+    uint16_t v, cur;
+    uint32_t cap;
+    uint8_t rem;
+    rcmap_status_to_battery(&st, &v, &cur, &cap, &rem);
+    rcmap_status got;
+    assert(rcmap_status_from_battery(v, cur, cap, rem, &got));
+    rcmap_aim back;
+    assert(rcmap_aim_from_status(&got, &back));
+    assert(back.distance_cm == 352 && back.elevation_pulse_us == 1620);
+    assert(back.selected_id == 10 && back.target_id == 10 && back.valid);
+    assert(back.aim_offset_px == -15);
+
+    /* Clamps and masks. */
+    a.distance_cm = 60000;
+    a.elevation_pulse_us = 9000;
+    a.selected_id = 0;
+    a.target_id = 0;
+    a.valid = false;
+    a.aim_offset_px = 127;
+    rcmap_aim_to_status(&a, &flags, &seq, &code);
+    st.flags = flags;
+    st.event_seq = seq;
+    st.event_code = code;
+    assert(rcmap_aim_from_status(&st, &back));
+    assert(back.distance_cm == 0x7FFFu && back.elevation_pulse_us == 0x0FFFu);
+    assert(!back.valid && back.selected_id == 0 && back.target_id == 0 && back.aim_offset_px == 127);
+
+    /* A status frame is not an aim frame. */
+    st.event_code = rcmap_status_code(RCMAP_EVENT_OUTPUTS_ENABLED, RCMAP_MODE_FULL_MANUAL);
+    assert(!rcmap_aim_from_status(&st, &back));
+}
+
 int main(void) {
     test_round_trip();
     test_elrs_hybrid_values();
     test_invalid_frames();
-    test_counter_rules();
     test_event_names_and_status();
+    test_aim_frames();
+    test_flywheel_on_mode_channel();
+    test_vision_frames();
     test_operator_mode();
     printf("rc_control_map host tests: all asserts passed\n");
     return 0;

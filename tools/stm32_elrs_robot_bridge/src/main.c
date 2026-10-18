@@ -2,7 +2,6 @@
 #include <stdbool.h>
 #include "config.h"
 #include "crsf.h"
-#include "tel_chunk_split.h"
 #include "ch_line_format.h"
 
 /* STM32F401 RM0368 register map + Cortex-M4 core registers. Bare-metal,
@@ -66,7 +65,7 @@
 #define USART_CR1_RXNEIE (1u << 5)
 #define USART_CR1_UE   (1u << 13)
 
-#define MEGA_LINE_BUF_SIZE 160u /* Mega's "TEL,..." line is ~100-120 chars; margin kept */
+#define MEGA_LINE_BUF_SIZE 160u /* an "ST,..." line is < 30 chars; margin kept */
 
 static volatile uint32_t g_millis = 0;
 
@@ -79,16 +78,15 @@ static volatile bool downlink_ok = false;
 static volatile uint32_t last_rc_rx_ms = 0;
 
 /* Mega -> this board, over USART1: a plain ASCII line (no CRSF framing),
-   accumulated byte-by-byte in the IRQ until '\n'. No lock/double-buffer
-   between the IRQ and the main loop's chunk sender below reading
-   tel_line_ready -- same accepted simplification the bench firmware
-   documents for its own tx_ch_us (see that file's comment); a new line
-   arriving mid-chunk-cycle simply restarts the cycle from chunk 0. */
+   accumulated byte-by-byte in the IRQ until '\n'. Only "ST,..." status
+   lines are used; anything else is dropped (2026-10-17). The old bench
+   path relayed any other line as TEL_CHUNK frames every 20 ms, forever --
+   so one garbled line (a Mega reset / upload mid-line) kept ~40 custom
+   frames a second competing with the status Battery frames for ELRS's few
+   telemetry slots, delaying status by seconds. The production Mega never
+   sends TEL here. */
 static char mega_rx_line[MEGA_LINE_BUF_SIZE];
 static uint16_t mega_rx_line_len = 0;
-static char tel_line_ready[MEGA_LINE_BUF_SIZE];
-static uint16_t tel_line_ready_len = 0;
-static volatile bool tel_line_pending_reset = false;
 
 /* Latest "ST,..." status line from the Mega (ManualControl), copied out by
    the IRQ and parsed in the main loop. It goes to the ground station as a
@@ -188,7 +186,7 @@ static void nvic_enable_usarts(void) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Mega link (USART1): send decoded channels, receive the TEL line      */
+/* Mega link (USART1): send decoded channels, receive the ST line       */
 /* ------------------------------------------------------------------ */
 
 static void send_ch_line_to_mega(void) {
@@ -231,43 +229,10 @@ static void send_status_frame(uint32_t now) {
 }
 
 /* ------------------------------------------------------------------ */
-/* ES900RX link (USART2): receive RC, send one TEL_CHUNK frame at a time */
-/* ------------------------------------------------------------------ */
-
-static void send_next_tel_chunk(void) {
-  static uint8_t chunk_cursor = 0;
-
-  if (tel_line_pending_reset) {
-    tel_line_pending_reset = false;
-    chunk_cursor = 0;
-  }
-  if (tel_line_ready_len == 0) {
-    return; /* nothing received from the Mega yet */
-  }
-
-  uint8_t count = tel_chunk_count(tel_line_ready_len);
-  if (chunk_cursor >= count) chunk_cursor = 0;
-
-  const char *ptr;
-  uint8_t chunkLen;
-  tel_chunk_slice(tel_line_ready, tel_line_ready_len, chunk_cursor, &ptr, &chunkLen);
-
-  uint8_t frame[CRSF_TEL_CHUNK_FRAME_MAX];
-  uint8_t frameLen = crsf_build_tel_chunk_frame(frame, chunk_cursor, count,
-                                                 (const uint8_t *)ptr, chunkLen);
-  for (uint8_t i = 0; i < frameLen; i++) {
-    while (!(USART2_SR & USART_SR_TXE)) {}
-    USART2_DR = frame[i];
-  }
-
-  chunk_cursor = (uint8_t)((chunk_cursor + 1u) % count);
-}
-
-/* ------------------------------------------------------------------ */
 /* Status LED: solid while the ES900RX downlink is fresh, slow blink    */
 /* once it goes stale. No backlink-health state here (unlike the bench  */
 /* rig's 3-state LED): this board cannot observe whether its own        */
-/* TEL_CHUNK frames are actually reaching the ground bridge without an  */
+/* status frames are actually reaching the ground station without an   */
 /* ack scheme this firmware does not implement.                         */
 /* ------------------------------------------------------------------ */
 
@@ -306,11 +271,7 @@ void USART1_IRQHandler(void) {
         for (uint16_t i = 0; i < len; i++) status_line_ready[i] = mega_rx_line[i];
         status_line_ready_len = len;
         status_line_pending = true;
-      } else {
-        for (uint16_t i = 0; i < len; i++) tel_line_ready[i] = mega_rx_line[i];
-        tel_line_ready_len = len;
-        tel_line_pending_reset = true;
-      }
+      } /* any other line: dropped (see mega_rx_line above) */
       mega_rx_line_len = 0;
     } else if (b != (uint8_t)'\r') {
       if (mega_rx_line_len < MEGA_LINE_BUF_SIZE) {
@@ -362,7 +323,6 @@ int main(void) {
   __asm volatile ("cpsie i" ::: "memory");
 
   uint32_t last_ch_send_ms = 0;
-  uint32_t last_tel_send_ms = 0;
   uint32_t last_status_send_ms = 0;
 
   for (;;) {
@@ -379,9 +339,6 @@ int main(void) {
     if ((now - last_status_send_ms) >= STATUS_SEND_PERIOD_MS) {
       last_status_send_ms = now;
       send_status_frame(now);
-    } else if ((now - last_tel_send_ms) >= TEL_CHUNK_SEND_PERIOD_MS) {
-      last_tel_send_ms = now;
-      send_next_tel_chunk();
     }
 
     update_status_led();

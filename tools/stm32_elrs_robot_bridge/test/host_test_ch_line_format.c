@@ -60,6 +60,16 @@ static void test_status_line(void) {
     CHECK(!parse_status_line(bad[i], (uint16_t)strlen(bad[i]), &untouched), bad[i]);
     CHECK(untouched.flags == 9 && untouched.event_seq == 9, "rejected line leaves output untouched");
   }
+  /* An aim frame (2026-10-17) is just another ST line within the same
+     field ranges: the bridge passes it through unchanged. This is the
+     line the Mega prints for 3.52 m, 1620 us, key 1 (vision 10) seen,
+     aim offset -15 px. */
+  const char *aim = "ST,241,1746516,33120";
+  CHECK(parse_status_line(aim, (uint16_t)strlen(aim), &s), "aim frame line parses");
+  rcmap_aim a;
+  CHECK(rcmap_aim_from_status(&s, &a), "and decodes as an aim frame");
+  CHECK(a.distance_cm == 352 && a.elevation_pulse_us == 1620 && a.selected_id == 10 &&
+        a.target_id == 10 && a.valid && a.aim_offset_px == -15, "aim fields land in place");
 }
 
 int main(void) {

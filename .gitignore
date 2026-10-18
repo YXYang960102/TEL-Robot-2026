@@ -5,3 +5,6 @@
 .vscode/ipch
 __pycache__/
 *.pyc
+
+# Excel lock files while shot_table.xlsx is open
+tools/shot_table/~$*
