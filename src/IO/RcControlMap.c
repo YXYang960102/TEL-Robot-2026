@@ -211,15 +211,15 @@ static float half_px_value(uint32_t field) {
 }
 
 void rcmap_vision_to_status(const rcmap_vision *v, uint8_t *flags, uint32_t *seq, uint16_t *code) {
-    const uint16_t cm = v->distance_cm > 0x3FFFu ? 0x3FFFu : v->distance_cm;
-    *code = (uint16_t)(RCMAP_VISION_FRAME_BIT | cm);
+    const uint16_t us = v->flywheel_pulse_us > 0x3FFFu ? 0x3FFFu : v->flywheel_pulse_us;
+    *code = (uint16_t)(RCMAP_VISION_FRAME_BIT | us);
     *seq = half_px_field(v->tx_px) | (half_px_field(v->ty_px) << 12);
     *flags = (uint8_t)((v->valid ? 1u : 0u) | ((v->target_id & 0x0Fu) << 1));
 }
 
 bool rcmap_vision_from_status(const rcmap_status *s, rcmap_vision *out) {
     if (!rcmap_status_is_vision(s->event_code)) return false;
-    out->distance_cm = (uint16_t)(s->event_code & 0x3FFFu);
+    out->flywheel_pulse_us = (uint16_t)(s->event_code & 0x3FFFu);
     out->tx_px = half_px_value(s->event_seq);
     out->ty_px = half_px_value(s->event_seq >> 12);
     out->valid = (s->flags & 1u) != 0u;

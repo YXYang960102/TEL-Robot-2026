@@ -505,9 +505,10 @@ async function emergencyStopViaEnter() {
   assert.match(elements.distanceRaw.textContent, /收不到機器人視覺資料/);
   assert.equal(run('linkKind'), 'ground');
   // $VISION (the robot's vision frame): tx / ty in half pixels.
-  line('$VISION,1,352,-125,41,1,10');
+  line('$VISION,1,1290,-125,41,1,10');
   assert.equal(elements.tx.textContent, '-62.5');
   assert.equal(elements.ty.textContent, '20.5');
+  assert.equal(elements.falconPwm.textContent, '1290 us (42.0%)');  // the Falcon's real pulse
   line('$VISION,1,0,0,0,0,0');                     // no valid target
   assert.equal(elements.tx.textContent, '--');
   line('$VISION,0,0,0,0,0,0');                     // stale

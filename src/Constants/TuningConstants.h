@@ -122,6 +122,12 @@ constexpr uint32_t SPIN_UP_MS = 1500;
 
 namespace Auto {
 
+// After the target drops out of a frame, Auto keeps its last shot (flywheel
+// and elevation) this long before falling back to the pre-spin (2026-10-18:
+// single-frame vision dropouts pulsed the flywheel). Firing still needs a
+// target in the current frame.
+constexpr uint32_t TARGET_HOLD_MS = 500;
+
 // Minimum time from one auto shot to the next (src/Auto/Auto.cpp). The
 // feed tower's own lockout (DribblerConstants::Tower::COOLDOWN_MS, 1000 ms)
 // also applies, so the real full-auto rate is whichever is longer.

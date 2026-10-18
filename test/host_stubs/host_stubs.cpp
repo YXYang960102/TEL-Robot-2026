@@ -24,6 +24,7 @@ uint8_t visionSelectedId = 0;
 double visionTx = 0.0;
 double visionTy = 0.0;
 int anglePulseUs = 1500;
+int flywheelPulseUs = 1490;
 bool shooterReady = false;
 }
 
@@ -90,6 +91,7 @@ double Vision::getTy() { return hoststub::visionTy; }
 int Vision::getTargetId() { return hoststub::visionTargetId; }
 uint8_t Vision::getSelectedTarget() { return hoststub::visionSelectedId; }
 int Shooter::getAnglePulseUs() { return hoststub::anglePulseUs; }
+int Shooter::getFlywheelPulseUs() { return hoststub::flywheelPulseUs; }
 
 int MechLink::channels[RCMAP_CHANNEL_COUNT];
 unsigned long MechLink::frameCount = 0;

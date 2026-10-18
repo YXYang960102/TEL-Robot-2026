@@ -401,7 +401,7 @@ void RobotStatusTracker::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
     const rcmap_vision v = visionFresh ? lastVision : rcmap_vision{};
     snprintf(text, sizeof(text), "$VISION,%d,%u,%d,%d,%d,%u",
              visionFresh ? 1 : 0,
-             static_cast<unsigned>(v.distance_cm),
+             static_cast<unsigned>(v.flywheel_pulse_us),
              static_cast<int>(lroundf(v.tx_px * 2.0f)),
              static_cast<int>(lroundf(v.ty_px * 2.0f)),
              v.valid ? 1 : 0,

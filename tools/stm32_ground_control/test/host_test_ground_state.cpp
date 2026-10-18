@@ -490,14 +490,14 @@ static void testVisionFrames() {
     tr.onStatus(status(RCMAP_STATUS_ARMED | RCMAP_STATUS_OWNER_WIRELESS, 3, RCMAP_EVENT_OUTPUTS_ENABLED),
                 260, collect, nullptr);
     rcmap_vision v{};
-    v.distance_cm = 352; v.tx_px = -62.5f; v.ty_px = 20.5f; v.valid = true; v.target_id = 10;
+    v.flywheel_pulse_us = 1290; v.tx_px = -62.5f; v.ty_px = 20.5f; v.valid = true; v.target_id = 10;
     rcmap_status vs{};
     rcmap_vision_to_status(&v, &vs.flags, &vs.event_seq, &vs.event_code);
     lines.clear();
     tr.onStatus(vs, 300, collect, nullptr);
     assert(lines.empty());                  // no bogus event from it
     tr.tick(500, collect, nullptr);
-    assert(lastLineStarting("$VISION,") == "$VISION,1,352,-125,41,1,10");
+    assert(lastLineStarting("$VISION,") == "$VISION,1,1290,-125,41,1,10");
     // ...and the status is untouched by it.
     assert(lastWireless().rfind("$WIRELESS,1,1,2,", 0) == 0);
     // Stale after STALE_MS.

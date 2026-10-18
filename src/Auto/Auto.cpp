@@ -12,10 +12,16 @@
 
 Auto::FireState Auto::fireState = Auto::FireState::IDLE;
 unsigned long Auto::fireStateEnteredMs = 0;
+bool Auto::haveLastShot = false;
+double Auto::lastShotFlywheel = 0.0;
+double Auto::lastShotElevationUs = 0.0;
+unsigned long Auto::lastShotMs = 0;
+uint8_t Auto::lastShotSelection = 0;
 
 void Auto::init() {
     fireState = FireState::IDLE;
     fireStateEnteredMs = millis();
+    haveLastShot = false;
 }
 
 void Auto::enterFireState(FireState next) {
@@ -30,6 +36,7 @@ void Auto::update() {
     if (mode == OperatorMode::FULL_MANUAL) {
         ManualControl::takeFireRequest(); // never let a stale F carry over
         enterFireState(FireState::IDLE);
+        haveLastShot = false;
         return;
     }
 
@@ -40,6 +47,7 @@ void Auto::update() {
         Shooter::disableRotate();
         Shooter::setFlywheelOpenLoop(0.0);
         enterFireState(FireState::IDLE);
+        haveLastShot = false;
         if (firePressed) ManualControl::reportEvent(RCMAP_EVENT_FIRE_NOT_READY);
         return;
     }
@@ -57,20 +65,38 @@ void Auto::update() {
     const bool hasTarget = Vision::isValid() && Vision::getDistance() > 0.0 &&
         ShotTableLookup::lookupTarget(Vision::getTargetId(), Vision::getDistance() / 1000.0, shot);
 
-    // Flywheel from that table when there is a target (distance in mm -> m);
-    // otherwise the fixed SHOOT_COMMAND so it is already spinning when a
-    // target appears.
-    double flywheelCommand = TuningConstants::Flywheel::SHOOT_COMMAND;
+    // Target hold (2026-10-18): a single invalid / distance-0 / other-hole
+    // frame used to drop the flywheel to the pre-spin for ~90 ms and back,
+    // pulsing it and restarting its spin-up wait. The last target's shot
+    // is kept for TARGET_HOLD_MS (not across a new hole selection); firing
+    // still needs a target in the current frame (hasTarget below).
+    const unsigned long now = millis();
+    const uint8_t selection = Vision::getSelectedTarget();
     if (hasTarget) {
+        haveLastShot = true;
+        lastShotFlywheel = shot.flywheelCommand;
+        lastShotElevationUs = shot.elevationPulseUs;
+        lastShotMs = now;
+        lastShotSelection = selection;
+    }
+    const bool holding = !hasTarget && haveLastShot && selection == lastShotSelection &&
+        now - lastShotMs <= TuningConstants::Auto::TARGET_HOLD_MS;
+    if (!hasTarget && !holding) haveLastShot = false;
+
+    // Flywheel from that table when there is (or was just) a target
+    // (distance in mm -> m); otherwise the fixed SHOOT_COMMAND so it is
+    // already spinning when a target appears.
+    double flywheelCommand = TuningConstants::Flywheel::SHOOT_COMMAND;
+    if (hasTarget || holding) {
         // Plus the operator's LT / RT offset (percent), kept within 0..1.
         flywheelCommand = constrain(
-            shot.flywheelCommand + ManualControl::getFlywheelOffsetPct() / 100.0, 0.0, 1.0);
+            lastShotFlywheel + ManualControl::getFlywheelOffsetPct() / 100.0, 0.0, 1.0);
         // Elevation from the table too (a measured servo pulse) plus the
         // operator's fine-adjust, once the table holds real measured pulses
         // (ShotTable::ELEVATION_MEASURED); until then the operator keeps
         // the elevation. No target: hold.
         if (TuningConstants::ShotTable::ELEVATION_MEASURED) {
-            Shooter::setAnglePulseUs(shot.elevationPulseUs + ManualControl::getElevationOffsetUs());
+            Shooter::setAnglePulseUs(lastShotElevationUs + ManualControl::getElevationOffsetUs());
         }
     }
     Shooter::setFlywheelOpenLoop(flywheelCommand);

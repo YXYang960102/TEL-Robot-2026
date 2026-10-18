@@ -115,8 +115,9 @@ public:
     // Then "$AIM,<fresh>,<distanceCm>,<elevationPulseUs>,<selectedId>,
     // <targetId>,<valid>,<aimOffsetPx>" from the latest aim frame (fresh 0
     // and zeros when none came within STALE_MS).
-    // Then "$VISION,<fresh>,<distanceCm>,<tx*2>,<ty*2>,<valid>,<targetId>"
-    // from the latest vision frame (tx / ty in half pixels), same rule.
+    // Then "$VISION,<fresh>,<flywheelUs>,<tx*2>,<ty*2>,<valid>,<targetId>"
+    // from the latest vision frame (tx / ty in half pixels; the Falcon's
+    // actual PWM pulse), same rule.
     void tick(uint32_t nowMs, GroundEmitFn emit, void* ctx);
 
     bool fresh(uint32_t nowMs) const;

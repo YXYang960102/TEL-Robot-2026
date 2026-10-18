@@ -183,7 +183,7 @@ static void test_operator_mode(void) {
 static void test_vision_frames(void) {
     rcmap_vision v;
     memset(&v, 0, sizeof v);
-    v.distance_cm = 352; v.tx_px = -62.5f; v.ty_px = 20.4f; v.valid = true; v.target_id = 10;
+    v.flywheel_pulse_us = 1290; v.tx_px = -62.5f; v.ty_px = 20.4f; v.valid = true; v.target_id = 10;
     rcmap_status s;
     memset(&s, 0, sizeof s);
     rcmap_vision_to_status(&v, &s.flags, &s.event_seq, &s.event_code);
@@ -194,13 +194,13 @@ static void test_vision_frames(void) {
     assert(!rcmap_aim_from_status(&s, &a));
     rcmap_vision back;
     assert(rcmap_vision_from_status(&s, &back));
-    assert(back.distance_cm == 352 && back.valid && back.target_id == 10);
+    assert(back.flywheel_pulse_us == 1290 && back.valid && back.target_id == 10);
     assert(back.tx_px == -62.5f && back.ty_px == 20.5f); /* 0.5 px steps */
-    /* Clamps: distance 16383 cm, tx / ty +-1023.5 px. */
-    v.distance_cm = 40000; v.tx_px = 5000.0f; v.ty_px = -5000.0f; v.valid = false; v.target_id = 0;
+    /* Clamps: pulse 16383 us, tx / ty +-1023.5 px. */
+    v.flywheel_pulse_us = 40000; v.tx_px = 5000.0f; v.ty_px = -5000.0f; v.valid = false; v.target_id = 0;
     rcmap_vision_to_status(&v, &s.flags, &s.event_seq, &s.event_code);
     assert(rcmap_vision_from_status(&s, &back));
-    assert(back.distance_cm == 0x3FFF && back.tx_px == 1023.5f && back.ty_px == -1023.5f && !back.valid);
+    assert(back.flywheel_pulse_us == 0x3FFF && back.tx_px == 1023.5f && back.ty_px == -1023.5f && !back.valid);
     /* Status codes (<= 0x3FFF) and aim frames are not vision frames. */
     for (uint8_t m = 0; m <= RCMAP_MODE_FULL_MANUAL; m++) {
         assert(!rcmap_status_is_vision(rcmap_status_code(RCMAP_EVENT_COUNT - 1, m)));

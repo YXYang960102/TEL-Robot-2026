@@ -44,6 +44,7 @@ extern uint8_t visionSelectedId; // Vision::getSelectedTarget()
 extern double visionTx;          // Vision::getTx()
 extern double visionTy;          // Vision::getTy()
 extern int anglePulseUs;      // Shooter::getAnglePulseUs()
+extern int flywheelPulseUs;   // Shooter::getFlywheelPulseUs()
 extern bool shooterReady;     // Shooter::isReady() (turret locked && flywheel up)
 
 }

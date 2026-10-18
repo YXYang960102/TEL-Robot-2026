@@ -627,7 +627,8 @@ void testVisionUplink() {
     for (int i = 0; i < 4; i++) step(100);
     // Nothing in view: zeros, not valid.
     rcmap_vision v = lastVision();
-    assert(!v.valid && v.distance_cm == 0 && v.tx_px == 0.0f && v.ty_px == 0.0f);
+    assert(!v.valid && v.tx_px == 0.0f && v.ty_px == 0.0f);
+    assert(v.flywheel_pulse_us == 1490);                   // the Falcon's pulse, any time
     hoststub::visionReady = true;
     hoststub::visionValid = true;
     hoststub::visionDistanceMm = 3524.0;   // -> 352 cm
@@ -636,13 +637,13 @@ void testVisionUplink() {
     hoststub::visionTy = 20.5;
     for (int i = 0; i < 4; i++) step(100);
     v = lastVision();
-    assert(v.valid && v.distance_cm == 352 && v.target_id == 10);
+    assert(v.valid && v.target_id == 10);
     assert(v.tx_px == -62.5f && v.ty_px == 20.5f);
     // Lost target: tx / ty back to 0 (not a stale value).
     hoststub::visionValid = false;
     for (int i = 0; i < 4; i++) step(100);
     v = lastVision();
-    assert(!v.valid && v.tx_px == 0.0f && v.distance_cm == 0);
+    assert(!v.valid && v.tx_px == 0.0f);
     hoststub::visionTx = 0.0;
     hoststub::visionTy = 0.0;
 }
@@ -718,6 +719,16 @@ void testSemiAutoFiresOnlyWhenReady() {
     send("FLYO,21"); send("FLYO,x"); step();
     assert(saw("BAD_COMMAND") && ManualControl::getFlywheelOffsetPct() == 5);
     send("FLYO,0"); step();
+    assert(nearly(rec.flywheelCommand, shot.flywheelCommand));
+    // Target hold: a short dropout keeps the shot; a long one falls back
+    // to the pre-spin.
+    hoststub::visionValid = false;
+    runWithHeartbeat(TuningConstants::Auto::TARGET_HOLD_MS - 100);
+    assert(nearly(rec.flywheelCommand, shot.flywheelCommand));
+    runWithHeartbeat(200);
+    assert(nearly(rec.flywheelCommand, TuningConstants::Flywheel::SHOOT_COMMAND));
+    hoststub::visionValid = true;
+    step();
     assert(nearly(rec.flywheelCommand, shot.flywheelCommand));
     // The operator still drives the chassis.
     send("T,1,1"); step();

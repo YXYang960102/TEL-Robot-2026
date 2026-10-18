@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stdint.h>
+
 // Semi-auto / full-auto shooting (OperatorMode.h). Runs right after
 // ManualControl::update() each loop, and only while an operator has the
 // robot armed in SEMI_AUTO or FULL_AUTO: ManualControl keeps safety
@@ -41,4 +43,12 @@ private:
 
     static FireState fireState;
     static unsigned long fireStateEnteredMs;
+    // The last target's shot, kept for TuningConstants::Auto::TARGET_HOLD_MS
+    // after the target drops (a one-frame vision dropout must not drop the
+    // flywheel to the pre-spin and restart its spin-up wait).
+    static bool haveLastShot;
+    static double lastShotFlywheel;
+    static double lastShotElevationUs;
+    static unsigned long lastShotMs;
+    static uint8_t lastShotSelection;
 };

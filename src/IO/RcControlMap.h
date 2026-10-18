@@ -259,7 +259,9 @@ bool rcmap_aim_from_status(const rcmap_status *s, rcmap_aim *out);
  * same ST line / Battery frame. The Mega's 100 ms slots go status, aim,
  * status, vision.
  *   code  bits 15-14 = 01 (a status code is at most 0x3FFF, an aim frame
- *         has bit 15 set), bits 0-13 = camera distance in cm (max 16383)
+ *         has bit 15 set), bits 0-13 = the Falcon's actual PWM pulse in us
+ *         (2026-10-18; was the camera distance, which the aim frame
+ *         already carries)
  *   seq   bits 0-11 tx * 2, bits 12-23 ty * 2, both 12-bit two's
  *         complement: 0.5 px steps, +-1023.5 px
  *   flags bit 0 valid, bits 1-4 vision id of the frame in hand
@@ -267,7 +269,7 @@ bool rcmap_aim_from_status(const rcmap_status *s, rcmap_aim *out);
  * reflash the ground together with the Mega. */
 #define RCMAP_VISION_FRAME_BIT 0x4000u
 typedef struct {
-    uint16_t distance_cm;
+    uint16_t flywheel_pulse_us; /* what D25 sends now, max 16383 */
     float tx_px;
     float ty_px;
     bool valid;
@@ -277,7 +279,7 @@ typedef struct {
 static inline bool rcmap_status_is_vision(uint16_t code) {
     return (code & 0xC000u) == RCMAP_VISION_FRAME_BIT;
 }
-/* Out-of-range values are clamped (distance, tx, ty) or masked (id). */
+/* Out-of-range values are clamped (pulse, tx, ty) or masked (id). */
 void rcmap_vision_to_status(const rcmap_vision *v, uint8_t *flags, uint32_t *seq, uint16_t *code);
 /* False if s is not a vision frame. */
 bool rcmap_vision_from_status(const rcmap_status *s, rcmap_vision *out);

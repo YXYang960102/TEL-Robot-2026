@@ -4943,3 +4943,50 @@ deadband; only the slow integral moved it.
 **Impact:** flash the Mega and the ground STM32 together. The Dashboard
 updates through Pages after a push. The bridge and the Orin are
 unchanged.
+
+## 2026-10-18 — Claude Code: Auto target hold 0.5 s; Falcon pulse on the wireless Dashboard
+
+**User Request:**
+- While locked in semi auto, the flywheel "jumps up and down".
+- Jeremy wants to see the Falcon's ESC value while adjusting over the
+  radio.
+- Push when done.
+
+**Why it jumped:** this was not the radio, because Auto runs on the Mega
+from the Orin's UART frames (~11 fps).
+- Any single frame that is invalid, has distance 0, or is for another
+  hole made `hasTarget` false at once.
+- The flywheel then dropped to the pre-spin (`SHOOT_COMMAND`, 20%)
+  until the next good frame about 90 ms later.
+- Each drop also restarted the 1.5 s "ready" wait (a change of more
+  than 2%), so frequent drops could block firing altogether.
+
+**Changed:**
+- **Target hold.** New `TuningConstants::Auto::TARGET_HOLD_MS` = 500.
+  - `Auto` keeps the last target's table flywheel and elevation pulse for
+    that long after the target drops. The LT/RT offset and the elevation
+    offset are still applied on top.
+  - The hold does not cross a new hole selection
+    (`Vision::getSelectedTarget`), and it is cleared in full manual and
+    without vision.
+  - Firing still needs a target in the current frame (`ready` uses
+    `hasTarget`).
+- **Vision frame field.** Code bits 0–13 are now the Falcon's actual
+  pulse (`Shooter::getFlywheelPulseUs`) instead of the distance, which
+  the aim frame already carries.
+  - `rcmap_vision.flywheel_pulse_us`; ground `$VISION,<fresh>,<flywheelUs>,...`.
+  - The Dashboard shows it in "Falcon PWM" over the radio as `1290 us
+    (42.0%)`, where % = |pulse − 1500| / 5. At rest this reads 1490 us,
+    the stop trim.
+- Tests: the existing ones were adjusted (vision frame field; a hold
+  check in the semi-auto test); the host stubs gained
+  `getFlywheelPulseUs`. No new test files.
+
+**Evidence:**
+- All host tests pass.
+- Builds pass: Mega (4 envs; RAM 40.2%, down from 45.9% because the
+  shot tables are smaller) and the ground. Bridge sha unchanged.
+- Not run on hardware.
+
+**Impact:** flash the Mega and the ground STM32 together. This bundles
+b1d6e1b and 562b817, which were not flashed yet.

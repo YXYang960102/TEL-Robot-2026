@@ -1020,16 +1020,20 @@
       el.aimState.textContent = aimStateText(data);
     }
 
-    // "$VISION,<fresh>,<distanceCm>,<tx*2>,<ty*2>,<valid>,<targetId>" from
-    // the ground station (the robot's vision frame, tx / ty in half pixels).
-    // tx / ty only; the distance readout comes from $AIM.
+    // "$VISION,<fresh>,<flywheelUs>,<tx*2>,<ty*2>,<valid>,<targetId>" from
+    // the ground station (the robot's vision frame, tx / ty in half pixels,
+    // plus the Falcon's actual PWM pulse). The distance comes from $AIM.
     function handleVisionStatus(line) {
       const p = line.trim().split(",").map(Number);
       if (p.length < 7 || p.slice(1).some((v) => !Number.isFinite(v))) return;
-      const [, fresh, , tx2, ty2, valid] = p;
+      const [, fresh, flywheelUs, tx2, ty2, valid] = p;
       const show = fresh === 1 && valid === 1;
       el.tx.textContent = show ? (tx2 / 2).toFixed(1) : "--";
       el.ty.textContent = show ? (ty2 / 2).toFixed(1) : "--";
+      // Same format as the wired TEL readout: pulse, and its share of the
+      // 500 us from neutral (1490 at rest is the stop trim).
+      el.falconPwm.textContent = fresh === 1 && flywheelUs > 0
+        ? `${flywheelUs} us (${(Math.abs(flywheelUs - 1500) / 5).toFixed(1)}%)` : "--";
     }
 
     function aimStateText(data) {
