@@ -5130,3 +5130,35 @@ the Falcon to Coast would allow returning to an instant neutral.
   a blank row) is accepted.
 - Host tests pass; `megaatmega2560` builds (RAM 40.1%).
 - Not yet opened and saved in real Excel by Jeremy.
+
+## 2026-10-18 — Claude Code: shot_table.xlsx without the notes column, plus self-updating distance curves
+
+**User Request:** drop the 備註 column. Next to the table, add charts of
+elevation and flywheel against the distance to the target that follow
+every edit, added row and deleted row.
+
+**Changed (`tools/shot_table/apply.py` writer and `shot_table.xlsx`):**
+- 「射擊表」 has only the four columns.
+- New hidden sheet 「圖表資料」. For each hole there are three columns
+  (distance, elevation, flywheel), sorted by distance with array formulas
+  over 「射擊表」!A2:D500:
+  - distance: `SMALL(IF(hole=k, distance), n)`;
+  - elevation and flywheel: `INDEX/MATCH` on hole = k and distance = that
+    distance;
+  - `NA()` where empty, so Excel leaves gaps.
+- Two scatter-with-lines charts sit beside the table (columns F–O):
+  「仰角曲線（各洞口）」, y 500–2500 µs; and 「轉速曲線（各洞口）」,
+  y 0–100%. Each has one series per hole (1–9), x = distance (m), up to
+  60 points per hole.
+- `calcPr fullCalcOnLoad`, so Excel computes the formulas on open.
+- `apply.py` still reads only 「射擊表」, so the strict rules are
+  unchanged.
+
+**Evidence:**
+- Every XML part is well-formed. openpyxl 3.1.5 (the markitdown venv)
+  loads the workbook: 3 sheets (helper hidden), 2 charts with 9 series
+  each, the array formulas, and data validation on A–D 2:500.
+- `--check` round trip reports "no change". The crafted strict-format
+  cases still behave as before.
+- **Not yet opened in real Excel**, so Jeremy needs to confirm that the
+  curves render and update.

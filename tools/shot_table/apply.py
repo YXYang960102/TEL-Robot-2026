@@ -288,6 +288,78 @@ def describe_changes(old, new):
 
 # ----------------------------------------------------------------- export
 
+HELPER = "圖表資料"   # hidden sheet: per-hole points sorted by distance, for the charts
+MAX_ROWS = 500         # data rows the formulas / validations cover (2..MAX_ROWS)
+SORTED_ROWS = 60       # points per hole the charts can show
+SERIES_COLORS = ["1F77B4", "FF7F0E", "2CA02C", "D62728", "9467BD",
+                 "8C564B", "E377C2", "7F7F7F", "BCBD22"]
+
+
+def _q(sheet):
+    return "'" + sheet.replace("'", "''") + "'"
+
+
+def _chart_xml(title, y_title, y_col_offset, y_min, y_max):
+    """Scatter-with-lines chart, one series per hole, from the helper sheet."""
+    sers = []
+    for h in range(1, 10):
+        base = 1 + (h - 1) * 3                      # helper columns: dist, elev, fly
+        xcol = cell_name(1, base)[:-1]
+        ycol = cell_name(1, base + y_col_offset)[:-1]
+        rng = lambda col: f"{_q(HELPER)}!${col}$2:${col}${SORTED_ROWS + 1}"
+        color = SERIES_COLORS[h - 1]
+        sers.append(
+            f'<c:ser><c:idx val="{h - 1}"/><c:order val="{h - 1}"/>'
+            f'<c:tx><c:v>洞口 {h}</c:v></c:tx>'
+            f'<c:spPr><a:ln w="22225"><a:solidFill><a:srgbClr val="{color}"/></a:solidFill></a:ln></c:spPr>'
+            f'<c:marker><c:symbol val="circle"/><c:size val="6"/>'
+            f'<c:spPr><a:solidFill><a:srgbClr val="{color}"/></a:solidFill></c:spPr></c:marker>'
+            f'<c:xVal><c:numRef><c:f>{rng(xcol)}</c:f></c:numRef></c:xVal>'
+            f'<c:yVal><c:numRef><c:f>{rng(ycol)}</c:f></c:numRef></c:yVal>'
+            f'<c:smooth val="0"/></c:ser>')
+
+    def rich(text, size=1200, bold=1):
+        return (f'<c:tx><c:rich><a:bodyPr/><a:p><a:pPr><a:defRPr sz="{size}" b="{bold}"/></a:pPr>'
+                f'<a:r><a:rPr lang="zh-TW" sz="{size}" b="{bold}"/><a:t>{escape(text)}</a:t></a:r></a:p></c:rich></c:tx>')
+
+    def axis(ax_id, cross, pos, title_text, lo, hi):
+        scale = '<c:orientation val="minMax"/>'
+        if hi is not None:
+            scale += f'<c:max val="{hi}"/>'
+        if lo is not None:
+            scale += f'<c:min val="{lo}"/>'
+        return (f'<c:valAx><c:axId val="{ax_id}"/><c:scaling>{scale}</c:scaling><c:delete val="0"/>'
+                f'<c:axPos val="{pos}"/><c:majorGridlines/>'
+                f'<c:title>{rich(title_text, 1000, 0)}<c:overlay val="0"/></c:title>'
+                f'<c:numFmt formatCode="General" sourceLinked="0"/><c:tickLblPos val="nextTo"/>'
+                f'<c:crossAx val="{cross}"/><c:crosses val="autoZero"/><c:crossBetween val="midCat"/></c:valAx>')
+
+    return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" '
+            'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+            'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+            '<c:roundedCorners val="0"/>'
+            f'<c:chart><c:title>{rich(title)}<c:overlay val="0"/></c:title><c:autoTitleDeleted val="0"/>'
+            '<c:plotArea><c:layout/><c:scatterChart><c:scatterStyle val="lineMarker"/><c:varyColors val="0"/>'
+            + "".join(sers) +
+            '<c:axId val="500000001"/><c:axId val="500000002"/></c:scatterChart>'
+            + axis(500000001, 500000002, "b", "距離 (m)", None, None)
+            + axis(500000002, 500000001, "l", y_title, y_min, y_max)
+            + '</c:plotArea><c:legend><c:legendPos val="r"/><c:overlay val="0"/></c:legend>'
+            '<c:plotVisOnly val="0"/><c:dispBlanksAs val="gap"/></c:chart></c:chartSpace>')
+
+
+def _anchor(idx, col0, row0, col1, row1, rid, name):
+    return (f'<xdr:twoCellAnchor editAs="oneCell">'
+            f'<xdr:from><xdr:col>{col0}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>{row0}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from>'
+            f'<xdr:to><xdr:col>{col1}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>{row1}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to>'
+            f'<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr id="{idx + 1}" name="{name}"/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>'
+            f'<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm>'
+            f'<a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/chart">'
+            f'<c:chart xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" r:id="{rid}"/>'
+            f'</a:graphicData></a:graphic></xdr:graphicFrame><xdr:clientData/></xdr:twoCellAnchor>')
+
+
 def write_xlsx(path, points):
     def cell(ref, value, style=0):
         s = f' s="{style}"' if style else ""
@@ -295,73 +367,123 @@ def write_xlsx(path, points):
             return f'<c r="{ref}" t="inlineStr"{s}><is><t>{escape(value)}</t></is></c>'
         return f'<c r="{ref}"{s}><v>{value}</v></c>'
 
-    rows = [["洞口", "距離(m)", "仰角(us)", "轉速(%)", "備註"]]
+    # Sheet 1: the table the operator edits (only the four columns).
+    rows = [[COLS["hole"], COLS["dist"], COLS["elev"], COLS["fly"]]]
     for h in range(1, 10):
         for cm, permille, us in points.get(h, []):
-            rows.append([h, round(cm / 100, 2), us, round(permille / 10, 1), ""])
+            rows.append([h, round(cm / 100, 2), us, round(permille / 10, 1)])
     sheet_rows = []
     for i, r in enumerate(rows, 1):
-        cs = "".join(cell(cell_name(i, j), v, 1 if i == 1 else 0)
-                     for j, v in enumerate(r, 1) if v != "")
+        cs = "".join(cell(cell_name(i, j), v, 1 if i == 1 else 0) for j, v in enumerate(r, 1))
         sheet_rows.append(f'<row r="{i}">{cs}</row>')
     dv = (
         '<dataValidations count="4">'
         '<dataValidation type="whole" allowBlank="1" showErrorMessage="1" errorTitle="洞口" '
-        'error="洞口要是 1–9 的整數" sqref="A2:A500"><formula1>1</formula1><formula2>9</formula2></dataValidation>'
+        f'error="洞口要是 1–9 的整數" sqref="A2:A{MAX_ROWS}"><formula1>1</formula1><formula2>9</formula2></dataValidation>'
         '<dataValidation type="decimal" allowBlank="1" showErrorMessage="1" errorTitle="距離" '
-        'error="距離 0.5–15 m" sqref="B2:B500"><formula1>0.5</formula1><formula2>15</formula2></dataValidation>'
+        f'error="距離 0.5–15 m" sqref="B2:B{MAX_ROWS}"><formula1>0.5</formula1><formula2>15</formula2></dataValidation>'
         '<dataValidation type="whole" allowBlank="1" showErrorMessage="1" errorTitle="仰角" '
-        'error="仰角 500–2500 的整數 µs" sqref="C2:C500"><formula1>500</formula1><formula2>2500</formula2></dataValidation>'
+        f'error="仰角 500–2500 的整數 µs" sqref="C2:C{MAX_ROWS}"><formula1>500</formula1><formula2>2500</formula2></dataValidation>'
         '<dataValidation type="decimal" allowBlank="1" showErrorMessage="1" errorTitle="轉速" '
-        'error="轉速 0–100 %" sqref="D2:D500"><formula1>0</formula1><formula2>100</formula2></dataValidation>'
+        f'error="轉速 0–100 %" sqref="D2:D{MAX_ROWS}"><formula1>0</formula1><formula2>100</formula2></dataValidation>'
         '</dataValidations>')
     sheet1 = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" '
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        '<sheetViews><sheetView tabSelected="1" workbookViewId="0"><pane ySplit="1" topLeftCell="A2" '
         'activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
-        '<cols><col min="1" max="4" width="12" customWidth="1"/>'
-        '<col min="5" max="5" width="40" customWidth="1"/></cols>'
-        f'<sheetData>{"".join(sheet_rows)}</sheetData>{dv}</worksheet>')
+        '<cols><col min="1" max="4" width="12" customWidth="1"/></cols>'
+        f'<sheetData>{"".join(sheet_rows)}</sheetData>{dv}<drawing r:id="rId1"/></worksheet>')
+
+    # Sheet 3 (hidden): for each hole, its points sorted by distance --
+    # distance / elevation / flywheel -- as formulas over sheet 1, so the
+    # charts follow every edit, added row and deleted row by themselves.
+    t = _q(SHEET)
+    hole_rng = f"{t}!$A$2:$A${MAX_ROWS}"
+    dist_rng = f"{t}!$B$2:$B${MAX_ROWS}"
+    helper_rows = []
+    head = []
+    for h in range(1, 10):
+        base = 1 + (h - 1) * 3
+        for k, label in enumerate((f"洞口{h} 距離", f"洞口{h} 仰角", f"洞口{h} 轉速")):
+            head.append(cell(cell_name(1, base + k), label, 1))
+    helper_rows.append(f'<row r="1">{"".join(head)}</row>')
+    for n in range(1, SORTED_ROWS + 1):
+        r = n + 1
+        cs = []
+        for h in range(1, 10):
+            base = 1 + (h - 1) * 3
+            dref = cell_name(r, base)
+            fd = f"IFERROR(SMALL(IF({hole_rng}={h},{dist_rng}),{n}),NA())"
+            cs.append(f'<c r="{dref}"><f t="array" ref="{dref}">{escape(fd)}</f></c>')
+            for k, col in ((1, "C"), (2, "D")):
+                ref = cell_name(r, base + k)
+                f = (f"IFERROR(INDEX({t}!${col}$2:${col}${MAX_ROWS},"
+                     f"MATCH(1,({hole_rng}={h})*({dist_rng}={dref}),0)),NA())")
+                cs.append(f'<c r="{ref}"><f t="array" ref="{ref}">{escape(f)}</f></c>')
+        helper_rows.append(f'<row r="{r}">{"".join(cs)}</row>')
+    sheet3 = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+        f'<sheetData>{"".join(helper_rows)}</sheetData></worksheet>')
+
     help_lines = [
         "射擊表怎麼用",
         "",
-        "1. 在「射擊表」工作表改數字、加列、刪列，存檔（保持 .xlsx）。",
+        "1. 在「射擊表」工作表改數字、加列、刪列，存檔（保持 .xlsx）。旁邊的兩張曲線圖會自動跟著更新。",
         "2. 在專案資料夾執行：python3 tools/shot_table/apply.py --upload",
         "   會檢查格式、列出改了哪些值、產生 src/Constants/ShotTableData.h，再燒進 Mega。",
         "   只想檢查：python3 tools/shot_table/apply.py --check",
         "",
         "格式（嚴格）",
         "- 第 1 列是欄位名稱。「洞口」「距離(m)」「仰角(us)」「轉速(%)」四個必須各出現一次、名稱一字不差。",
-        "- 可以在任何位置插入其他欄位（例如日期、誰測的），但新欄位一定要有名稱；它們不會被讀取。",
+        "- 若插入其他欄位，新欄位一定要有名稱；它們不會被讀取。",
         "- 洞口：Dashboard 的編號 1–9（1 左下、2 左中、3 左上 … 9 右上）。",
         "- 距離：鎖定目標時 Dashboard 顯示的相機距離（不是捲尺），0.5–15 m，最多 2 位小數。",
         "- 仰角：Dashboard 的仰角脈寬，500–2500 的整數。",
         "- 轉速：Falcon 指令 0–100 %，最多 1 位小數。",
         "- 列的順序不重要；空白列會略過；同一個洞口的同一個距離不能重複。",
+        f"- 資料請放在第 2–{MAX_ROWS} 列；每個洞口最多 {SORTED_ROWS} 個點會畫進曲線圖。",
         "- 任何一格不符合，就不會產生檔案、也不會燒錄，畫面會指出是哪一格。",
         "",
         "沒有資料的洞",
-        "- 會借用同一排中間洞的值：1、7 用 4，2、8 用 5，3、9 用 6。",
-        "- 兩個距離之間直線內插；比最近的點還近就用最近的點；比最遠的點還遠就用最遠的點。",
+        "- 會借用同一排中間洞的值：1、7 用 4，2、8 用 5，3、9 用 6（曲線圖只畫有資料的洞）。",
+        "- 兩個距離之間直線內插（就是曲線圖上的直線）；比最近的點還近就用最近的點；比最遠的點還遠就用最遠的點。",
+        "",
+        "「圖表資料」是隱藏的工作表，由公式自動整理給曲線圖用，不用動它。",
     ]
     sheet2 = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        '<cols><col min="1" max="1" width="110" customWidth="1"/></cols><sheetData>'
-        + "".join(f'<row r="{i}">{cell("A" + str(i), t, 1 if i == 1 else 0)}</row>'
-                  for i, t in enumerate(help_lines, 1) if t)
+        '<cols><col min="1" max="1" width="120" customWidth="1"/></cols><sheetData>'
+        + "".join(f'<row r="{i}">{cell("A" + str(i), line, 1 if i == 1 else 0)}</row>'
+                  for i, line in enumerate(help_lines, 1) if line)
         + "</sheetData></worksheet>")
+
+    drawing = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" '
+        'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
+        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        + _anchor(1, 5, 0, 15, 22, "rId1", "仰角曲線")
+        + _anchor(2, 5, 23, 15, 45, "rId2", "轉速曲線")
+        + '</xdr:wsDr>')
+    ct = "application/vnd.openxmlformats-officedocument"
     files = {
         "[Content_Types].xml":
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
             '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
             '<Default Extension="xml" ContentType="application/xml"/>'
-            '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
-            '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
-            '<Override PartName="/xl/worksheets/sheet2.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
-            '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'
+            f'<Override PartName="/xl/workbook.xml" ContentType="{ct}.spreadsheetml.sheet.main+xml"/>'
+            f'<Override PartName="/xl/worksheets/sheet1.xml" ContentType="{ct}.spreadsheetml.worksheet+xml"/>'
+            f'<Override PartName="/xl/worksheets/sheet2.xml" ContentType="{ct}.spreadsheetml.worksheet+xml"/>'
+            f'<Override PartName="/xl/worksheets/sheet3.xml" ContentType="{ct}.spreadsheetml.worksheet+xml"/>'
+            f'<Override PartName="/xl/styles.xml" ContentType="{ct}.spreadsheetml.styles+xml"/>'
+            f'<Override PartName="/xl/drawings/drawing1.xml" ContentType="{ct}.drawing+xml"/>'
+            f'<Override PartName="/xl/charts/chart1.xml" ContentType="{ct}.drawingml.chart+xml"/>'
+            f'<Override PartName="/xl/charts/chart2.xml" ContentType="{ct}.drawingml.chart+xml"/>'
             '</Types>',
         "_rels/.rels":
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -372,14 +494,28 @@ def write_xlsx(path, points):
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
             'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-            f'<sheets><sheet name="{SHEET}" sheetId="1" r:id="rId1"/><sheet name="說明" sheetId="2" r:id="rId2"/></sheets>'
+            f'<sheets><sheet name="{SHEET}" sheetId="1" r:id="rId1"/><sheet name="說明" sheetId="2" r:id="rId2"/>'
+            f'<sheet name="{HELPER}" sheetId="3" state="hidden" r:id="rId3"/></sheets>'
+            '<calcPr calcId="191029" fullCalcOnLoad="1"/>'
             '</workbook>',
         "xl/_rels/workbook.xml.rels":
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
             '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>'
             '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet2.xml"/>'
-            '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+            '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet3.xml"/>'
+            '<Relationship Id="rId4" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>'
+            '</Relationships>',
+        "xl/worksheets/_rels/sheet1.xml.rels":
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/>'
+            '</Relationships>',
+        "xl/drawings/_rels/drawing1.xml.rels":
+            '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart1.xml"/>'
+            '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart2.xml"/>'
             '</Relationships>',
         "xl/styles.xml":
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -392,9 +528,14 @@ def write_xlsx(path, points):
             '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
             '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
             '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs>'
+            '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'
             '</styleSheet>',
         "xl/worksheets/sheet1.xml": sheet1,
         "xl/worksheets/sheet2.xml": sheet2,
+        "xl/worksheets/sheet3.xml": sheet3,
+        "xl/drawings/drawing1.xml": drawing,
+        "xl/charts/chart1.xml": _chart_xml("仰角曲線（各洞口）", "仰角 (µs)", 1, 500, 2500),
+        "xl/charts/chart2.xml": _chart_xml("轉速曲線（各洞口）", "轉速 (%)", 2, 0, 100),
     }
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         for name, body in files.items():
