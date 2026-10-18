@@ -118,9 +118,22 @@ constexpr int STOP_TRIM_US = 10;
 constexpr double SHOOT_COMMAND = 0.2;
 constexpr uint32_t SPIN_UP_MS = 1500;
 
+// Ramp-up limit on the Falcon command, in every mode (2026-10-18: an
+// instant 46% -> 80% jump in semi auto, together with the elevation move,
+// drew enough current to reset the Mega). 0.5 = 50% per second, so 0 -> 80%
+// takes 1.6 s. Slowing down / stopping is immediate. The "ready" wait
+// (SPIN_UP_MS) starts once the ramp has reached the command.
+constexpr double RAMP_UP_PER_SECOND = 0.5;
+
 }
 
 namespace Auto {
+
+// Auto moves the elevation toward the shot table's pulse at most this fast
+// instead of jumping (2026-10-18, current limiting with the flywheel ramp):
+// 400 us/s, e.g. 2063 -> 2442 us in ~0.95 s. The D-pad jog in full manual
+// keeps its own Angle::POSITION_RATE_US_PER_SECOND.
+constexpr double ELEVATION_SLEW_US_PER_SECOND = 400.0;
 
 // After the target drops out of a frame, Auto keeps its last shot (flywheel
 // and elevation) this long before falling back to the pre-spin (2026-10-18:
@@ -257,6 +270,8 @@ inline double elevationTrimUs(int visionId) {
 
 }
 
+static_assert(Flywheel::RAMP_UP_PER_SECOND > 0.0 && Auto::ELEVATION_SLEW_US_PER_SECOND > 0.0,
+              "Flywheel ramp and elevation slew must be positive");
 static_assert(Manual::COMMAND_FILTER_TIME_CONSTANT_MS >= 0.0,
               "Chassis command filter time constant must not be negative");
 static_assert(Rotate::VISION_MAX_COMMAND > 0.0 && Rotate::VISION_MAX_COMMAND <= 1.0,

@@ -76,6 +76,8 @@ bool Shooter::setAngleTargetDegrees(double degrees) {
 bool Shooter::setAnglePulseUs(double pulseUs) {
     rec.anglePulseUs = pulseUs;
     rec.anglePulseSets++;
+    // The servo target moves (Auto's elevation slew reads it back).
+    hoststub::anglePulseUs = static_cast<int>(pulseUs + 0.5);
     return true;
 }
 void Shooter::setFlywheelOpenLoop(double command) { rec.flywheelCommand = command; }

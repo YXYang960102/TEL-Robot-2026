@@ -4990,3 +4990,50 @@ from the Orin's UART frames (~11 fps).
 
 **Impact:** flash the Mega and the ground STM32 together. This bundles
 b1d6e1b and 562b817, which were not flashed yet.
+
+## 2026-10-18 — Claude Code: flywheel ramp-up limit and Auto elevation slew (current limiting)
+
+**User Request:**
+- At 5 m in semi auto, keys 4 and 5 switch fine, but key 6 (top row)
+  stops the flywheel, and only disable + Enable brings it back.
+- Jeremy agrees it is likely a current surge, and asked for the
+  elevation and flywheel to move slowly.
+
+**Why:**
+- Switching middle → top jumped the flywheel 46% → 80% and the elevation
+  2063 → 2442 µs in the same instant.
+- A Mega reset matches the symptom: it boots disarmed and needs a fresh
+  CH6 low → high, hence disable + Enable.
+- The same values had worked in full manual, where they were reached
+  gradually with the slider and D-pad.
+
+**Changed:**
+- **Flywheel ramp.** New `Flywheel::RAMP_UP_PER_SECOND` = 0.5.
+  - `Shooter::rampFlywheel()` moves the output toward the command at up
+    to 50% per second when going up (0 → 80% takes 1.6 s). Going down,
+    and `stopAll` / disable, take effect at once.
+  - It applies in every mode, so the manual slider is ramped too.
+  - "Ready" and `getFlywheelCommand()` now use the ramped output, so the
+    1.5 s `SPIN_UP_MS` wait starts only once the ramp arrives.
+- **Elevation slew.** New `Auto::ELEVATION_SLEW_US_PER_SECOND` = 400.
+  - Auto moves the elevation toward table + offset at that rate instead
+    of `setAnglePulseUs(target)` in one jump. For example,
+    2063 → 2442 µs takes ~0.95 s.
+  - Each step is limited to 100 ms worth after a stall. The full-manual
+    D-pad jog is unchanged (1000 µs/s).
+- **Tests.** The host stub's `setAnglePulseUs` now moves `anglePulseUs`,
+  which is reset per test. The elevation and aim-uplink tests allow for
+  the slew. No new test files.
+
+**Evidence:**
+- `manual_control_test` (3 variants), the table test and the page test
+  pass.
+- Builds pass: `megaatmega2560`, axes, wired, drive and gamepad motor.
+- Not run on hardware.
+
+**Next Test:**
+1. Flash the Mega.
+2. Switch 5 → 6 at 5 m: the elevation should glide, the flywheel should
+   ramp, and there should be no reset.
+3. If it still resets, the power wiring needs checking (the elevation
+   servo should have its own supply).

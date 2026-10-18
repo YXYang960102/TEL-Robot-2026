@@ -51,4 +51,5 @@ private:
     static double lastShotElevationUs;
     static unsigned long lastShotMs;
     static uint8_t lastShotSelection;
+    static unsigned long lastElevationSlewMs;
 };

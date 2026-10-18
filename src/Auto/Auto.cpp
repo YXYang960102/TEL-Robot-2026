@@ -17,6 +17,7 @@ double Auto::lastShotFlywheel = 0.0;
 double Auto::lastShotElevationUs = 0.0;
 unsigned long Auto::lastShotMs = 0;
 uint8_t Auto::lastShotSelection = 0;
+unsigned long Auto::lastElevationSlewMs = 0;
 
 void Auto::init() {
     fireState = FireState::IDLE;
@@ -96,9 +97,19 @@ void Auto::update() {
         // (ShotTable::ELEVATION_MEASURED); until then the operator keeps
         // the elevation. No target: hold.
         if (TuningConstants::ShotTable::ELEVATION_MEASURED) {
-            Shooter::setAnglePulseUs(lastShotElevationUs + ManualControl::getElevationOffsetUs());
+            // Toward the target at ELEVATION_SLEW_US_PER_SECOND, not a jump
+            // (current limiting, 2026-10-18).
+            const double targetUs = lastShotElevationUs + ManualControl::getElevationOffsetUs();
+            unsigned long elapsed = now - lastElevationSlewMs;
+            if (elapsed > 100) elapsed = 100;
+            const double maxStep = TuningConstants::Auto::ELEVATION_SLEW_US_PER_SECOND * elapsed / 1000.0;
+            const double currentUs = Shooter::getAnglePulseUs();
+            const double delta = targetUs - currentUs;
+            Shooter::setAnglePulseUs(delta > maxStep ? currentUs + maxStep
+                                     : delta < -maxStep ? currentUs - maxStep : targetUs);
         }
     }
+    lastElevationSlewMs = now;
     Shooter::setFlywheelOpenLoop(flywheelCommand);
 
     // Turret locked on the target (|tx + aim offset| <= 5 px for 100 ms),

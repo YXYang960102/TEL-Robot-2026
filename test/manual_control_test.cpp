@@ -52,6 +52,7 @@ void reset() {
     hoststub::visionDistanceMm = 0.0;
     hoststub::visionTargetId = 8;
     hoststub::visionTx = 0.0;
+    hoststub::anglePulseUs = 1500;
     hoststub::visionTy = 0.0;
     hoststub::shooterReady = false;
     MechLink::signalLost = true;
@@ -603,7 +604,11 @@ void testAimUplink() {
     send("ROT,1"); step(); send("ROT,0"); step();
     runWithHeartbeat(350);
     a = lastAim();
-    assert(a.distance_cm == 352 && a.elevation_pulse_us == 1620);
+    // The elevation servo's pulse when the frame went out (Auto slews it
+    // toward the table, so it may trail the current one by one aim period).
+    assert(a.distance_cm == 352);
+    assert(abs(static_cast<int>(a.elevation_pulse_us) - hoststub::anglePulseUs) <=
+           static_cast<int>(TuningConstants::Auto::ELEVATION_SLEW_US_PER_SECOND * 0.41) + 1);
     assert(a.selected_id == 10 && a.target_id == 10 && a.valid);
     assert(a.aim_offset_px == static_cast<int8_t>(TuningConstants::Auto::AIM_OFFSET_STEP_PX));
     // The status frames in between are untouched by it.
@@ -645,6 +650,7 @@ void testVisionUplink() {
     v = lastVision();
     assert(!v.valid && v.tx_px == 0.0f);
     hoststub::visionTx = 0.0;
+    hoststub::anglePulseUs = 1500;
     hoststub::visionTy = 0.0;
 }
 
@@ -835,10 +841,18 @@ void testElevationTargetCommands() {
     hoststub::visionValid = true;
     hoststub::visionDistanceMm = 4000.0;
     send("M"); step();
-    runArmed(200);
     ShotTableLookup::Result expected = {0.0, 0.0};
     assert(ShotTableLookup::lookupTarget(hoststub::visionTargetId, 4.0, expected));
-    assert(rec.anglePulseSets > 0 && nearly(rec.anglePulseUs, expected.elevationPulseUs));
+    // Slewed, not a jump: 200 ms in it has moved, but well short of the
+    // target (400 us/s; the first step may count up to 100 ms).
+    const double startUs = 1500.0;
+    runArmed(200);
+    assert(rec.anglePulseSets > 0 && fabs(rec.anglePulseUs - startUs) > 0.0);
+    assert(fabs(rec.anglePulseUs - startUs) <=
+           TuningConstants::Auto::ELEVATION_SLEW_US_PER_SECOND * 0.31 + 1.0);
+    assert(fabs(rec.anglePulseUs - startUs) < fabs(expected.elevationPulseUs - startUs));
+    runArmed(3000);                                       // ...then arrives
+    assert(nearly(rec.anglePulseUs, expected.elevationPulseUs));
     Serial.output.clear();
     send("ANGT,100"); step();
     assert(saw("REJECTED_AUTO_MODE"));
