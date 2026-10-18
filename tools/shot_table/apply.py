@@ -299,53 +299,71 @@ def _q(sheet):
     return "'" + sheet.replace("'", "''") + "'"
 
 
-def _chart_xml(title, y_title, y_col_offset, y_min, y_max):
-    """Scatter-with-lines chart, one series per hole, from the helper sheet."""
-    sers = []
-    for h in range(1, 10):
-        base = 1 + (h - 1) * 3                      # helper columns: dist, elev, fly
-        xcol = cell_name(1, base)[:-1]
-        ycol = cell_name(1, base + y_col_offset)[:-1]
-        rng = lambda col: f"{_q(HELPER)}!${col}$2:${col}${SORTED_ROWS + 1}"
-        color = SERIES_COLORS[h - 1]
-        sers.append(
-            f'<c:ser><c:idx val="{h - 1}"/><c:order val="{h - 1}"/>'
-            f'<c:tx><c:v>洞口 {h}</c:v></c:tx>'
-            f'<c:spPr><a:ln w="22225"><a:solidFill><a:srgbClr val="{color}"/></a:solidFill></a:ln></c:spPr>'
-            f'<c:marker><c:symbol val="circle"/><c:size val="6"/>'
-            f'<c:spPr><a:solidFill><a:srgbClr val="{color}"/></a:solidFill></c:spPr></c:marker>'
-            f'<c:xVal><c:numRef><c:f>{rng(xcol)}</c:f></c:numRef></c:xVal>'
-            f'<c:yVal><c:numRef><c:f>{rng(ycol)}</c:f></c:numRef></c:yVal>'
-            f'<c:smooth val="0"/></c:ser>')
+CHART_HOLES = [(4, "下排（洞口 4，約 120 cm）"), (5, "中排（洞口 5，約 180 cm）"),
+               (6, "上排（洞口 6，約 240 cm）")]   # the center column, one chart per height
+
+
+def _height_chart_xml(slot, title):
+    """One height: flywheel % (points + power trendline, y = a*x^b, through
+    the origin) on the left axis, elevation us (points + lines) on the
+    right, against the distance to the target. Reads helper columns
+    slot*3+1 .. slot*3+3 (distance, elevation, flywheel), sorted."""
+    base = 1 + slot * 3
+    col = lambda k: cell_name(1, base + k)[:-1]
+    rng = lambda c: f"{_q(HELPER)}!${c}$2:${c}${SORTED_ROWS + 1}"
 
     def rich(text, size=1200, bold=1):
         return (f'<c:tx><c:rich><a:bodyPr/><a:p><a:pPr><a:defRPr sz="{size}" b="{bold}"/></a:pPr>'
                 f'<a:r><a:rPr lang="zh-TW" sz="{size}" b="{bold}"/><a:t>{escape(text)}</a:t></a:r></a:p></c:rich></c:tx>')
 
-    def axis(ax_id, cross, pos, title_text, lo, hi):
+    def line(color, width=22225, dash=None, none=False):
+        if none:
+            return '<a:ln><a:noFill/></a:ln>'
+        d = f'<a:prstDash val="{dash}"/>' if dash else ""
+        return f'<a:ln w="{width}"><a:solidFill><a:srgbClr val="{color}"/></a:solidFill>{d}</a:ln>'
+
+    def ser(idx, name, color, ycol, trend, connect):
+        marker = (f'<c:marker><c:symbol val="circle"/><c:size val="7"/>'
+                  f'<c:spPr><a:solidFill><a:srgbClr val="{color}"/></a:solidFill></c:spPr></c:marker>')
+        tl = (f'<c:trendline><c:name>{escape(name)} 趨勢（乘冪）</c:name><c:spPr>{line(color, 25400)}</c:spPr>'
+              '<c:trendlineType val="power"/><c:dispRSqr val="0"/><c:dispEq val="0"/></c:trendline>') if trend else ""
+        return (f'<c:ser><c:idx val="{idx}"/><c:order val="{idx}"/><c:tx><c:v>{escape(name)}</c:v></c:tx>'
+                f'<c:spPr>{line(color, dash="sysDash") if connect else line(color, none=True)}</c:spPr>'
+                f'{marker}{tl}'
+                f'<c:xVal><c:numRef><c:f>{rng(col(0))}</c:f></c:numRef></c:xVal>'
+                f'<c:yVal><c:numRef><c:f>{rng(ycol)}</c:f></c:numRef></c:yVal><c:smooth val="0"/></c:ser>')
+
+    def axis(ax_id, cross, pos, title_text, lo, hi, delete=False, crosses="autoZero", grid=True):
         scale = '<c:orientation val="minMax"/>'
         if hi is not None:
             scale += f'<c:max val="{hi}"/>'
         if lo is not None:
             scale += f'<c:min val="{lo}"/>'
-        return (f'<c:valAx><c:axId val="{ax_id}"/><c:scaling>{scale}</c:scaling><c:delete val="0"/>'
-                f'<c:axPos val="{pos}"/><c:majorGridlines/>'
-                f'<c:title>{rich(title_text, 1000, 0)}<c:overlay val="0"/></c:title>'
+        ttl = f'<c:title>{rich(title_text, 1000, 0)}<c:overlay val="0"/></c:title>' if title_text else ""
+        return (f'<c:valAx><c:axId val="{ax_id}"/><c:scaling>{scale}</c:scaling>'
+                f'<c:delete val="{1 if delete else 0}"/><c:axPos val="{pos}"/>'
+                + ('<c:majorGridlines/>' if grid else '') + ttl +
                 f'<c:numFmt formatCode="General" sourceLinked="0"/><c:tickLblPos val="nextTo"/>'
-                f'<c:crossAx val="{cross}"/><c:crosses val="autoZero"/><c:crossBetween val="midCat"/></c:valAx>')
+                f'<c:crossAx val="{cross}"/><c:crosses val="{crosses}"/><c:crossBetween val="midCat"/></c:valAx>')
 
+    fly = ('<c:scatterChart><c:scatterStyle val="lineMarker"/><c:varyColors val="0"/>'
+           + ser(0, "轉速 (%)", "D62728", col(2), trend=True, connect=False)
+           + '<c:axId val="510000001"/><c:axId val="510000002"/></c:scatterChart>')
+    elev = ('<c:scatterChart><c:scatterStyle val="lineMarker"/><c:varyColors val="0"/>'
+            + ser(1, "仰角 (µs)", "1F77B4", col(1), trend=False, connect=True)
+            + '<c:axId val="510000003"/><c:axId val="510000004"/></c:scatterChart>')
     return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<c:chartSpace xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" '
             'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
             'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
             '<c:roundedCorners val="0"/>'
-            f'<c:chart><c:title>{rich(title)}<c:overlay val="0"/></c:title><c:autoTitleDeleted val="0"/>'
-            '<c:plotArea><c:layout/><c:scatterChart><c:scatterStyle val="lineMarker"/><c:varyColors val="0"/>'
-            + "".join(sers) +
-            '<c:axId val="500000001"/><c:axId val="500000002"/></c:scatterChart>'
-            + axis(500000001, 500000002, "b", "距離 (m)", None, None)
-            + axis(500000002, 500000001, "l", y_title, y_min, y_max)
-            + '</c:plotArea><c:legend><c:legendPos val="r"/><c:overlay val="0"/></c:legend>'
+            f'<c:chart><c:title>{rich(title + " 射擊曲線")}<c:overlay val="0"/></c:title><c:autoTitleDeleted val="0"/>'
+            '<c:plotArea><c:layout/>' + fly + elev
+            + axis(510000001, 510000002, "b", "到目標距離 (m)", 0, None)
+            + axis(510000002, 510000001, "l", "轉速 (%)", 0, 100)
+            + axis(510000003, 510000004, "b", None, 0, None, delete=True, grid=False)
+            + axis(510000004, 510000003, "r", "仰角 (µs)", 500, 2500, crosses="max", grid=False)
+            + '</c:plotArea><c:legend><c:legendPos val="b"/><c:overlay val="0"/></c:legend>'
             '<c:plotVisOnly val="0"/><c:dispBlanksAs val="gap"/></c:chart></c:chartSpace>')
 
 
@@ -404,22 +422,22 @@ def write_xlsx(path, points):
     dist_rng = f"{t}!$B$2:$B${MAX_ROWS}"
     helper_rows = []
     head = []
-    for h in range(1, 10):
-        base = 1 + (h - 1) * 3
+    for slot, (h, _) in enumerate(CHART_HOLES):
+        base = 1 + slot * 3
         for k, label in enumerate((f"洞口{h} 距離", f"洞口{h} 仰角", f"洞口{h} 轉速")):
             head.append(cell(cell_name(1, base + k), label, 1))
     helper_rows.append(f'<row r="1">{"".join(head)}</row>')
     for n in range(1, SORTED_ROWS + 1):
         r = n + 1
         cs = []
-        for h in range(1, 10):
-            base = 1 + (h - 1) * 3
+        for slot, (h, _) in enumerate(CHART_HOLES):
+            base = 1 + slot * 3
             dref = cell_name(r, base)
             fd = f"IFERROR(SMALL(IF({hole_rng}={h},{dist_rng}),{n}),NA())"
             cs.append(f'<c r="{dref}"><f t="array" ref="{dref}">{escape(fd)}</f></c>')
-            for k, col in ((1, "C"), (2, "D")):
+            for k, colname in ((1, "C"), (2, "D")):
                 ref = cell_name(r, base + k)
-                f = (f"IFERROR(INDEX({t}!${col}$2:${col}${MAX_ROWS},"
+                f = (f"IFERROR(INDEX({t}!${colname}$2:${colname}${MAX_ROWS},"
                      f"MATCH(1,({hole_rng}={h})*({dist_rng}={dref}),0)),NA())")
                 cs.append(f'<c r="{ref}"><f t="array" ref="{ref}">{escape(f)}</f></c>')
         helper_rows.append(f'<row r="{r}">{"".join(cs)}</row>')
@@ -431,7 +449,7 @@ def write_xlsx(path, points):
     help_lines = [
         "射擊表怎麼用",
         "",
-        "1. 在「射擊表」工作表改數字、加列、刪列，存檔（保持 .xlsx）。旁邊的兩張曲線圖會自動跟著更新。",
+        "1. 在「射擊表」工作表改數字、加列、刪列，存檔（保持 .xlsx）。旁邊三張射擊曲線圖（下、中、上排，用中間那一行的洞口 4、5、6）會自動跟著更新。",
         "2. 在專案資料夾執行：python3 tools/shot_table/apply.py --upload",
         "   會檢查格式、列出改了哪些值、產生 src/Constants/ShotTableData.h，再燒進 Mega。",
         "   只想檢查：python3 tools/shot_table/apply.py --check",
@@ -448,8 +466,9 @@ def write_xlsx(path, points):
         "- 任何一格不符合，就不會產生檔案、也不會燒錄，畫面會指出是哪一格。",
         "",
         "沒有資料的洞",
-        "- 會借用同一排中間洞的值：1、7 用 4，2、8 用 5，3、9 用 6（曲線圖只畫有資料的洞）。",
-        "- 兩個距離之間直線內插（就是曲線圖上的直線）；比最近的點還近就用最近的點；比最遠的點還遠就用最遠的點。",
+        "- 會借用同一排中間洞的值：1、7 用 4，2、8 用 5，3、9 用 6。",
+        "- Mega 在兩個量測點之間用直線內插；比最近的點還近就用最近的點；比最遠的點還遠就用最遠的點。",
+        "- 曲線圖上的轉速曲線是 Excel 的乘冪趨勢線（y = a·x^b，從原點出發），只是用來看資料合不合理、哪個點量歪了；Mega 不是照這條曲線打。",
         "",
         "「圖表資料」是隱藏的工作表，由公式自動整理給曲線圖用，不用動它。",
     ]
@@ -466,8 +485,8 @@ def write_xlsx(path, points):
         '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" '
         'xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" '
         'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-        + _anchor(1, 5, 0, 15, 22, "rId1", "仰角曲線")
-        + _anchor(2, 5, 23, 15, 45, "rId2", "轉速曲線")
+        + "".join(_anchor(i + 1, 5, i * 20, 15, i * 20 + 19, f"rId{i + 1}", f"射擊曲線{i + 1}")
+                  for i in range(len(CHART_HOLES)))
         + '</xdr:wsDr>')
     ct = "application/vnd.openxmlformats-officedocument"
     files = {
@@ -482,8 +501,8 @@ def write_xlsx(path, points):
             f'<Override PartName="/xl/worksheets/sheet3.xml" ContentType="{ct}.spreadsheetml.worksheet+xml"/>'
             f'<Override PartName="/xl/styles.xml" ContentType="{ct}.spreadsheetml.styles+xml"/>'
             f'<Override PartName="/xl/drawings/drawing1.xml" ContentType="{ct}.drawing+xml"/>'
-            f'<Override PartName="/xl/charts/chart1.xml" ContentType="{ct}.drawingml.chart+xml"/>'
-            f'<Override PartName="/xl/charts/chart2.xml" ContentType="{ct}.drawingml.chart+xml"/>'
+            + "".join(f'<Override PartName="/xl/charts/chart{i + 1}.xml" ContentType="{ct}.drawingml.chart+xml"/>'
+                      for i in range(len(CHART_HOLES))) +
             '</Types>',
         "_rels/.rels":
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -514,8 +533,8 @@ def write_xlsx(path, points):
         "xl/drawings/_rels/drawing1.xml.rels":
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
             '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-            '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart1.xml"/>'
-            '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart2.xml"/>'
+            + "".join(f'<Relationship Id="rId{i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/chart" Target="../charts/chart{i + 1}.xml"/>'
+                      for i in range(len(CHART_HOLES))) +
             '</Relationships>',
         "xl/styles.xml":
             '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
@@ -534,9 +553,9 @@ def write_xlsx(path, points):
         "xl/worksheets/sheet2.xml": sheet2,
         "xl/worksheets/sheet3.xml": sheet3,
         "xl/drawings/drawing1.xml": drawing,
-        "xl/charts/chart1.xml": _chart_xml("仰角曲線（各洞口）", "仰角 (µs)", 1, 500, 2500),
-        "xl/charts/chart2.xml": _chart_xml("轉速曲線（各洞口）", "轉速 (%)", 2, 0, 100),
     }
+    for i, (_, title) in enumerate(CHART_HOLES):
+        files[f"xl/charts/chart{i + 1}.xml"] = _height_chart_xml(i, title)
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
         for name, body in files.items():
             z.writestr(name, body)

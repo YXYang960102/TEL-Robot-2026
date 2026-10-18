@@ -5162,3 +5162,33 @@ every edit, added row and deleted row.
   cases still behave as before.
 - **Not yet opened in real Excel**, so Jeremy needs to confirm that the
   curves render and update.
+
+## 2026-10-18 — Claude Code: three per-height shooting curves in shot_table.xlsx
+
+**User Request:**
+- Three charts, one per height of the center column (holes 4/5/6).
+- Physically the shooting curve leaves the origin and bends up-right,
+  approaching a slanted line. More points refine it, but it is never
+  exactly straight.
+
+**Changed:**
+- `apply.py`'s writer now has `CHART_HOLES` = 4 (bottom, ~120 cm),
+  5 (middle, ~180 cm) and 6 (top, ~240 cm).
+- The hidden 「圖表資料」 sheet covers only those three holes, sorted by
+  distance.
+- Each chart (`_height_chart_xml`):
+  - x = distance to the target (axis from 0);
+  - flywheel %, left axis 0–100: markers plus an Excel **power trendline**
+    (y = a·x^b, through the origin);
+  - elevation µs, right axis 500–2500: markers plus a dashed line.
+- The charts are stacked beside the table.
+- Help text, README: the trendline is a visual check only; the Mega
+  still interpolates linearly between the measured points.
+
+**Evidence:**
+- All parts are well-formed. openpyxl loads 3 charts with power
+  trendlines on the flywheel series; the XML shows the elevation series
+  on a secondary right axis.
+- The round trip `--check` reports no change. The strict-format cases are
+  unchanged.
+- Not yet viewed in real Excel.
