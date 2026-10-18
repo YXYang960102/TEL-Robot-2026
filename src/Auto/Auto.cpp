@@ -62,7 +62,9 @@ void Auto::update() {
     // target appears.
     double flywheelCommand = TuningConstants::Flywheel::SHOOT_COMMAND;
     if (hasTarget) {
-        flywheelCommand = shot.flywheelCommand;
+        // Plus the operator's LT / RT offset (percent), kept within 0..1.
+        flywheelCommand = constrain(
+            shot.flywheelCommand + ManualControl::getFlywheelOffsetPct() / 100.0, 0.0, 1.0);
         // Elevation from the table too (a measured servo pulse) plus the
         // operator's fine-adjust, once the table holds real measured pulses
         // (ShotTable::ELEVATION_MEASURED); until then the operator keeps

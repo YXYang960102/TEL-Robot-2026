@@ -111,10 +111,11 @@ constexpr int STOP_TRIM_US = 10;
 // the flywheel counts as spun up SPIN_UP_MS after its command last changed
 // (Shooter::updateFlywheelReady). PROVISIONAL -- tune against real shots.
 // SHOOT_COMMAND: the autos' pre-spin with no target in view (Jeremy,
-// 2026-10-18: 50%); with a target the shot table's flywheel value is used.
+// 2026-10-18: 50%, then 20%); with a target the shot table's flywheel
+// value (+ the LT / RT offset) is used.
 // It no longer sets the "ready" threshold (that made every table value
 // below it -- 42%, 46% -- never ready).
-constexpr double SHOOT_COMMAND = 0.5;
+constexpr double SHOOT_COMMAND = 0.2;
 constexpr uint32_t SPIN_UP_MS = 1500;
 
 }
@@ -134,7 +135,9 @@ constexpr uint32_t COOLDOWN_MS = 300;
 //   up/down: added to the shot table's elevation pulse; only once the
 //     table is measured (ShotTable::ELEVATION_MEASURED), until then up/down
 //     stay the manual elevation jog.
-constexpr double AIM_OFFSET_STEP_PX = 5.0;
+// 20 px (2026-10-18, was 5): 5 px x kP 0.01 = a ~25 us turret command,
+// inside the servo's deadband, so a press barely moved the turret.
+constexpr double AIM_OFFSET_STEP_PX = 20.0;
 constexpr double AIM_OFFSET_MAX_PX = 100.0;
 constexpr double ELEVATION_OFFSET_STEP_US = 10.0;
 constexpr double ELEVATION_OFFSET_MAX_US = 200.0;

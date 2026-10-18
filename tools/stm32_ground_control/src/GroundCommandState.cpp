@@ -61,6 +61,7 @@ void GroundCommandState::release(uint32_t nowMs) {
     // CH4 isn't exactly that, and every release ends any auto mode.
     cmd.mode_us = RCMAP_MODE_FULL_MANUAL_US;
     cmd.flywheel = 0.0f;
+    cmd.flywheel_offset_pct = 0;
     pcHold = false;
 }
 
@@ -169,9 +170,12 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
     const bool isTarget = strncmp(line, "TGT,", 4) == 0;
     const bool isAutoPath = strncmp(line, "AUTO,", 5) == 0;
     const bool isModeSet = strncmp(line, "MODE,", 5) == 0;
+    // FLYO,<-20..20>: the autos' flywheel offset (LT / RT), on CH4 with the
+    // auto level; dropped in full manual and on every mode change.
+    const bool isFlywheelOffset = strncmp(line, "FLYO,", 5) == 0;
     const bool isSingle = line[1] == '\0' && (line[0] == 'F' || line[0] == 'M');
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isNoChannel && !isTarget &&
-        !isAutoPath && !isModeSet && !isSingle) {
+        !isAutoPath && !isModeSet && !isFlywheelOffset && !isSingle) {
         emitLine(emit, ctx, "$GROUND_EVENT,UNKNOWN_COMMAND");
         return;
     }
@@ -225,25 +229,32 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
         updateNudge();
         return;
     }
-    if (isTarget || isAutoPath || isModeSet) {
+    if (isTarget || isAutoPath || isModeSet || isFlywheelOffset) {
         const char* digits = line + (isTarget ? 4 : 5);
         char* end = nullptr;
         const long n = strtol(digits, &end, 10);
-        const long minimum = isAutoPath ? 1 : 0;
+        const long minimum = isAutoPath ? 1 : isFlywheelOffset ? -RCMAP_AUTO_OFFSET_MAX_PCT : 0;
         const long maximum = isTarget ? RCMAP_TARGET_MAX
                            : isAutoPath ? RCMAP_AUTO_PATHS
+                           : isFlywheelOffset ? RCMAP_AUTO_OFFSET_MAX_PCT
                                         : RCMAP_MODE_FULL_MANUAL;
         if (end == digits || *end != '\0' || n < minimum || n > maximum) {
             emitLine(emit, ctx, "$GROUND_EVENT,BAD_COMMAND");
             return;
         }
         notePcLine(nowMs, emit, ctx);
-        if (isTarget) {
+        if (isFlywheelOffset) {
+            cmd.flywheel_offset_pct = rcmap_mode_from_us(cmd.mode_us) == RCMAP_MODE_FULL_MANUAL
+                ? 0 : static_cast<int8_t>(n);
+        } else if (isTarget) {
             cmd.target = static_cast<uint8_t>(n);
         } else if (isModeSet) {
             // The Dashboard's mode menu: CH4 straight to that level.
             const uint8_t mode = static_cast<uint8_t>(n);
-            if (mode != rcmap_mode_from_us(cmd.mode_us)) cmd.flywheel = 0.0f;
+            if (mode != rcmap_mode_from_us(cmd.mode_us)) {
+                cmd.flywheel = 0.0f;
+                cmd.flywheel_offset_pct = 0;
+            }
             cmd.mode_us = rcmap_mode_to_us(mode);
             emitModeEvent(mode, emit, ctx);
         } else if (cmd.auto_path == RCMAP_AUTO_NONE) {
@@ -272,6 +283,7 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
                                                             : RCMAP_MODE_FULL_MANUAL;
         cmd.mode_us = rcmap_mode_to_us(next);
         cmd.flywheel = 0.0f;
+        cmd.flywheel_offset_pct = 0;
         emitModeEvent(next, emit, ctx);
     }
 }

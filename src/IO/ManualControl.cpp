@@ -41,6 +41,7 @@ uint8_t ManualControl::autoPathThisEnable = RCMAP_AUTO_NONE;
 uint8_t ManualControl::autoPathsUsedMask = 0;
 double ManualControl::aimOffsetPx = 0.0;
 double ManualControl::elevationOffsetUs = 0.0;
+int ManualControl::flywheelOffsetPct = 0;
 int ManualControl::rotateNudgePrev = 0;
 int ManualControl::angleNudgePrev = 0;
 
@@ -211,10 +212,13 @@ void ManualControl::processCommand(char* command) {
     // auto, 2 full manual) -- the Dashboard's mode menu, sent right after
     // Enable. Enable itself still always starts in full manual.
     const bool isModeSet = strncmp(command, "MODE,", 5) == 0;
+    // FLYO,<-20..20>: the autos' flywheel offset in percent (LT / RT on the
+    // pad), added to the shot table. Absolute, so a resend is harmless.
+    const bool isFlywheelOffset = strncmp(command, "FLYO,", 5) == 0;
     const bool isSingle = command[1] == '\0' && (command[0] == 'F' || command[0] == 'M');
 
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle && !isAngleTarget &&
-        !isTarget && !isAutoPath && !isModeSet) {
+        !isTarget && !isAutoPath && !isModeSet && !isFlywheelOffset) {
         sendEvent(RCMAP_EVENT_UNKNOWN_COMMAND);
         return;
     }
@@ -257,20 +261,24 @@ void ManualControl::processCommand(char* command) {
         }
         return;
     }
-    if (isTarget || isAutoPath || isModeSet) {
+    if (isTarget || isAutoPath || isModeSet || isFlywheelOffset) {
         const char* digits = command + (isTarget ? 4 : 5);
         char* end = nullptr;
         const long n = strtol(digits, &end, 10);
         const long maximum = isTarget ? RCMAP_TARGET_MAX
                            : isAutoPath ? RCMAP_AUTO_PATHS
+                           : isFlywheelOffset ? RCMAP_AUTO_OFFSET_MAX_PCT
                                         : static_cast<long>(OperatorMode::FULL_MANUAL);
-        const long minimum = isAutoPath ? 1 : 0;
+        const long minimum = isAutoPath ? 1 : isFlywheelOffset ? -RCMAP_AUTO_OFFSET_MAX_PCT : 0;
         if (end == digits || *end != '\0' || n < minimum || n > maximum) {
             sendEvent(RCMAP_EVENT_BAD_COMMAND);
             return;
         }
         refreshWiredWatchdog();
-        if (isTarget) {
+        if (isFlywheelOffset) {
+            // Only meaningful in the autos (full manual has the slider).
+            flywheelOffsetPct = operatorMode == OperatorMode::FULL_MANUAL ? 0 : static_cast<int>(n);
+        } else if (isTarget) {
             selectTarget(static_cast<uint8_t>(n));
         } else if (isAutoPath) {
             requestAutoPath(static_cast<uint8_t>(n));
@@ -390,6 +398,8 @@ void ManualControl::processWirelessFrame() {
         // The Dashboard's Falcon slider, on CH4 with the mode (decode gives
         // 0 outside full manual; applyOutputs only uses it in full manual).
         flywheelCommand = c.flywheel;
+        // ...and in the autos the LT / RT flywheel offset (0 in manual).
+        flywheelOffsetPct = c.flywheel_offset_pct;
         selectTarget(c.target);
         if (fireEdge) handleFire();
         if (autoEdge) requestAutoPath(c.auto_path);
@@ -464,6 +474,7 @@ void ManualControl::clearCommands() {
     rotateManualCommand = 0.0;
     angleManualCommand = 0.0;
     flywheelCommand = 0.0;
+    flywheelOffsetPct = 0;
     // Disarm and every Enable start over in full manual, with no stale F.
     operatorMode = OperatorMode::FULL_MANUAL;
     fireRequested = false;
@@ -514,6 +525,10 @@ void ManualControl::updateFineAdjust() {
         elevationOffsetUs = clampAbs(elevationOffsetUs + angleNow * up * ELEVATION_OFFSET_STEP_US,
                                      ELEVATION_OFFSET_MAX_US);
     }
+}
+
+int ManualControl::getFlywheelOffsetPct() {
+    return flywheelOffsetPct;
 }
 
 double ManualControl::getAimOffsetPx() {
@@ -594,6 +609,7 @@ void ManualControl::setOperatorMode(OperatorMode mode) {
     // value, and entering it must not carry a manual jog.
     rotateManualCommand = 0.0;
     flywheelCommand = 0.0;
+    flywheelOffsetPct = 0;
     fireRequested = false;
     sendEvent(mode == OperatorMode::FULL_MANUAL ? RCMAP_EVENT_MODE_FULL_MANUAL
               : mode == OperatorMode::SEMI_AUTO ? RCMAP_EVENT_MODE_SEMI_AUTO

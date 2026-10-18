@@ -268,6 +268,36 @@ static void test_flywheel_on_mode_channel(void) {
     ch[RCMAP_CH_MODE] = RCMAP_MODE_FULL_AUTO_MIN_US;
     assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
     assert(rcmap_mode_from_us(d.mode_us) == RCMAP_MODE_FULL_AUTO && d.flywheel == 0.0f);
+
+    /* Auto flywheel offset (LT / RT): level + 4 us per 1%, +-20%, every
+     * value round-trips (also with +-1 us) and stays in its mode's band;
+     * never sent or decoded in full manual. */
+    const int auto_modes[2] = {RCMAP_MODE_SEMI_AUTO_US, RCMAP_MODE_FULL_AUTO_US};
+    for (int m = 0; m < 2; m++) {
+        for (int off = -RCMAP_AUTO_OFFSET_MAX_PCT; off <= RCMAP_AUTO_OFFSET_MAX_PCT; off++) {
+            rcmap_command a = base();
+            a.mode_us = auto_modes[m];
+            a.flywheel_offset_pct = (int8_t)off;
+            rcmap_encode(&a, ch);
+            assert(ch[RCMAP_CH_MODE] == auto_modes[m] + 4 * off);
+            for (int jitter = -1; jitter <= 1; jitter++) {
+                int j[16];
+                memcpy(j, ch, sizeof ch);
+                j[RCMAP_CH_MODE] += jitter;
+                assert(rcmap_decode(j, RCMAP_CHANNEL_COUNT, &d));
+                assert(d.mode_us == auto_modes[m] && d.flywheel_offset_pct == off);
+            }
+        }
+    }
+    c = base();
+    c.mode_us = RCMAP_MODE_SEMI_AUTO_US;
+    c.flywheel_offset_pct = 90;                       /* clamped */
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_MODE] == RCMAP_MODE_SEMI_AUTO_US + 80);
+    c.mode_us = RCMAP_MODE_FULL_MANUAL_US;            /* manual: ignored */
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_MODE] == RCMAP_MODE_FULL_MANUAL_US);
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.flywheel_offset_pct == 0);
 }
 
 static void test_aim_frames(void) {

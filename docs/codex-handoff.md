@@ -4886,3 +4886,60 @@ keys 4, 5 and 6 in turn and check:
 1. the elevation moves to the table pulse;
 2. the flywheel goes to the table %;
 3. 1.5 s after the turret locks, RB fires.
+
+## 2026-10-18 — Claude Code: pad remap (LB fire / RB home, LT/RT ±1%), auto flywheel offset, aim step 20 px, pre-spin 20%
+
+**User Request:**
+- Pre-spin with no target at 20%.
+- Semi auto's left/right fine-adjust "does nothing".
+- Swap RB and LB.
+- LT and RT become buttons: −1% / +1% Falcon per press, in semi auto
+  and full manual.
+- The 11c1 pad reads LT = button 8 and RT = button 9; their analog axes
+  3 and 4 are not used.
+
+**Why:** the aim fine-adjust worked but was invisible. 5 px × kP 0.01 is
+a 0.05 command, about 25 µs on the turret servo, which is inside its
+deadband; only the slow integral moved it.
+
+**Changed:**
+- `Flywheel::SHOOT_COMMAND` 0.5 → 0.2.
+- `Auto::AIM_OFFSET_STEP_PX` 5 → 20 px (max stays 100).
+- **Auto flywheel offset.** In semi and full auto, LT/RT adjust an
+  offset of −20..+20% that is added to the shot table's value.
+  - Dashboard sends `FLYO,<n>` (absolute). The robot clamps
+    table + offset to 0..1. It is not added to the no-target pre-spin.
+  - Mega: `ManualControl::flywheelOffsetPct`, set by wired `FLYO` or by
+    CH4 (wireless).
+  - It is cleared on a mode change, Enable and disarm. The Dashboard
+    also sends `FLYO,0` after every `TGT` (new hole).
+  - `Auto` adds it to `shot.flywheelCommand`.
+- **CH4 encoding (`RcControlMap`).** In the autos the level carries the
+  offset: level + 4 µs per 1%. That gives semi 1670–1830 and full
+  1420–1580, both inside their bands.
+  - Exact 1750 / 1500 means offset 0, so an older ground STM32 stays
+    compatible.
+  - An older Mega reads the same mode and simply ignores the offset.
+  - Decoding rounds to the nearest 1%, so ±1 µs link noise is absorbed.
+- **Ground STM32.** Parses `FLYO,<-20..20>` (BAD_COMMAND outside that
+  range or for a non-integer). It keeps the value only in the autos and
+  resets it on a mode change, E, X and a PC timeout.
+- **Dashboard.** Profiles: Xbox fire 4 (LB), home 5 (RB), LT 6, RT 7;
+  11c1 fire 6, home 7, LT 8, RT 9.
+  - `nudgeFlywheel()`: in full manual, the slider ±1% (`FLY`); in the
+    autos, the offset (`FLYO`).
+  - The heartbeat resends `FLYO` while it is non-zero.
+  - The label shows the offset in the autos.
+
+**Evidence:**
+- The existing tests were extended: rc map (offset round trip with
+  ±1 µs, clamp, manual ignored), ground (`FLYO`), `manual_control_test`
+  (FLYO adds / refuses / clears; 3 variants), and the page and control
+  tests (new map, LT/RT in manual and auto, reset on hole and mode).
+- Builds pass: Mega (4 envs) and the ground. Bridge sha unchanged
+  (ee034481).
+- Not run on hardware.
+
+**Impact:** flash the Mega and the ground STM32 together. The Dashboard
+updates through Pages after a push. The bridge and the Orin are
+unchanged.

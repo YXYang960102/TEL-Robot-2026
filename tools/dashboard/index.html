@@ -744,6 +744,10 @@
     const HEARTBEAT_GAP_LOG_MS = 250;
     let lastHeartbeatTickMs = null;
     let statusMismatchLogged = false;
+    // The autos' flywheel offset (LT / RT), percent; the robot clamps the
+    // same range (RCMAP_AUTO_OFFSET_MAX_PCT).
+    const FLYWHEEL_OFFSET_MAX_PCT = 20;
+    let flywheelOffsetPct = 0;
     // RF link log (ground $RFLINK): lost / back, and an LQ below
     // RF_LQ_LOG_LOW until it recovers above RF_LQ_LOG_OK.
     const RF_LQ_LOG_LOW = 50;
@@ -840,6 +844,7 @@
         gamepadDrive = null;
         // A new Enable waits for Y again (the countdown itself runs on).
         matchStarted = false;
+        flywheelOffsetPct = 0;
         setFlywheelSlider(0);
       }
       updateControlUi();
@@ -905,7 +910,8 @@
       // While enabled the menu shows the robot's mode (M, or the menu
       // itself); after a disarm it keeps it as the next Enable's mode.
       if (controlArmed) startModeSelect.value = String(mode);
-      // The firmware zeroes the flywheel on every mode change.
+      // The firmware zeroes the flywheel (and its offset) on every mode change.
+      flywheelOffsetPct = 0;
       setFlywheelSlider(0);
       updateControlUi();
     }
@@ -919,6 +925,7 @@
       // Nothing that moves the robot before the match is started (Y).
       flywheelSlider.disabled = !controlArmed || !matchStarted || operatorMode !== MODE_FULL_MANUAL;
       startMatchButton.disabled = !controlArmed || matchStarted;
+      renderFlywheelLabel();
       // Elevation is an absolute target angle (positional servo). In an
       // auto mode the robot answers REJECTED_AUTO_MODE if Auto owns it.
       const angleEditable = controlArmed && matchStarted && absoluteElevation;
@@ -934,7 +941,17 @@
     function setFlywheelSlider(ratio) {
       flywheelRatio = ratio;
       flywheelSlider.value = String(Math.round(ratio * 100));
-      flywheelSliderValue.textContent = `Falcon 指令 ${Math.round(ratio * 100)}%（Enter/Space/逾時自動歸零）`;
+      renderFlywheelLabel();
+    }
+
+    function renderFlywheelLabel() {
+      if (operatorMode !== MODE_FULL_MANUAL && controlArmed) {
+        const signed = `${flywheelOffsetPct > 0 ? "+" : ""}${flywheelOffsetPct}`;
+        flywheelSliderValue.textContent = `射擊表轉速微調 ${signed}%（LT −1 / RT +1，換洞、換模式歸零）`;
+        return;
+      }
+      flywheelSliderValue.textContent =
+        `Falcon 指令 ${Math.round(flywheelRatio * 100)}%（LT −1 / RT +1；Enter/Space/逾時自動歸零）`;
     }
 
     async function sendControl(command) {
@@ -1781,8 +1798,11 @@
     const TURN_INNER_RATIO = -0.5;
     const DRIVE_TURN_GAIN = (1 - TURN_INNER_RATIO) / (1 + TURN_INNER_RATIO);
     const GAMEPAD_PROFILES = {
+      // 2026-10-18 (Jeremy): LB fires and RB is turret home (swapped from
+      // RB / LB); LT / RT are buttons: flywheel -1% / +1% per press.
       standard: {
-        label: "Xbox", forwardAxis: 1, turnAxis: 2, fireButton: 5, startButton: 3, homeButton: 4,
+        label: "Xbox", forwardAxis: 1, turnAxis: 2, fireButton: 4, startButton: 3, homeButton: 5,
+        flywheelDownButton: 6, flywheelUpButton: 7,
         modeButtons: { 2: 0, 0: 1, 1: 2 }, // X full auto, A semi auto, B full manual
         dpad: { up: 12, down: 13, left: 14, right: 15 },
       },
@@ -1790,13 +1810,16 @@
       // Chrome gives it no "standard" mapping. Read off on the robot
       // 2026-10-17: A 0, B 1, X 3, Y 4, LB 6, RB 7; left stick Y = axis 1,
       // right stick X = axis 2; the D-pad is a hat switch on axis 9.
+      // LT 8, RT 9 as buttons (their analog axes 3 / 4 are not used).
       vendor11c1: {
-        label: "Xbox (11c1)", forwardAxis: 1, turnAxis: 2, fireButton: 7, startButton: 4, homeButton: 6,
+        label: "Xbox (11c1)", forwardAxis: 1, turnAxis: 2, fireButton: 6, startButton: 4, homeButton: 7,
+        flywheelDownButton: 8, flywheelUpButton: 9,
         modeButtons: { 3: 0, 0: 1, 1: 2 }, // X full auto, A semi auto, B full manual
         dpad: { hatAxis: 9 },
       },
       other: {
         label: "flight stick", forwardAxis: 1, turnAxis: 0, fireButton: 0, startButton: -1, homeButton: -1,
+        flywheelDownButton: -1, flywheelUpButton: -1,
         modeButtons: {}, dpad: null,
       },
     };
@@ -1922,6 +1945,30 @@
       [dpadRotate, dpadAngle] = dpadAxes(down, profile.dpad, pad.axes);
       await sendAllAxesIfChanged();
       if (edge(profile.fireButton)) await sendControl("F");
+      if (edge(profile.flywheelDownButton)) await nudgeFlywheel(-1);
+      if (edge(profile.flywheelUpButton)) await nudgeFlywheel(1);
+    }
+
+    // LT / RT: one press = 1%. Full manual: the Falcon slider itself. The
+    // autos: an offset on top of the shot table (FLYO, -20..20), dropped on
+    // a mode change, a new hole, Enable and disarm (the robot drops it too).
+    async function nudgeFlywheel(stepPct) {
+      if (!controlArmed || !matchStarted) return;
+      if (operatorMode === MODE_FULL_MANUAL) {
+        const pct = Math.max(0, Math.min(100, Math.round(flywheelRatio * 100) + stepPct));
+        setFlywheelSlider(pct / 100);
+        await sendControl(`FLY,${flywheelRatio.toFixed(2)}`);
+        return;
+      }
+      await setFlywheelOffset(flywheelOffsetPct + stepPct);
+    }
+
+    async function setFlywheelOffset(pct, { send = true } = {}) {
+      const next = Math.max(-FLYWHEEL_OFFSET_MAX_PCT, Math.min(FLYWHEEL_OFFSET_MAX_PCT, pct));
+      const changed = next !== flywheelOffsetPct;
+      flywheelOffsetPct = next;
+      renderFlywheelLabel();
+      if (changed && send && controlArmed) await sendControl(`FLYO,${flywheelOffsetPct}`);
     }
 
     async function sendTankIfChanged() {
@@ -2094,6 +2141,8 @@
         event.preventDefault();
         sentTarget = hole;
         await sendControl(`TGT,${hole}`);
+        // A new hole starts from its own table value.
+        await setFlywheelOffset(0);
       }
     });
 
@@ -2131,6 +2180,7 @@
       if (rotateAxis !== 0) { await sendControl(`ROT,${rotateAxis}`); sent = true; }
       if (angleAxis !== 0) { await sendControl(`ANG,${angleAxis}`); sent = true; }
       if (flywheelRatio !== 0) { await sendControl(`FLY,${flywheelRatio.toFixed(2)}`); sent = true; }
+      if (flywheelOffsetPct !== 0) { await sendControl(`FLYO,${flywheelOffsetPct}`); sent = true; }
       if (!sent) await sendControl("K");
     }
 

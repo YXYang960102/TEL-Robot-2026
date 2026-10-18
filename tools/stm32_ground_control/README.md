@@ -42,6 +42,7 @@ The PC sends exactly what it sends to the Mega over a wired link:
 | `AUTO,<1..4>` | Auto path on CH8 for 200 ms, then back to none. A press during the 200 ms is ignored. The robot allows one path per Enable. The Dashboard sends it right after Enable from its path menu. |
 | `MODE,<0..2>` | Operator mode on CH4, straight to that level (0 full auto, 1 semi auto, 2 full manual). The Dashboard sends it right after Enable from its mode menu. |
 | `FLY,<0..1>` | The Falcon slider, on CH4 together with the mode (2026-10-17): full manual with the flywheel on is sent as 1000 + 300·f µs (3 µs = 1%), flywheel 0 as the plain 2000. Kept only in full manual; any mode change, `E`, `X` and a PC timeout set it back to 0. |
+| `FLYO,<-20..20>` | The autos' flywheel offset in percent (LT / RT on the pad, 2026-10-18), added to the shot table on the robot. Sent on CH4 as the auto level + 4 µs per 1% (semi 1670–1830, full 1420–1580). Kept only in semi / full auto; a mode change, `E`, `X` and a PC timeout set it to 0. |
 | `ANGT,<deg>` | Accepted, so the link stays alive, but sent nowhere: there is no absolute elevation channel. |
 
 All of these are accepted only while enabled; otherwise the board prints `REJECTED_NOT_ENABLED`. `R` and `L` were retired with table v2 and are now `UNKNOWN`.

@@ -124,7 +124,7 @@ async function emergencyStopViaEnter() {
 
   // Disarmed by default: keys and the pad send nothing.
   for (const k of ['ArrowUp', '5', '0', 'm']) await windowHandlers.keydown(key(k));
-  pads = [xbox([0, -1, 1, 0], [XB.RB, XB.UP, XB.Y])];
+  pads = [xbox([0, -1, 1, 0], [XB.LB, XB.UP, XB.Y])];
   await poll();
   pads = [xbox()];
   await poll();
@@ -149,7 +149,7 @@ async function emergencyStopViaEnter() {
   assert.equal(elements.flywheelSlider.disabled, true);
   assert.match(elements.matchState.textContent, /按 Y 開始/);
   writes.length = 0;
-  pads = [xbox([0, -1, 1, 0], [XB.UP, XB.RIGHT, XB.RB])];  // stick, D-pad, fire
+  pads = [xbox([0, -1, 1, 0], [XB.UP, XB.RIGHT, XB.LB])];  // stick, D-pad, fire
   await poll(); await poll();
   pads = [xbox()];
   await poll();
@@ -519,9 +519,9 @@ async function emergencyStopViaEnter() {
     assert.doesNotMatch(html, new RegExp(`id="${gone}"`), gone);
   }
 
-  // LB (turret home) only explains that the AS5600 isn't there yet.
+  // RB (turret home) only explains that the AS5600 isn't there yet.
   writes.length = 0;
-  await press(XB.LB);
+  await press(XB.RB);
   assert.equal(writes.length, 0);
   assert.match(run('log.textContent'), /AS5600 尚未安裝/);
 
@@ -745,13 +745,13 @@ async function emergencyStopViaEnter() {
   await poll();
   assert.match(elements.gamepadState.textContent, /none/);
 
-  // Disarmed: the sticks, RB and Y send nothing.
-  pads = [xbox([0, -1, 1, 0], [XB.RB, XB.Y])];
+  // Disarmed: the sticks, LB and Y send nothing.
+  pads = [xbox([0, -1, 1, 0], [XB.LB, XB.Y])];
   writes.length = 0;
   await poll();
   assert.equal(writes.length, 0);
   assert.match(elements.gamepadState.textContent, /Xbox/);
-  assert.match(elements.gamepadInputs.textContent, /按鈕 \[3,5\]/);
+  assert.match(elements.gamepadInputs.textContent, /按鈕 \[3,4\]/);
   pads = [xbox()];
   await poll();
 
@@ -788,13 +788,13 @@ async function emergencyStopViaEnter() {
   pads = [xbox()];
   await poll();
 
-  // Fire (RB): one F per press, none while held; Y never fires.
+  // Fire (LB): one F per press, none while held; Y never fires.
   writes.length = 0;
-  pads = [xbox([0, 0, 0, 0], [XB.RB])];
+  pads = [xbox([0, 0, 0, 0], [XB.LB])];
   await poll(); await poll(); await poll();
   pads = [xbox()];
   await poll();
-  pads = [xbox([0, 0, 0, 0], [XB.RB])];
+  pads = [xbox([0, 0, 0, 0], [XB.LB])];
   await poll();
   pads = [xbox([0, 0, 0, 0], [XB.Y])];
   await poll();
@@ -849,9 +849,36 @@ async function emergencyStopViaEnter() {
   pads = [pad11([])]; await poll();
   assert.equal(last(), 'ANG,0');
   writes.length = 0;
-  pads = [pad11([], [7])]; await poll();                // RB fires
+  pads = [pad11([], [6])]; await poll();                // LB fires
+  pads = [pad11([], [9])]; await poll();                // RT: Falcon +1% (full manual)
+  pads = [pad11([], [9])]; await poll();                // held: nothing more
+  pads = [pad11([])]; await poll();
+  pads = [pad11([], [9])]; await poll();                // again: +1%
+  pads = [pad11([], [8])]; await poll();                // LT: -1%
+  assert.deepEqual([...writes], ['F', 'FLY,0.01', 'FLY,0.02', 'FLY,0.01']);
+  writes.length = 0;
   pads = [pad11([], [3])]; await poll();                // X: full auto
-  assert.deepEqual([...writes], ['F', 'MODE,0']);
+  assert.deepEqual([...writes], ['MODE,0']);
+  line('$EVENT,MODE_FULL_AUTO');
+  // In the autos LT / RT are an offset on the shot table (FLYO).
+  writes.length = 0;
+  pads = [pad11([], [9])]; await poll();
+  pads = [pad11([])]; await poll();
+  pads = [pad11([], [9])]; await poll();
+  pads = [pad11([])]; await poll();
+  pads = [pad11([], [8])]; await poll();
+  assert.deepEqual([...writes], ['FLYO,1', 'FLYO,2', 'FLYO,1']);
+  assert.match(elements.flywheelSliderValue.textContent, /射擊表轉速微調 \+1%/);
+  // A new hole starts from its own table value: offset back to 0.
+  writes.length = 0;
+  await windowHandlers.keydown(key('5'));
+  assert.deepEqual([...writes], ['TGT,5', 'FLYO,0']);
+  // Clamped at +-20.
+  for (let i = 0; i < 25; i++) { pads = [pad11([], [9])]; await poll(); pads = [pad11([])]; await poll(); }
+  assert.equal(run('flywheelOffsetPct'), 20);
+  // A mode change drops it (the robot does too).
+  line('$EVENT,MODE_SEMI_AUTO');
+  assert.equal(run('flywheelOffsetPct'), 0);
   pads = [pad11([])]; await poll();
 
   // Disarm clears the gamepad drive.

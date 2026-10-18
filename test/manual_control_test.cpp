@@ -710,6 +710,15 @@ void testSemiAutoFiresOnlyWhenReady() {
     assert(nearly(rec.flywheelCommand, shot.flywheelCommand));
     send("FLY,0.2"); step();
     assert(nearly(rec.flywheelCommand, shot.flywheelCommand));
+    // LT / RT offset (FLYO, percent) is added to the table value; bad
+    // values are refused; a mode change drops it.
+    send("FLYO,5"); step();
+    assert(ManualControl::getFlywheelOffsetPct() == 5);
+    assert(nearly(rec.flywheelCommand, constrain(shot.flywheelCommand + 0.05, 0.0, 1.0)));
+    send("FLYO,21"); send("FLYO,x"); step();
+    assert(saw("BAD_COMMAND") && ManualControl::getFlywheelOffsetPct() == 5);
+    send("FLYO,0"); step();
+    assert(nearly(rec.flywheelCommand, shot.flywheelCommand));
     // The operator still drives the chassis.
     send("T,1,1"); step();
     assert(nearly(rec.chassisLeft, 1.0));

@@ -9,7 +9,7 @@
 // Operator control of the robot, from two sources that share one set of
 // rules:
 //   - Wired: line protocol on USB `Serial` from tools/dashboard/index.html
-//     (E/X/K, T,<l>,<r>, ROT,<d>, ANG,<d>, ANGT,<deg>, FLY,<0..1>,
+//     (E/X/K, T,<l>,<r>, ROT,<d>, ANG,<d>, ANGT,<deg>, FLY,<0..1>, FLYO,<-20..20>,
 //     TGT,<0..9>, AUTO,<1..4>, MODE,<0..2>, F, M).
 //   - Wireless: CRSF channels from the ELRS link via MechLink, decoded with
 //     RcControlMap table v2 (forward/turn, target hole, mode, fire, arm,
@@ -72,6 +72,10 @@ public:
     // Fine-adjust (TuningConstants::Auto): + = aim right / elevation up.
     static double getAimOffsetPx();
     static double getElevationOffsetUs();
+    // The autos' flywheel offset in percent (-20..20, LT / RT; 2026-10-18):
+    // added to the shot table's value. Wired FLYO,<n> or CH4 in the autos;
+    // 0 in full manual, after a mode change and on every Enable / disarm.
+    static int getFlywheelOffsetPct();
     static constexpr int NUDGE_NEEDS_RELEASE = 2; // see nudgePressed()
 
 private:
@@ -132,6 +136,7 @@ private:
     static uint8_t autoPathsUsedMask;
     static double aimOffsetPx;
     static double elevationOffsetUs;
+    static int flywheelOffsetPct;
     static int rotateNudgePrev; // sign of the last ROT/nudge, for press edges
     static int angleNudgePrev;
 

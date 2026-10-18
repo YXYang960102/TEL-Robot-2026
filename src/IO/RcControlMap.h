@@ -28,6 +28,10 @@
  *          1750                SEMI_AUTO
  *          1500                FULL_AUTO
  *          1000 + 300*f        FULL_MANUAL, flywheel f (0 < f <= 1; 3 us = 1%)
+ *        In the autos the level carries the operator's flywheel offset
+ *        (2026-10-18, LT / RT): level + 4 us per 1%, -20..+20%, so semi
+ *        auto spans 1670..1830 and full auto 1420..1580, inside their
+ *        bands. Exactly 1750 / 1500 = offset 0 (what an older ground sends).
  *        The flywheel shares CH4 because only CH1-4 are full resolution
  *        and it only matters in full manual (the autos run it from the
  *        shot table). 1300..1399 is a gap: a frame there is rejected. The
@@ -93,6 +97,9 @@ extern "C" {
 #define RCMAP_FLYWHEEL_BASE_US 1000
 #define RCMAP_FLYWHEEL_SPAN_US 300
 #define RCMAP_FLYWHEEL_MAX_US (RCMAP_FLYWHEEL_BASE_US + RCMAP_FLYWHEEL_SPAN_US)
+/* Auto modes: the shot table's flywheel + this offset (percent). */
+#define RCMAP_AUTO_OFFSET_US_PER_PCT 4
+#define RCMAP_AUTO_OFFSET_MAX_PCT 20
 
 /* Fail-safe: anything that isn't clearly an auto level (including 0 from a
  * zero-initialized command, the flywheel range, or the gap below 1400 us)
@@ -117,6 +124,8 @@ typedef struct {
                           decode returns the mode's exact level */
     float flywheel;    /* CH4 too: 0..1, sent only in full manual; decode
                           gives 0 outside full manual, in 1% steps */
+    int8_t flywheel_offset_pct; /* CH4 too: -20..20, sent only in the autos;
+                                   decode gives 0 in full manual */
     bool fire;         /* CH5 high = fire pressed */
     bool armed;        /* CH6 high = enable requested */
     uint8_t nudge;     /* RCMAP_NUDGE_* */

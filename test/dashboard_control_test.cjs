@@ -49,8 +49,10 @@ const xbox = JSON.parse(JSON.stringify(vm.runInContext(
   `(${script.match(/const GAMEPAD_PROFILES = (\{[\s\S]*?\n    \});/)[1]}).standard`, vm.createContext({}))));
 assert.equal(xbox.forwardAxis, 1);                 // left stick Y
 assert.equal(xbox.turnAxis, 2);                    // right stick X
-assert.equal(xbox.fireButton, 5);                  // RB
-assert.equal(xbox.homeButton, 4);                  // LB
+assert.equal(xbox.fireButton, 4);                  // LB (swapped 2026-10-18)
+assert.equal(xbox.homeButton, 5);                  // RB
+assert.equal(xbox.flywheelDownButton, 6);          // LT: -1%
+assert.equal(xbox.flywheelUpButton, 7);            // RT: +1%
 assert.equal(xbox.startButton, 3);                 // Y
 assert.deepEqual(xbox.modeButtons, { 0: 1, 1: 2, 2: 0 }); // A semi, B manual, X full auto
 assert.deepEqual(xbox.dpad, { up: 12, down: 13, left: 14, right: 15 });
@@ -73,8 +75,10 @@ const pad11c1 = JSON.parse(JSON.stringify(vm.runInContext(
   `(${script.match(/const GAMEPAD_PROFILES = (\{[\s\S]*?\n    \});/)[1]}).vendor11c1`, vm.createContext({}))));
 assert.equal(pad11c1.forwardAxis, 1);
 assert.equal(pad11c1.turnAxis, 2);
-assert.equal(pad11c1.fireButton, 7);                   // RB
-assert.equal(pad11c1.homeButton, 6);                   // LB
+assert.equal(pad11c1.fireButton, 6);                   // LB (swapped 2026-10-18)
+assert.equal(pad11c1.homeButton, 7);                   // RB
+assert.equal(pad11c1.flywheelDownButton, 8);           // LT
+assert.equal(pad11c1.flywheelUpButton, 9);             // RT
 assert.equal(pad11c1.startButton, 4);                  // Y
 assert.deepEqual(pad11c1.modeButtons, { 0: 1, 1: 2, 3: 0 }); // A semi, B manual, X full auto
 assert.deepEqual(pad11c1.dpad, { hatAxis: 9 });

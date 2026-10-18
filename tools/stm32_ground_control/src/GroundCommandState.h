@@ -19,6 +19,8 @@
 //   MODE,<n>    -> operator mode (CH4) straight to that level
 //   FLY,<f>     -> Falcon 0..1, on CH4 with the mode (full manual only;
 //                  a mode change, E, X and a PC timeout set it to 0)
+//   FLYO,<n>    -> the autos' flywheel offset -20..20 %, on CH4 with the
+//                  auto level (same resets; dropped in full manual)
 //   AUTO,<n>    -> auto path (CH8) for AUTO_PULSE_MS, then none
 //
 // No Arduino here, so it runs unchanged in the host test.

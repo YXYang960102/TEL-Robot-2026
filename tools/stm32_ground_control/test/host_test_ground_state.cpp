@@ -453,6 +453,25 @@ static void testFlywheel() {
     send(st, "FLY,0.6", 21);
     st.tick(21 + GroundCommandState::PC_TIMEOUT_MS + 1, collect, nullptr);
     assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+
+    // FLYO (the autos' LT / RT offset): semi 1750 + 4 us per %, ignored in
+    // manual, dropped on a mode change.
+    send(st, "E", 3000);
+    send(st, "FLYO,5", 3001);                // full manual: not kept
+    assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+    send(st, "MODE,1", 3002);
+    send(st, "FLYO,-3", 3003);
+    assert(ch4(st) == RCMAP_MODE_SEMI_AUTO_US - 12);
+    assert(onAir(st).flywheel_offset_pct == -3);
+    lines.clear();
+    for (const char* bad : {"FLYO,21", "FLYO,-21", "FLYO,", "FLYO,2.5"}) send(st, bad, 3004);
+    assert(saw("$GROUND_EVENT,BAD_COMMAND") && ch4(st) == RCMAP_MODE_SEMI_AUTO_US - 12);
+    send(st, "MODE,0", 3005);                // mode change: back to 0
+    assert(ch4(st) == RCMAP_MODE_FULL_AUTO_US);
+    send(st, "FLYO,20", 3006);
+    assert(ch4(st) == RCMAP_MODE_FULL_AUTO_US + 80);
+    send(st, "X", 3007);
+    assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US && st.command().flywheel_offset_pct == 0);
 }
 
 static std::string lastLineStarting(const std::string& prefix) {

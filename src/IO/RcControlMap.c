@@ -44,9 +44,17 @@ static bool us_to_level(int us, int base, int step, int tolerance, uint8_t level
 }
 
 /* CH4: the mode level, or full manual's flywheel range when it is on. */
+static int clamp_offset_pct(int pct) {
+    return pct > RCMAP_AUTO_OFFSET_MAX_PCT ? RCMAP_AUTO_OFFSET_MAX_PCT
+         : pct < -RCMAP_AUTO_OFFSET_MAX_PCT ? -RCMAP_AUTO_OFFSET_MAX_PCT : pct;
+}
+
 static int mode_channel_us(const rcmap_command *c) {
     const uint8_t mode = rcmap_mode_from_us(c->mode_us);
-    if (mode != RCMAP_MODE_FULL_MANUAL) return rcmap_mode_to_us(mode);
+    if (mode != RCMAP_MODE_FULL_MANUAL) {
+        return rcmap_mode_to_us(mode) +
+               clamp_offset_pct(c->flywheel_offset_pct) * RCMAP_AUTO_OFFSET_US_PER_PCT;
+    }
     const int percent = round_float(clamp_float(c->flywheel, 0.0f, 1.0f) * 100.0f);
     if (percent <= 0) return RCMAP_MODE_FULL_MANUAL_US;
     return RCMAP_FLYWHEEL_BASE_US + (percent * RCMAP_FLYWHEEL_SPAN_US + 50) / 100;
@@ -55,10 +63,20 @@ static int mode_channel_us(const rcmap_command *c) {
 /* CH4 back to mode + flywheel; false for the gap between the flywheel
  * range and full auto. Flywheel is rounded to the nearest 1% (3 us), which
  * absorbs the link's +-1 us quantization. */
-static bool decode_mode_channel(int us, int *mode_us, float *flywheel) {
+static bool decode_mode_channel(int us, int *mode_us, float *flywheel, int8_t *offset_pct) {
     *flywheel = 0.0f;
+    *offset_pct = 0;
     if (us >= RCMAP_MODE_FULL_AUTO_MIN_US) {
-        *mode_us = rcmap_mode_to_us(rcmap_mode_from_us(us));
+        const uint8_t mode = rcmap_mode_from_us(us);
+        *mode_us = rcmap_mode_to_us(mode);
+        if (mode != RCMAP_MODE_FULL_MANUAL) {
+            /* Nearest whole percent from the level (+-1 us link noise). */
+            const int d = us - *mode_us;
+            const int half = RCMAP_AUTO_OFFSET_US_PER_PCT / 2;
+            const int pct = d >= 0 ? (d + half) / RCMAP_AUTO_OFFSET_US_PER_PCT
+                                   : -((-d + half) / RCMAP_AUTO_OFFSET_US_PER_PCT);
+            *offset_pct = (int8_t)clamp_offset_pct(pct);
+        }
         return true;
     }
     if (us > RCMAP_FLYWHEEL_MAX_US + RCMAP_FLYWHEEL_SPAN_US / 100) return false;
@@ -94,7 +112,8 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     uint8_t target, nudge, path;
     int mode_us;
     float flywheel;
-    if (!decode_mode_channel(ch_us[RCMAP_CH_MODE], &mode_us, &flywheel) ||
+    int8_t offset_pct;
+    if (!decode_mode_channel(ch_us[RCMAP_CH_MODE], &mode_us, &flywheel, &offset_pct) ||
         !us_to_level(ch_us[RCMAP_CH_TARGET], RCMAP_TARGET_BASE_US, RCMAP_TARGET_STEP_US,
                      RCMAP_TARGET_TOLERANCE_US, RCMAP_TARGET_MAX + 1u, &target) ||
         !us_to_level(ch_us[RCMAP_CH_NUDGE], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
@@ -108,6 +127,7 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     out->target = target;
     out->mode_us = mode_us;
     out->flywheel = flywheel;
+    out->flywheel_offset_pct = offset_pct;
     out->fire = ch_us[RCMAP_CH_FIRE] >= RCMAP_SWITCH_ON_US;
     out->armed = ch_us[RCMAP_CH_ARM] >= RCMAP_SWITCH_ON_US;
     out->nudge = nudge;
