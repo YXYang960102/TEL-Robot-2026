@@ -40,5 +40,5 @@ void Dribbler::run() {
 
 void Dribbler::stop() {
     digitalWrite(PIN_DRIBBLE_DOWN, LOW);
-    analogWrite(PIN_DRIBBLE_UP, 0);
+    analogWrite(PIN_DRIBBLE_UP, 0);// hi
 }
