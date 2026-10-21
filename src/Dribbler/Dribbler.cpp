@@ -4,20 +4,22 @@
 
 using namespace DribblerConstants;
 
+bool Dribbler::enabled = false;
 bool Dribbler::pulseActive = false;
 bool Dribbler::everTriggered = false;
 unsigned long Dribbler::pulseStartMs = 0;
 unsigned long Dribbler::triggerCount = 0;
 
 void Dribbler::init() {
-    // Drive the line inactive before switching the pin to output, so it
-    // never glitches active during boot. (Before this runs the pin floats:
-    // the tower side should have a pull-down.)
-    writeLine(false);
+    // Boot = disabled: the line is held HIGH (DribblerConstants.h). Preload
+    // the level before switching the pin to output. (Before this runs the
+    // pin floats.)
+    enabled = false;
+    writeLine(true);
     if (BuildProfile::DRIVES_FEED_TOWER) {
         pinMode(Tower::TRIGGER_PIN, OUTPUT);
     }
-    writeLine(false);
+    writeLine(true);
     pulseActive = false;
     everTriggered = false;
     triggerCount = 0;
@@ -25,21 +27,30 @@ void Dribbler::init() {
 
 void Dribbler::update() {
     if (pulseActive && millis() - pulseStartMs >= Tower::PULSE_MS) {
-        writeLine(false);
         pulseActive = false;
+        writeLine(!enabled); // back to idle: LOW enabled, HIGH disabled
     }
 }
 
+void Dribbler::setEnabled(bool on) {
+    enabled = on;
+    stop();
+}
+
+bool Dribbler::isEnabled() {
+    return enabled;
+}
+
 void Dribbler::stop() {
-    writeLine(false);
     pulseActive = false;
+    writeLine(!enabled); // idle level: LOW enabled, HIGH (held) disabled
 }
 
 bool Dribbler::requestFeed() {
     if (!BuildProfile::DRIVES_FEED_TOWER) {
         return false; // Tower not wired on this bench.
     }
-    if (isBusy()) {
+    if (!enabled || isBusy()) {
         return false;
     }
     pulseStartMs = millis();

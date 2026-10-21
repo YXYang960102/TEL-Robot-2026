@@ -4,9 +4,13 @@
 
 // Feed tower interface (2026-10-11, Jeremy): the tower has its own
 // controller that drives its motors and refills by itself. The Mega only
-// owns one trigger line: idle LOW, a 100 ms HIGH pulse asks the tower to
-// feed one ball. The tower gives no feedback (as far as known), so the
-// Mega can only ever say "trigger sent", never "one ball went out".
+// owns one trigger line: while ENABLED it idles LOW and a 100 ms HIGH pulse
+// asks the tower to feed one ball; while DISABLED (boot before the first
+// Enable, Disable / Enter / Space / X, RC loss, any watchdog) it is held
+// HIGH continuously (Jeremy, 2026-10-21: the tower's own program reads a
+// steady HIGH as "robot disabled"). The tower gives no feedback (as far as
+// known), so the Mega can only ever say "trigger sent", never "one ball
+// went out".
 //
 // The horizontal conveyor is driven by the tower side too (2026-10-16), so
 // the Mega no longer has a conveyor output (the old D45 ESC was removed).
@@ -18,8 +22,7 @@ namespace Tower {
 // and every bench build that doesn't drive the tower -- it sat HIGH and
 // the tower could fire on its own. D22 has no pull-up (D20/D21 stay free
 // for the turret AS5600 on I2C). It still floats until Dribbler::init()
-// and in benches that leave it alone: a pull-down on the tower input
-// keeps it LOW then.
+// (which drives it HIGH = disabled) and in benches that leave it alone.
 constexpr uint8_t TRIGGER_PIN = 22;
 constexpr bool TRIGGER_ACTIVE_HIGH = true;
 

@@ -152,7 +152,8 @@ void testWiredRefusedWhileDisarmed() {
         assert(saw("REJECTED_DISARMED"));
     }
     runWithHeartbeat(2000);
-    assert(!ManualControl::isArmed() && !triggerHigh());
+    // Disabled: the tower line is held HIGH (and no trigger was counted).
+    assert(!ManualControl::isArmed() && triggerHigh());
     assert(nearly(rec.chassisLeft, 0.0) && nearly(rec.flywheelCommand, 0.0));
     assert(Dribbler::getTriggerCount() == 0);
     assert(ManualControl::getTarget() == RCMAP_TARGET_NONE);
@@ -343,7 +344,14 @@ void testDisarmCutsPulse() {
     assert(triggerHigh());
     send("X");
     step();
-    assert(!triggerHigh());
+    // Disabled: held HIGH from now on, and no new trigger is accepted.
+    assert(triggerHigh() && !Dribbler::isEnabled());
+    const unsigned long count = Dribbler::getTriggerCount();
+    runWithHeartbeat(300);
+    assert(triggerHigh() && Dribbler::getTriggerCount() == count);
+    // Enable again: idle LOW.
+    armWired();
+    assert(!triggerHigh() && Dribbler::isEnabled());
 }
 
 // --------------------------------------------------------------- wireless
