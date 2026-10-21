@@ -423,7 +423,7 @@ void ManualControl::requestEnable(Owner source) {
 
     clearCommands();
     Shooter::stopAll();
-    Dribbler::stop();
+    Dribbler::setEnabled(true); // tower line: held HIGH -> idle LOW
     Chassis::setOutputsEnabled(true);
     Shooter::setOutputsEnabled(true);
     owner = source;
@@ -464,7 +464,7 @@ void ManualControl::disarm(rcmap_event reason) {
     clearCommands();
     Chassis::setOutputsEnabled(false);
     Shooter::setOutputsEnabled(false);
-    Dribbler::stop();
+    Dribbler::setEnabled(false); // tower line held HIGH while disabled
     sendEvent(reason);
 }
 

@@ -5247,3 +5247,40 @@ Python 3.12+ allows that; 3.9 and 3.11 refuse to run the file. Jeremy's
 - `--export` output is byte-identical (sheet1, helper sheet and chart
   XML).
 - The strict-format cases behave the same on 3.9.
+
+## 2026-10-21 — Claude Code: feed tower line held HIGH while the robot is disabled
+
+**User Request:** whenever the robot is disabled, send a continuous HIGH
+to the feed tower. The tower is an independent system, so the Mega only
+supplies the level. Jeremy chose "every disabled state":
+- boot, before the first Enable;
+- Disable, Enter, Space or X;
+- RC loss;
+- any watchdog.
+
+**Changed:**
+- `Dribbler` has an `enabled` state with `setEnabled()` and
+  `isEnabled()`.
+  - **Disabled**: D22 is held HIGH and `requestFeed()` refuses.
+  - **Enabled**: D22 idles LOW, and a shot is still the 100 ms HIGH
+    pulse.
+  - `stop()` and the end of a pulse return to the idle level for the
+    current state.
+  - `init()` starts disabled: the HIGH is preloaded before `pinMode`.
+- `ManualControl::requestEnable()` calls `Dribbler::setEnabled(true)`;
+  `disarm()` calls `setEnabled(false)`. These replace the old `stop()`
+  calls.
+- The existing tests were updated (disabled = HIGH; X then holds HIGH and
+  refuses triggers; Enable gives LOW). No new test files.
+- Comments in `DribblerConstants.h`.
+
+**Note for the tower side:** the tower must tell the 100 ms shot pulse
+from the steady disabled HIGH, which it does by duration. Going from
+enabled to disabled is now a LOW → HIGH edge, and Enable is HIGH → LOW.
+Partial-hardware benches (drive / axes / gamepad-motor) still don't touch
+D22, so it floats there.
+
+**Evidence:**
+- `manual_control_test` (3 variants) passes.
+- All 6 Mega envs build.
+- Not run on hardware.
