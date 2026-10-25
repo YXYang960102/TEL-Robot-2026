@@ -336,12 +336,12 @@ void Shooter::writeRotateCommand(double command) {
 
 void Shooter::writeFlywheelCommand(double command) {
     if (!DRIVES_FLYWHEEL) return;
-    // Stopped = STOP_TRIM_US toward the spin direction, not exactly 1500
-    // (this Falcon creeps backwards at 1500). As a command it goes through
-    // the same INVERTED handling: 10 us -> 0.02 -> 1490 us when inverted.
-    const double stopCommand = static_cast<double>(Flywheel::STOP_TRIM_US) /
-                               (Flywheel::MAX_PULSE_US - Flywheel::NEUTRAL_US);
-    if (command <= 0.0) command = stopCommand;
-    flywheelPulseUs = commandToPulseUs(command, Flywheel::MOTOR);
+    // Stopped = 1500 + STOP_PULSE_OFFSET_US, an absolute pulse that does not
+    // follow INVERTED (this Falcon creeps at plain 1500; -10 -> 1490 us).
+    if (command <= 0.0) {
+        flywheelPulseUs = Flywheel::NEUTRAL_US + Flywheel::STOP_PULSE_OFFSET_US;
+    } else {
+        flywheelPulseUs = commandToPulseUs(command, Flywheel::MOTOR);
+    }
     flywheelOutput.writeMicroseconds(flywheelPulseUs);
 }

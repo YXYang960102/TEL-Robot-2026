@@ -5280,3 +5280,50 @@ D22, so it floats there.
 - `manual_control_test` (3 variants) passes.
 - All 6 Mega envs build.
 - Not run on hardware.
+
+## 2026-10-25 — Claude Code: fallout of 21e77ed (Flywheel / Angle INVERTED flipped)
+
+**User Request:** check for and fix potential problems after Jeremy's
+21e77ed, which set `Flywheel::INVERTED` true → false and
+`Angle::INVERTED` false → true.
+
+**Found:**
+1. **The stop pulse would have flipped from 1490 to 1510 µs.** The stop
+   trim was "STOP_TRIM_US toward the spin direction" and went through
+   `INVERTED`. The trim compensates this Falcon's own creep at plain
+   1500, which is a property of the motor, not of the shooting direction.
+2. **Stale direction text** saying the forward side is 1000–1500, or
+   "1490 because INVERTED = true", in: `TuningConstants`, `Shooter.cpp`,
+   a Dashboard comment, `apply.py`'s docstring and Excel help sheet, and
+   the shot_table README.
+3. **Elevation.** `Angle::INVERTED` only flips the jog (and the autos'
+   up/down fine-adjust, which follows it). The shot table's elevation
+   pulses are absolute, so the measured values stay valid. No fix needed.
+
+**Changed:**
+- `Flywheel::STOP_TRIM_US` (0..30, toward the spin direction) is replaced
+  by **`Flywheel::STOP_PULSE_OFFSET_US` = −10**, an absolute and signed
+  offset: stop pulse = 1500 + offset = **1490 µs**, the value used since
+  2026-10-17, whatever `INVERTED` is.
+  - `static_assert` range ±30.
+  - `Shooter::writeFlywheelCommand()` writes it directly for a command
+    ≤ 0, so it no longer goes through `commandToPulseUs`.
+- New comments on both `INVERTED` flags: what they flip, and when.
+- `apply.py`: the help text states both sides, and the Excel help sheet
+  prints the side in force when it was generated (now 1500–2000). The
+  us-unit check already reads `INVERTED` at run time: 1710 µs → 42%, and
+  1290 is rejected.
+- `shot_table.xlsx` regenerated: data, helper sheet and charts are
+  byte-identical; only the help sheet changed. `--check` reports no
+  change.
+- README wording updated.
+
+**Evidence:**
+- `manual_control_test` and the page test pass.
+- All 6 Mega envs build.
+- `apply.py --check` passes on Python 3.9 and 3.11.
+- Not run on hardware.
+
+**Next Test:** after flashing the Mega, check the flywheel at rest: the
+Dashboard should show Falcon PWM 1490 us and the wheel should be still.
+If it creeps, move `STOP_PULSE_OFFSET_US` 5 µs the other way.
