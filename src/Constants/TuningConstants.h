@@ -51,7 +51,7 @@ constexpr double COMMAND_FILTER_TIME_CONSTANT_MS = 80.0;
 
 namespace Angle {
 
-constexpr bool INVERTED = false;
+constexpr bool INVERTED = true;
 
 }
 
@@ -98,7 +98,7 @@ namespace Flywheel {
 
 // true since the 2026-10-17 robot test (Jeremy): the slider's direction is
 // the shooting direction with the pulse going below 1500 us.
-constexpr bool INVERTED = true;
+constexpr bool INVERTED = false;
 
 // Stop trim (Jeremy, 2026-10-17): this Falcon creeps backwards at the
 // 1500 us neutral (D25 and GND checked), so "stopped" (command 0: disabled,
