@@ -51,6 +51,10 @@ constexpr double COMMAND_FILTER_TIME_CONSTANT_MS = 80.0;
 
 namespace Angle {
 
+// true since 2026-10-25 (Jeremy, on the robot): flips the D-pad / ANG jog
+// direction (and with it the autos' up/down fine-adjust, which follows the
+// jog). The shot table's elevation pulses are absolute and do not depend
+// on it.
 constexpr bool INVERTED = true;
 
 }
@@ -96,18 +100,22 @@ constexpr double VISION_READY_TOLERANCE_PX = 5.0;
 
 namespace Flywheel {
 
-// true since the 2026-10-17 robot test (Jeremy): the slider's direction is
-// the shooting direction with the pulse going below 1500 us.
+// Which side of 1500 us is the shooting direction (slider, LT / RT, shot
+// table): false = above (1500-2000), true = below (1000-1500). false since
+// 2026-10-25 (Jeremy, on the robot); it was true from 2026-10-17.
 constexpr bool INVERTED = false;
 
-// Stop trim (Jeremy, 2026-10-17): this Falcon creeps backwards at the
+// Stop pulse offset (Jeremy, 2026-10-17): this Falcon creeps at the plain
 // 1500 us neutral (D25 and GND checked), so "stopped" (command 0: disabled,
-// before Y, slider at 0) sends this many us toward the slider's spin
-// direction instead -- 1490 us with INVERTED = true. TUNE ON THE ROBOT:
-// still creeping backwards -> raise (15, 20); creeping forwards -> lower
-// (5). 0 = plain 1500 (a normally configured Falcon). Capped at 30 us in
-// ShooterConstants.h so a typo can't spin a disabled flywheel.
-constexpr int STOP_TRIM_US = 10;
+// before Y, slider at 0, end of a spin-down) sends 1500 + this, in absolute
+// microseconds -- NOT relative to INVERTED. It is a property of this
+// Falcon, so flipping INVERTED must not move it (2026-10-25: the old
+// "toward the spin direction" trim would have jumped from 1490 to 1510).
+// -10 = 1490 us, the value used since 2026-10-17. TUNE ON THE ROBOT: if it
+// creeps one way, move 5 us the other way; 0 = plain 1500 (a normally
+// configured Falcon). Limited to +-30 us in ShooterConstants.h so a typo
+// can't spin a disabled flywheel.
+constexpr int STOP_PULSE_OFFSET_US = -10;
 
 // Auto-fire sequence (Auto::update()). No RPM/tachometer feedback exists for
 // this Falcon 500 (PWM command path is one-way), so "ready" is time-based:

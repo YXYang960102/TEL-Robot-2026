@@ -14,8 +14,9 @@ one measured point per row:
   仰角(us)  elevation servo pulse, whole number 500-2500
   轉速      Falcon command, in the unit of the next column
   轉速單位  "%" (0-100, <= 1 decimal) or "us" (the Dashboard's Falcon PWM
-            pulse, whole number, on the forward side of 1500 -- 1000-1500
-            while Flywheel::INVERTED is true; converted to %)
+            pulse, whole number, on the forward side of 1500: 1500-2000
+            when Flywheel::INVERTED is false, 1000-1500 when true -- read
+            from TuningConstants.h; converted to %)
 
 STRICT: those five headers must each appear exactly once, spelled exactly so.
 Other columns (notes, dates...) may be added anywhere, but need a header of
@@ -486,6 +487,10 @@ def write_xlsx(path, points):
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
         f'<sheetData>{"".join(helper_rows)}</sheetData></worksheet>')
 
+    try:
+        fly_side = "1000–1500" if flywheel_inverted() else "1500–2000"
+    except TableError:
+        fly_side = "見 TuningConstants.h"
     help_lines = [
         "射擊表怎麼用",
         "",
@@ -501,7 +506,7 @@ def write_xlsx(path, points):
         "- 距離：鎖定目標時 Dashboard 顯示的相機距離（不是捲尺），0.5–15 m，最多 2 位小數。",
         "- 仰角：Dashboard 的仰角脈寬，500–2500 的整數。",
         "- 轉速單位：用下拉選單選「%」或「us」，每一列可以不同。",
-        "- 轉速：單位 % 時 0–100、最多 1 位小數；單位 us 時填 Dashboard「Falcon PWM」的脈寬整數，必須在正轉那一側（目前是 1000–1500），會自動換算成 %。",
+        f"- 轉速：單位 % 時 0–100、最多 1 位小數；單位 us 時填 Dashboard「Falcon PWM」的脈寬整數，必須在正轉那一側（依 TuningConstants 的 Flywheel::INVERTED：false 是 1500–2000、true 是 1000–1500；產生這份 Excel 時是 {fly_side}），會自動換算成 %。",
         "- 列的順序不重要；空白列會略過；同一個洞口的同一個距離不能重複。",
         f"- 資料請放在第 2–{MAX_ROWS} 列；每個洞口最多 {SORTED_ROWS} 個點會畫進曲線圖。",
         "- 任何一格不符合，就不會產生檔案、也不會燒錄，畫面會指出是哪一格。",

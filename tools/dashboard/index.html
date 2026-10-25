@@ -1031,7 +1031,8 @@
       el.tx.textContent = show ? (tx2 / 2).toFixed(1) : "--";
       el.ty.textContent = show ? (ty2 / 2).toFixed(1) : "--";
       // Same format as the wired TEL readout: pulse, and its share of the
-      // 500 us from neutral (1490 at rest is the stop trim).
+      // 500 us from neutral (at rest it shows the stop pulse, 1500 + the
+      // Falcon's STOP_PULSE_OFFSET_US).
       el.falconPwm.textContent = fresh === 1 && flywheelUs > 0
         ? `${flywheelUs} us (${(Math.abs(flywheelUs - 1500) / 5).toFixed(1)}%)` : "--";
     }
