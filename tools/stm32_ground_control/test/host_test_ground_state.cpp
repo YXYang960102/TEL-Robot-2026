@@ -287,7 +287,17 @@ static void testStatusTracker() {
     assert(saw("$EVENT,FEED_TRIGGER_SENT"));
     tr.tick(4020, collect, nullptr);
     assert(lastWireless() == "$WIRELESS,1,1,2,0,0,0,0,220,0");
+    // TEST (2026-10-26): full manual in the code + the TEST flag -> mode 3,
+    // and the new event name is not dropped as corrupt.
+    lines.clear();
+    tr.onStatus(status(RCMAP_STATUS_ARMED | RCMAP_STATUS_OWNER_WIRELESS | RCMAP_STATUS_TEST_MODE, 9,
+                       rcmap_status_code(RCMAP_EVENT_MODE_TEST, RCMAP_MODE_TEST)),
+                4100, collect, nullptr);
+    assert(saw("$EVENT,MODE_TEST"));
+    tr.tick(4300, collect, nullptr);
+    assert(lastWireless() == "$WIRELESS,1,1,2,0,0,0,0,200,3");
 }
+
 
 static int ch4(const GroundCommandState& st) {
     int ch[16];
@@ -397,12 +407,60 @@ static void testModeKey() {
     assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
     send(st, "MODE,1", 406);
     lines.clear();
-    for (const char* bad : {"MODE,3", "MODE,-1", "MODE,", "MODE,1x"}) send(st, bad, 407);
+    for (const char* bad : {"MODE,4", "MODE,-1", "MODE,", "MODE,1x"}) send(st, bad, 407);
     assert(saw("$GROUND_EVENT,BAD_COMMAND") && ch4(st) == RCMAP_MODE_SEMI_AUTO_US);
     send(st, "X", 408);
     lines.clear();
     send(st, "MODE,0", 409);                // not enabled: refused
     assert(saw("$GROUND_EVENT,REJECTED_NOT_ENABLED") && ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+}
+
+// MODE,3 = TEST: CH4 full manual with its Falcon, CH9 high.
+static void testTestMode() {
+    GroundCommandState st;
+    st.reset(0);
+    send(st, "E", 1);
+    lines.clear();
+    send(st, "MODE,3", 2);
+    assert(saw("$GROUND_EVENT,MODE_TEST"));
+    assert(ch4(st) == RCMAP_MODE_FULL_MANUAL_US);
+    rcmap_command d = onAir(st);
+    assert(d.test_mode && rcmap_command_mode(&d) == RCMAP_MODE_TEST);
+    // The Falcon slider works as in full manual.
+    send(st, "FLY,0.46", 3);
+    assert(ch4(st) == 1000 + 3 * 46);
+    d = onAir(st);
+    assert(rcmap_command_mode(&d) == RCMAP_MODE_TEST && nearf(d.flywheel, 0.46f));
+    // FLYO is the autos' offset: dropped.
+    send(st, "FLYO,5", 4);
+    assert(onAir(st).flywheel_offset_pct == 0 && ch4(st) == 1000 + 3 * 46);
+    // MODE,3 again: no change, flywheel kept.
+    send(st, "MODE,3", 5);
+    assert(nearf(onAir(st).flywheel, 0.46f));
+    // Any other mode clears CH9 and the flywheel.
+    send(st, "MODE,1", 6);
+    d = onAir(st);
+    assert(!d.test_mode && rcmap_command_mode(&d) == RCMAP_MODE_SEMI_AUTO);
+    send(st, "MODE,3", 7);
+    send(st, "FLY,0.3", 8);
+    send(st, "MODE,2", 9);
+    d = onAir(st);
+    assert(rcmap_command_mode(&d) == RCMAP_MODE_FULL_MANUAL && nearf(d.flywheel, 0.0f));
+    // M leaves test for full manual (as from full auto).
+    send(st, "MODE,3", 10);
+    send(st, "M", 11);
+    d = onAir(st);
+    assert(rcmap_command_mode(&d) == RCMAP_MODE_FULL_MANUAL);
+    // X (and every release) ends test mode: the next E must be manual.
+    send(st, "MODE,3", 12);
+    send(st, "X", 13);
+    d = onAir(st);
+    assert(!d.test_mode && rcmap_command_mode(&d) == RCMAP_MODE_FULL_MANUAL);
+    // A PC timeout too.
+    send(st, "E", 400);
+    send(st, "MODE,3", 401);
+    st.tick(401 + GroundCommandState::PC_TIMEOUT_MS + 1, collect, nullptr);
+    assert(!onAir(st).test_mode);
 }
 
 static void testFlywheel() {
@@ -580,6 +638,7 @@ int main() {
     testStatusTracker();
     testModeKey();
     testFlywheel();
+    testTestMode();
     testArmEdge();
     testVisionFrames();
     testStatusInvalidate();

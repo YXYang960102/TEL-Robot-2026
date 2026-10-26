@@ -5,6 +5,10 @@
   python3 tools/shot_table/apply.py --upload   ...then build and upload the Mega (pio)
   python3 tools/shot_table/apply.py --check    check only, write nothing
   python3 tools/shot_table/apply.py --export   rebuild shot_table.xlsx from the current header
+  python3 tools/shot_table/apply.py --import [CSV] [--upload]
+        put the Dashboard's shot log (S key -> 下載 CSV) into the Excel,
+        then as above; no CSV given = the newest shot_log_*.csv in
+        ~/Downloads. --import --check only shows what it would change.
 
 The Excel (tools/shot_table/shot_table.xlsx), sheet "射擊表", row 1 = headers,
 one measured point per row:
@@ -30,12 +34,15 @@ Standard library only (no openpyxl), so it runs on any Python 3.8+.
 """
 
 import argparse
+import csv
+import glob
 import os
 import re
 import shutil
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
+import time
 import zipfile
 from decimal import Decimal, InvalidOperation
 from xml.sax.saxutils import escape
@@ -80,6 +87,25 @@ def col_index(letters):
     return n
 
 
+def sheet_part(z, sheet_name):
+    """The zip member name of one sheet (e.g. xl/worksheets/sheet1.xml)."""
+    wb = ET.fromstring(z.read("xl/workbook.xml"))
+    rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
+    target = None
+    for sh in wb.find("m:sheets", NS):
+        if sh.get("name") == sheet_name:
+            rid = sh.get(f"{{{NS['r']}}}id")
+            for rel in rels:
+                if rel.get("Id") == rid:
+                    target = rel.get("Target")
+    if target is None:
+        raise TableError(f"Excel 裡沒有名為「{sheet_name}」的工作表（名稱不可改）")
+    target = target.lstrip("/")
+    if not target.startswith("xl/"):
+        target = "xl/" + target
+    return target
+
+
 def read_sheet(path, sheet_name):
     """{(row, col): text} for one sheet, all values as strings."""
     if not os.path.exists(path):
@@ -94,20 +120,7 @@ def read_sheet(path, sheet_name):
         if "xl/sharedStrings.xml" in names:
             for si in ET.fromstring(z.read("xl/sharedStrings.xml")).findall("m:si", NS):
                 shared.append("".join(t.text or "" for t in si.iter(f"{{{NS['m']}}}t")))
-        wb = ET.fromstring(z.read("xl/workbook.xml"))
-        rels = ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))
-        target = None
-        for sh in wb.find("m:sheets", NS):
-            if sh.get("name") == sheet_name:
-                rid = sh.get(f"{{{NS['r']}}}id")
-                for rel in rels:
-                    if rel.get("Id") == rid:
-                        target = rel.get("Target")
-        if target is None:
-            raise TableError(f"Excel 裡沒有名為「{sheet_name}」的工作表（名稱不可改）")
-        target = target.lstrip("/")
-        if not target.startswith("xl/"):
-            target = "xl/" + target
+        target = sheet_part(z, sheet_name)
         root = ET.fromstring(z.read(target))
         if root.find("m:mergeCells", NS) is not None:
             raise TableError(f"「{sheet_name}」裡有合併儲存格，請取消合併")
@@ -158,9 +171,12 @@ def decimals(d):
     return max(0, -exp)
 
 
-def parse_points(cells):
+def parse_rows(cells, what=None):
+    """Every data row, checked: (found columns, [(row, hole, cm, permille,
+    elevation us)]). Any error raises TableError with all of them."""
+    what = what or f"「{SHEET}」"
     if not cells:
-        raise TableError(f"「{SHEET}」是空的")
+        raise TableError(f"{what}是空的")
     header = {c: v for (r, c), v in cells.items() if r == 1}
     errors = []
     found = {}
@@ -186,7 +202,7 @@ def parse_points(cells):
     if errors:
         raise TableError("\n".join(errors))
 
-    points = {}
+    rows = []
     inverted = None  # read TuningConstants only if a row uses "us"
     last_row = max(r for (r, c) in cells)
     for row in range(2, last_row + 1):
@@ -231,15 +247,25 @@ def parse_points(cells):
         except TableError as e:
             errors.append(str(e))
             continue
-        h, cm = int(hole), int(dist * 100)
-        if cm in points.setdefault(h, {}):
-            errors.append(f"第 {row} 列：洞口 {h} 的 {dist} m 重複了（第 {points[h][cm][3]} 列已經有）")
-            continue
-        points[h][cm] = (cm, permille, int(elev), row)
+        rows.append((row, int(hole), int(dist * 100), permille, int(elev)))
     if errors:
         raise TableError("\n".join(errors))
-    if not points:
-        raise TableError(f"「{SHEET}」沒有任何資料列")
+    if not rows:
+        raise TableError(f"{what}沒有任何資料列")
+    return found, rows
+
+
+def parse_points(cells):
+    _, rows = parse_rows(cells)
+    points = {}
+    errors = []
+    for row, h, cm, permille, elev in rows:
+        if cm in points.setdefault(h, {}):
+            errors.append(f"第 {row} 列：洞口 {h} 的 {cm / 100:g} m 重複了（第 {points[h][cm][3]} 列已經有）")
+            continue
+        points[h][cm] = (cm, permille, elev, row)
+    if errors:
+        raise TableError("\n".join(errors))
     return {h: [p[:3] for _, p in sorted(pts.items())] for h, pts in points.items()}
 
 
@@ -498,6 +524,7 @@ def write_xlsx(path, points):
         "2. 在專案資料夾執行：python3 tools/shot_table/apply.py --upload",
         "   會檢查格式、列出改了哪些值、產生 src/Constants/ShotTableData.h，再燒進 Mega。",
         "   只想檢查：python3 tools/shot_table/apply.py --check",
+        "3. Dashboard 按 S 記錄的點：在 Dashboard 按「下載 CSV」，關掉 Excel，執行 python3 tools/shot_table/apply.py --import --upload（同洞口同距離會取代，其他加在最後）。",
         "",
         "格式（嚴格）",
         "- 第 1 列是欄位名稱。「洞口」「距離(m)」「仰角(us)」「轉速」「轉速單位」五個必須各出現一次、名稱一字不差。",
@@ -607,6 +634,218 @@ def write_xlsx(path, points):
             z.writestr(name, body)
 
 
+# ----------------------------------------------------------------- import
+
+# The Dashboard's shot log (S key, 2026-10-26) -> rows of the Excel. Only
+# the sheet's own XML is edited (rows added / cells replaced as text), so
+# everything else in the workbook -- the charts, the hidden helper sheet,
+# the dropdowns, extra columns, Excel's own formatting -- stays byte for
+# byte as it was. A real XML round trip (ElementTree) would rename Excel's
+# namespace prefixes and Excel would then call the file corrupt.
+
+DOWNLOADS = os.path.expanduser(os.path.join("~", "Downloads"))
+ROW_RE = re.compile(r'<row\b[^>]*?\br="(\d+)"[^>]*?(?:/>|>.*?</row>)', re.S)
+CELL_RE = re.compile(r'<c\b[^>]*?\br="([A-Z]+)(\d+)"[^>]*?(?:/>|>.*?</c>)', re.S)
+
+
+def newest_shot_log():
+    logs = glob.glob(os.path.join(DOWNLOADS, "shot_log_*.csv"))
+    if not logs:
+        raise TableError(f"{DOWNLOADS} 裡沒有 shot_log_*.csv（先在 Dashboard 按「下載 CSV」，或把 CSV 路徑寫在 --import 後面）")
+    return max(logs, key=os.path.getmtime)
+
+
+def read_csv(path):
+    """{(row, col): text}, 1-based like a sheet, from the Dashboard's CSV."""
+    if not os.path.exists(path):
+        raise TableError(f"找不到 CSV：{path}")
+    cells = {}
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        for r, cols in enumerate(csv.reader(f), 1):
+            for c, text in enumerate(cols, 1):
+                text = text.strip()
+                if text != "":
+                    cells[(r, c)] = text
+    return cells
+
+
+def fmt_meters(cm):
+    text = f"{cm // 100}.{cm % 100:02d}".rstrip("0").rstrip(".")
+    return text
+
+
+def fmt_percent(permille):
+    return f"{permille // 10}" if permille % 10 == 0 else f"{permille // 10}.{permille % 10}"
+
+
+def _cell_xml(ref, value, old=None):
+    """A cell with this value, keeping an old cell's style (s=)."""
+    m = re.search(r'\ss="(\d+)"', old.split(">", 1)[0]) if old else None
+    style = f' s="{m.group(1)}"' if m else ""
+    if isinstance(value, str):
+        return f'<c r="{ref}"{style} t="inlineStr"><is><t>{escape(value)}</t></is></c>'
+    return f'<c r="{ref}"{style}><v>{value}</v></c>'
+
+
+def _edit_row(row_xml, row, values):
+    """values {col: value} into one <row> element (self-closing or not)."""
+    head = re.match(r"<row\b[^>]*?(/?)>", row_xml)
+    open_tag = head.group(0)
+    inner = "" if head.group(1) else row_xml[len(open_tag):-len("</row>")]
+    if head.group(1):
+        open_tag = open_tag[:-2].rstrip() + ">"
+    # spans= is only a hint for the cells' range; drop it rather than keep a
+    # wrong one.
+    open_tag = re.sub(r'\sspans="[^"]*"', "", open_tag)
+    cells = {col_index(m.group(1)): m.group(0) for m in CELL_RE.finditer(inner)}
+    rest = CELL_RE.sub("", inner)  # e.g. an extLst: kept after the cells
+    for col, value in values.items():
+        ref = cell_name(row, col)
+        cells[col] = _cell_xml(ref, value, cells.get(col))
+    return open_tag + "".join(cells[c] for c in sorted(cells)) + rest + "</row>"
+
+
+def set_cells(sheet_xml, edits):
+    """edits {row: {col: value}} -> the sheet XML with those cells set."""
+    m = re.search(r"<sheetData\s*/>|<sheetData\b[^>]*>(.*?)</sheetData>", sheet_xml, re.S)
+    if m is None:
+        raise TableError("讀不懂「射擊表」的內容（沒有 sheetData）")
+    inner = m.group(1) or ""
+    rows = {int(r.group(1)): r.group(0) for r in ROW_RE.finditer(inner)}
+    if ROW_RE.sub("", inner).strip():
+        raise TableError("「射擊表」的列裡有看不懂的內容，為了安全不寫入（請用 Excel 另存一次再試）")
+    for row, values in edits.items():
+        rows[row] = _edit_row(rows.get(row, f'<row r="{row}"/>'), row, values)
+    data = "<sheetData>" + "".join(rows[r] for r in sorted(rows)) + "</sheetData>"
+    out = sheet_xml[:m.start()] + data + sheet_xml[m.end():]
+    # Keep the sheet's declared used range covering the new rows.
+    last_row = max(rows)
+    last_col = max([c for v in edits.values() for c in v] + [1])
+
+    def grow(d):
+        end_col = d.group(3) or d.group(1)
+        end_row = int(d.group(4) or d.group(2))
+        col = cell_name(1, max(col_index(end_col), last_col))[:-1]
+        return f'<dimension ref="{d.group(1)}{d.group(2)}:{col}{max(end_row, last_row)}"'
+    return re.sub(r'<dimension ref="([A-Z]+)(\d+)(?::([A-Z]+)(\d+))?"', grow, out, count=1)
+
+
+def full_calc_on_load(wb_xml):
+    """Excel recalculates every formula when it opens the file, so the
+    hidden chart sheet (and the charts) pick up the new rows."""
+    m = re.search(r"<calcPr\b[^>]*?/?>", wb_xml)
+    if m:
+        tag = m.group(0)
+        if "fullCalcOnLoad=" in tag:
+            tag = re.sub(r'fullCalcOnLoad="[^"]*"', 'fullCalcOnLoad="1"', tag)
+        else:
+            tag = tag.replace("<calcPr", '<calcPr fullCalcOnLoad="1"', 1)
+        return wb_xml[:m.start()] + tag + wb_xml[m.end():]
+    # No calcPr: it goes after these, in the schema's order.
+    pos = -1
+    for end in ("</sheets>", "</functionGroups>", "<functionGroups/>",
+                "</externalReferences>", "</definedNames>", "<definedNames/>"):
+        i = wb_xml.rfind(end)
+        if i >= 0:
+            pos = max(pos, i + len(end))
+    if pos < 0:
+        return wb_xml
+    return wb_xml[:pos] + '<calcPr fullCalcOnLoad="1"/>' + wb_xml[pos:]
+
+
+def plan_import(cells, csv_cells, csv_name):
+    """What the CSV changes in the sheet: (edits, report lines, counts)."""
+    try:
+        parse_points(cells)  # the Excel itself must be valid before it is touched
+    except TableError as e:
+        raise TableError(f"Excel 本身有錯誤，先修正再匯入：\n{e}")
+    found, old_rows = parse_rows(cells)
+    try:
+        _, new_rows = parse_rows(csv_cells, "CSV ")
+    except TableError as e:
+        raise TableError(f"{csv_name} 有錯誤（格子位置是 CSV 的欄列）：\n{e}")
+    # The same hole and distance twice in the log: the later press wins
+    # (the Dashboard already keeps only the last one).
+    latest = {}
+    for row, h, cm, permille, elev in new_rows:
+        latest.pop((h, cm), None)
+        latest[(h, cm)] = (permille, elev)
+    existing = {(h, cm): (row, permille, elev) for row, h, cm, permille, elev in old_rows}
+    next_row = max(r for (r, c) in cells) + 1
+    edits, lines = {}, []
+    added = replaced = same = 0
+    fmt = lambda permille, elev: f"{elev} us / {permille / 10:.1f}%"
+    for (h, cm), (permille, elev) in latest.items():
+        values = {found["elev"]: elev, found["fly"]: Decimal(fmt_percent(permille)), found["unit"]: "%"}
+        if (h, cm) in existing:
+            row, old_permille, old_elev = existing[(h, cm)]
+            if (old_permille, old_elev) == (permille, elev):
+                same += 1
+                lines.append(f"  = 洞口 {h} {cm / 100:.2f} m：{fmt(permille, elev)}（第 {row} 列，已經一樣）")
+                continue
+            replaced += 1
+            lines.append(f"  * 洞口 {h} {cm / 100:.2f} m：{fmt(old_permille, old_elev)} -> {fmt(permille, elev)}（取代第 {row} 列）")
+        else:
+            row = next_row
+            next_row += 1
+            values[found["hole"]] = h
+            values[found["dist"]] = Decimal(fmt_meters(cm))
+            added += 1
+            lines.append(f"  + 洞口 {h} {cm / 100:.2f} m：{fmt(permille, elev)}（新增第 {row} 列）")
+        edits[row] = values
+    if next_row - 1 > MAX_ROWS:
+        lines.append(f"  注意：資料超過第 {MAX_ROWS} 列，超過的列不會畫進曲線圖（射擊表照樣會用）")
+    return edits, lines, (added, replaced, same)
+
+
+def import_csv(xlsx, csv_path, dry_run):
+    lock = os.path.join(os.path.dirname(xlsx), "~$" + os.path.basename(xlsx))
+    if os.path.exists(lock) and not dry_run:
+        raise TableError(f"Excel 正開著 {os.path.basename(xlsx)}（有 {os.path.basename(lock)}）。"
+                         "請先存檔並關閉 Excel 再匯入；如果 Excel 已經關了，刪掉那個 ~$ 檔再試")
+    cells = read_sheet(xlsx, SHEET)
+    edits, lines, (added, replaced, same) = plan_import(cells, read_csv(csv_path), os.path.basename(csv_path))
+    print(f"匯入 {csv_path}：新增 {added}、取代 {replaced}、相同 {same}")
+    for line in lines:
+        print(line)
+    if dry_run or not edits:
+        return False
+    # The merged sheet must still pass every check before anything is written.
+    merged = dict(cells)
+    for row, values in edits.items():
+        for col, value in values.items():
+            merged[(row, col)] = str(value)
+    parse_points(merged)
+
+    with zipfile.ZipFile(xlsx) as z:
+        infos = z.infolist()
+        parts = {i.filename: z.read(i.filename) for i in infos}
+        target = sheet_part(z, SHEET)
+    parts[target] = set_cells(parts[target].decode("utf-8"), edits).encode("utf-8")
+    parts["xl/workbook.xml"] = full_calc_on_load(parts["xl/workbook.xml"].decode("utf-8")).encode("utf-8")
+    # A copy of the file as it was, next to it (tools/shot_table/backup/,
+    # git-ignored).
+    backup_dir = os.path.join(os.path.dirname(os.path.abspath(xlsx)), "backup")
+    os.makedirs(backup_dir, exist_ok=True)
+    backup = os.path.join(backup_dir, time.strftime("shot_table_%Y%m%d_%H%M%S.xlsx"))
+    shutil.copy2(xlsx, backup)
+    tmp = xlsx + ".tmp"
+    with zipfile.ZipFile(tmp, "w") as out:
+        for info in infos:
+            out.writestr(info, parts[info.filename], compress_type=info.compress_type)
+    # Re-read what was written: the same checks, and the new rows really there.
+    if parse_points(read_sheet(tmp, SHEET)) != parse_points(merged):
+        os.remove(tmp)
+        raise TableError("寫出的 Excel 讀回來不一致，沒有覆蓋原檔")
+    try:
+        os.replace(tmp, xlsx)
+    except PermissionError:
+        os.remove(tmp)
+        raise TableError(f"無法覆蓋 {xlsx}（Excel 是不是還開著？）")
+    print(f"已寫入 {xlsx}（原檔備份：{backup}）")
+    return True
+
+
 # ----------------------------------------------------------------- main
 
 def find_pio():
@@ -625,7 +864,12 @@ def main():
     ap.add_argument("--upload", action="store_true", help="also build and upload the Mega")
     ap.add_argument("--env", default="megaatmega2560")
     ap.add_argument("--export", action="store_true", help="rebuild the Excel from the current header")
+    ap.add_argument("--import", dest="import_csv", nargs="?", const="", metavar="CSV",
+                    help="put the Dashboard's shot log CSV into the Excel first "
+                         "(no CSV = the newest shot_log_*.csv in ~/Downloads)")
     args = ap.parse_args()
+    if args.export and args.import_csv is not None:
+        sys.exit("--export 和 --import 不能一起用")
 
     old_text = open(HEADER, encoding="utf-8").read() if os.path.exists(HEADER) else ""
     old = parse_header(old_text)
@@ -636,6 +880,17 @@ def main():
         write_xlsx(args.xlsx, old)
         print(f"已從 {os.path.relpath(HEADER, ROOT)} 產生 {os.path.relpath(args.xlsx, ROOT)}")
         return
+
+    if args.import_csv is not None:
+        try:
+            csv_path = args.import_csv or newest_shot_log()
+            import_csv(args.xlsx, csv_path, dry_run=args.check)
+        except TableError as e:
+            print("匯入失敗，Excel 沒有改動、也沒有燒錄：\n" + str(e), file=sys.stderr)
+            sys.exit(1)
+        if args.check:
+            return
+        print()
 
     try:
         points = parse_points(read_sheet(args.xlsx, SHEET))

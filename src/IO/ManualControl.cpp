@@ -208,9 +208,9 @@ void ManualControl::processCommand(char* command) {
     // AUTO,<1..4>: start auto path 1-4 (the Dashboard's path menu sends it
     // right after Enable).
     const bool isAutoPath = strncmp(command, "AUTO,", 5) == 0;
-    // MODE,<0..2>: go straight to an operator mode (0 full auto, 1 semi
-    // auto, 2 full manual) -- the Dashboard's mode menu, sent right after
-    // Enable. Enable itself still always starts in full manual.
+    // MODE,<0..3>: go straight to an operator mode (0 full auto, 1 semi
+    // auto, 2 full manual, 3 test) -- the Dashboard's mode menu, sent right
+    // after Enable. Enable itself still always starts in full manual.
     const bool isModeSet = strncmp(command, "MODE,", 5) == 0;
     // FLYO,<-20..20>: the autos' flywheel offset in percent (LT / RT on the
     // pad), added to the shot table. Absolute, so a resend is harmless.
@@ -268,7 +268,7 @@ void ManualControl::processCommand(char* command) {
         const long maximum = isTarget ? RCMAP_TARGET_MAX
                            : isAutoPath ? RCMAP_AUTO_PATHS
                            : isFlywheelOffset ? RCMAP_AUTO_OFFSET_MAX_PCT
-                                        : static_cast<long>(OperatorMode::FULL_MANUAL);
+                                        : static_cast<long>(OperatorMode::TEST);
         const long minimum = isAutoPath ? 1 : isFlywheelOffset ? -RCMAP_AUTO_OFFSET_MAX_PCT : 0;
         if (end == digits || *end != '\0' || n < minimum || n > maximum) {
             sendEvent(RCMAP_EVENT_BAD_COMMAND);
@@ -276,8 +276,9 @@ void ManualControl::processCommand(char* command) {
         }
         refreshWiredWatchdog();
         if (isFlywheelOffset) {
-            // Only meaningful in the autos (full manual has the slider).
-            flywheelOffsetPct = operatorMode == OperatorMode::FULL_MANUAL ? 0 : static_cast<int>(n);
+            // Only meaningful in the autos (full manual and test have the
+            // slider).
+            flywheelOffsetPct = isAutoMode(operatorMode) ? static_cast<int>(n) : 0;
         } else if (isTarget) {
             selectTarget(static_cast<uint8_t>(n));
         } else if (isAutoPath) {
@@ -367,7 +368,8 @@ void ManualControl::processWirelessFrame() {
     if (falling && owner == Owner::WIRELESS) {
         disarm(RCMAP_EVENT_OUTPUTS_DISABLED);
     }
-    const uint8_t frameMode = rcmap_mode_from_us(c.mode_us);
+    // CH4's mode, or TEST (CH4 full manual + CH9 high).
+    const uint8_t frameMode = rcmap_command_mode(&c);
     if (rising) {
         // An Enable must never start in an auto mode or with the flywheel
         // on: the ground station resets CH4 to manual, flywheel 0, when it
@@ -396,7 +398,7 @@ void ManualControl::processWirelessFrame() {
         rotateManualCommand = c.nudge == RCMAP_NUDGE_RIGHT ? 1.0 : (c.nudge == RCMAP_NUDGE_LEFT ? -1.0 : 0.0);
         setOperatorMode(static_cast<OperatorMode>(frameMode));
         // The Dashboard's Falcon slider, on CH4 with the mode (decode gives
-        // 0 outside full manual; applyOutputs only uses it in full manual).
+        // 0 outside full manual / test; applyOutputs only uses it there).
         flywheelCommand = c.flywheel;
         // ...and in the autos the LT / RT flywheel offset (0 in manual).
         flywheelOffsetPct = c.flywheel_offset_pct;
@@ -514,6 +516,8 @@ void ManualControl::updateFineAdjust() {
     if (operatorMode == OperatorMode::FULL_MANUAL) {
         return; // manual: the arrows are the hold-to-move jog
     }
+    // Autos and test: left / right step the turret's aim offset (the
+    // camera owns the turret). Up / down: see below (test: the jog).
     if (rotatePress) {
         aimOffsetPx = clampAbs(aimOffsetPx + rotateNow * AIM_OFFSET_STEP_PX, AIM_OFFSET_MAX_PX);
     }
@@ -547,7 +551,8 @@ void ManualControl::triggerFeed() {
 }
 
 void ManualControl::handleFire() {
-    if (operatorMode == OperatorMode::FULL_MANUAL) {
+    if (!isAutoMode(operatorMode)) {
+        // Full manual and test: the operator decides, the tower fires now.
         triggerFeed();
     } else {
         // Auto decides whether the shot can go now (semi-auto: only when the
@@ -584,8 +589,8 @@ void ManualControl::requestAutoPath(uint8_t path) {
 }
 
 bool ManualControl::autoOwnsElevation() {
-    return operatorMode != OperatorMode::FULL_MANUAL &&
-           TuningConstants::ShotTable::ELEVATION_MEASURED;
+    // Test mode keeps the elevation with the operator (that is the point).
+    return isAutoMode(operatorMode) && TuningConstants::ShotTable::ELEVATION_MEASURED;
 }
 
 void ManualControl::cycleOperatorMode() {
@@ -613,6 +618,7 @@ void ManualControl::setOperatorMode(OperatorMode mode) {
     fireRequested = false;
     sendEvent(mode == OperatorMode::FULL_MANUAL ? RCMAP_EVENT_MODE_FULL_MANUAL
               : mode == OperatorMode::SEMI_AUTO ? RCMAP_EVENT_MODE_SEMI_AUTO
+              : mode == OperatorMode::TEST      ? RCMAP_EVENT_MODE_TEST
                                                 : RCMAP_EVENT_MODE_FULL_AUTO);
 }
 
@@ -629,12 +635,17 @@ void ManualControl::applyOutputs() {
         Shooter::setAngleOpenLoop(angleManualCommand * ANGLE_MANUAL_SCALE);
     }
 
-    if (operatorMode != OperatorMode::FULL_MANUAL) {
+    if (isAutoMode(operatorMode)) {
         return; // turret and flywheel belong to Auto (runs right after this)
+    }
+    // Full manual and test: the operator's flywheel. In test the turret is
+    // Auto's (camera follow, runs right after this).
+    Shooter::setFlywheelOpenLoop(flywheelCommand);
+    if (operatorMode == OperatorMode::TEST) {
+        return;
     }
     const double jogSign = TuningConstants::Rotate::MANUAL_JOG_INVERTED ? -1.0 : 1.0;
     Shooter::setRotateOpenLoop(jogSign * rotateManualCommand * ROTATE_MANUAL_SCALE);
-    Shooter::setFlywheelOpenLoop(flywheelCommand);
 }
 
 uint8_t ManualControl::statusFlags() {
@@ -646,6 +657,7 @@ uint8_t ManualControl::statusFlags() {
     if (Dribbler::isBusy()) flags |= RCMAP_STATUS_FEED_BUSY;
     if (getOperatorMode() == OperatorMode::FULL_MANUAL) flags |= RCMAP_STATUS_ROTATE_MANUAL;
     if (!MechLink::signalLost) flags |= RCMAP_STATUS_RC_LINK_OK;
+    if (getOperatorMode() == OperatorMode::TEST) flags |= RCMAP_STATUS_TEST_MODE;
     return flags;
 }
 

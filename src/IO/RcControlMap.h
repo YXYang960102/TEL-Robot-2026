@@ -44,7 +44,15 @@
  *                        left / right (elevation up/down, turret left/right)
  *   CH8  auto path       1000 + 200*k, k = 0..4: none / 1 / 2 / 3 / 4
  *                        (keys Q W E R = left 1, left 2, right 1, right 2)
- *   CH9, CH10            unused (sent as 1500)
+ *   CH9  test mode       1500 = off, 2000 = TEST (2026-10-26): the
+ *                        operator mode is TEST only while CH9 is high AND
+ *                        CH4 carries full manual (with its flywheel), so
+ *                        test mode reuses full manual's CH4 Falcon
+ *                        encoding. Any other CH4 level wins over CH9 (a
+ *                        round-robin channel lags CH4 by tens of ms; a mode
+ *                        change never waits for it). A ground still on the
+ *                        older image sends 1500 here: never TEST.
+ *   CH10                 unused (sent as 1500)
  *
  * The level channels decode to the nearest level within a tolerance and a
  * frame with any channel between levels is rejected as corrupt, not
@@ -67,6 +75,7 @@ extern "C" {
 #define RCMAP_CH_ARM 5u
 #define RCMAP_CH_NUDGE 6u
 #define RCMAP_CH_AUTO 7u
+#define RCMAP_CH_TEST 8u
 #define RCMAP_CHANNEL_COUNT 10u
 
 #define RCMAP_TARGET_NONE 0u
@@ -87,6 +96,10 @@ extern "C" {
 #define RCMAP_MODE_FULL_AUTO 0u
 #define RCMAP_MODE_SEMI_AUTO 1u
 #define RCMAP_MODE_FULL_MANUAL 2u
+/* TEST (2026-10-26): the turret follows the camera, everything else
+ * (elevation, flywheel, fire) is the operator's, as in full manual. On the
+ * radio: CH4 full manual + CH9 high (no CH4 level of its own). */
+#define RCMAP_MODE_TEST 3u
 #define RCMAP_MODE_FULL_AUTO_US 1500
 #define RCMAP_MODE_SEMI_AUTO_US 1750
 #define RCMAP_MODE_FULL_MANUAL_US 2000
@@ -126,11 +139,20 @@ typedef struct {
                           gives 0 outside full manual, in 1% steps */
     int8_t flywheel_offset_pct; /* CH4 too: -20..20, sent only in the autos;
                                    decode gives 0 in full manual */
+    bool test_mode;    /* CH9: with CH4 in full manual = TEST mode; encode
+                          sends it only then, decode gives false otherwise */
     bool fire;         /* CH5 high = fire pressed */
     bool armed;        /* CH6 high = enable requested */
     uint8_t nudge;     /* RCMAP_NUDGE_* */
     uint8_t auto_path; /* 0 = none, 1..4 */
 } rcmap_command;
+
+/* The operator mode a command carries: CH4's level, or TEST when CH4 is
+ * full manual and the test flag is set. */
+static inline uint8_t rcmap_command_mode(const rcmap_command *c) {
+    const uint8_t mode = rcmap_mode_from_us(c->mode_us);
+    return mode == RCMAP_MODE_FULL_MANUAL && c->test_mode ? RCMAP_MODE_TEST : mode;
+}
 
 /* Fills ch_us[16]; channels beyond the table are set to 1500. Out-of-range
  * fields are clamped (axes) or sent as their neutral level. */
@@ -153,6 +175,11 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out);
 #define RCMAP_STATUS_FEED_BUSY 0x10u
 #define RCMAP_STATUS_ROTATE_MANUAL 0x20u
 #define RCMAP_STATUS_RC_LINK_OK 0x40u
+/* Operator mode is TEST (2026-10-26). The status code below has room for
+ * modes 0-2 only (mode + 1 = 4 would set bit 14, the vision-frame marker),
+ * so TEST travels as FULL_MANUAL in the code plus this flag: an older
+ * ground just shows full manual. Read it back with rcmap_status_mode(). */
+#define RCMAP_STATUS_TEST_MODE 0x80u
 
 /* Event codes. Names are exactly the "$EVENT,<name>" strings the wired
  * USB protocol prints, so the ground can forward them to the same
@@ -187,6 +214,8 @@ typedef enum {
     RCMAP_EVENT_TARGET_SELECTED,
     RCMAP_EVENT_AUTO_PATH_STARTED,
     RCMAP_EVENT_AUTO_PATH_REJECTED,
+    RCMAP_EVENT_MODE_TEST,      /* 2026-10-26: a ground older than this drops
+                                   such a status as corrupt -- reflash both */
     RCMAP_EVENT_COUNT
 } rcmap_event;
 
@@ -207,12 +236,21 @@ const char *rcmap_event_name(uint16_t code);
  * forwards the 16 bits unchanged, so it needed no change for this. */
 #define RCMAP_MODE_UNKNOWN 0xFFu
 static inline uint16_t rcmap_status_code(uint16_t event, uint8_t mode) {
-    return (uint16_t)((event & 0x0FFFu) | ((uint16_t)((mode + 1u) & 0x0Fu) << 12));
+    /* TEST is sent as FULL_MANUAL + RCMAP_STATUS_TEST_MODE (see there);
+       anything else above FULL_MANUAL as FULL_MANUAL too, never into the
+       aim / vision marker bits. */
+    const uint8_t m = mode > RCMAP_MODE_FULL_MANUAL ? RCMAP_MODE_FULL_MANUAL : mode;
+    return (uint16_t)((event & 0x0FFFu) | ((uint16_t)((m + 1u) & 0x03u) << 12));
 }
 static inline uint16_t rcmap_status_code_event(uint16_t code) { return code & 0x0FFFu; }
 static inline uint8_t rcmap_status_code_mode(uint16_t code) {
     const uint8_t stored = (uint8_t)(code >> 12);
     return stored == 0u ? RCMAP_MODE_UNKNOWN : (uint8_t)(stored - 1u);
+}
+/* The full operator mode of a status frame: the code's, or TEST. */
+static inline uint8_t rcmap_status_mode(uint16_t code, uint8_t flags) {
+    const uint8_t mode = rcmap_status_code_mode(code);
+    return mode == RCMAP_MODE_FULL_MANUAL && (flags & RCMAP_STATUS_TEST_MODE) ? RCMAP_MODE_TEST : mode;
 }
 
 typedef struct {

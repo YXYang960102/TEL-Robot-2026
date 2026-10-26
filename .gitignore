@@ -8,3 +8,5 @@ __pycache__/
 
 # Excel lock files while shot_table.xlsx is open
 tools/shot_table/~$*
+# apply.py --import keeps a copy of the Excel before each import
+tools/shot_table/backup/

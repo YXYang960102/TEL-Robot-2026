@@ -10,10 +10,10 @@
 // rules:
 //   - Wired: line protocol on USB `Serial` from tools/dashboard/index.html
 //     (E/X/K, T,<l>,<r>, ROT,<d>, ANG,<d>, ANGT,<deg>, FLY,<0..1>, FLYO,<-20..20>,
-//     TGT,<0..9>, AUTO,<1..4>, MODE,<0..2>, F, M).
+//     TGT,<0..9>, AUTO,<1..4>, MODE,<0..3>, F, M).
 //   - Wireless: CRSF channels from the ELRS link via MechLink, decoded with
 //     RcControlMap table v2 (forward/turn, target hole, mode, fire, arm,
-//     nudge, auto path).
+//     nudge, auto path; CH9 = test mode).
 //
 // Control authority: exactly one source owns the robot while armed. Enable
 // from the other source is refused (ENABLE_REJECTED_OTHER_SOURCE), and its
