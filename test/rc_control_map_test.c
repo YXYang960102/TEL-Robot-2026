@@ -363,6 +363,60 @@ static void test_aim_frames(void) {
     assert(!rcmap_aim_from_status(&st, &back));
 }
 
+/* TEST mode (2026-10-26): CH9 high with CH4 in full manual (+ its Falcon). */
+static void test_test_mode(void) {
+    rcmap_command c;
+    memset(&c, 0, sizeof c);
+    c.mode_us = RCMAP_MODE_FULL_MANUAL_US;
+    c.test_mode = true;
+    c.flywheel = 0.46f;
+    assert(rcmap_command_mode(&c) == RCMAP_MODE_TEST);
+    int ch[16];
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_TEST] == 2000);
+    assert(ch[RCMAP_CH_MODE] == RCMAP_FLYWHEEL_BASE_US + 138); /* 46% = 138 us */
+    rcmap_command d;
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    assert(d.test_mode && rcmap_command_mode(&d) == RCMAP_MODE_TEST && near(d.flywheel, 0.46f));
+    /* ELRS 6-position high (1807 / 2012) still counts; flywheel 0 too. */
+    ch[RCMAP_CH_TEST] = 1807;
+    ch[RCMAP_CH_MODE] = RCMAP_MODE_FULL_MANUAL_US;
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && rcmap_command_mode(&d) == RCMAP_MODE_TEST);
+    assert(near(d.flywheel, 0.0f));
+    /* An older ground's 1500, or anything below the switch threshold: no. */
+    for (int us = 988; us <= 1602; us += 307) {
+        ch[RCMAP_CH_TEST] = us;
+        assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && !d.test_mode);
+        assert(rcmap_command_mode(&d) == RCMAP_MODE_FULL_MANUAL);
+    }
+    /* CH4 at an auto level wins over a lagging CH9 high. */
+    ch[RCMAP_CH_TEST] = 2012;
+    ch[RCMAP_CH_MODE] = RCMAP_MODE_SEMI_AUTO_US;
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && !d.test_mode);
+    assert(rcmap_command_mode(&d) == RCMAP_MODE_SEMI_AUTO);
+    /* Encode never sends the flag with an auto level. */
+    c.mode_us = RCMAP_MODE_FULL_AUTO_US;
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_TEST] == 1500 && rcmap_command_mode(&c) == RCMAP_MODE_FULL_AUTO);
+    /* Status: mode + 1 = 4 would be the vision marker, so TEST goes as
+     * full manual in the code + the TEST flag. */
+    const uint16_t code = rcmap_status_code(RCMAP_EVENT_MODE_TEST, RCMAP_MODE_TEST);
+    assert(!rcmap_status_is_aim(code) && !rcmap_status_is_vision(code));
+    assert(rcmap_status_code_mode(code) == RCMAP_MODE_FULL_MANUAL); /* an older ground's view */
+    assert(rcmap_status_code_event(code) == RCMAP_EVENT_MODE_TEST);
+    assert(rcmap_status_mode(code, RCMAP_STATUS_TEST_MODE | RCMAP_STATUS_ARMED) == RCMAP_MODE_TEST);
+    assert(rcmap_status_mode(code, RCMAP_STATUS_ARMED) == RCMAP_MODE_FULL_MANUAL);
+    /* The flag means nothing next to an auto mode, or with no mode. */
+    assert(rcmap_status_mode(rcmap_status_code(RCMAP_EVENT_NONE, RCMAP_MODE_SEMI_AUTO),
+                             RCMAP_STATUS_TEST_MODE) == RCMAP_MODE_SEMI_AUTO);
+    assert(rcmap_status_mode(RCMAP_EVENT_NONE, RCMAP_STATUS_TEST_MODE) == RCMAP_MODE_UNKNOWN);
+    for (uint8_t m = 0; m <= 15; m++) {
+        assert(!rcmap_status_is_vision(rcmap_status_code(RCMAP_EVENT_COUNT - 1, m)));
+        assert(!rcmap_status_is_aim(rcmap_status_code(RCMAP_EVENT_COUNT - 1, m)));
+    }
+    assert(strcmp(rcmap_event_name(RCMAP_EVENT_MODE_TEST), "MODE_TEST") == 0);
+}
+
 int main(void) {
     test_round_trip();
     test_elrs_hybrid_values();
@@ -372,6 +426,7 @@ int main(void) {
     test_flywheel_on_mode_channel();
     test_vision_frames();
     test_operator_mode();
+    test_test_mode();
     printf("rc_control_map host tests: all asserts passed\n");
     return 0;
 }

@@ -891,6 +891,134 @@ async function emergencyStopViaEnter() {
   await poll();
   assert.equal(writes.length, 0);
 
+  // ---- Test mode + the S-key shot log (2026-10-26) ----
+  pads = [];
+  await poll();
+  await arm();
+  await start();
+  writes.length = 0;
+  elements.startMode.value = '3';                    // menu: test mode
+  await elements.startMode.handlers.change();
+  assert.equal(last(), 'MODE,3');
+  event('MODE_TEST');
+  assert.equal(run('operatorMode'), 3);
+  assert.match(run('MODE_NAMES[operatorMode]'), /TEST/);
+  assert.equal(elements.flywheelSlider.disabled, false); // the operator's flywheel, as in manual
+  elements.flywheelSlider.value = '46';
+  await elements.flywheelSlider.handlers.input();
+  assert.equal(last(), 'FLY,0.46');
+  // LT / RT step the slider itself (not FLYO) in test mode.
+  await run('nudgeFlywheel(1)');
+  assert.equal(last(), 'FLY,0.47');
+  await run('nudgeFlywheel(-1)');
+  assert.equal(last(), 'FLY,0.46');
+  assert.equal(run('holeForVisionId(10)'), 1);
+  assert.equal(run('holeForVisionId(8)'), 5);
+  assert.equal(run('holeForVisionId(6)'), 9);
+  assert.equal(run('holeForVisionId(0)'), 0);
+
+  // Wired TEL with every slot: hole 5 = vision id 8, Falcon 1730 us = 46%.
+  const telShot = ({ distance = 2500, targetId = 8, valid = 1, selected = 8, falcon = 1730, angle = 2063, mode = 3 } = {}) =>
+    ['TEL', 1, 0, 0, distance, targetId, valid, 1500, 1500, 1500, 1500, 1500, 0, mode + 1, 0,
+      'NaN', 'NaN', 'NaN', 1, 1500, 1500, 1, 0, 0, 2, 1, falcon, Math.abs(falcon - 1500) / 5, angle,
+      'NaN', 'NaN', 'NaN', 5, 0, 0, selected, 0, 0, 20].join(',');
+  const shots = () => run('shotRecords.length');
+  run('shotRecords = []');
+  writes.length = 0;
+  for (const mm of [2480, 2700, 2500, 2520, 2490]) { clock.t += 100; line(telShot({ distance: mm })); }
+  assert.equal(run('operatorMode'), 3);               // TEL slot 13 = 3 + 1
+  await windowHandlers.keydown(key('s'));
+  assert.equal(shots(), 1);
+  assert.equal(writes.length, 0);                     // S never talks to the robot
+  const rec = run('shotRecords[0]');
+  assert.equal(rec.hole, 5);
+  assert.equal(rec.distanceCm, 250);                  // median of 2480/2490/2500/2520/2700
+  assert.equal(rec.elevationUs, 2063);
+  assert.equal(rec.flywheelPct, 46);
+  assert.equal(rec.mode, 3);
+  assert.equal(rec.falconUs, 1730);
+  assert.equal(rec.samples, 5);
+  // Held S doesn't repeat.
+  await windowHandlers.keydown(key('s', { repeat: true }));
+  assert.equal(shots(), 1);
+  // Same hole, same distance: replaces it (re-measurement).
+  elements.flywheelSlider.value = '48';
+  await elements.flywheelSlider.handlers.input();
+  clock.t += 100; line(telShot({ falcon: 1740 }));
+  await windowHandlers.keydown(key('s'));
+  assert.equal(shots(), 1);
+  assert.equal(run('shotRecords[0].flywheelPct'), 48);
+  // Still ramping: refused.
+  elements.flywheelSlider.value = '60';
+  await elements.flywheelSlider.handlers.input();
+  clock.t += 100; line(telShot({ falcon: 1700 }));    // 40% actual vs 60% commanded
+  await windowHandlers.keydown(key('s'));
+  assert.equal(shots(), 1);
+  assert.match(elements.log.textContent, /飛輪還在變速/);
+  // The camera lost the hole for longer than the window: refused.
+  clock.t += 100; line(telShot({ falcon: 1800, valid: 0 }));
+  clock.t += 1600; line(telShot({ falcon: 1800, valid: 0 }));
+  await windowHandlers.keydown(key('s'));
+  assert.equal(shots(), 1);
+  assert.match(elements.log.textContent, /鏡頭沒看到洞口 5/);
+  // A frame of another hole never counts.
+  clock.t += 100; line(telShot({ falcon: 1800, targetId: 9, distance: 3000 }));
+  await windowHandlers.keydown(key('s'));
+  assert.equal(shots(), 1);
+  // No hole selected (the AI's pick): refused.
+  clock.t += 100; line(telShot({ falcon: 1800, selected: 0, targetId: 8, distance: 3000 }));
+  await windowHandlers.keydown(key('s'));
+  assert.equal(shots(), 1);
+  assert.match(elements.log.textContent, /先按 1–9 選洞口/);
+  // Still moving (2.5 m -> 3 m inside the window): refused.
+  for (const mm of [2500, 2600, 2700, 2800, 2900]) { clock.t += 100; line(telShot({ falcon: 1800, distance: mm })); }
+  await windowHandlers.keydown(key('s'));
+  assert.equal(shots(), 1);
+  assert.match(elements.log.textContent, /距離還不穩（1\.5 秒內在 2\.50–2\.90 m 之間）/);
+  // A second point once it stands at 3.00 m, 60%.
+  clock.t += 1600;
+  clock.t += 100; line(telShot({ falcon: 1800, distance: 3004 }));
+  await windowHandlers.keydown(key('s'));
+  assert.equal(shots(), 2);
+  // The CSV: the Excel's five columns first, exactly apply.py's headers.
+  const csv = run('shotLogCsv()').split('\r\n');
+  assert.equal(csv[0], '洞口,距離(m),仰角(us),轉速,轉速單位,模式,紀錄時間,Falcon實際(us),距離樣本數');
+  assert.match(csv[1], /^5,2\.50,2063,48,%,TEST \/ 測試,\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,1740,\d+$/);
+  assert.match(csv[2], /^5,3\.00,2063,60,%,/);
+  // The autos: the flywheel comes from the Falcon's actual pulse.
+  clock.t += 1600;                                     // the 3 m frames age out of the window
+  for (const mm of [4000, 4010]) { clock.t += 100; line(telShot({ falcon: 1731, distance: mm, mode: 1 })); }
+  assert.equal(run('operatorMode'), 1);
+  await windowHandlers.keydown(key('s'));
+  assert.equal(run('shotRecords.at(-1).distanceCm'), 401);
+  assert.equal(run('shotRecords.at(-1).flywheelPct'), 46.2);
+  // Undo removes the newest.
+  await elements.shotLogUndo.handlers.click();
+  assert.equal(shots(), 2);
+  // Clear needs two clicks.
+  await elements.shotLogClear.handlers.click();
+  assert.equal(shots(), 2);
+  await elements.shotLogClear.handlers.click();
+  assert.equal(shots(), 0);
+  // Over the radio: $AIM (distance cm, elevation, selected / frame id) and
+  // $VISION (Falcon pulse), as the ground station relays them.
+  clock.t += 1600;
+  run('setOperatorMode(3)');
+  elements.flywheelSlider.value = '46';
+  await elements.flywheelSlider.handlers.input();
+  line('$AIM,1,312,1980,4,4,1,0');                    // hole 3 (vision id 4), 3.12 m
+  line('$VISION,1,1730,0,0,1,4');
+  await windowHandlers.keydown(key('s'));
+  assert.equal(shots(), 1);
+  assert.deepEqual([run('shotRecords[0].hole'), run('shotRecords[0].distanceCm'),
+    run('shotRecords[0].elevationUs'), run('shotRecords[0].flywheelPct')], [3, 312, 1980, 46]);
+  // Stale radio data (the ground's fresh = 0) is never used.
+  clock.t += 1600;
+  line('$AIM,0,0,0,0,0,0,0');
+  await windowHandlers.keydown(key('s'));
+  assert.equal(shots(), 1);
+  await windowHandlers.keydown(key('Enter'));
+
   console.log('dashboard page control behavior tests passed');
 })().catch((e) => { console.error(e); process.exitCode = 1; });
 

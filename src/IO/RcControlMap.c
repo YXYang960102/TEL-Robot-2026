@@ -102,6 +102,7 @@ void rcmap_encode(const rcmap_command *c, int ch_us[16]) {
     ch_us[RCMAP_CH_NUDGE] = RCMAP_LEVEL_BASE_US + (int)nudge * RCMAP_LEVEL_STEP_US;
     const uint8_t path = c->auto_path <= RCMAP_AUTO_PATHS ? c->auto_path : RCMAP_AUTO_NONE;
     ch_us[RCMAP_CH_AUTO] = RCMAP_LEVEL_BASE_US + (int)path * RCMAP_LEVEL_STEP_US;
+    ch_us[RCMAP_CH_TEST] = rcmap_command_mode(c) == RCMAP_MODE_TEST ? 2000 : 1500;
 }
 
 bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
@@ -132,6 +133,10 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     out->armed = ch_us[RCMAP_CH_ARM] >= RCMAP_SWITCH_ON_US;
     out->nudge = nudge;
     out->auto_path = path;
+    /* Fail-safe like fire / arm: only a clear high counts, and only with
+       CH4 in full manual (any other level is that mode, whatever CH9 says). */
+    out->test_mode = ch_us[RCMAP_CH_TEST] >= RCMAP_SWITCH_ON_US &&
+                     rcmap_mode_from_us(mode_us) == RCMAP_MODE_FULL_MANUAL;
     return true;
 }
 
@@ -165,6 +170,7 @@ static const char *const event_names[RCMAP_EVENT_COUNT] = {
     "TARGET_SELECTED",
     "AUTO_PATH_STARTED",
     "AUTO_PATH_REJECTED",
+    "MODE_TEST",
 };
 
 const char *rcmap_event_name(uint16_t code) {

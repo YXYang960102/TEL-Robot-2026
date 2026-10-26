@@ -5331,3 +5331,167 @@ D22, so it floats there.
 **Next Test:** after flashing the Mega, check the flywheel at rest: the
 Dashboard should show Falcon PWM 1490 us and the wheel should be still.
 If it creeps, move `STOP_PULSE_OFFSET_US` 5 µs the other way.
+
+## 2026-10-26 — Claude Code: TEST operator mode + Dashboard S-key shot log → Excel
+
+**User Request (Jeremy):**
+1. Pressing S on the Dashboard stores the current target, distance,
+   elevation and flywheel into the shot-table Excel, to speed up testing.
+2. A new "test mode": the turret's horizontal angle is the camera PID, the
+   rest is manual. The operator picks and locks a hole; elevation and
+   flywheel are controlled by hand only.
+
+Jeremy asked for "list the approach and implement it" in one message, so
+this was implemented directly.
+
+**Discussion Result / design:**
+- **TEST = OperatorMode 3.**
+  - Turret: `Auto::update()` vision-follow, the same as the autos, with
+    the aim offset (←/→ steps). No camera: the turret holds.
+  - Elevation: the jog, plus `ANGT` (wired). `autoOwnsElevation()` is
+    false in TEST.
+  - Flywheel: the slider / LT·RT (`FLY`), the same as full manual. `FLYO`
+    is ignored.
+  - F fires the tower at once, with no lock gate and no `FIRE_NOT_READY`.
+  - Target selection (TGT / CH3) as before.
+  - Enable still starts in full manual. Disarm and link loss go back to
+    full manual.
+  - New helper `isAutoMode()` = SEMI or FULL_AUTO. Every old "not
+    FULL_MANUAL means auto" check now uses it.
+- **Radio.** CH4 had no free level for "manual + 0–100% Falcon", so TEST
+  = CH4 in full manual (with its Falcon encoding) **plus CH9 = 2000**.
+  - CH9 was unused. An old ground sends 1500 there, so a mixed pair can
+    never produce TEST.
+  - Decode: TEST only when CH9 ≥ 1750 **and** CH4 is full manual. Any
+    auto level on CH4 wins over a lagging CH9, since round-robin AUX
+    channels lag CH4 by ~50 ms.
+  - Going semi → test can pass through full manual for a frame or two:
+    flywheel 0, turret still. That is harmless.
+  - An Enable with CH9 high is refused (`ENABLE_REJECTED_NOT_MANUAL`). The
+    ground clears CH9 on E / X / PC timeout / M / any other MODE.
+- **Status uplink: found a collision.** The status code stores mode+1 in
+  bits 12–15. Mode 3 → 4 → 0x4000, which **is the vision-frame marker**,
+  so every test-mode status would have been read as a vision frame.
+  - Fix: TEST travels as FULL_MANUAL in the code plus new flag
+    `RCMAP_STATUS_TEST_MODE` 0x80 (the free top bit of the flags byte).
+  - `rcmap_status_code()` now clamps the mode to 0–2 and masks to 2 bits.
+    `rcmap_status_mode(code, flags)` decodes it back.
+  - The wired TEL slot 13 just reports 4 (= 3 + 1). There is no collision
+    there.
+- New event `MODE_TEST` (appended, code 29).
+  - An older ground drops a status whose event ≥ its `RCMAP_EVENT_COUNT`
+    as corrupt. **Flash the ground together with the Mega.**
+- **S key (Dashboard).** Records one point locally; it sends nothing to
+  the robot and works enabled or not.
+  - Hole: from the robot's selected vision id (TEL slot 35 / `$AIM`
+    selectedId) via the inverse of `OperatorTarget::visionIdForHole`. The
+    AI's own pick is refused.
+  - Distance: median of the frames on that hole in the last 1.5 s. It
+    must be steady: ≥ 60% within ±5 cm of the median, else "距離還不穩".
+  - Elevation: pulse us.
+  - Flywheel:
+    - full manual / test: the commanded %, refused while the actual Falcon
+      pulse differs from it by > 1.5% (still ramping);
+    - autos: the actual pulse → %, 1 decimal.
+  - The same hole + same cm replaces the earlier record.
+  - Stored in localStorage (`tel-shot-log-v1`).
+  - Panel "Shot Log / 射擊紀錄": table, 下載 CSV, 刪除最後一筆, 全部清除
+    (two clicks; no `confirm()`, because a dialog blurs the window and
+    blur disables the robot).
+  - The CSV starts with the Excel's five exact headers, then 模式 /
+    紀錄時間 / Falcon實際(us) / 距離樣本數, which the import ignores. UTF-8
+    BOM.
+- **`apply.py --import [CSV]`** (no path = newest `~/Downloads/shot_log_*.csv`).
+  - Strict-checks the CSV with the same rules as the sheet.
+    `parse_points` is split into `parse_rows` + a duplicate check.
+  - The Excel itself must already be valid.
+  - The same hole + distance as an existing row → that row's 仰角 / 轉速 /
+    單位 are replaced (written as %). Otherwise a new row at the end.
+    Identical → skipped.
+  - The merged sheet is re-validated before writing. The written file is
+    read back and compared.
+  - It edits **only the sheet XML text** (regex row/cell edits, keeping
+    styles and unknown attributes) and sets `fullCalcOnLoad="1"`. Every
+    other zip part is byte-identical. An ElementTree round trip would
+    rename Excel's prefixes, and `mc:Ignorable` would then make Excel call
+    the file corrupt.
+  - Refuses while `~$shot_table.xlsx` exists (Excel open).
+  - Backs up to `tools/shot_table/backup/` (git-ignored).
+  - `--import --check` = dry run. `--import --upload` = import + header +
+    flash.
+
+**Changed:**
+- Mega: `src/IO/RcControlMap.{h,c}`, `src/IO/OperatorMode.h`,
+  `src/IO/ManualControl.{h,cpp}`, `src/Auto/Auto.{h,cpp}`.
+- Ground: `tools/stm32_ground_control/src/GroundCommandState.{h,cpp}`,
+  README.
+- Dashboard: `tools/dashboard/index.html`.
+- Shot table: `tools/shot_table/apply.py`, README.
+- `.gitignore`.
+- Tests: adapted the existing `test/rc_control_map_test.c`,
+  `test/manual_control_test.cpp`, `test/dashboard_page_test.cjs`, and
+  `tools/stm32_ground_control/test/host_test_ground_state.cpp`. No new
+  test files. `MODE,3` was the "bad command" example and is now `MODE,4`.
+
+**Calculation:**
+- CH4 in test at 46% = 1000 + 3·46 = **1138 µs**, CH9 = 2000.
+- Status in test = code `(event & 0xFFF) | (2+1) << 12`, flags | 0x80.
+- `holeForVisionId`: vision id 10 → key 1, 8 → 5, 6 → 9.
+- Distance median, e.g. [2480, 2490, 2500, 2520, 2700] mm → 2500 → 2.50 m.
+  4/5 are within ±50 mm, so it is accepted.
+- Flywheel settled: 1730 µs → |1730 − 1500| / 5 = 46.0%, against the
+  command 46%.
+
+**Impact:**
+- The **robot bridge needs no reflash.** I rebuilt it in the worktree and
+  the `.bin` sha is unchanged (`ee034481…`); its dist was restored and is
+  not committed.
+- **Mega + ground STM32 must be flashed together** (MODE_TEST event, CH9,
+  status flag). Then the **Dashboard** (page file).
+- The **Orin is unchanged.**
+- Full manual / semi / full auto behavior is unchanged; the existing tests
+  pass as before.
+- The gamepad X/A/B mode buttons are unchanged: test mode is in the menu
+  only.
+
+**Evidence:**
+- Host tests, 15 groups, all PASS:
+  - `rc_control_map`;
+  - `manual_control` (pins true / false / wired-only);
+  - ground;
+  - dashboard page / control;
+  - vision rotate page;
+  - vision link;
+  - op target;
+  - pidf;
+  - shot lookup;
+  - vision follow;
+  - `apply.py --check`.
+- `pio run` builds for `megaatmega2560` (RAM 40.1%, flash 11.7%),
+  `mega_wired_manual_test`, and the ground `blackpill_f401cc`. Build only;
+  nothing was uploaded.
+- `--import` on scratch copies of the workbook:
+  - bad CSV refused;
+  - dry run leaves the file byte-identical;
+  - real import changes only `sheet1.xml`;
+  - all parts are well-formed XML.
+- A synthetic "Excel-saved" sheet (shared strings, spans, `x14ac`,
+  `mc:Ignorable`, styles, an empty formatted row, a notes column, extLst,
+  `definedNames` before `calcPr`) imports cleanly. Its namespaces and
+  attributes are kept, and a `us` row is replaced as `%`.
+- The Excel-open lock was refused.
+- Dashboard panel checked in the in-app browser with injected TEL lines.
+- **Not done:**
+  - opening the imported file in real Excel (the sandbox access prompt
+    would have hit Jeremy's screen);
+  - anything on hardware.
+
+**Next Test:**
+1. Flash Mega + ground.
+2. Wired first: menu 測試 → Enable → Y.
+   - Turret should track the selected hole; ←/→ shift it.
+   - ↑↓ jog elevation; the slider spins the flywheel; RB/LB fires at once.
+3. Same over wireless: the Dashboard badge should read TEST.
+4. Press S on a still robot; then try S while driving (should refuse).
+5. 下載 CSV → close Excel → `apply.py --import --check` → `--import` →
+   open the Excel and confirm the rows and charts, with no repair prompt.

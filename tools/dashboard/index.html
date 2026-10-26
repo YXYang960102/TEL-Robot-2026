@@ -509,6 +509,42 @@
       font-weight: 650;
     }
 
+    /* Shot log (S key): one row per recorded point. */
+    .shot-log-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: #14181d;
+    }
+
+    .shot-log-scroll {
+      max-height: 280px;
+      overflow: auto;
+    }
+
+    .shot-log th {
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .shot-log td {
+      padding: 6px 10px;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    .shot-log td:last-child {
+      font-weight: 400;
+    }
+
     .layout-help {
       display: none;
       margin: 0 14px 10px;
@@ -573,6 +609,7 @@
               <option value="2" selected>全手動 FULL MANUAL</option>
               <option value="1">半自動 SEMI AUTO</option>
               <option value="0">全自動 FULL AUTO</option>
+              <option value="3">測試 TEST（水平跟鏡頭，仰角・轉速・發射手動）</option>
             </select>
           </label>
           <label class="label">自動路徑 / auto path
@@ -595,7 +632,7 @@
         </div>
         <div class="stream-controls">
           <button id="enableControl" disabled>Enable / 啟用輸出</button>
-          <span class="label">Xbox 手把：左蘑菇頭 前後・右蘑菇頭 轉向・十字鍵 ↑↓ 仰角 ←→ 水平（全手動按住移動；自動模式每按一下微調一格）・X 全自動・A 半自動・B 全手動・RB 發射・LB 轉台回正（待 AS5600）・Y 開始比賽｜鍵盤：1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・0 回到 AI 自選・Enter 停用・Space 停用並斷線</span>
+          <span class="label">Xbox 手把：左蘑菇頭 前後・右蘑菇頭 轉向・十字鍵 ↑↓ 仰角 ←→ 水平（全手動按住移動；自動模式每按一下微調一格）・X 全自動・A 半自動・B 全手動・RB 發射・LB 轉台回正（待 AS5600）・Y 開始比賽｜鍵盤：1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・0 回到 AI 自選・S 記錄射擊點・Enter 停用・Space 停用並斷線｜測試模式（模式選單）：水平由鏡頭鎖定（←→ 微調），仰角、轉速、發射跟全手動一樣</span>
         </div>
         <div class="stream-controls">
           <button id="startMatch" disabled>開始比賽 / Start（Y）</button>
@@ -634,6 +671,25 @@
           <div class="metric"><div class="label">rotate / angle mode / 旋轉・俯仰模式</div><div class="value" id="shooterAxisMode">--</div></div>
           <div class="metric"><div class="label">left / right pulse / 左右輪脈衝</div><div class="value" id="chassisPulses">--</div></div>
           <div class="metric"><div class="label">gamepad / 手把</div><div class="value" id="gamepadState">none / 未連接</div><div class="subvalue" id="gamepadInputs">按手把任一鍵讓瀏覽器偵測</div></div>
+        </div>
+      </section>
+
+      <section class="panel" data-panel="shotlog" style="margin-top:14px">
+        <div class="section-title">
+          <span>Shot Log / 射擊紀錄（S 鍵記一點）</span>
+          <span id="shotLogCount">0 點</span>
+        </div>
+        <div class="shot-log-actions">
+          <button id="shotLogDownload">下載 CSV（給 Excel）</button>
+          <button id="shotLogUndo">刪除最後一筆</button>
+          <button id="shotLogClear">全部清除</button>
+          <span class="label" id="shotLogHint">鎖定洞口、仰角和轉速都穩定後按 S。記下洞口、相機距離（最近 1.5 秒的中位數）、仰角脈寬、飛輪轉速；同一洞口同一距離再按一次會取代舊的。下載後執行 python3 tools/shot_table/apply.py --import 寫進 shot_table.xlsx。紀錄存在這台電腦的瀏覽器裡，重新整理不會消失。</span>
+        </div>
+        <div class="shot-log-scroll">
+          <table class="shot-log">
+            <thead><tr><th>#</th><th>洞口</th><th>距離(m)</th><th>仰角(us)</th><th>轉速(%)</th><th>Falcon(us)</th><th>模式</th><th>時間</th></tr></thead>
+            <tbody id="shotLogBody"></tbody>
+          </table>
         </div>
       </section>
 
@@ -760,8 +816,14 @@
     const ENABLE_PENDING_TIMEOUT_MS = 5000; // 3 s was too tight for sparse ELRS telemetry (2026-10-17)
     const OWNER_NAMES = ["none / 無", "wired / 有線", "wireless / 無線"];
     const MODE_FULL_MANUAL = 2;
-    const MODE_NAMES = { 0: "FULL AUTO / 全自動", 1: "SEMI AUTO / 半自動", 2: "FULL MANUAL / 全手動" };
-    const MODE_EVENTS = { MODE_FULL_AUTO: 0, MODE_SEMI_AUTO: 1, MODE_FULL_MANUAL: 2 };
+    // Test mode (2026-10-26): the turret follows the camera, elevation /
+    // flywheel / fire stay manual -- for measuring the shot table.
+    const MODE_TEST = 3;
+    const MODE_NAMES = { 0: "FULL AUTO / 全自動", 1: "SEMI AUTO / 半自動", 2: "FULL MANUAL / 全手動", 3: "TEST / 測試" };
+    const MODE_EVENTS = { MODE_FULL_AUTO: 0, MODE_SEMI_AUTO: 1, MODE_FULL_MANUAL: 2, MODE_TEST: 3 };
+    // Full manual and test: the Falcon slider / LT RT set the flywheel.
+    // The autos: the shot table does, LT / RT are an offset on it.
+    const operatorSetsFlywheel = (mode) => mode === MODE_FULL_MANUAL || mode === MODE_TEST;
     const DISARM_EVENTS = ["OUTPUTS_DISABLED", "COMMAND_TIMEOUT", "DISABLED_RC_LINK_LOST", "DISABLED_CORRUPT_COMMAND"];
     const ENABLE_REJECT_EVENTS = ["ENABLE_REJECTED_PINS_UNCONFIRMED", "ENABLE_REJECTED_OTHER_SOURCE"];
     // Ground-station events that mean it already released the arm channel.
@@ -901,7 +963,7 @@
                                                        : "Enable 後按 Y 開始；開始前機器人不會動";
     }
 
-    // 0 full auto / 1 semi auto / 2 full manual (src/IO/OperatorMode.h).
+    // 0 full auto / 1 semi auto / 2 full manual / 3 test (src/IO/OperatorMode.h).
     // Reported by TEL slot 13 (USB), $WIRELESS field 10 (ground station)
     // and the MODE_* events; the robot is the source of truth.
     function setOperatorMode(mode) {
@@ -923,7 +985,7 @@
       enableButton.textContent = controlArmed ? "Enabled / 輸出已啟用" : enablePending ? "Enabling… / 等待機器人確認" : "Enable / 啟用輸出";
       // In the auto modes the shot table sets the flywheel, not the slider.
       // Nothing that moves the robot before the match is started (Y).
-      flywheelSlider.disabled = !controlArmed || !matchStarted || operatorMode !== MODE_FULL_MANUAL;
+      flywheelSlider.disabled = !controlArmed || !matchStarted || !operatorSetsFlywheel(operatorMode);
       startMatchButton.disabled = !controlArmed || matchStarted;
       renderFlywheelLabel();
       // Elevation is an absolute target angle (positional servo). In an
@@ -945,7 +1007,7 @@
     }
 
     function renderFlywheelLabel() {
-      if (operatorMode !== MODE_FULL_MANUAL && controlArmed) {
+      if (!operatorSetsFlywheel(operatorMode) && controlArmed) {
         const signed = `${flywheelOffsetPct > 0 ? "+" : ""}${flywheelOffsetPct}`;
         flywheelSliderValue.textContent = `射擊表轉速微調 ${signed}%（LT −1 / RT +1，換洞、換模式歸零）`;
         return;
@@ -997,6 +1059,211 @@
         : `${data.distance.toFixed(0)} mm · 相機到洞口的直線距離，填射擊表用這個`;
     }
 
+    // ---- Shot log (S key, Jeremy 2026-10-26) ----------------------------
+    // One measured point per press for tools/shot_table/shot_table.xlsx:
+    // the robot's selected hole, the camera distance (median of the frames
+    // on that hole in the last SHOT_DISTANCE_WINDOW_MS, so one noisy depth
+    // frame can't make the point), the elevation pulse and the flywheel.
+    // Kept in this browser until downloaded as CSV; `python3
+    // tools/shot_table/apply.py --import` puts the CSV into the Excel with
+    // the same strict checks as the Excel itself. Wired (TEL) or radio
+    // ($AIM / $VISION), whichever feeds the page.
+    const SHOT_LOG_KEY = "tel-shot-log-v1";
+    const SHOT_DISTANCE_WINDOW_MS = 1500;
+    // A reading older than this doesn't count (TEL ~10 Hz; the radio's aim
+    // and vision frames every 400 ms, re-reported by the ground every 250).
+    const SHOT_READING_FRESH_MS = 1500;
+    // Full manual / test: the Falcon's actual pulse must be this close to
+    // the command (in %), so a point is never taken while it still ramps
+    // (Flywheel::RAMP_UP_PER_SECOND 0.5 = 2 s for 0 -> 100%).
+    const SHOT_FLYWHEEL_SETTLED_PCT = 1.5;
+    // The distance must be steady: at least this share of the window's
+    // frames within +-SHOT_DISTANCE_STEADY_MM of their median. One bad
+    // depth frame passes (that is what the median is for); a robot still
+    // driving, or a hole whose depth keeps jumping, is refused.
+    const SHOT_DISTANCE_STEADY_MM = 50;
+    const SHOT_DISTANCE_STEADY_SHARE = 0.6;
+    const shotLogBody = document.getElementById("shotLogBody");
+    const shotLogCount = document.getElementById("shotLogCount");
+    const shotLogDownloadButton = document.getElementById("shotLogDownload");
+    const shotLogUndoButton = document.getElementById("shotLogUndo");
+    const shotLogClearButton = document.getElementById("shotLogClear");
+    let shotRecords = loadShotRecords();
+    let distanceSamples = [];  // { at, mm }: valid frames on the selected hole
+    let shotSelectedId = 0, shotSelectedAt = -Infinity;
+    let shotElevationUs = NaN, shotElevationAt = -Infinity;
+    let shotFalconUs = NaN, shotFalconAt = -Infinity;
+    let shotClearArmedUntil = 0;
+
+    // Inverse of src/Vision/OperatorTarget.h visionIdForHole(): Orin vision
+    // id 4..12 (rows from the top, left to right) -> Dashboard key 1..9
+    // (columns left to right, each bottom-up). Example: 10 -> 1, 8 -> 5.
+    function holeForVisionId(id) {
+      if (!Number.isInteger(id) || id < 4 || id > 12) return 0;
+      const rowFromTop = Math.floor((id - 4) / 3);
+      const col = (id - 4) % 3;
+      return col * 3 + (2 - rowFromTop) + 1;
+    }
+
+    // Every robot reading that can go into a point. A source passes only
+    // what it carries (TEL: all; $AIM: frame + elevation; $VISION: Falcon).
+    function noteShotReadings({ valid, distanceMm, targetId, selectedId, elevationUs, falconUs } = {}) {
+      const now = performance.now();
+      if (Number.isInteger(selectedId)) {
+        if (selectedId !== shotSelectedId) distanceSamples = []; // a new hole starts over
+        shotSelectedId = selectedId;
+        shotSelectedAt = now;
+        if (valid && selectedId !== 0 && targetId === selectedId && distanceMm > 0) {
+          distanceSamples.push({ at: now, mm: distanceMm });
+        }
+      }
+      distanceSamples = distanceSamples.filter((sample) => now - sample.at <= SHOT_DISTANCE_WINDOW_MS);
+      if (Number.isFinite(elevationUs) && elevationUs > 0) {
+        shotElevationUs = elevationUs;
+        shotElevationAt = now;
+      }
+      if (Number.isFinite(falconUs) && falconUs > 0) {
+        shotFalconUs = falconUs;
+        shotFalconAt = now;
+      }
+    }
+
+    function localTimestamp(d = new Date()) {
+      const p2 = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ` +
+        `${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`;
+    }
+
+    // S: the point, or null (and the reason in the log). Same ranges as
+    // tools/shot_table/apply.py: hole 1-9, 0.5-15 m in whole cm, elevation
+    // 500-2500 us, flywheel 0-100% with at most one decimal.
+    function recordShot() {
+      const now = performance.now();
+      const refuse = (why) => { appendControlLog(`S 沒有記錄 / not recorded：${why}`); return null; };
+      if (demoTimer) return refuse("模擬資料不能記錄");
+      if (now - shotSelectedAt > SHOT_READING_FRESH_MS) return refuse("收不到機器人的視覺資料");
+      const hole = holeForVisionId(shotSelectedId);
+      if (!hole) return refuse("先按 1–9 選洞口（AI 自選時不知道是哪個洞）");
+      const samples = distanceSamples.filter((sample) => now - sample.at <= SHOT_DISTANCE_WINDOW_MS);
+      if (samples.length === 0) return refuse(`鏡頭沒看到洞口 ${hole}（沒有距離）`);
+      const sorted = samples.map((sample) => sample.mm).sort((a, b) => a - b);
+      const mid = sorted.length >> 1;
+      const medianMm = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+      const steady = sorted.filter((mm) => Math.abs(mm - medianMm) <= SHOT_DISTANCE_STEADY_MM).length;
+      if (steady < SHOT_DISTANCE_STEADY_SHARE * sorted.length) {
+        return refuse(`距離還不穩（1.5 秒內在 ${(sorted[0] / 1000).toFixed(2)}–` +
+          `${(sorted[sorted.length - 1] / 1000).toFixed(2)} m 之間），停穩再按`);
+      }
+      const distanceCm = Math.round(medianMm / 10);
+      if (distanceCm < 50 || distanceCm > 1500) {
+        return refuse(`距離 ${(distanceCm / 100).toFixed(2)} m 不在射擊表的 0.5–15 m 內`);
+      }
+      if (now - shotElevationAt > SHOT_READING_FRESH_MS) return refuse("收不到仰角脈寬");
+      const elevationUs = Math.round(shotElevationUs);
+      if (elevationUs < 500 || elevationUs > 2500) return refuse(`仰角 ${elevationUs} us 不在 500–2500 內`);
+      const falconFresh = now - shotFalconAt <= SHOT_READING_FRESH_MS;
+      const actualPct = falconFresh ? Math.abs(shotFalconUs - 1500) / 5 : NaN;
+      let flywheelPct;
+      if (operatorSetsFlywheel(operatorMode)) {
+        // Full manual / test: what the operator set (the slider, LT / RT).
+        flywheelPct = Math.round(flywheelRatio * 100);
+        if (flywheelPct <= 0) return refuse("飛輪轉速是 0%");
+        if (falconFresh && Math.abs(actualPct - flywheelPct) > SHOT_FLYWHEEL_SETTLED_PCT) {
+          return refuse(`飛輪還在變速（指令 ${flywheelPct}%、實際 ${actualPct.toFixed(1)}%），穩定後再按`);
+        }
+      } else {
+        // The autos: the shot table + offset, read back from the Falcon.
+        if (!falconFresh) return refuse("收不到 Falcon PWM，不知道現在的轉速");
+        flywheelPct = Math.round(actualPct * 10) / 10;
+        if (flywheelPct <= 0) return refuse("飛輪沒有在轉");
+      }
+      const record = {
+        hole, distanceCm, elevationUs, flywheelPct, mode: operatorMode,
+        falconUs: falconFresh ? Math.round(shotFalconUs) : null,
+        samples: samples.length, time: localTimestamp(),
+      };
+      // The same hole at the same distance again = a re-measurement: it
+      // replaces the old point (apply.py --import does the same in Excel).
+      const same = shotRecords.findIndex((r) => r.hole === hole && r.distanceCm === distanceCm);
+      if (same >= 0) shotRecords.splice(same, 1);
+      shotRecords.push(record);
+      saveShotRecords();
+      renderShotLog();
+      appendControlLog(`S 已記錄 #${shotRecords.length}：洞口 ${hole} · ${(distanceCm / 100).toFixed(2)} m · ` +
+        `仰角 ${elevationUs} us · 轉速 ${flywheelPct}%（${samples.length} 個距離樣本）` +
+        (same >= 0 ? " · 取代同洞口同距離的舊紀錄" : ""));
+      return record;
+    }
+
+    function isShotRecord(r) {
+      return r && Number.isInteger(r.hole) && r.hole >= 1 && r.hole <= 9 &&
+        Number.isInteger(r.distanceCm) && Number.isInteger(r.elevationUs) &&
+        Number.isFinite(r.flywheelPct);
+    }
+
+    // Browser storage can be missing (private window, blocked): the log
+    // then lives only until the page reloads.
+    function loadShotRecords() {
+      try {
+        const list = JSON.parse(localStorage.getItem(SHOT_LOG_KEY) || "[]");
+        return Array.isArray(list) ? list.filter(isShotRecord) : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveShotRecords() {
+      try {
+        localStorage.setItem(SHOT_LOG_KEY, JSON.stringify(shotRecords));
+      } catch {
+        appendControlLog("射擊紀錄無法存進瀏覽器（重新整理會不見），請先下載 CSV");
+      }
+    }
+
+    const htmlText = (v) => String(v).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+    function renderShotLog() {
+      shotLogCount.textContent = `${shotRecords.length} 點`;
+      // Newest first.
+      shotLogBody.innerHTML = shotRecords.map((r, i) =>
+        `<tr><td>${i + 1}</td><td>${r.hole}</td><td>${(r.distanceCm / 100).toFixed(2)}</td>` +
+        `<td>${r.elevationUs}</td><td>${htmlText(r.flywheelPct)}</td>` +
+        `<td>${Number.isInteger(r.falconUs) ? r.falconUs : "--"}</td>` +
+        `<td>${htmlText(MODE_NAMES[r.mode] ?? "--")}</td><td>${htmlText(r.time ?? "")}</td></tr>`).reverse().join("");
+    }
+
+    // The Excel's five columns first, exactly as apply.py wants them; the
+    // rest are for the operator and ignored by the import.
+    function shotLogCsv() {
+      const head = ["洞口", "距離(m)", "仰角(us)", "轉速", "轉速單位", "模式", "紀錄時間", "Falcon實際(us)", "距離樣本數"];
+      const rows = shotRecords.map((r) => [
+        r.hole, (r.distanceCm / 100).toFixed(2), r.elevationUs, r.flywheelPct, "%",
+        String(MODE_NAMES[r.mode] ?? "").replace(/,/g, " "), String(r.time ?? "").replace(/,/g, " "),
+        Number.isInteger(r.falconUs) ? r.falconUs : "", Number.isInteger(r.samples) ? r.samples : "",
+      ]);
+      return [head, ...rows].map((cols) => cols.join(",")).join("\r\n") + "\r\n";
+    }
+
+    function downloadShotLog() {
+      if (shotRecords.length === 0) {
+        appendControlLog("射擊紀錄是空的，沒有東西可下載");
+        return;
+      }
+      const d = new Date();
+      const p2 = (n) => String(n).padStart(2, "0");
+      const name = `shot_log_${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}_${p2(d.getHours())}${p2(d.getMinutes())}.csv`;
+      // BOM: Excel opens the Chinese headers correctly.
+      const url = URL.createObjectURL(new Blob(["﻿" + shotLogCsv()], { type: "text/csv;charset=utf-8" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      appendControlLog(`已下載 ${name}（${shotRecords.length} 點）；接著執行 python3 tools/shot_table/apply.py --import`);
+    }
+
     // "$AIM,<fresh>,<distanceCm>,<elevationPulseUs>,<selectedId>,
     // <targetId>,<valid>,<aimOffsetPx>" from the ground station: the robot's
     // aim frame over the radio (2026-10-17). On the Mega's USB the TEL line
@@ -1018,6 +1285,7 @@
       updateDistanceReadout(data);
       el.anglePulse.textContent = `${pulseUs} us`;
       el.aimState.textContent = aimStateText(data);
+      noteShotReadings({ valid: valid === 1, distanceMm: distanceCm * 10, targetId, selectedId, elevationUs: pulseUs });
     }
 
     // "$VISION,<fresh>,<flywheelUs>,<tx*2>,<ty*2>,<valid>,<targetId>" from
@@ -1035,6 +1303,7 @@
       // Falcon's STOP_PULSE_OFFSET_US).
       el.falconPwm.textContent = fresh === 1 && flywheelUs > 0
         ? `${flywheelUs} us (${(Math.abs(flywheelUs - 1500) / 5).toFixed(1)}%)` : "--";
+      if (fresh === 1) noteShotReadings({ falconUs: flywheelUs });
     }
 
     function aimStateText(data) {
@@ -1406,6 +1675,10 @@
       el.ch8.textContent = data.ch8;
       updateControlMetrics(data);
       updatePose(data);
+      noteShotReadings({
+        valid: data.valid, distanceMm: data.distance, targetId: data.targetId,
+        selectedId: data.visionTargetId, elevationUs: data.anglePulseUs, falconUs: data.falconPulseUs,
+      });
     }
 
     function updateControlMetrics(data) {
@@ -1954,12 +2227,13 @@
       if (edge(profile.flywheelUpButton)) await nudgeFlywheel(1);
     }
 
-    // LT / RT: one press = 1%. Full manual: the Falcon slider itself. The
-    // autos: an offset on top of the shot table (FLYO, -20..20), dropped on
-    // a mode change, a new hole, Enable and disarm (the robot drops it too).
+    // LT / RT: one press = 1%. Full manual / test: the Falcon slider
+    // itself. The autos: an offset on top of the shot table (FLYO, -20..20),
+    // dropped on a mode change, a new hole, Enable and disarm (the robot
+    // drops it too).
     async function nudgeFlywheel(stepPct) {
       if (!controlArmed || !matchStarted) return;
-      if (operatorMode === MODE_FULL_MANUAL) {
+      if (operatorSetsFlywheel(operatorMode)) {
         const pct = Math.max(0, Math.min(100, Math.round(flywheelRatio * 100) + stepPct));
         setFlywheelSlider(pct / 100);
         await sendControl(`FLY,${flywheelRatio.toFixed(2)}`);
@@ -2099,8 +2373,42 @@
       await sendControl(`ANGT,${degrees}`);
     });
 
+    shotLogDownloadButton.addEventListener("click", () => {
+      shotLogDownloadButton.blur(); // Enter / Space go back to the robot
+      downloadShotLog();
+    });
+
+    shotLogUndoButton.addEventListener("click", () => {
+      shotLogUndoButton.blur();
+      const gone = shotRecords.pop();
+      if (!gone) return;
+      saveShotRecords();
+      renderShotLog();
+      appendControlLog(`已刪除最後一筆：洞口 ${gone.hole} · ${(gone.distanceCm / 100).toFixed(2)} m`);
+    });
+
+    // Two clicks within 3 s (a confirm() dialog would blur the window,
+    // and a blur disables the robot).
+    shotLogClearButton.addEventListener("click", () => {
+      shotLogClearButton.blur();
+      const now = performance.now();
+      if (now > shotClearArmedUntil) {
+        shotClearArmedUntil = now + 3000;
+        shotLogClearButton.textContent = "再按一次確認清除";
+        setTimeout(() => { shotLogClearButton.textContent = "全部清除"; }, 3000);
+        return;
+      }
+      shotClearArmedUntil = 0;
+      shotLogClearButton.textContent = "全部清除";
+      const count = shotRecords.length;
+      shotRecords = [];
+      saveShotRecords();
+      renderShotLog();
+      appendControlLog(`已清除射擊紀錄（${count} 點）`);
+    });
+
     flywheelSlider.addEventListener("input", async () => {
-      if (!controlArmed || !matchStarted || operatorMode !== MODE_FULL_MANUAL) {
+      if (!controlArmed || !matchStarted || !operatorSetsFlywheel(operatorMode)) {
         setFlywheelSlider(0);
         return;
       }
@@ -2137,6 +2445,12 @@
         if (event.repeat) return;
         if (key === "enter") await emergencyStop();
         else await emergencyDisconnect();
+        return;
+      }
+      // S: record a shot-table point (enabled or not; sends nothing).
+      if (key === "s" && !typing && !event.repeat && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        recordShot();
         return;
       }
       if (typing || !controlArmed || event.repeat) return;
@@ -2196,6 +2510,7 @@
     updatePanelDensity();
     drawField();
     renderTargetAndAuto();
+    renderShotLog();
   </script>
 </body>
 </html>

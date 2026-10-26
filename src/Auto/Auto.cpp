@@ -41,8 +41,26 @@ void Auto::update() {
         return;
     }
 
-    const bool firePressed = ManualControl::takeFireRequest();
     const bool visionHealthy = Vision::isConnected() && Vision::isVisionReady();
+    if (mode == OperatorMode::TEST) {
+        // Test mode (2026-10-26): only the turret is Auto's -- it follows
+        // the selected hole (or the Orin's pick) plus the aim offset, the
+        // same as in the autos. Elevation, flywheel and F stay with
+        // ManualControl (F fires the tower directly there), so no shot
+        // table, no fire sequence. No camera: hold the turret.
+        ManualControl::takeFireRequest(); // never set in test; never carry one over
+        enterFireState(FireState::IDLE);
+        haveLastShot = false;
+        if (visionHealthy) {
+            Shooter::setRotateVisionFollow();
+            Shooter::setRotateAimOffsetPx(ManualControl::getAimOffsetPx());
+        } else {
+            Shooter::disableRotate();
+        }
+        return;
+    }
+
+    const bool firePressed = ManualControl::takeFireRequest();
     if (!visionHealthy) {
         // No camera: nothing to aim at. Hold the turret, spin down.
         Shooter::disableRotate();

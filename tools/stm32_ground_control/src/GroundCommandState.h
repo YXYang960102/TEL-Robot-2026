@@ -7,7 +7,7 @@
 
 // Ground-station side of wireless control: turns the PC Dashboard's line
 // protocol (the same one the Mega speaks over USB: E, X, K, T,<l>,<r>,
-// ROT,<d>, ANG,<d>, TGT,<0..9>, AUTO,<1..4>, MODE,<0..2>, FLY,<0..1>, F, M;
+// ROT,<d>, ANG,<d>, TGT,<0..9>, AUTO,<1..4>, MODE,<0..3>, FLY,<0..1>, F, M;
 // ANGT is accepted but has no radio channel) into the RC channel state
 // (rcmap_command, table v2) that goes out over ELRS, and turns the robot's
 // status coming back (rcmap_status in Battery frames) into lines for the PC.
@@ -16,9 +16,11 @@
 //   ROT / ANG   -> nudge (CH7), held while non-zero; elevation wins if both
 //   F           -> fire (CH5) high for FIRE_PULSE_MS
 //   TGT,<n>     -> target hole (CH3), kept until changed or the next E
-//   MODE,<n>    -> operator mode (CH4) straight to that level
-//   FLY,<f>     -> Falcon 0..1, on CH4 with the mode (full manual only;
-//                  a mode change, E, X and a PC timeout set it to 0)
+//   MODE,<n>    -> operator mode (CH4) straight to that level; 3 = TEST:
+//                  CH4 full manual (with its Falcon) + CH9 high
+//   FLY,<f>     -> Falcon 0..1, on CH4 with the mode (full manual and
+//                  test only; a mode change, E, X and a PC timeout set it
+//                  to 0)
 //   FLYO,<n>    -> the autos' flywheel offset -20..20 %, on CH4 with the
 //                  auto level (same resets; dropped in full manual)
 //   AUTO,<n>    -> auto path (CH8) for AUTO_PULSE_MS, then none
@@ -111,7 +113,7 @@ public:
     // Every REPORT_PERIOD_MS: "$WIRELESS,<fresh>,<armed>,<owner>,<pins>,
     // <feedBusy>,<rotateManual>,<rcLink>,<ageMs>,<mode>" where owner is 0
     // none, 1 wired, 2 wireless, and mode is 0 full auto, 1 semi auto,
-    // 2 full manual, -1 not reported.
+    // 2 full manual, 3 test, -1 not reported.
     // Then "$AIM,<fresh>,<distanceCm>,<elevationPulseUs>,<selectedId>,
     // <targetId>,<valid>,<aimOffsetPx>" from the latest aim frame (fresh 0
     // and zeros when none came within STALE_MS).

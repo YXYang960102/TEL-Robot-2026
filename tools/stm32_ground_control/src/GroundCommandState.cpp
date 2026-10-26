@@ -60,6 +60,7 @@ void GroundCommandState::release(uint32_t nowMs) {
     // Back to full manual, flywheel off: the robot refuses an Enable whose
     // CH4 isn't exactly that, and every release ends any auto mode.
     cmd.mode_us = RCMAP_MODE_FULL_MANUAL_US;
+    cmd.test_mode = false;
     cmd.flywheel = 0.0f;
     cmd.flywheel_offset_pct = 0;
     pcHold = false;
@@ -212,8 +213,9 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
             return;
         }
         notePcLine(nowMs, emit, ctx);
-        // Kept only in full manual (the robot ignores it otherwise, and a
-        // mode change starts the flywheel from 0 on both ends).
+        // Kept only in full manual and test (both carry it on CH4; the
+        // robot ignores it otherwise, and a mode change starts the
+        // flywheel from 0 on both ends).
         cmd.flywheel = rcmap_mode_from_us(cmd.mode_us) == RCMAP_MODE_FULL_MANUAL ? v : 0.0f;
         return;
     }
@@ -237,7 +239,7 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
         const long maximum = isTarget ? RCMAP_TARGET_MAX
                            : isAutoPath ? RCMAP_AUTO_PATHS
                            : isFlywheelOffset ? RCMAP_AUTO_OFFSET_MAX_PCT
-                                        : RCMAP_MODE_FULL_MANUAL;
+                                        : RCMAP_MODE_TEST;
         if (end == digits || *end != '\0' || n < minimum || n > maximum) {
             emitLine(emit, ctx, "$GROUND_EVENT,BAD_COMMAND");
             return;
@@ -249,13 +251,15 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
         } else if (isTarget) {
             cmd.target = static_cast<uint8_t>(n);
         } else if (isModeSet) {
-            // The Dashboard's mode menu: CH4 straight to that level.
+            // The Dashboard's mode menu: CH4 straight to that level (TEST:
+            // full manual's level + CH9 high).
             const uint8_t mode = static_cast<uint8_t>(n);
-            if (mode != rcmap_mode_from_us(cmd.mode_us)) {
+            if (mode != rcmap_command_mode(&cmd)) {
                 cmd.flywheel = 0.0f;
                 cmd.flywheel_offset_pct = 0;
             }
-            cmd.mode_us = rcmap_mode_to_us(mode);
+            cmd.test_mode = mode == RCMAP_MODE_TEST;
+            cmd.mode_us = rcmap_mode_to_us(cmd.test_mode ? RCMAP_MODE_FULL_MANUAL : mode);
             emitModeEvent(mode, emit, ctx);
         } else if (cmd.auto_path == RCMAP_AUTO_NONE) {
             // A new press only after the previous pulse ended (the robot
@@ -276,11 +280,13 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
             fireStartMs = nowMs;
         }
     } else {
-        // Same cycle as the Mega's wired M: manual -> semi -> full -> manual.
-        const uint8_t mode = rcmap_mode_from_us(cmd.mode_us);
+        // Same cycle as the Mega's wired M: manual -> semi -> full -> manual
+        // (test -> manual).
+        const uint8_t mode = rcmap_command_mode(&cmd);
         const uint8_t next = mode == RCMAP_MODE_FULL_MANUAL ? RCMAP_MODE_SEMI_AUTO
                            : mode == RCMAP_MODE_SEMI_AUTO   ? RCMAP_MODE_FULL_AUTO
                                                             : RCMAP_MODE_FULL_MANUAL;
+        cmd.test_mode = false;
         cmd.mode_us = rcmap_mode_to_us(next);
         cmd.flywheel = 0.0f;
         cmd.flywheel_offset_pct = 0;
@@ -291,6 +297,7 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
 void GroundCommandState::emitModeEvent(uint8_t mode, GroundEmitFn emit, void* ctx) {
     emitLine(emit, ctx, mode == RCMAP_MODE_FULL_MANUAL ? "$GROUND_EVENT,MODE_FULL_MANUAL"
                       : mode == RCMAP_MODE_SEMI_AUTO   ? "$GROUND_EVENT,MODE_SEMI_AUTO"
+                      : mode == RCMAP_MODE_TEST        ? "$GROUND_EVENT,MODE_TEST"
                                                        : "$GROUND_EVENT,MODE_FULL_AUTO");
 }
 
@@ -368,8 +375,9 @@ void RobotStatusTracker::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
     const bool isFresh = fresh(nowMs);
     const uint8_t f = isFresh ? last.flags : 0;
     const int owner = (f & RCMAP_STATUS_OWNER_WIRED) ? 1 : ((f & RCMAP_STATUS_OWNER_WIRELESS) ? 2 : 0);
-    // Operator mode: 0 full auto, 1 semi, 2 full manual, -1 not reported.
-    const uint8_t mode = isFresh ? rcmap_status_code_mode(last.event_code) : RCMAP_MODE_UNKNOWN;
+    // Operator mode: 0 full auto, 1 semi, 2 full manual, 3 test (full
+    // manual + the TEST flag), -1 not reported.
+    const uint8_t mode = isFresh ? rcmap_status_mode(last.event_code, last.flags) : RCMAP_MODE_UNKNOWN;
     char text[96];
     snprintf(text, sizeof(text), "$WIRELESS,%d,%d,%d,%d,%d,%d,%d,%lu,%d",
              isFresh ? 1 : 0,

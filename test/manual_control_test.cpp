@@ -936,6 +936,112 @@ void testWirelessFlywheel() {
     assert(nearly(rec.flywheelCommand, 0.0));
 }
 
+// ------------------------------------------------ test mode (2026-10-26)
+
+// MODE,3: the turret follows the camera; elevation, flywheel and F stay the
+// operator's, exactly as in full manual.
+void testTestModeWired() {
+    using namespace TuningConstants::Auto;
+    reset();
+    hoststub::visionReady = true;
+    targetInView();
+    armWired();
+    send("MODE,3"); step();
+    assert(saw("MODE_TEST") && ManualControl::getOperatorMode() == OperatorMode::TEST);
+    assert(rec.rotateMode == "vision");
+    // Flywheel: the slider, not the shot table (no pre-spin either).
+    assert(nearly(rec.flywheelCommand, 0.0));
+    send("FLY,0.46"); step();
+    assert(nearly(rec.flywheelCommand, 0.46) && rec.rotateMode == "vision");
+    // Elevation: the hold-to-move jog and ANGT, never the table.
+    const unsigned long tablePulses = rec.anglePulseSets;
+    send("ANG,1"); step();
+    assert(nearly(rec.angleCommand, 1.0) && rec.anglePulseSets == tablePulses);
+    assert(nearly(ManualControl::getElevationOffsetUs(), 0.0));
+    send("ANG,0"); step();
+    send("ANGT,120"); step();
+    assert(!saw("REJECTED_AUTO_MODE"));
+    // Left / right: aim-offset steps for the camera follow, not a jog.
+    send("ROT,1"); step();
+    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
+    assert(nearly(rec.aimOffsetPx, AIM_OFFSET_STEP_PX) && rec.rotateMode == "vision");
+    send("ROT,0"); step();
+    // F fires the tower right away, locked or not (no FIRE_NOT_READY).
+    hoststub::shooterReady = false;
+    Serial.output.clear();
+    send("F"); step();
+    assert(saw("FEED_TRIGGER_SENT") && !saw("FIRE_NOT_READY") && Dribbler::getTriggerCount() == 1);
+    // FLYO is an autos-only offset: ignored here.
+    send("FLYO,10"); step();
+    assert(ManualControl::getFlywheelOffsetPct() == 0 && nearly(rec.flywheelCommand, 0.46));
+    // Target holes still select (the camera locks the chosen one).
+    send("TGT,5"); step();
+    assert(saw("TARGET_SELECTED") && ManualControl::getTarget() == 5);
+    // No camera: the turret holds; the operator keeps the flywheel.
+    hoststub::visionReady = false;
+    send("K"); step();
+    assert(rec.rotateMode == "disabled" && nearly(rec.flywheelCommand, 0.46));
+    // Status: reported as full manual + the TEST flag (vision frames own
+    // the code's mode + 1 = 4 pattern).
+    runWithHeartbeat(500);
+    assert(rcmap_status_mode(rec.statusCode, rec.statusFlags) == RCMAP_MODE_TEST);
+    assert(!rcmap_status_is_vision(rec.statusCode) && !rcmap_status_is_aim(rec.statusCode));
+    assert(!(rec.statusFlags & RCMAP_STATUS_ROTATE_MANUAL));
+    // Leaving test zeroes the flywheel like every mode change.
+    send("MODE,2"); step();
+    assert(saw("MODE_FULL_MANUAL") && nearly(rec.flywheelCommand, 0.0) && rec.rotateMode == "manual");
+    // Disarm ends it; a new Enable starts in full manual.
+    send("MODE,3"); step();
+    send("X"); step();
+    assert(!ManualControl::isArmed() && ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
+}
+
+// Over the radio: CH4 full manual (+ Falcon) and CH9 high.
+void testTestModeWireless() {
+    reset();
+    hoststub::visionReady = true;
+    targetInView();
+    armWireless();
+    wireless.test_mode = true;
+    rcStep();
+    assert(saw("MODE_TEST") && ManualControl::getOperatorMode() == OperatorMode::TEST);
+    assert(rec.rotateMode == "vision");
+    wireless.flywheel = 0.55f;
+    rcStep();
+    assert(fabs(rec.flywheelCommand - 0.55) < 1e-4);
+    wireless.nudge = RCMAP_NUDGE_UP;
+    rcStep();
+    assert(nearly(rec.angleCommand, 1.0));
+    wireless.nudge = RCMAP_NUDGE_CENTER;
+    rcStep();
+    Serial.output.clear();
+    wireless.fire = true;
+    rcStep();
+    assert(saw("FEED_TRIGGER_SENT") && Dribbler::getTriggerCount() == 1);
+    wireless.fire = false;
+    rcStep();
+    // CH4 to semi auto: semi auto at once, whatever CH9 still says.
+    wireless.mode_us = RCMAP_MODE_SEMI_AUTO_US;
+    rcStep();
+    assert(ManualControl::getOperatorMode() == OperatorMode::SEMI_AUTO);
+    // Back, then CH9 low = full manual.
+    wireless.mode_us = RCMAP_MODE_FULL_MANUAL_US;
+    rcStep();
+    assert(ManualControl::getOperatorMode() == OperatorMode::TEST);
+    wireless.test_mode = false;
+    rcStep();
+    assert(ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
+    // An Enable with CH9 high is refused, like any non-manual CH4.
+    wireless.test_mode = true;
+    wireless.armed = false;
+    rcStep();
+    assert(!ManualControl::isArmed());
+    Serial.output.clear();
+    wireless.armed = true;
+    rcStep();
+    assert(saw("ENABLE_REJECTED_NOT_MANUAL") && !ManualControl::isArmed());
+}
+
 // ------------------------------------------- vision v2: target, fine-adjust
 
 void testAutoNeedsDistance() {
@@ -1081,7 +1187,7 @@ void testModeCommandAndTargetReset() {
     send("MODE,1"); step();
     assert(saw("MODE_SEMI_AUTO") && ManualControl::getOperatorMode() == OperatorMode::SEMI_AUTO);
     Serial.output.clear();
-    for (const char* bad : {"MODE,3", "MODE,-1", "MODE,", "MODE,2x"}) { send(bad); step(); }
+    for (const char* bad : {"MODE,4", "MODE,-1", "MODE,", "MODE,2x"}) { send(bad); step(); }
     assert(saw("BAD_COMMAND") && ManualControl::getOperatorMode() == OperatorMode::SEMI_AUTO);
     send("M"); step();                                    // M still cycles from there
     assert(ManualControl::getOperatorMode() == OperatorMode::FULL_AUTO);
@@ -1173,6 +1279,8 @@ int main() {
     testShotTableByHeight();
     testFineAdjustWired();
     testFineAdjustWireless();
+    testTestModeWired();
+    testTestModeWireless();
     testModeCommandAndTargetReset();
     testAimUplink();
     testVisionUplink();
