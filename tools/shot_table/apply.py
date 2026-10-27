@@ -849,11 +849,18 @@ def import_csv(xlsx, csv_path, dry_run):
 # ----------------------------------------------------------------- main
 
 def find_pio():
-    for cand in (shutil.which("pio"),
+    """The PlatformIO command as a list, or None: pio on PATH, the VS Code
+    extension's own copy (Mac / Windows), or PlatformIO installed with pip
+    into this Python (`py -m pip install platformio` on Windows, run as
+    `python -m platformio`)."""
+    for cand in (shutil.which("pio"), shutil.which("platformio"),
                  os.path.expanduser("~/.platformio/penv/bin/pio"),
                  os.path.expanduser("~/.platformio/penv/Scripts/pio.exe")):
         if cand and os.path.exists(cand):
-            return cand
+            return [cand]
+    import importlib.util
+    if importlib.util.find_spec("platformio") is not None:
+        return [sys.executable, "-m", "platformio"]
     return None
 
 
@@ -920,9 +927,10 @@ def main():
     if args.upload:
         pio = find_pio()
         if pio is None:
-            sys.exit("找不到 PlatformIO（pio）。請先安裝，或用 VS Code 的 PlatformIO 燒錄。")
+            sys.exit("找不到 PlatformIO（pio）。安裝：python3 -m pip install -U platformio"
+                     "（Windows：py -m pip install -U platformio），或裝 VS Code 的 PlatformIO IDE。")
         print(f"編譯並燒錄 Mega（{args.env}）…")
-        sys.exit(subprocess.call([pio, "run", "-e", args.env, "-t", "upload"], cwd=ROOT))
+        sys.exit(subprocess.call(pio + ["run", "-e", args.env, "-t", "upload"], cwd=ROOT))
 
 
 if __name__ == "__main__":

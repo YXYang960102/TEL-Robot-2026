@@ -23,7 +23,25 @@
 3. 把 `shot_table.xlsx` 和 `src/Constants/ShotTableData.h` 一起 commit，隊友
    pull 下來就同步了。
 
-不需要安裝任何 Python 套件。燒錄要有 PlatformIO（`pio`），找不到時會提示。
+不需要安裝任何 Python 套件。燒錄要有 PlatformIO：它會依序找 PATH 上的 `pio`、
+VS Code PlatformIO 擴充功能自己的那份、最後是用 pip 裝進同一個 Python 的
+PlatformIO（`python -m platformio`）。都沒有時會提示怎麼裝。
+
+## Mac / Windows 指令對照
+
+先進到專案資料夾（Mac：`cd /Users/jeremy/Desktop/FRC8169/TEL_Robot_2026`；
+Windows 是你 clone 的位置，例如
+`cd C:\Users\JasonPro\Desktop\TEL2026\code\YXY\TEL-Robot-2026`）。
+
+| 做什麼 | Mac（Terminal） | Windows（PowerShell） |
+|---|---|---|
+| 裝 PlatformIO（只要一次；已裝 VS Code 擴充功能可跳過） | `python3 -m pip install -U platformio` | `py -m pip install -U platformio` |
+| 只檢查 Excel | `python3 tools/shot_table/apply.py --check` | `py tools/shot_table/apply.py --check` |
+| 看 S 紀錄會改什麼 | `python3 tools/shot_table/apply.py --import --check` | `py tools/shot_table/apply.py --import --check` |
+| S 紀錄寫進 Excel + 燒 Mega | `python3 tools/shot_table/apply.py --import --upload` | `py tools/shot_table/apply.py --import --upload` |
+| 只用 Excel 更新並燒 Mega | `python3 tools/shot_table/apply.py --upload` | `py tools/shot_table/apply.py --upload` |
+
+燒錄前在 Dashboard 按斷線（不然序列埠被佔住），並關掉 Excel。
 
 ## 用 Dashboard 按 S 記錄（2026-10-26）
 
