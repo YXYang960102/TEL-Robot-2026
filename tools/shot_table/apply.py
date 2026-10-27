@@ -13,7 +13,8 @@
 The Excel (tools/shot_table/shot_table.xlsx), sheet "射擊表", row 1 = headers,
 one measured point per row:
 
-  洞口      Dashboard key 1-9 (1 left-bottom, 2 left-mid, 3 left-top ... 9 right-top)
+  洞口      Dashboard key 1-9 (1 left-bottom, 2 left-mid, 3 left-top ... 9 right-top),
+            10 / 11 / 12 = the bonus holes left / middle / right (keys Q W E)
   距離(m)   the camera distance shown on the Dashboard while locked, 0.5-15 m, <= 2 decimals
   仰角(us)  elevation servo pulse, whole number 500-2500
   轉速      Falcon command, in the unit of the next column
@@ -27,8 +28,9 @@ Other columns (notes, dates...) may be added anywhere, but need a header of
 their own; they are ignored. Rows may be in any order; empty rows are
 skipped. Any error -> nothing is written and nothing is uploaded.
 
-A hole with no rows uses its row's center hole (1/7 -> 4, 2/8 -> 5, 3/9 -> 6)
-on the robot; if that has none either, the autos never fire at that row.
+A grid hole with no rows uses its row's center hole (1/7 -> 4, 2/8 -> 5,
+3/9 -> 6) on the robot; if that has none either, the autos never fire at
+that row. A bonus hole (10-12) with no rows is never fired at.
 
 Standard library only (no openpyxl), so it runs on any Python 3.8+.
 """
@@ -217,8 +219,8 @@ def parse_rows(cells, what=None):
             continue
         try:
             hole = number(vals["hole"], cell_name(row, found["hole"]), "洞口")
-            if hole != hole.to_integral_value() or not 1 <= hole <= 9:
-                raise TableError(f"{cell_name(row, found['hole'])}：洞口要是 1–9 的整數，現在是「{vals['hole']}」")
+            if hole != hole.to_integral_value() or not 1 <= hole <= 12:
+                raise TableError(f"{cell_name(row, found['hole'])}：洞口要是 1–12 的整數（10–12 是加分框左中右），現在是「{vals['hole']}」")
             dist = number(vals["dist"], cell_name(row, found["dist"]), "距離")
             if not Decimal("0.5") <= dist <= Decimal("15") or decimals(dist) > 2:
                 raise TableError(f"{cell_name(row, found['dist'])}：距離要在 0.5–15 m、最多 2 位小數，現在是「{vals['dist']}」")
@@ -272,6 +274,8 @@ def parse_points(cells):
 # ----------------------------------------------------------------- header
 
 FALLBACK = {1: 4, 7: 4, 2: 5, 8: 5, 3: 6, 9: 6}
+HOLES = range(1, 13)       # 1-9 the grid, 10-12 the bonus holes (Q W E)
+BONUS = {10: "加分左", 11: "加分中", 12: "加分右"}
 
 
 def render_header(points):
@@ -280,7 +284,7 @@ def render_header(points):
         "// DO NOT EDIT BY HAND: change the Excel and run",
         "//   python3 tools/shot_table/apply.py --upload",
         "//",
-        "// One table per Dashboard hole (key 1-9): camera distance (cm) -> Falcon",
+        "// One table per Dashboard hole (keys 1-9; 10-12 = bonus Q W E): camera distance (cm) -> Falcon",
         "// command (per mille) and elevation pulse (us), ascending by distance.",
         "// A hole with no points uses its row's center hole (TuningConstants::",
         "// ShotTable::tableForVisionId). Integers keep it small in the Mega's RAM.",
@@ -297,10 +301,13 @@ def render_header(points):
         "};",
         "",
     ]
-    for h in range(1, 10):
+    for h in HOLES:
         pts = points.get(h, [])
         if not pts:
-            lines.append(f"// Hole {h}: no points (uses hole {FALLBACK.get(h, h)}).")
+            if h in BONUS:
+                lines.append(f"// Hole {h} (bonus): no points (never fired at).")
+            else:
+                lines.append(f"// Hole {h}: no points (uses hole {FALLBACK.get(h, h)}).")
             continue
         lines.append(f"constexpr Point HOLE_{h}[] = {{")
         for cm, permille, us in pts:
@@ -308,13 +315,13 @@ def render_header(points):
         lines.append("};")
     lines.append("")
     lines.append("// Index = Dashboard hole key (0 unused).")
-    lines.append("constexpr const Point* HOLE_POINTS[10] = {")
+    lines.append("constexpr const Point* HOLE_POINTS[13] = {")
     lines.append("    nullptr,")
-    for h in range(1, 10):
+    for h in HOLES:
         lines.append(f"    {'HOLE_' + str(h) if points.get(h) else 'nullptr'},")
     lines.append("};")
-    counts = ", ".join(str(len(points.get(h, []))) for h in range(1, 10))
-    lines.append(f"constexpr uint8_t HOLE_COUNTS[10] = {{0, {counts}}};")
+    counts = ", ".join(str(len(points.get(h, []))) for h in HOLES)
+    lines.append(f"constexpr uint8_t HOLE_COUNTS[13] = {{0, {counts}}};")
     lines.append("")
     lines.append("}  // namespace ShotTableData")
     lines.append("")
@@ -323,7 +330,7 @@ def render_header(points):
 
 def parse_header(text):
     points = {}
-    for m in re.finditer(r"constexpr Point HOLE_(\d)\[\] = \{(.*?)\};", text, re.S):
+    for m in re.finditer(r"constexpr Point HOLE_(\d+)\[\] = \{(.*?)\};", text, re.S):
         pts = [tuple(int(x) for x in p) for p in re.findall(r"\{(\d+), (\d+), (\d+)\}", m.group(2))]
         points[int(m.group(1))] = pts
     return points
@@ -331,7 +338,7 @@ def parse_header(text):
 
 def describe_changes(old, new):
     out = []
-    for h in range(1, 10):
+    for h in HOLES:
         o = {p[0]: p for p in old.get(h, [])}
         n = {p[0]: p for p in new.get(h, [])}
         for cm in sorted(set(o) | set(n)):
@@ -446,7 +453,7 @@ def write_xlsx(path, points):
 
     # Sheet 1: the table the operator edits (only the five columns).
     rows = [[COLS["hole"], COLS["dist"], COLS["elev"], COLS["fly"], COLS["unit"]]]
-    for h in range(1, 10):
+    for h in HOLES:
         for cm, permille, us in points.get(h, []):
             rows.append([h, round(cm / 100, 2), us, round(permille / 10, 1), "%"])
     sheet_rows = []
@@ -459,7 +466,7 @@ def write_xlsx(path, points):
     dv = (
         '<dataValidations count="5">'
         '<dataValidation type="whole" allowBlank="1" showErrorMessage="1" errorTitle="洞口" '
-        f'error="洞口要是 1–9 的整數" sqref="A2:A{MAX_ROWS}"><formula1>1</formula1><formula2>9</formula2></dataValidation>'
+        f'error="洞口要是 1–12 的整數（10–12 是加分框左中右）" sqref="A2:A{MAX_ROWS}"><formula1>1</formula1><formula2>12</formula2></dataValidation>'
         '<dataValidation type="decimal" allowBlank="1" showErrorMessage="1" errorTitle="距離" '
         f'error="距離 0.5–15 m" sqref="B2:B{MAX_ROWS}"><formula1>0.5</formula1><formula2>15</formula2></dataValidation>'
         '<dataValidation type="whole" allowBlank="1" showErrorMessage="1" errorTitle="仰角" '
@@ -529,7 +536,7 @@ def write_xlsx(path, points):
         "格式（嚴格）",
         "- 第 1 列是欄位名稱。「洞口」「距離(m)」「仰角(us)」「轉速」「轉速單位」五個必須各出現一次、名稱一字不差。",
         "- 若插入其他欄位，新欄位一定要有名稱；它們不會被讀取。",
-        "- 洞口：Dashboard 的編號 1–9（1 左下、2 左中、3 左上 … 9 右上）。",
+        "- 洞口：Dashboard 的編號 1–9（1 左下、2 左中、3 左上 … 9 右上）；10、11、12 是最上面的加分框左、中、右（Dashboard 按 Q、W、E 選）。",
         "- 距離：鎖定目標時 Dashboard 顯示的相機距離（不是捲尺），0.5–15 m，最多 2 位小數。",
         "- 仰角：Dashboard 的仰角脈寬，500–2500 的整數。",
         "- 轉速單位：用下拉選單選「%」或「us」，每一列可以不同。",
@@ -540,6 +547,7 @@ def write_xlsx(path, points):
         "",
         "沒有資料的洞",
         "- 會借用同一排中間洞的值：1、7 用 4，2、8 用 5，3、9 用 6。",
+        "- 加分框（10–12）不借用：沒有資料的加分框，自動模式不會對它發射。",
         "- Mega 在兩個量測點之間用直線內插；比最近的點還近就用最近的點；比最遠的點還遠就用最遠的點。",
         "- 曲線圖上的轉速曲線是 Excel 的乘冪趨勢線（y = a·x^b，從原點出發），只是用來看資料合不合理、哪個點量歪了；Mega 不是照這條曲線打。",
         "",
@@ -907,11 +915,14 @@ def main():
 
     total = sum(len(p) for p in points.values())
     print(f"讀到 {total} 個點：" + "，".join(f"洞口 {h} {len(points[h])} 點" for h in sorted(points)))
-    missing = [h for h in range(1, 10) if h not in points]
+    missing = [h for h in HOLES if h not in points]
     for h in missing:
         src = FALLBACK.get(h)
-        note = f"借用洞口 {src}" if src in points else "同排中間洞也沒有 -> 自動模式不會對它發射"
-        print(f"  洞口 {h} 沒有資料：{note}")
+        if h in BONUS:
+            note = "自動模式不會對它發射（加分框不借用別的洞）"
+        else:
+            note = f"借用洞口 {src}" if src in points else "同排中間洞也沒有 -> 自動模式不會對它發射"
+        print(f"  洞口 {h}{'（' + BONUS[h] + '）' if h in BONUS else ''} 沒有資料：{note}")
     changes = describe_changes(old, points)
     print("改動：" if changes else "跟目前的射擊表相同，沒有改動。")
     for line in changes:

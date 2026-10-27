@@ -188,12 +188,14 @@ namespace ShotTable {
 //                     Dashboard "elevation pulse" readout (a positional
 //                     servo: a pulse is a position, no angle calibration).
 //
-// ONE TABLE PER DASHBOARD HOLE (key 1-9), generated from the Excel
-// tools/shot_table/shot_table.xlsx into ShotTableData.h (2026-10-18): edit
-// the Excel and run `python3 tools/shot_table/apply.py --upload`, never the
-// generated header. A hole with no points uses its row's center hole
-// (1/7 -> 4, 2/8 -> 5, 3/9 -> 6); with none there either, the autos never
-// fire at it. The bonus holes (vision ids 1-3) have no table.
+// ONE TABLE PER DASHBOARD HOLE (keys 1-9, bonus Q W E = holes 10-12 since
+// 2026-10-27), generated from the Excel tools/shot_table/shot_table.xlsx
+// into ShotTableData.h (2026-10-18): edit the Excel and run
+// `python3 tools/shot_table/apply.py --upload`, never the generated header.
+// A grid hole with no points uses its row's center hole (1/7 -> 4,
+// 2/8 -> 5, 3/9 -> 6); with none there either, the autos never fire at it.
+// A bonus hole with no points of its own is never fired at (no fallback:
+// it is smaller and higher than any grid hole).
 //
 // The key is the CAMERA's distance: read it off the Dashboard while locked
 // on the hole, never a tape measure (the camera's own bias is then
@@ -228,14 +230,18 @@ struct Table {
     int count;
 };
 
-// Orin vision id -> its hole's table (Dashboard key via OperatorTarget),
-// or that row's center hole when the hole has no points; {nullptr, 0} for
-// 0, the bonus holes 1-3, unknown ids and an empty row (Auto never fires).
+// Orin vision id -> its hole's table (Dashboard hole via OperatorTarget),
+// or, for a grid hole with no points, that row's center hole; {nullptr, 0}
+// for 0, unknown ids, a bonus hole without points and an empty row (Auto
+// never fires).
 inline Table tableForVisionId(int visionId) {
-    for (uint8_t hole = 1; hole <= 9; hole++) {
+    for (uint8_t hole = 1; hole <= OperatorTarget::LAST_HOLE; hole++) {
         if (OperatorTarget::visionIdForHole(hole) != visionId) continue;
         if (ShotTableData::HOLE_COUNTS[hole] > 0) {
             return {ShotTableData::HOLE_POINTS[hole], ShotTableData::HOLE_COUNTS[hole]};
+        }
+        if (hole >= OperatorTarget::FIRST_BONUS_HOLE) {
+            return {nullptr, 0};
         }
         const uint8_t center = static_cast<uint8_t>(4 + (hole - 1) % 3); // same row, middle column
         if (ShotTableData::HOLE_COUNTS[center] > 0) {

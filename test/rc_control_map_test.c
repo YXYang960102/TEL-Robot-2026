@@ -25,7 +25,7 @@ static void test_round_trip(void) {
     int ch[16];
     rcmap_encode(&c, ch);
     assert(ch[RCMAP_CH_FORWARD] == 2000 && ch[RCMAP_CH_TURN] == 1250);
-    assert(ch[RCMAP_CH_TARGET] == 1700 && ch[RCMAP_CH_MODE] == 1750);
+    assert(ch[RCMAP_CH_TARGET] == 1560 && ch[RCMAP_CH_MODE] == 1750); /* 1000 + 80*7 */
     assert(ch[RCMAP_CH_FIRE] == 2000 && ch[RCMAP_CH_ARM] == 2000);
     assert(ch[RCMAP_CH_NUDGE] == 1600 && ch[RCMAP_CH_AUTO] == 1600);
     assert(ch[8] == 1500 && ch[9] == 1500 && ch[15] == 1500);
@@ -44,7 +44,7 @@ static void test_round_trip(void) {
 
     /* Out-of-range fields: axes clamp, NaN is neutral, bad levels send none. */
     c = base();
-    c.forward = 5.0f; c.turn = NAN; c.target = 12; c.nudge = 9; c.auto_path = 7;
+    c.forward = 5.0f; c.turn = NAN; c.target = 13; c.nudge = 9; c.auto_path = 7;
     rcmap_encode(&c, ch);
     assert(ch[RCMAP_CH_FORWARD] == 2000 && ch[RCMAP_CH_TURN] == 1500);
     assert(ch[RCMAP_CH_TARGET] == 1000 && ch[RCMAP_CH_NUDGE] == 1000 && ch[RCMAP_CH_AUTO] == 1000);
@@ -63,10 +63,10 @@ static void test_elrs_hybrid_values(void) {
     const int six[6] = {988, 1193, 1398, 1602, 1807, 2012};
     rcmap_command d;
     for (uint8_t k = 0; k < 5; k++) {
-        int ch[16] = {1500, 1500, 1501, 2000, 988, 2012, six[k], six[4 - k], 1500, 1500};
+        int ch[16] = {1500, 1500, 1401, 2000, 988, 2012, six[k], six[4 - k], 1500, 1500};
         assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
         assert(d.nudge == k && d.auto_path == 4 - k && d.armed && !d.fire);
-        assert(d.target == RCMAP_TARGET_NONE + 5); /* 1501 -> hole 5 */
+        assert(d.target == RCMAP_TARGET_NONE + 5); /* 1401 -> hole 5 (1000 + 80*5) */
     }
     int ch[16] = {1500, 1500, 1000, 2000, 2012, 988, 988, 988, 1500, 1500};
     assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.fire && !d.armed);
@@ -85,7 +85,7 @@ static void test_invalid_frames(void) {
         assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
     }
     /* Level channels between levels are corrupt, not rounded. */
-    memcpy(ch, ok, sizeof ch); ch[RCMAP_CH_TARGET] = 1150;  /* between holes 1 and 2 */
+    memcpy(ch, ok, sizeof ch); ch[RCMAP_CH_TARGET] = 1120;  /* between holes 1 and 2 (1080 / 1160) */
     assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
     memcpy(ch, ok, sizeof ch); ch[RCMAP_CH_NUDGE] = 1100;   /* between center and up */
     assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
@@ -448,6 +448,36 @@ static void test_line_check(void) {
     assert(rcmap_line_seal(buf, 21, 24) == 24);
 }
 
+/* CH3 (2026-10-27): 13 levels 80 us apart, 10..12 = the bonus holes. */
+static void test_target_levels(void) {
+    rcmap_command c, d;
+    int ch[16];
+    memset(&c, 0, sizeof c);
+    c.target = 12;
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_TARGET] == 1960);
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.target == 12);
+    /* +-35 us still that level, +-36 between levels: frame rejected. */
+    for (uint8_t k = 0; k <= RCMAP_TARGET_MAX; k++) {
+        const int level = 1000 + 80 * k;
+        for (int e = -35; e <= 35; e += 35) {
+            if (level + e < 900 || level + e > 2100) continue;
+            ch[RCMAP_CH_TARGET] = level + e;
+            assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.target == k);
+        }
+        if (k < RCMAP_TARGET_MAX) {
+            ch[RCMAP_CH_TARGET] = level + 40; /* halfway: neither */
+            assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+        }
+    }
+    ch[RCMAP_CH_TARGET] = 2040; /* past hole 12 */
+    assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    /* Out of range targets are sent as none. */
+    c.target = 13;
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_TARGET] == 1000);
+}
+
 int main(void) {
     test_round_trip();
     test_elrs_hybrid_values();
@@ -459,6 +489,7 @@ int main(void) {
     test_operator_mode();
     test_test_mode();
     test_line_check();
+    test_target_levels();
     printf("rc_control_map host tests: all asserts passed\n");
     return 0;
 }

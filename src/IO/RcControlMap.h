@@ -21,8 +21,10 @@
  *
  *   CH1  forward/back    1000..2000 us = -1..+1 (continuous)
  *   CH2  turn            1000..2000 us = -1..+1 (continuous; +1 = right)
- *   CH3  target hole     1000 + 100*k, k = 0..9 (0 = none, 1..9 = the
- *                        3x3 holes: 1 left-bottom .. 9 right-top)
+ *   CH3  target hole     1000 + 80*k, k = 0..12 (0 = none, 1..9 = the
+ *                        3x3 holes: 1 left-bottom .. 9 right-top,
+ *                        10..12 = the bonus holes left / middle / right,
+ *                        keys Q W E; 2026-10-27, was 100*k for 0..9)
  *   CH4  operator mode + Falcon (2026-10-17):
  *          2000                FULL_MANUAL, flywheel 0
  *          1750                SEMI_AUTO
@@ -79,7 +81,7 @@ extern "C" {
 #define RCMAP_CHANNEL_COUNT 10u
 
 #define RCMAP_TARGET_NONE 0u
-#define RCMAP_TARGET_MAX 9u
+#define RCMAP_TARGET_MAX 12u /* 10..12 = bonus holes (OperatorTarget.h) */
 
 #define RCMAP_NUDGE_CENTER 0u
 #define RCMAP_NUDGE_UP 1u

@@ -203,7 +203,8 @@ void ManualControl::processCommand(char* command) {
     // Elevation as an absolute angle (Dashboard slider / number box):
     // ANGT,<deg> = go to. The arrows use the ANG hold-to-move jog.
     const bool isAngleTarget = strncmp(command, "ANGT,", 5) == 0;
-    // TGT,<0..9>: the 3x3 target hole (keys 1-9; 0 = none).
+    // TGT,<0..12>: the target hole (keys 1-9 the 3x3 grid, 10-12 the bonus
+    // holes, keys Q W E; 0 = none).
     const bool isTarget = strncmp(command, "TGT,", 4) == 0;
     // AUTO,<1..4>: start auto path 1-4 (the Dashboard's path menu sends it
     // right after Enable).

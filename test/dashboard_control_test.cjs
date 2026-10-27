@@ -94,9 +94,11 @@ assert.deepEqual(hat(undefined), [0, 0]);
 { const axes = Array(10).fill(0); axes[9] = 0.71;
   const [r, a] = dpadAxes(new Set(), pad11c1.dpad, axes); assert.deepEqual([r, a], [-1, 0]); }
 
-// Keys 1-9 -> holes 1-9; anything else -> 0 (not a hole key). The hole
-// layout itself (1 left-bottom ... 9 right-top) is the firmware's number.
+// Keys 1-9 -> holes 1-9, Q W E -> the bonus holes 10-12 (2026-10-27);
+// anything else -> 0 (not a hole key). The hole layout itself (1
+// left-bottom ... 9 right-top) is the firmware's number.
 for (let n = 1; n <= 9; n++) assert.equal(targetForKey(String(n)), n);
-for (const k of ['0', '10', 'q', '', 'enter', ' ']) assert.equal(targetForKey(k), 0, k);
+assert.deepEqual(['q', 'w', 'e'].map(targetForKey), [10, 11, 12]);
+for (const k of ['0', '10', 'r', 'Q', '', 'enter', ' ', 'constructor']) assert.equal(targetForKey(k), 0, k);
 
 console.log('dashboard control key functions: all asserts passed');

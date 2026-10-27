@@ -25,9 +25,11 @@ int main() {
         assert(!(seen & (1u << id)));
         seen |= 1u << id;
     }
+    // The bonus holes (2026-10-27): Dashboard 10/11/12 -> vision 1/2/3.
+    assert(visionIdForHole(10) == 1 && visionIdForHole(11) == 2 && visionIdForHole(12) == 3);
     // Nothing selected / out of range -> NONE (the Orin's own pick).
     assert(visionIdForHole(0) == NONE);
-    assert(visionIdForHole(10) == NONE);
+    assert(visionIdForHole(13) == NONE);
     assert(visionIdForHole(255) == NONE);
 
     // No selection: any frame is the Orin's pick, including bonus holes.

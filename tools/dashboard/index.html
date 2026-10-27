@@ -361,30 +361,91 @@
       background: rgba(232, 91, 91, 0.14);
     }
 
-    /* 3x3 target holes, drawn as seen from the robot: left column = 1-3. */
     #matchTimer.done { color: var(--red); }
+
+    /* Target board (2026-10-27): the bonus row (Q W E) over the 3x3 holes,
+       drawn as seen from the robot (left column = 1-3), big enough to read
+       at a glance, with the values being tuned right beside it. */
+    .target-board {
+      display: grid;
+      grid-template-columns: minmax(240px, 3fr) minmax(170px, 2fr);
+      gap: 14px;
+      padding: 12px;
+    }
 
     .hole-grid {
       display: grid;
-      grid-template-columns: repeat(3, 24px);
-      gap: 3px;
-      margin-top: 6px;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
     }
 
     .hole-grid span {
-      height: 18px;
-      border: 1px solid var(--line);
-      border-radius: 4px;
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 64px;
+      border: 2px solid var(--line);
+      border-radius: 10px;
       color: var(--muted);
-      font-size: 11px;
-      line-height: 18px;
-      text-align: center;
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+
+    .hole-grid span small {
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .hole-grid span.bonus {
+      min-height: 46px;
+      margin-bottom: 6px;
+      border-style: dashed;
+      font-size: 20px;
     }
 
     .hole-grid span.selected {
       border-color: var(--cyan);
       background: rgba(83, 183, 232, 0.25);
       color: var(--text);
+    }
+
+    /* The hole the camera has right now (valid frame). */
+    .hole-grid span.seen {
+      box-shadow: inset 0 0 0 3px var(--green);
+      color: var(--text);
+    }
+
+    .hole-grid span.seen::after {
+      content: "";
+      position: absolute;
+      top: 6px;
+      right: 8px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--green);
+    }
+
+    .target-readouts {
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+
+    .target-readouts .metric {
+      min-height: 0;
+    }
+
+    .target-readouts .value {
+      margin-top: 4px;
+      font-size: 30px;
+    }
+
+    @media (max-width: 720px) {
+      .target-board { grid-template-columns: 1fr; }
     }
 
     .stream-controls {
@@ -586,7 +647,28 @@
 
   <main id="dashboard">
     <div>
-      <section class="panel" data-panel="vision">
+      <section class="panel" data-panel="target">
+        <div class="section-title">
+          <span>Target / 目標洞（1–9、加分框 Q W E、0＝AI 自選）</span>
+          <span id="targetBoardState">--</span>
+        </div>
+        <div class="target-board">
+          <div class="hole-grid" aria-label="target holes">
+            <span id="hole10" class="bonus">Q<small>加分左</small></span><span id="hole11" class="bonus">W<small>加分中</small></span><span id="hole12" class="bonus">E<small>加分右</small></span>
+            <span id="hole3">3<small>左上</small></span><span id="hole6">6<small>中上</small></span><span id="hole9">9<small>右上</small></span>
+            <span id="hole2">2<small>左中</small></span><span id="hole5">5<small>中</small></span><span id="hole8">8<small>右中</small></span>
+            <span id="hole1">1<small>左下</small></span><span id="hole4">4<small>中下</small></span><span id="hole7">7<small>右下</small></span>
+          </div>
+          <div class="target-readouts">
+            <div class="metric"><div class="label">elevation / 仰角脈寬</div><div class="value" id="boardElevation">--</div></div>
+            <div class="metric"><div class="label">flywheel / 轉速（Falcon 實際）</div><div class="value" id="boardFlywheel">--</div><div class="subvalue" id="boardFlywheelCmd">--</div></div>
+            <div class="metric"><div class="label">distance / 相機距離</div><div class="value" id="boardDistance">--</div></div>
+          </div>
+        </div>
+        <div class="label" style="padding: 0 12px 10px">藍底＝選中的洞；綠框＝鏡頭現在鎖定的洞（目前只標得出鎖定中的那一個）。</div>
+      </section>
+
+      <section class="panel" data-panel="vision" style="margin-top:14px">
         <div class="section-title">
           <span>Vision / 視覺</span>
           <span id="packetAge">-- ms</span>
@@ -632,7 +714,7 @@
         </div>
         <div class="stream-controls">
           <button id="enableControl" disabled>Enable / 啟用輸出</button>
-          <span class="label">Xbox 手把：左蘑菇頭 前後・右蘑菇頭 轉向・十字鍵 ↑↓ 仰角 ←→ 水平（全手動按住移動；自動模式每按一下微調一格）・X 全自動・A 半自動・B 全手動・RB 發射・LB 轉台回正（待 AS5600）・Y 開始比賽｜鍵盤：1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・0 回到 AI 自選・S 記錄射擊點・Enter 停用・Space 停用並斷線｜測試模式（模式選單）：水平由鏡頭鎖定（←→ 微調），仰角、轉速、發射跟全手動一樣</span>
+          <span class="label">Xbox 手把：左蘑菇頭 前後・右蘑菇頭 轉向・十字鍵 ↑↓ 仰角 ←→ 水平（全手動按住移動；自動模式每按一下微調一格）・X 全自動・A 半自動・B 全手動・RB 發射・LB 轉台回正（待 AS5600）・Y 開始比賽｜鍵盤：1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・Q W E 選加分框左中右・0 回到 AI 自選・S 記錄射擊點・Enter 停用・Space 停用並斷線｜測試模式（模式選單）：水平由鏡頭鎖定（←→ 微調），仰角、轉速、發射跟全手動一樣</span>
         </div>
         <div class="stream-controls">
           <button id="startMatch" disabled>開始比賽 / Start（Y）</button>
@@ -660,7 +742,6 @@
         </div>
         <div class="grid">
           <div class="metric"><div class="label">target hole / 目標洞（1–9）</div><div class="value" id="targetHole">none / 未選</div>
-            <div class="hole-grid" aria-label="target holes"><span id="hole3">3</span><span id="hole6">6</span><span id="hole9">9</span><span id="hole2">2</span><span id="hole5">5</span><span id="hole8">8</span><span id="hole1">1</span><span id="hole4">4</span><span id="hole7">7</span></div>
             <div class="subvalue" id="aimState">--</div></div>
           <div class="metric"><div class="label">Falcon PWM / 飛輪 PWM</div><div class="value" id="falconPwm">--</div><div class="subvalue">command ratio, not RPM / 指令佔比，非轉速</div></div>
           <div class="metric"><div class="label">elevation pulse / 仰角脈寬</div><div class="value" id="anglePulse">--</div><div class="subvalue">500–2500 us, no limit switch / 無限位，量機構兩端</div></div>
@@ -745,7 +826,7 @@
   </main>
 
   <script>
-    const ids = ["tx", "ty", "distance", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed", "aimState", "distanceRaw", "matchTimer", "matchState"];
+    const ids = ["tx", "ty", "distance", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed", "aimState", "distanceRaw", "matchTimer", "matchState", "boardElevation", "boardFlywheel", "boardFlywheelCmd", "boardDistance", "targetBoardState"];
     const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     const connectButton = document.getElementById("connect");
     const demoButton = document.getElementById("demo");
@@ -861,7 +942,9 @@
     // robot records them (TEL slots 32-34 on USB). Through the ground
     // station there is no such telemetry, so the page shows what it sent,
     // once the robot's TARGET_SELECTED / AUTO_PATH_STARTED event comes back.
-    const HOLE_NAMES = ["", "左下", "左中", "左上", "中下", "中", "中上", "右下", "右中", "右上"];
+    // 10-12 = the bonus holes above the grid (keys Q W E, 2026-10-27).
+    const HOLE_NAMES = ["", "左下", "左中", "左上", "中下", "中", "中上", "右下", "右中", "右上", "加分左", "加分中", "加分右"];
+    const LAST_HOLE = 12;
     const AUTO_PATH_NAMES = ["", "左一", "左二", "右一", "右二"];
     let targetHole = 0;
     let autoPathThisEnable = 0;
@@ -1010,8 +1093,10 @@
       if (!operatorSetsFlywheel(operatorMode) && controlArmed) {
         const signed = `${flywheelOffsetPct > 0 ? "+" : ""}${flywheelOffsetPct}`;
         flywheelSliderValue.textContent = `射擊表轉速微調 ${signed}%（LT −1 / RT +1，換洞、換模式歸零）`;
+        el.boardFlywheelCmd.textContent = `射擊表 ${signed}%`;
         return;
       }
+      el.boardFlywheelCmd.textContent = `指令 ${Math.round(flywheelRatio * 100)}%`;
       flywheelSliderValue.textContent =
         `Falcon 指令 ${Math.round(flywheelRatio * 100)}%（LT −1 / RT +1；Enter/Space/逾時自動歸零）`;
     }
@@ -1033,9 +1118,23 @@
     }
 
     // Keys 1-9 -> holes: columns left to right, each from the bottom up
-    // (1 left-bottom, 2 left-mid, 3 left-top, ... 9 right-top).
+    // (1 left-bottom, 2 left-mid, 3 left-top, ... 9 right-top); Q W E ->
+    // the bonus holes 10 / 11 / 12, left to right.
     function targetForKey(key) {
-      return /^[1-9]$/.test(key) ? Number(key) : 0;
+      if (/^[1-9]$/.test(key)) return Number(key);
+      const bonus = key.length === 1 ? "qwe".indexOf(key) : -1;
+      return bonus >= 0 ? 10 + bonus : 0;
+    }
+
+    // The hole the camera has in its current valid frame (green on the
+    // board), from TEL slots 5/6 or $AIM. 0 = none.
+    let seenHole = 0;
+    function setSeenHole(hole) {
+      if (hole === seenHole) return;
+      seenHole = hole;
+      for (let n = 1; n <= LAST_HOLE; n++) {
+        document.getElementById(`hole${n}`).classList.toggle("seen", n === hole);
+      }
     }
 
     // Slots 35-37 plus the frame (slots 5/6): is the camera locked on the
@@ -1054,6 +1153,7 @@
     function updateDistanceReadout(data) {
       const meters = distanceMeters(data);
       el.distance.textContent = meters === null ? "--" : `${meters.toFixed(2)} m`;
+      el.boardDistance.textContent = el.distance.textContent;
       el.distanceRaw.textContent = meters === null
         ? "看不到目標 / no target"
         : `${data.distance.toFixed(0)} mm · 相機到洞口的直線距離，填射擊表用這個`;
@@ -1097,8 +1197,10 @@
 
     // Inverse of src/Vision/OperatorTarget.h visionIdForHole(): Orin vision
     // id 4..12 (rows from the top, left to right) -> Dashboard key 1..9
-    // (columns left to right, each bottom-up). Example: 10 -> 1, 8 -> 5.
+    // (columns left to right, each bottom-up), and the bonus holes 1..3 ->
+    // 10..12. Example: 10 -> 1, 8 -> 5, 2 -> 11.
     function holeForVisionId(id) {
+      if (Number.isInteger(id) && id >= 1 && id <= 3) return id + 9;
       if (!Number.isInteger(id) || id < 4 || id > 12) return 0;
       const rowFromTop = Math.floor((id - 4) / 3);
       const col = (id - 4) % 3;
@@ -1143,7 +1245,7 @@
       if (demoTimer) return refuse("模擬資料不能記錄");
       if (now - shotSelectedAt > SHOT_READING_FRESH_MS) return refuse("收不到機器人的視覺資料");
       const hole = holeForVisionId(shotSelectedId);
-      if (!hole) return refuse("先按 1–9 選洞口（AI 自選時不知道是哪個洞）");
+      if (!hole) return refuse("先按 1–9 或 Q W E 選洞口（AI 自選時不知道是哪個洞）");
       const samples = distanceSamples.filter((sample) => now - sample.at <= SHOT_DISTANCE_WINDOW_MS);
       if (samples.length === 0) return refuse(`鏡頭沒看到洞口 ${hole}（沒有距離）`);
       const sorted = samples.map((sample) => sample.mm).sort((a, b) => a - b);
@@ -1196,7 +1298,7 @@
     }
 
     function isShotRecord(r) {
-      return r && Number.isInteger(r.hole) && r.hole >= 1 && r.hole <= 9 &&
+      return r && Number.isInteger(r.hole) && r.hole >= 1 && r.hole <= LAST_HOLE &&
         Number.isInteger(r.distanceCm) && Number.isInteger(r.elevationUs) &&
         Number.isFinite(r.flywheelPct);
     }
@@ -1274,8 +1376,11 @@
       const [, fresh, distanceCm, pulseUs, selectedId, targetId, valid, aimOffsetPx] = p;
       if (!fresh) {
         el.distance.textContent = "--";
+        el.boardDistance.textContent = "--";
         el.distanceRaw.textContent = "no robot aim data / 收不到機器人視覺資料";
         el.aimState.textContent = "--";
+        el.targetBoardState.textContent = "--";
+        setSeenHole(0);
         return;
       }
       const data = {
@@ -1284,7 +1389,10 @@
       };
       updateDistanceReadout(data);
       el.anglePulse.textContent = `${pulseUs} us`;
+      el.boardElevation.textContent = el.anglePulse.textContent;
       el.aimState.textContent = aimStateText(data);
+      el.targetBoardState.textContent = el.aimState.textContent;
+      setSeenHole(valid === 1 ? holeForVisionId(targetId) : 0);
       noteShotReadings({ valid: valid === 1, distanceMm: distanceCm * 10, targetId, selectedId, elevationUs: pulseUs });
     }
 
@@ -1303,6 +1411,7 @@
       // Falcon's STOP_PULSE_OFFSET_US).
       el.falconPwm.textContent = fresh === 1 && flywheelUs > 0
         ? `${flywheelUs} us (${(Math.abs(flywheelUs - 1500) / 5).toFixed(1)}%)` : "--";
+      el.boardFlywheel.textContent = el.falconPwm.textContent;
       if (fresh === 1) noteShotReadings({ falconUs: flywheelUs });
     }
 
@@ -1322,7 +1431,7 @@
 
     function renderTargetAndAuto() {
       el.targetHole.textContent = targetHole ? `${targetHole} · ${HOLE_NAMES[targetHole]}` : "none / 未選";
-      for (let n = 1; n <= 9; n++) {
+      for (let n = 1; n <= LAST_HOLE; n++) {
         document.getElementById(`hole${n}`).classList.toggle("selected", n === targetHole);
       }
       el.autoPath.textContent = autoPathThisEnable
@@ -1710,6 +1819,7 @@
         el.anglePulse.textContent = Number.isFinite(data.angleTargetDeg)
           ? `${data.angleTargetDeg.toFixed(1)}° · ${data.anglePulseUs} us`
           : `${data.anglePulseUs} us`;
+        el.boardElevation.textContent = el.anglePulse.textContent;
       }
       const hasAngle = Number.isFinite(data.angleTargetDeg) &&
         Number.isFinite(data.angleMinDeg) && Number.isFinite(data.angleMaxDeg);
@@ -1735,9 +1845,12 @@
       if (Number.isFinite(data.visionTargetId) && Number.isFinite(data.aimOffsetPx) &&
           Number.isFinite(data.elevationOffsetUs)) {
         el.aimState.textContent = aimStateText(data);
+        el.targetBoardState.textContent = el.aimState.textContent;
       }
+      setSeenHole(data.valid && Number.isInteger(data.targetId) ? holeForVisionId(data.targetId) : 0);
       if (Number.isFinite(data.falconPulseUs) && Number.isFinite(data.falconRatioPct)) {
         el.falconPwm.textContent = `${data.falconPulseUs} us (${data.falconRatioPct.toFixed(1)}%)`;
+        el.boardFlywheel.textContent = el.falconPwm.textContent;
       }
       // The firmware is the source of truth for whether outputs are
       // actually enabled (e.g. a watchdog timeout disables them without
@@ -2480,7 +2593,7 @@
       if (typing || !controlArmed || event.repeat) return;
       const hole = targetForKey(key);
       if (hole || key === "0") {
-        // 1-9: that hole; 0: back to the AI's own pick.
+        // 1-9 / Q W E: that hole; 0: back to the AI's own pick.
         event.preventDefault();
         sentTarget = hole;
         await sendControl(`TGT,${hole}`);

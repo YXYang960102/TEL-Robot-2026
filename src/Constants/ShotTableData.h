@@ -2,7 +2,7 @@
 // DO NOT EDIT BY HAND: change the Excel and run
 //   python3 tools/shot_table/apply.py --upload
 //
-// One table per Dashboard hole (key 1-9): camera distance (cm) -> Falcon
+// One table per Dashboard hole (keys 1-9; 10-12 = bonus Q W E): camera distance (cm) -> Falcon
 // command (per mille) and elevation pulse (us), ascending by distance.
 // A hole with no points uses its row's center hole (TuningConstants::
 // ShotTable::tableForVisionId). Integers keep it small in the Mega's RAM.
@@ -36,9 +36,12 @@ constexpr Point HOLE_6[] = {
 // Hole 7: no points (uses hole 4).
 // Hole 8: no points (uses hole 5).
 // Hole 9: no points (uses hole 6).
+// Hole 10 (bonus): no points (never fired at).
+// Hole 11 (bonus): no points (never fired at).
+// Hole 12 (bonus): no points (never fired at).
 
 // Index = Dashboard hole key (0 unused).
-constexpr const Point* HOLE_POINTS[10] = {
+constexpr const Point* HOLE_POINTS[13] = {
     nullptr,
     nullptr,
     nullptr,
@@ -49,7 +52,10 @@ constexpr const Point* HOLE_POINTS[10] = {
     nullptr,
     nullptr,
     nullptr,
+    nullptr,
+    nullptr,
+    nullptr,
 };
-constexpr uint8_t HOLE_COUNTS[10] = {0, 0, 0, 0, 2, 2, 2, 0, 0, 0};
+constexpr uint8_t HOLE_COUNTS[13] = {0, 0, 0, 0, 2, 2, 2, 0, 0, 0, 0, 0, 0};
 
 }  // namespace ShotTableData

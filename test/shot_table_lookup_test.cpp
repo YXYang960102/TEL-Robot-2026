@@ -120,7 +120,7 @@ int main() {
     }
 
     // lookupTarget: the id's table plus that hole's elevation trim; no
-    // table for id 0, the bonus holes 1-3 or unknown ids.
+    // table for id 0, a bonus hole (1-3) without points of its own, or unknown ids.
     {
         using namespace TuningConstants::ShotTable;
         for (int id = 4; id <= 12; id++) {

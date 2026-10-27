@@ -166,9 +166,16 @@ async function emergencyStopViaEnter() {
     await windowHandlers.keydown(key(k, { repeat: true }));
   }
   assert.deepEqual([...writes], ['TGT,1', 'TGT,5', 'TGT,9', 'TGT,0']);   // 0 = back to the AI's pick
-  // M, the arrows and the old letter keys are gone from the keyboard.
+  // Q W E: the bonus holes 10 / 11 / 12 (2026-10-27); repeats send nothing.
   writes.length = 0;
-  for (const k of ['m', 'ArrowUp', 'ArrowLeft', 'q', 'w', 'e', 'r', 's', 'a', 'd', 'f', 'l']) {
+  for (const k of ['q', 'w', 'e']) {
+    await windowHandlers.keydown(key(k));
+    await windowHandlers.keydown(key(k, { repeat: true }));
+  }
+  assert.deepEqual([...writes], ['TGT,10', 'TGT,11', 'TGT,12']);
+  // M, the arrows and the other old letter keys are gone from the keyboard.
+  writes.length = 0;
+  for (const k of ['m', 'ArrowUp', 'ArrowLeft', 'r', 's', 'a', 'd', 'f', 'l']) {
     await windowHandlers.keydown(key(k));
   }
   assert.equal(writes.length, 0);
@@ -916,6 +923,9 @@ async function emergencyStopViaEnter() {
   assert.equal(run('holeForVisionId(8)'), 5);
   assert.equal(run('holeForVisionId(6)'), 9);
   assert.equal(run('holeForVisionId(0)'), 0);
+  assert.equal(run('holeForVisionId(1)'), 10);          // bonus left / middle / right
+  assert.equal(run('holeForVisionId(3)'), 12);
+  assert.equal(run('holeForVisionId(13)'), 0);
 
   // Wired TEL with every slot: hole 5 = vision id 8, Falcon 1730 us = 46%.
   const telShot = ({ distance = 2500, targetId = 8, valid = 1, selected = 8, falcon = 1730, angle = 2063, mode = 3 } = {}) =>
@@ -969,7 +979,7 @@ async function emergencyStopViaEnter() {
   clock.t += 100; line(telShot({ falcon: 1800, selected: 0, targetId: 8, distance: 3000 }));
   await windowHandlers.keydown(key('s'));
   assert.equal(shots(), 1);
-  assert.match(elements.log.textContent, /先按 1–9 選洞口/);
+  assert.match(elements.log.textContent, /先按 1–9 或 Q W E 選洞口/);
   // Still moving (2.5 m -> 3 m inside the window): refused.
   for (const mm of [2500, 2600, 2700, 2800, 2900]) { clock.t += 100; line(telShot({ falcon: 1800, distance: mm })); }
   await windowHandlers.keydown(key('s'));
@@ -1018,6 +1028,35 @@ async function emergencyStopViaEnter() {
   await windowHandlers.keydown(key('s'));
   assert.equal(shots(), 1);
   await windowHandlers.keydown(key('Enter'));
+
+  // Target board: the hole in the camera's valid frame is marked "seen",
+  // its readouts mirror the Manual Control ones; a bonus hole records as
+  // hole 10-12.
+  clock.t += 3000;
+  await arm();
+  await start();
+  run('setOperatorMode(3)');
+  elements.flywheelSlider.value = '55';
+  await elements.flywheelSlider.handlers.input();
+  for (const mm of [3500, 3510, 3505]) {
+    clock.t += 100; line(telShot({ distance: mm, targetId: 2, selected: 2, falcon: 1775, angle: 2300 }));
+  }
+  assert.equal(run('seenHole'), 11);
+  assert.equal(elements.boardElevation.textContent, '2300 us');
+  assert.equal(elements.boardFlywheel.textContent, '1775 us (55.0%)');
+  assert.equal(elements.boardFlywheelCmd.textContent, '指令 55%');
+  assert.equal(elements.boardDistance.textContent, '3.50 m');      // the latest frame (3505 mm)
+  run('shotRecords = []');
+  await windowHandlers.keydown(key('s'));
+  assert.equal(run('shotRecords[0].hole'), 11);
+  clock.t += 100; line(telShot({ valid: 0, targetId: 0, selected: 2, falcon: 1775 }));
+  assert.equal(run('seenHole'), 0);
+  // Over the radio the same, from $AIM.
+  line('$AIM,1,280,2100,10,10,1,0');
+  assert.equal(run('seenHole'), 1);
+  line('$AIM,0,0,0,0,0,0,0');
+  assert.equal(run('seenHole'), 0);
+  run('shotRecords = []');
 
   // TEL slot 39 (2026-10-27): Mega <-> bridge lines dropped since boot.
   // (Each TEL line is also echoed into the log, hence the counts.)

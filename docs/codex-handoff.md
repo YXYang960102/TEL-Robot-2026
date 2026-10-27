@@ -5554,3 +5554,80 @@ this was implemented directly.
    - Enable, drive and fire should all work.
 2. Wireless with the motors running: the elevation readback should no longer jump, and no bogus "robot status says…" lines should appear.
 3. If 「丟棄」 climbs about 50/s, the two images don't match: recheck the bridge sha.
+
+## 2026-10-27 — Claude Code: bonus holes selectable (Q W E), shot table holes 10–12, big target board
+
+**User Request:** a teammate (蔡昇諺) raised three issues:
+1. If the selected hole is out of the camera view, the turret should turn toward it, not sit still.
+2. The Dashboard hole grid should be much larger, show the elevation and flywheel values beside it, and mark the holes that are detected.
+3. The bonus holes must be selectable (a key) so they can be tested, including their distance.
+
+Jeremy's decisions:
+- Bonus holes on keys **Q / W / E** (left / middle / right).
+- Bonus holes **go into the shot table**.
+- Search uses **prediction from the visible holes**.
+- **Claude does the Orin side, but later.** This round touches no Orin code.
+
+**Discussion Result.** The Orin (YOLO_Detect_single) already numbers a 4×3 grid:
+- row 0 = bonus holes 1, 2, 3 (`RED_TARGET_IDS`);
+- rows 1–3 = the 3×3 grid, ids 4–12;
+- `fit_affine` can place unseen ids from the visible holes.
+
+Today it rejects `MEGA_TARGET` ids 1–3 (`select()` requires 4..12). It reports only the selected hole, and sends `0,0,0,0,0` when that hole is absent.
+
+So this round covers everything that doesn't need the Orin:
+- full bonus-hole plumbing;
+- the shot table;
+- the board UI.
+
+The "seen" mark covers only the hole in the current valid frame.
+
+**Changed:**
+- `src/Vision/OperatorTarget.h`: Dashboard holes 10/11/12 → vision ids 1/2/3. Adds `FIRST_BONUS_HOLE` and `LAST_HOLE`, with static_asserts.
+- `src/IO/RcControlMap.{h,c}`: `RCMAP_TARGET_MAX` 12. CH3 is now `1000 + 80·k` (k 0..12, max 1960) with tolerance ±35, instead of `1000 + 100·k` for 0..9.
+- `src/Constants/TuningConstants.h`: `tableForVisionId` covers holes 1–12. A bonus hole uses only its own points; there is no row-center fallback.
+- `tools/shot_table/apply.py`:
+  - 洞口 accepts 1–12; `HOLES = range(1, 13)`; bonus names.
+  - The header now has `HOLE_POINTS[13]` / `HOLE_COUNTS[13]`, and `parse_header` reads multi-digit holes.
+  - The export validation and help sheet are updated.
+  - `shot_table.xlsx` is edited in place by text: data validation 1–12, and two help-sheet lines. The data is unchanged.
+- `src/Constants/ShotTableData.h`: regenerated with 13 slots. The data is unchanged.
+- Dashboard `tools/dashboard/index.html`:
+  - New top panel **Target / 目標洞**: a large bonus row (Q W E) over the 3×3 grid, the selected hole in blue, and the camera's current valid hole in green.
+  - Beside the grid: large elevation pulse, actual Falcon pulse (with the command % or the table offset), and camera distance.
+  - The old small grid is removed from Manual Control.
+  - Q/W/E send `TGT,10..12`.
+  - `holeForVisionId` maps 1..3 → 10..12, so S records bonus points as holes 10–12.
+  - `targetForKey` is self-contained, with no object lookup, so it can't hit prototype keys.
+- Comments and READMEs: `ManualControl`, `GroundCommandState.h`, the ground README, the shot_table README.
+- Tests adapted, none added:
+  - `rc_control_map_test` (new CH3 levels, ±35 / halfway rejection, 12 → 1960, 13 → none);
+  - `operator_target_test`;
+  - `manual_control_test` (TGT,10..12 accepted, TGT,13 bad, between-level 1120);
+  - ground test;
+  - `shot_table_lookup_test` / `manual_control_test` comments;
+  - `dashboard_control_test`;
+  - `dashboard_page_test` (Q W E, the seen mark, board readouts, bonus S record, `$AIM` seen).
+
+**Calculation:**
+- CH3 for hole k = 1000 + 80k, e.g. hole 12 → 1960.
+- Halfway values (e.g. 1120 between 1080 and 1160) are rejected as corrupt.
+- Bonus hole 11 → vision id 2 → `tableForVisionId(2)` = `HOLE_11` when it has points.
+
+**Impact:**
+- **Flash the Mega and the ground STM32 together** (CH3 encoding). With mismatched images, most target levels fall between levels and the frames are rejected, which disarms the robot rather than picking a wrong hole.
+- The robot bridge `.bin` is unchanged (sha `5f05e944…`): no reflash.
+- The Orin is unchanged. Until its update, selecting a bonus hole gives no target: the Orin ignores id 1–3 and keeps its previous hole, and the Mega drops those frames because the id doesn't match.
+- A saved Dashboard layout puts the new panel at the bottom; 「重設布局」 moves it to the top.
+
+**Evidence:**
+- Host suite, 15 groups, all PASS.
+- `pio` builds `megaatmega2560` (RAM 40.8%, flash 12.6% with sample bonus data), `mega_wired_manual_test`, `mega_elrs_link_test`, and the ground.
+- A bonus import on a scratch workbook (holes 10 and 11) generated `HOLE_10`/`HOLE_11`. The Mega built with them. Lookups returned id 2 → 2350 µs / 58%, id 1 → 2340 µs, and id 3 → none.
+- The Dashboard board was checked in the in-app browser.
+- Not run on hardware.
+
+**Next (Orin, Claude later, per Jeremy):**
+1. Accept `MEGA_TARGET` ids 1–3, and confirm the bonus depth ring gives a distance for the small holes.
+2. When the selected hole is not detected but the grid is identified (geometry fit on ≥ 2 holes), predict its image position with `fit_affine` and send it as an aim-only frame. Proposed protocol v3: valid = 2 means "predicted". The Mega turret follows it, but it never counts as lock or fire.
+3. Report every detected id (a 12-bit mask). Then the Mega needs TEL / uplink changes for the board's multi-hole "seen".

@@ -7,7 +7,7 @@
 
 // Ground-station side of wireless control: turns the PC Dashboard's line
 // protocol (the same one the Mega speaks over USB: E, X, K, T,<l>,<r>,
-// ROT,<d>, ANG,<d>, TGT,<0..9>, AUTO,<1..4>, MODE,<0..3>, FLY,<0..1>, F, M;
+// ROT,<d>, ANG,<d>, TGT,<0..12>, AUTO,<1..4>, MODE,<0..3>, FLY,<0..1>, F, M;
 // ANGT is accepted but has no radio channel) into the RC channel state
 // (rcmap_command, table v2) that goes out over ELRS, and turns the robot's
 // status coming back (rcmap_status in Battery frames) into lines for the PC.

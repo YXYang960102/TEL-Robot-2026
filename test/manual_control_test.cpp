@@ -222,7 +222,7 @@ void testWiredScalingAndParsing() {
     assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, JOG * ROTATE_MANUAL_SCALE));
     assert(nearly(rec.angleCommand, -ANGLE_MANUAL_SCALE) && nearly(rec.flywheelCommand, 1.0));
     for (const char* bad : {"FLY,nan", "FLY,inf", "ROT,-1e999", "T,2", "T,1,1,1", "FLY,abc",
-                            "TGT,10", "TGT,-1", "TGT,", "TGT,5x", "AUTO,0", "AUTO,5", "AUTO,"}) {
+                            "TGT,13", "TGT,-1", "TGT,", "TGT,5x", "AUTO,0", "AUTO,5", "AUTO,"}) {
         Serial.output.clear();
         send(bad);
         ManualControl::update();
@@ -269,6 +269,13 @@ void testTargetSelection() {
     send("TGT,9");
     step();
     assert(saw("TARGET_SELECTED") && ManualControl::getTarget() == 9);
+    // The bonus holes (Q W E, 2026-10-27).
+    for (uint8_t hole = 10; hole <= 12; hole++) {
+        Serial.output.clear();
+        send("TGT," + std::to_string(hole));
+        step();
+        assert(saw("TARGET_SELECTED") && ManualControl::getTarget() == hole);
+    }
     send("TGT,0");
     step();
     assert(ManualControl::getTarget() == RCMAP_TARGET_NONE);
@@ -496,7 +503,7 @@ void testWirelessInvalidFramesTimeOut() {
     armWireless();
     for (int i = 0; i < 20; i++) {
         rcFrame();
-        MechLink::channels[RCMAP_CH_TARGET] = 1150; // between target levels
+        MechLink::channels[RCMAP_CH_TARGET] = 1120; // between target levels (1080 / 1160)
         step(20);
     }
     assert(saw("COMMAND_TIMEOUT") && !ManualControl::isArmed());
@@ -1100,7 +1107,7 @@ void testShotTableByHeight() {
     send("M"); step();                                    // full auto
     assert(shotsDuring(2500) == 0);
     assert(nearly(rec.flywheelCommand, TuningConstants::Flywheel::SHOOT_COMMAND));
-    hoststub::visionTargetId = 2;                         // a bonus hole: no table yet
+    hoststub::visionTargetId = 2;                         // a bonus hole without points: no table
     assert(shotsDuring(2500) == 0);
     hoststub::visionTargetId = 11;                        // bottom row: fired at
     assert(shotsDuring(2500) >= 2);
