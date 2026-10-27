@@ -132,5 +132,9 @@ void Telemetry::update() {
     // MechLink's own LINE_TIMEOUT_MS (200) and
     // ManualControlConstants::COMMAND_TIMEOUT_MS (250). Bench-check this
     // with the chassis output-disabled or the drive motors unpowered.
-    Serial.println(MechLink::lastLineAgeMs());
+    Serial.print(MechLink::lastLineAgeMs());
+    Serial.print(",");
+    // Slot 39 (appended 2026-10-27): lines from the bridge dropped since boot
+    // (bad "*HH" check, malformed, oversize). Should stay at or near 0.
+    Serial.println(MechLink::rejectedLines);
 }

@@ -140,6 +140,44 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     return true;
 }
 
+uint8_t rcmap_line_crc8(const char *text, uint16_t len) {
+    uint8_t crc = 0;
+    for (uint16_t i = 0; i < len; i++) {
+        crc ^= (uint8_t)text[i];
+        for (uint8_t b = 0; b < 8u; b++) {
+            const uint8_t shifted = (uint8_t)(crc << 1);
+            crc = (crc & 0x80u) ? (uint8_t)(shifted ^ 0xD5u) : shifted;
+        }
+    }
+    return crc;
+}
+
+static const char hex_digits[] = "0123456789ABCDEF";
+
+uint16_t rcmap_line_seal(char *buf, uint16_t len, uint16_t buf_size) {
+    if (buf_size < RCMAP_LINE_CHECK_CHARS || len > buf_size - RCMAP_LINE_CHECK_CHARS) return 0;
+    const uint8_t crc = rcmap_line_crc8(buf, len);
+    buf[len] = '*';
+    buf[len + 1u] = hex_digits[crc >> 4];
+    buf[len + 2u] = hex_digits[crc & 0x0Fu];
+    return (uint16_t)(len + RCMAP_LINE_CHECK_CHARS);
+}
+
+static int hex_value(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+int rcmap_line_open(const char *line, uint16_t len) {
+    if (len < RCMAP_LINE_CHECK_CHARS) return -1;
+    const uint16_t text = (uint16_t)(len - RCMAP_LINE_CHECK_CHARS);
+    const int hi = hex_value(line[text + 1u]);
+    const int lo = hex_value(line[text + 2u]);
+    if (line[text] != '*' || hi < 0 || lo < 0) return -1;
+    return rcmap_line_crc8(line, text) == (uint8_t)(hi << 4 | lo) ? (int)text : -1;
+}
+
 static const char *const event_names[RCMAP_EVENT_COUNT] = {
     "NONE",
     "OUTPUTS_ENABLED",

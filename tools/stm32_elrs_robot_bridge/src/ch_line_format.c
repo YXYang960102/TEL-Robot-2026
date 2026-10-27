@@ -27,7 +27,8 @@ uint16_t format_rc_line(char *buf, uint16_t bufSize, const int ch_us[16]) {
     return 0;
   }
 
-  const uint16_t limit = (uint16_t)(bufSize - 2u); /* reserve '\n' + '\0' */
+  /* reserve "*HH" + '\n' + '\0' */
+  const uint16_t limit = (uint16_t)(bufSize - 2u - RCMAP_LINE_CHECK_CHARS);
   uint16_t pos = 0;
   buf[pos++] = 'R';
   buf[pos++] = 'C';
@@ -36,6 +37,7 @@ uint16_t format_rc_line(char *buf, uint16_t bufSize, const int ch_us[16]) {
     if (i > 0 && pos < limit) buf[pos++] = ',';
     pos = append_int(buf, pos, limit, ch_us[i]);
   }
+  pos = rcmap_line_seal(buf, pos, (uint16_t)(bufSize - 2u));
   buf[pos++] = '\n';
   buf[pos] = '\0';
   return pos;
@@ -68,6 +70,9 @@ static bool parse_field(const char *line, uint16_t len, uint16_t *pos,
 }
 
 bool parse_status_line(const char *line, uint16_t len, rcmap_status *out) {
+  const int text = rcmap_line_open(line, len);
+  if (text < 0) return false;
+  len = (uint16_t)text;
   if (len < 3u || line[0] != 'S' || line[1] != 'T' || line[2] != ',') return false;
   uint16_t pos = 3;
   uint32_t flags, seq, code;

@@ -20,12 +20,14 @@
    ES900TX setup: this board has no TX module, so USART1 is repurposed for
    an ordinary two-wire link to the Mega, and PA10 (unused by the bench)
    is brought up as USART1_RX.
-   USARTDIV = 16000000/(16*115200) = 8.680556; mantissa=8,
-   fraction=round(0.680556*16)=11 -> BRR=0x8B. Actual baud =
-   16000000/(16*8+11) = 115107.9 Hz, -0.08% vs nominal -- tighter than the
-   already-accepted +0.25% on USART2 above. */
-#define USART1_BAUD 115200u
-#define USART1_BRR_VALUE 0x8Bu
+   250000 since 2026-10-27 (was 115200): USARTDIV = 16000000/(16*250000)
+   = 4.0 exactly -> BRR=0x40, and the Mega's 16 MHz U2X hits 250000
+   exactly too (UBRR 7). At 115200 the Mega ran at 117647 (+2.1%) against
+   this board's 115108 (and its HSI is ~0.6% fast): digits flipped on the
+   wire. Must match src/IO/MechLink.cpp LINK_BAUD; both ends also check
+   every line's "*HH" (src/IO/RcControlMap.h). */
+#define USART1_BAUD 250000u
+#define USART1_BRR_VALUE 0x40u
 
 #define RC_FORWARD_PERIOD_MS 20u      /* how often a "CH,..." line goes to the Mega */
 

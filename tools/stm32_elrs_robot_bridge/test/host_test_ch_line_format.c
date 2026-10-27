@@ -13,7 +13,18 @@ static int failures = 0;
   } \
 } while (0)
 
+/* text + "*HH" (+ '\n' when nl) into out, the way the other end writes it. */
+static const char *sealed(const char *text, char *out, int nl) {
+  uint16_t n = (uint16_t)strlen(text);
+  memcpy(out, text, n);
+  n = rcmap_line_seal(out, n, 120u);
+  if (nl) out[n++] = '\n';
+  out[n] = '\0';
+  return out;
+}
+
 static void test_rc_line(void) {
+  char want[128];
   int ch_us[16];
   for (int i = 0; i < 16; i++) ch_us[i] = 1500;
   ch_us[0] = 1800; ch_us[1] = 1200; ch_us[2] = 1000; ch_us[3] = 2000;
@@ -22,13 +33,23 @@ static void test_rc_line(void) {
 
   char buf[CH_LINE_MAX_CHARS];
   uint16_t len = format_rc_line(buf, sizeof(buf), ch_us);
-  CHECK(strcmp(buf, "RC,1800,1200,1000,2000,988,2012,1500,1193,1602,2000\n") == 0,
-        "RC line carries exactly channels 1-10 in order");
+  CHECK(strcmp(buf, sealed("RC,1800,1200,1000,2000,988,2012,1500,1193,1602,2000", want, 1)) == 0,
+        "RC line carries exactly channels 1-10 in order, then its check");
+  CHECK(buf[len - 4] == '*', "the check sits right before the newline");
+  CHECK(rcmap_line_open(buf, (uint16_t)(len - 1)) == (int)(len - 4), "and the Mega's check accepts it");
+  /* One digit flipped on the wire ('0' -> '8' is one bit: 1000 -> 1800,
+     enough to read as "pressed" on the fire / arm channels) must fail the
+     check. */
+  char flipped[CH_LINE_MAX_CHARS];
+  memcpy(flipped, buf, len);
+  flipped[14] = '8';
+  CHECK(strncmp(flipped, "RC,1800,1200,1800,", 18) == 0, "test flips CH3's hundreds digit");
+  CHECK(rcmap_line_open(flipped, (uint16_t)(len - 1)) < 0, "a flipped digit fails the check");
   CHECK(len == (uint16_t)strlen(buf), "returned length matches the string");
 
   for (int i = 0; i < 16; i++) ch_us[i] = -500;
   format_rc_line(buf, sizeof(buf), ch_us);
-  CHECK(strcmp(buf, "RC,-500,-500,-500,-500,-500,-500,-500,-500,-500,-500\n") == 0,
+  CHECK(strcmp(buf, sealed("RC,-500,-500,-500,-500,-500,-500,-500,-500,-500,-500", want, 1)) == 0,
         "negative values keep their sign");
 
   char small[8] = "xxxxxxx";
@@ -47,24 +68,38 @@ static void test_forward_gate(void) {
 
 static void test_status_line(void) {
   rcmap_status s;
-  const char *ok = "ST,67,123456,10";
+  char line[128];
+  const char *ok = sealed("ST,67,123456,10", line, 0);
   CHECK(parse_status_line(ok, (uint16_t)strlen(ok), &s), "well-formed status parses");
   CHECK(s.flags == 67 && s.event_seq == 123456u && s.event_code == 10, "fields land in place");
 
+  /* Well-formed checks around bad fields, and good fields with a bad or
+     missing check (an old Mega, a flipped digit, lower-case hex). */
   const char *bad[] = {
     "ST,256,1,1", "ST,1,16777216,1", "ST,1,1,65536", "ST,1,1", "ST,1,1,1,1",
     "ST,,1,1", "ST,a,1,1", "XX,1,1,1", "ST,1,1,1x", "ST,-1,1,1", "ST",
   };
   for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
     rcmap_status untouched = {9, 9, 9, 9};
-    CHECK(!parse_status_line(bad[i], (uint16_t)strlen(bad[i]), &untouched), bad[i]);
+    const char *b = sealed(bad[i], line, 0);
+    CHECK(!parse_status_line(b, (uint16_t)strlen(b), &untouched), bad[i]);
     CHECK(untouched.flags == 9 && untouched.event_seq == 9, "rejected line leaves output untouched");
+  }
+  const char *no_check = "ST,75,123456,10";
+  CHECK(!parse_status_line(no_check, (uint16_t)strlen(no_check), &s), "a line without the check is dropped");
+  sealed("ST,75,123456,10", line, 0);
+  line[4] = '4';                                     /* flags 75 -> 74: armed bit lost */
+  CHECK(!parse_status_line(line, (uint16_t)strlen(line), &s), "a flipped flags digit is dropped");
+  sealed("ST,75,123456,10", line, 0);
+  for (char *c = line; *c; c++) if (*c >= 'A' && *c <= 'F') *c = (char)(*c - 'A' + 'a');
+  if (strpbrk(line + strlen(line) - 2, "abcdef")) {
+    CHECK(!parse_status_line(line, (uint16_t)strlen(line), &s), "lower-case hex is not accepted");
   }
   /* An aim frame (2026-10-17) is just another ST line within the same
      field ranges: the bridge passes it through unchanged. This is the
      line the Mega prints for 3.52 m, 1620 us, key 1 (vision 10) seen,
      aim offset -15 px. */
-  const char *aim = "ST,241,1746516,33120";
+  const char *aim = sealed("ST,241,1746516,33120", line, 0);
   CHECK(parse_status_line(aim, (uint16_t)strlen(aim), &s), "aim frame line parses");
   rcmap_aim a;
   CHECK(rcmap_aim_from_status(&s, &a), "and decodes as an aim frame");

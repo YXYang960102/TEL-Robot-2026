@@ -417,6 +417,37 @@ static void test_test_mode(void) {
     assert(strcmp(rcmap_event_name(RCMAP_EVENT_MODE_TEST), "MODE_TEST") == 0);
 }
 
+/* Mega <-> bridge line check (2026-10-27). */
+static void test_line_check(void) {
+    /* CRC-8/DVB-S2 check value ("123456789" -> 0xBC). */
+    assert(rcmap_line_crc8("123456789", 9) == 0xBC);
+    char buf[64];
+    const char *text = "ST,75,123456,10";
+    const uint16_t n = (uint16_t)strlen(text);
+    memcpy(buf, text, n);
+    const uint16_t len = rcmap_line_seal(buf, n, sizeof buf);
+    assert(len == n + RCMAP_LINE_CHECK_CHARS && buf[n] == '*');
+    assert(rcmap_line_open(buf, len) == (int)n);
+    /* Every single-bit flip anywhere in the line is caught. */
+    for (uint16_t i = 0; i < len; i++) {
+        for (uint8_t b = 0; b < 8u; b++) {
+            buf[i] ^= (char)(1u << b);
+            assert(rcmap_line_open(buf, len) < 0);
+            buf[i] ^= (char)(1u << b);
+        }
+    }
+    /* No check, a short line, a bad hex digit: rejected. */
+    assert(rcmap_line_open(text, n) < 0);
+    assert(rcmap_line_open("*0", 2) < 0);
+    buf[len - 1] = 'G';
+    assert(rcmap_line_open(buf, len) < 0);
+    /* No room: nothing written. */
+    char small[4] = "abc";
+    assert(rcmap_line_seal(small, 3, 4) == 0 && strcmp(small, "abc") == 0);
+    /* The longest RC line (10 x 4 digits) and ST line fit their buffers. */
+    assert(rcmap_line_seal(buf, 21, 24) == 24);
+}
+
 int main(void) {
     test_round_trip();
     test_elrs_hybrid_values();
@@ -427,6 +458,7 @@ int main(void) {
     test_vision_frames();
     test_operator_mode();
     test_test_mode();
+    test_line_check();
     printf("rc_control_map host tests: all asserts passed\n");
     return 0;
 }

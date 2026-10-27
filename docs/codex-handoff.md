@@ -5495,3 +5495,66 @@ this was implemented directly.
 4. Press S on a still robot; then try S while driving (should refuse).
 5. 下載 CSV → close Excel → `apply.py --import --check` → `--import` →
    open the Excel and confirm the rows and charts, with no repair prompt.
+
+## 2026-10-27 — Claude Code: Mega ↔ robot bridge UART gets a line check (CRC-8) and 250000 baud
+
+**User Request (Jeremy):**
+- Over wireless the elevation readback jumped around, while wired it was steady.
+- A Dashboard log showed impossible states: "armed / owner none", "armed / owner wired" during a wireless session, and "disarmed / owner wireless".
+- Jeremy approved the proposed fix: a line check, 250000 baud and a drop counter. Then push and merge to main.
+
+**Discussion Result:**
+- **Where it breaks.** The only hop without an integrity check is the text UART between the Mega (Serial2) and the robot bridge (USART1). ELRS, CRSF and USB all have CRCs.
+- **How digits flip.** One bit flipped in an ASCII digit gives another digit. For example, flags `75` (0x4B) becomes `74` / `73` / `77`, which are exactly the three bogus flag sets in the log.
+- **Elevation vs flywheel.**
+  - The elevation sits in the low 12 bits of a 7-digit seq. 10^k mod 4096 ≠ 0 for every digit position, so any digit error moves it by hundreds of µs.
+  - The flywheel sits in the low 14 bits of a 5-digit code (0x4000 + pulse). Errors in the top digits mostly change the frame type (dropped or misclassified); errors in the low digits move it by a few µs. That is why only the elevation visibly jumped.
+- **The same risk existed downlink.** `0`→`8` is one bit, so 1000→1800 would read as a CH5 fire or CH6 arm press for one frame.
+- **Clock error.** 115200 on the Mega's 16 MHz with U2X runs at 117647 (+2.1%). The bridge ran at 115108, with its HSI about 0.6% fast.
+
+**Changed:**
+- `src/IO/RcControlMap.{h,c}`: `rcmap_line_crc8` (CRC-8/DVB-S2, poly 0xD5, init 0, the same as CRSF), `rcmap_line_seal` (appends `*HH`, upper-case hex) and `rcmap_line_open` (returns the text length, or −1). Pure C, so it builds for the Mega, the bridge and the host.
+- `src/IO/MechLink.{h,cpp}`:
+  - RC lines must pass `rcmap_line_open` before they are parsed.
+  - ST lines are built with snprintf, sealed, and sent with `println`.
+  - `LINK_BAUD = 250000`.
+  - New `rejectedLines` counter, counting bad check, malformed and oversize lines.
+- `src/Telemetry/Telemetry.cpp`: TEL slot 39 = `MechLink::rejectedLines`.
+- Bridge:
+  - `config.h`: USART1 250000, BRR 0x40.
+  - `ch_line_format.{h,c}`: the RC line is sealed and the ST line is checked before parsing.
+  - `CH_LINE_MAX_CHARS` +3.
+  - README.
+- Dashboard:
+  - TEL slot 39 is shown in the RC frame-age cell as 「丟棄 N 行」.
+  - `UART_DROP +n` is logged when the count grows, at most once every 2 s.
+- `src/Bench/ElrsLinkTest` boot text now says 250000.
+
+**Calculation:**
+- Mega U2X: UBRR = 16e6 / (8 · 250000) − 1 = 7, giving exactly 250000.
+- Bridge: USARTDIV = 16e6 / (16 · 250000) = 4.0, so BRR = 0x40, exact apart from the HSI tolerance.
+- Line lengths:
+  - RC at most 55 chars (RC, + 10×4 digits + 9 commas + `*HH`) every 20 ms ≈ 2.2 ms on the wire, about 11% load.
+  - ST at most 24 chars + CRLF every 100 ms.
+- The CRC-8 catches every single-bit error. The test flips every bit of a sealed line.
+
+**Impact:**
+- **The Mega and the robot bridge must be flashed together.** Either one alone makes the Mega drop every RC line, so Enable will not work. The Dashboard (wired) shows 「丟棄」 climbing about 50 per second in that case.
+- Bridge image sha256: **5f05e9444152d36f134251f4a1d4e73ecae6b332d90243fcc86e3966daf1be77** (was ee034481…).
+- The ground STM32 and the Orin are unchanged by this round. The ground still needs the 10-26 TEST-mode image if it hasn't been flashed yet.
+- ELRS RF behavior is unchanged.
+
+**Evidence:**
+- Host suite, 15 groups, all PASS. This includes the new line-check cases in `rc_control_map_test` (CRC check value 0xBC, every single-bit flip rejected) and the adapted bridge `host_test_ch_line_format` (sealed RC / ST lines, a flipped digit rejected, a missing check rejected).
+- The page test covers slot 39 and `UART_DROP`.
+- `pio run` builds `megaatmega2560` (RAM 40.6%, flash 12.6%), `mega_elrs_link_test` and `mega_wired_manual_test`, plus the ground `blackpill_f401cc`.
+- The bridge `build.py` passes its host test, cross-compile and image checks.
+- **Not flashed or run on hardware.**
+
+**Next Test:**
+1. Flash the bridge, then the Mega. Dashboard wired to the Mega USB with the ground on:
+   - 「RC 幀齡」 should be about 20 ms;
+   - 「丟棄」 should stay at 0, or grow very slowly;
+   - Enable, drive and fire should all work.
+2. Wireless with the motors running: the elevation readback should no longer jump, and no bogus "robot status says…" lines should appear.
+3. If 「丟棄」 climbs about 50/s, the two images don't match: recheck the bridge sha.

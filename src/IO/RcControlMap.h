@@ -165,6 +165,24 @@ void rcmap_encode(const rcmap_command *c, int ch_us[16]);
  * as pressed / enable requested. */
 bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out);
 
+/* ---- Mega <-> robot bridge text lines (2026-10-27) ------------------- */
+
+/* The "RC,..." and "ST,..." lines on the Mega <-> robot bridge UART end in
+ * "*HH": CRC-8/DVB-S2 (poly 0xD5, init 0, the one CRSF uses) of every byte
+ * before the '*', as two upper-case hex digits. A plain digit can flip into
+ * another digit on that wire (seen 2026-10-26: bogus armed/owner flags and
+ * a jumping elevation readback) and still parse, so the receiver drops any
+ * line whose check doesn't match instead. Both ends must run this. */
+#define RCMAP_LINE_CHECK_CHARS 3u /* "*HH" */
+uint8_t rcmap_line_crc8(const char *text, uint16_t len);
+/* Appends "*HH" for text[0..len) at buf[len]; returns the new length, or 0
+ * (buf untouched) if fewer than RCMAP_LINE_CHECK_CHARS bytes are free. */
+uint16_t rcmap_line_seal(char *buf, uint16_t len, uint16_t buf_size);
+/* A received line without its '\r' / '\n': the length of the text before
+ * a matching "*HH", or -1 when the check is missing, malformed (lower-case
+ * hex included) or wrong. */
+int rcmap_line_open(const char *line, uint16_t len);
+
 /* ---- Status uplink (Mega -> ground) ---------------------------------- */
 
 /* Status flag bits. */

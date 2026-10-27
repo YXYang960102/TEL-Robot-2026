@@ -90,7 +90,7 @@ void setup() {
     Serial.begin(115200);
     MechLink::init();
     stateSinceMs = millis();
-    Serial.println(F("$ELRS_BOOT mega_elrs_link_test: MechLink on Serial2 D16/D17 @115200, no outputs"));
+    Serial.println(F("$ELRS_BOOT mega_elrs_link_test: MechLink on Serial2 D16/D17 @250000 + line check, no outputs"));
     Serial.println(F("$ELRS_BOOT link=LOST until the first valid RC line arrives"));
 }
 
