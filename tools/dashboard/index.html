@@ -1659,7 +1659,10 @@
         elevationOffsetUs: p.length > 37 ? Number(p[37]) : NaN,
         // Slot 38 (appended 2026-10-17): ms since the last valid "RC,..."
         // line from the robot STM32 bridge (MechLink::lastLineAgeMs()).
-        rcFrameAgeMs: p.length > 38 ? Number(p[38]) : NaN
+        rcFrameAgeMs: p.length > 38 ? Number(p[38]) : NaN,
+        // Slot 39 (2026-10-27): lines from the robot bridge the Mega dropped
+        // since boot (bad "*HH" check / malformed). Should stay near 0.
+        rcRejectedLines: p.length > 39 ? Number(p[39]) : NaN
       };
     }
 
@@ -1690,8 +1693,10 @@
         // ground station, so this never overwrites the $RFLINK text.
         // 200 = MechLink::LINE_TIMEOUT_MS (Mega treats the RF link as lost).
         el.rfLinkState.textContent = `RC 幀齡 ${data.rcFrameAgeMs} ms` +
-          (data.rcFrameAgeMs >= 200 ? " ⚠ 逾時（≥200）" : "（逾時 200）");
+          (data.rcFrameAgeMs >= 200 ? " ⚠ 逾時（≥200）" : "（逾時 200）") +
+          (Number.isFinite(data.rcRejectedLines) ? ` · 丟棄 ${data.rcRejectedLines} 行` : "");
       }
+      noteRejectedLines(data.rcRejectedLines);
       if (Number.isFinite(data.controlOwner)) {
         el.controlOwner.textContent = OWNER_NAMES[data.controlOwner] ?? `#${data.controlOwner}`;
       }
@@ -1744,6 +1749,25 @@
         const wiredOwned = data.armed && (!Number.isFinite(data.controlOwner) || data.controlOwner === 1);
         if (controlArmed && !wiredOwned) setControlArmed(false);
         else if (!controlArmed && enablePending && wiredOwned) setControlArmed(true);
+      }
+    }
+
+    // Mega <-> bridge lines dropped (TEL slot 39): logged when it grows, at
+    // most every 2 s, so a bad wire / mismatched images shows up at once.
+    // A count that keeps climbing by ~50 per second = every RC line is
+    // dropped: the Mega and the robot bridge aren't on the same image.
+    let rejectedLinesLogged = null, rejectedLinesLoggedAt = -Infinity;
+    function noteRejectedLines(count) {
+      if (!Number.isFinite(count)) return;
+      if (rejectedLinesLogged === null || count < rejectedLinesLogged) {
+        rejectedLinesLogged = count; // first reading, or the Mega rebooted
+        return;
+      }
+      const now = performance.now();
+      if (count > rejectedLinesLogged && now - rejectedLinesLoggedAt >= 2000) {
+        appendControlLog(`UART_DROP +${count - rejectedLinesLogged}（共 ${count} 行，Mega↔bridge 線路校驗不符或格式錯，已丟棄）`);
+        rejectedLinesLogged = count;
+        rejectedLinesLoggedAt = now;
       }
     }
 

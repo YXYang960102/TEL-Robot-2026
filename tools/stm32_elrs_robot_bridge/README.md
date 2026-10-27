@@ -21,12 +21,22 @@ ES900RX (CRSF, RF)  <--USART2 PA2/PA3-->  this board  <--USART1 PA9/PA10-->  Meg
 
 - **Downlink** (operator's RC channels, arriving over RF at ES900RX): decoded
   from `CRSF_FRAME_RC_CHANNELS` frames on USART2, reformatted as the ASCII
-  line `RC,c1,...,c9\n` (`src/ch_line_format.c`; channel meaning in the
+  line `RC,c1,...,c10*HH\n` (`src/ch_line_format.c`; channel meaning in the
   shared table `src/IO/RcControlMap.h`), sent to the Mega on USART1 and
   parsed by the Mega's `src/IO/MechLink.cpp`. (Before 2026-10-11 this was a
   6-field `CH,...` line in `tools/stm32_elrs_common/src/tel_channel_map.h`
   order; that header now only serves the older ground bridge.)
-- **Uplink, status** (added 2026-10-11): the Mega sends `ST,flags,seq,code\n`
+- **Line check and baud** (2026-10-27): USART1 runs at **250000** baud
+  (BRR 0x40; the Mega's U2X hits it exactly, where 115200 was +2.1% off on
+  the Mega), and both lines end in `*HH`, the CRC-8/DVB-S2 of the text
+  before the `*` (`rcmap_line_seal` / `rcmap_line_open` in
+  `src/IO/RcControlMap.c`). A line whose check fails is dropped: the Mega
+  counts its drops in TEL slot 39 (Dashboard 「丟棄 N 行」, log
+  `UART_DROP`). Before this, a digit flipped on the wire still parsed
+  (2026-10-26: bogus armed / owner flags and a jumping elevation readback;
+  a flipped `0` -> `8` could also read as a fire / arm press). **Flash this
+  board and the Mega together**: either one alone drops every line.
+- **Uplink, status** (added 2026-10-11): the Mega sends `ST,flags,seq,code*HH\n`
   every 100 ms (`MechLink::sendStatus`). This board packs the newest one into
   a standard CRSF **Battery** frame (`rcmap_status_to_battery`: voltage =
   `0xA5` marker + flags, current = event code, capacity = event sequence)

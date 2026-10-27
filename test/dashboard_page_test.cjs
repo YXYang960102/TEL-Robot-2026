@@ -1019,6 +1019,24 @@ async function emergencyStopViaEnter() {
   assert.equal(shots(), 1);
   await windowHandlers.keydown(key('Enter'));
 
+  // TEL slot 39 (2026-10-27): Mega <-> bridge lines dropped since boot.
+  // (Each TEL line is also echoed into the log, hence the counts.)
+  const telDrop = (n) => telShot({ falcon: 1490 }) + `,${n}`;
+  const drops = () => (elements.log.textContent.match(/UART_DROP/g) || []).length;
+  clock.t += 3000; line(telDrop(0));
+  assert.match(elements.rfLinkState.textContent, /丟棄 0 行/);
+  const before = drops();
+  clock.t += 100; line(telDrop(7));
+  assert.equal(drops(), before + 1);
+  assert.match(elements.log.textContent, /UART_DROP \+7（共 7 行/);
+  clock.t += 100; line(telDrop(9));                   // within 2 s: not logged again
+  assert.equal(drops(), before + 1);
+  clock.t += 2100; line(telDrop(12));
+  assert.equal(drops(), before + 2);
+  assert.match(elements.log.textContent, /UART_DROP \+5（共 12 行/);
+  assert.match(elements.rfLinkState.textContent, /丟棄 12 行/);
+  await windowHandlers.keydown(key('Enter'));
+
   console.log('dashboard page control behavior tests passed');
 })().catch((e) => { console.error(e); process.exitCode = 1; });
 
