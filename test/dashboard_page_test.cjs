@@ -775,13 +775,15 @@ async function emergencyStopViaEnter() {
   assert.equal(writes.length, 0);
   pads = [xbox()];
   await poll();
-  // Right stick X = turn: right = T,1,-1 (left wheel forward; flipped after the 2026-10-17 robot test); deadzone-rescaled analog.
+  // Right stick X = turn: right = left wheel forward (flipped after the
+  // 2026-10-17 robot test); deadzone-rescaled analog, then x TURN_SPEED_SCALE
+  // 0.6 (2026-10-27: turning slower, forward / back untouched).
   pads = [xbox([0, 0, 1, 0])];
   await poll();
-  assert.equal(last(), 'T,1,-1');
+  assert.equal(last(), 'T,0.6,-0.6');
   pads = [xbox([0, 0, 0.575, 0])];            // half way past the deadzone
   await poll();
-  assert.equal(last(), 'T,0.5,-0.5');
+  assert.equal(last(), 'T,0.3,-0.3');
   pads = [xbox([0, -1, 0, 0])];               // left stick up = forward
   await poll();
   assert.equal(last(), 'T,1,1');
@@ -813,7 +815,7 @@ async function emergencyStopViaEnter() {
   // Unplugged while driving and jogging: everything drops to zero.
   pads = [xbox([0, 0, -1, 0], [XB.LEFT])];
   await poll();
-  assert.ok(writes.includes('T,-1,1') && writes.includes('ROT,-1'));
+  assert.ok(writes.includes('T,-0.6,0.6') && writes.includes('ROT,-1'));
   pads = [];
   await poll();
   assert.ok(writes.slice(-2).includes('T,0,0') && writes.slice(-2).includes('ROT,0'));
@@ -846,7 +848,7 @@ async function emergencyStopViaEnter() {
   pads = [pad11([])]; await poll();
   assert.equal(run('matchStarted'), true);
   pads = [pad11([undefined, undefined, 1])]; await poll(); // right stick right
-  assert.equal(last(), 'T,1,-1');
+  assert.equal(last(), 'T,0.6,-0.6');
   pads = [pad11([0, -1, 0])]; await poll();             // left stick up
   assert.equal(last(), 'T,1,1');
   pads = [pad11([])]; await poll();
@@ -1075,6 +1077,31 @@ async function emergencyStopViaEnter() {
   assert.match(elements.log.textContent, /UART_DROP \+5（共 12 行/);
   assert.match(elements.rfLinkState.textContent, /丟棄 12 行/);
   await windowHandlers.keydown(key('Enter'));
+
+  // TEL slots 40-44 (2026-10-27): fire conditions and the turret AS5600.
+  const telFull = (ready, shotCm, raw, status, deg10, mode = 1) =>
+    telShot({ mode }) + `,0,${ready},${shotCm},${raw},${status},${deg10}`;
+  run('setOperatorMode(1)');
+  clock.t += 100; line(telFull(5, 305, 1234, 3, -125));
+  assert.match(elements.boardReady.textContent, /轉台鎖定 ✓ · 飛輪轉穩 ✗ · 有射擊值 ✓ · 等待中 · 射擊距離（穩定後）3\.05 m/);
+  assert.equal(elements.boardTurret.textContent, '-12.5°');
+  assert.equal(elements.boardTurretRaw.textContent, 'raw 1234 · OK');
+  clock.t += 100; line(telFull(15, 305, 1234, 0x01, 0));
+  assert.match(elements.boardReady.textContent, /可發射/);
+  assert.match(elements.boardTurretRaw.textContent, /沒偵測到磁鐵/);
+  clock.t += 100; line(telFull(0, 0, 0, 0x20, 0));
+  assert.equal(elements.boardTurret.textContent, '--');
+  assert.match(elements.boardTurretRaw.textContent, /沒讀到感測器/);
+  clock.t += 100; line(telFull(0, 0, 4000, 0x13, 853, 2));
+  assert.match(elements.boardReady.textContent, /只在半自動／全自動/);
+  assert.match(elements.boardTurretRaw.textContent, /圈數不可信/);
+  // A ground on another channel table: the event, plus what to do.
+  event('LINK_VERSION_MISMATCH');
+  assert.match(elements.log.textContent, /通道表版本不一致/);
+  // Board colors: several detected holes (v3 mask), selected wins blue.
+  run('seenMaskHoles = (1 << 4) | (1 << 5) | (1 << 11); renderSeen()');
+  run('targetHole = 5; renderTargetAndAuto()');
+  assert.equal(run('seenMaskHoles'), (1 << 4) | (1 << 5) | (1 << 11));
 
   console.log('dashboard page control behavior tests passed');
 })().catch((e) => { console.error(e); process.exitCode = 1; });

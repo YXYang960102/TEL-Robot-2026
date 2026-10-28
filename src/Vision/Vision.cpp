@@ -14,6 +14,7 @@ double Vision::distance = 0;
 int Vision::targetId = 0;
 bool Vision::valid = false;
 unsigned long Vision::lastPacketMs = 0;
+unsigned long Vision::frameCount = 0;
 bool Vision::hasPacket = false;
 bool Vision::sentReady = false;
 unsigned long Vision::lastHeartbeatMs = 0;
@@ -108,6 +109,10 @@ void Vision::setSelectedTarget(uint8_t visionId) {
     // never aim at it after a switch. The Orin's next frame for the new
     // hole arrives within a camera cycle or two.
     invalidateTarget();
+}
+
+unsigned long Vision::getFrameCount() {
+    return frameCount;
 }
 
 uint8_t Vision::getSelectedTarget() {
@@ -236,6 +241,7 @@ void Vision::storeTarget(
     bool nextValid) {
     lastPacketMs = millis();
     hasPacket = true;
+    frameCount++;
     // A frame for a hole other than the selected one is "no target" (the
     // link itself is still alive: isConnected() stays true).
     valid = nextValid && OperatorTarget::frameMatchesSelection(selectedTargetId, nextTargetId);

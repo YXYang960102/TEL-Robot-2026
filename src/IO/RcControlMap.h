@@ -54,7 +54,15 @@
  *                        round-robin channel lags CH4 by tens of ms; a mode
  *                        change never waits for it). A ground still on the
  *                        older image sends 1500 here: never TEST.
- *   CH10                 unused (sent as 1500)
+ *   CH10 link version    1000 + 200*v (2026-10-27: v = RCMAP_LINK_VERSION,
+ *                        1 -> 1200; ELRS's 6-position AUX sends 1193). The
+ *                        robot rejects every frame whose CH10 isn't this
+ *                        version's level: a ground on another channel
+ *                        table (an older one sends 1500 here) can then
+ *                        never enable or steer the robot, instead of
+ *                        having its levels read as the wrong hole / mode.
+ *                        Bump the version whenever a channel's meaning or
+ *                        levels change.
  *
  * The level channels decode to the nearest level within a tolerance and a
  * frame with any channel between levels is rejected as corrupt, not
@@ -78,6 +86,10 @@ extern "C" {
 #define RCMAP_CH_NUDGE 6u
 #define RCMAP_CH_AUTO 7u
 #define RCMAP_CH_TEST 8u
+#define RCMAP_CH_VERSION 9u
+/* 1 = table v2 + CH3 80 us steps (bonus holes) + CH9 test (2026-10-27).
+ * 0..5 only (CH10 is a 6-position AUX channel). */
+#define RCMAP_LINK_VERSION 1u
 #define RCMAP_CHANNEL_COUNT 10u
 
 #define RCMAP_TARGET_NONE 0u
@@ -161,11 +173,13 @@ static inline uint8_t rcmap_command_mode(const rcmap_command *c) {
 void rcmap_encode(const rcmap_command *c, int ch_us[16]);
 
 /* Decodes the first RCMAP_CHANNEL_COUNT entries of ch_us. Returns false
- * (out untouched) if any channel is outside 900..2100 us or a level channel
- * isn't near one of its levels -- the caller should treat that frame as
- * invalid, not guess. Fire and arm are fail-safe: only >= 1750 us counts
- * as pressed / enable requested. */
+ * (out untouched) if any channel is outside 900..2100 us, a level channel
+ * isn't near one of its levels, or CH10 isn't RCMAP_LINK_VERSION -- the
+ * caller should treat that frame as invalid, not guess. Fire and arm are
+ * fail-safe: only >= 1750 us counts as pressed / enable requested. */
 bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out);
+/* CH10 carries this table's version (else the sender is on another one). */
+bool rcmap_link_version_ok(const int *ch_us, uint8_t count);
 
 /* ---- Mega <-> robot bridge text lines (2026-10-27) ------------------- */
 
@@ -236,6 +250,8 @@ typedef enum {
     RCMAP_EVENT_AUTO_PATH_REJECTED,
     RCMAP_EVENT_MODE_TEST,      /* 2026-10-26: a ground older than this drops
                                    such a status as corrupt -- reflash both */
+    RCMAP_EVENT_LINK_VERSION_MISMATCH, /* 2026-10-27: RC frames from a ground
+                                          on another channel table (CH10) */
     RCMAP_EVENT_COUNT
 } rcmap_event;
 

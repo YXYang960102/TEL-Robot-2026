@@ -399,23 +399,35 @@
       font-weight: 500;
     }
 
+    /* Colors (Jeremy, 2026-10-27): grey = not detected, green = detected,
+       blue = selected (wins over green; a green dot still says "seen"),
+       the bonus holes always red-framed. */
+    .hole-grid span {
+      background: rgba(152, 164, 175, 0.08);
+    }
+
     .hole-grid span.bonus {
       min-height: 46px;
       margin-bottom: 6px;
-      border-style: dashed;
       font-size: 20px;
+    }
+
+    .hole-grid span.seen {
+      border-color: var(--green);
+      background: rgba(54, 194, 117, 0.28);
+      color: var(--text);
     }
 
     .hole-grid span.selected {
       border-color: var(--cyan);
-      background: rgba(83, 183, 232, 0.25);
+      background: rgba(83, 183, 232, 0.35);
       color: var(--text);
     }
 
-    /* The hole the camera has right now (valid frame). */
-    .hole-grid span.seen {
-      box-shadow: inset 0 0 0 3px var(--green);
-      color: var(--text);
+    .hole-grid span.bonus,
+    .hole-grid span.bonus.seen,
+    .hole-grid span.bonus.selected {
+      border-color: var(--red);
     }
 
     .hole-grid span.seen::after {
@@ -663,9 +675,11 @@
             <div class="metric"><div class="label">elevation / 仰角脈寬</div><div class="value" id="boardElevation">--</div></div>
             <div class="metric"><div class="label">flywheel / 轉速（Falcon 實際）</div><div class="value" id="boardFlywheel">--</div><div class="subvalue" id="boardFlywheelCmd">--</div></div>
             <div class="metric"><div class="label">distance / 相機距離</div><div class="value" id="boardDistance">--</div></div>
+            <div class="metric"><div class="label">turret / 轉台角度（AS5600）</div><div class="value" id="boardTurret">--</div><div class="subvalue" id="boardTurretRaw">--</div></div>
           </div>
         </div>
-        <div class="label" style="padding: 0 12px 10px">藍底＝選中的洞；綠框＝鏡頭現在鎖定的洞（目前只標得出鎖定中的那一個）。</div>
+        <div class="label" id="boardReady" style="padding: 0 12px 4px">發射條件：--</div>
+        <div class="label" style="padding: 0 12px 10px">灰＝沒偵測到、綠＝偵測到、藍＝選中（綠點＝也偵測到）、紅框＝加分框。</div>
       </section>
 
       <section class="panel" data-panel="vision" style="margin-top:14px">
@@ -826,7 +840,7 @@
   </main>
 
   <script>
-    const ids = ["tx", "ty", "distance", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed", "aimState", "distanceRaw", "matchTimer", "matchState", "boardElevation", "boardFlywheel", "boardFlywheelCmd", "boardDistance", "targetBoardState"];
+    const ids = ["tx", "ty", "distance", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed", "aimState", "distanceRaw", "matchTimer", "matchState", "boardElevation", "boardFlywheel", "boardFlywheelCmd", "boardDistance", "targetBoardState", "boardReady", "boardTurret", "boardTurretRaw"];
     const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     const connectButton = document.getElementById("connect");
     const demoButton = document.getElementById("demo");
@@ -1126,15 +1140,20 @@
       return bonus >= 0 ? 10 + bonus : 0;
     }
 
-    // The hole the camera has in its current valid frame (green on the
-    // board), from TEL slots 5/6 or $AIM. 0 = none.
+    // Detected holes (green on the board): the hole in the current valid
+    // frame (TEL slots 5/6 or $AIM; 0 = none) plus, once the Orin reports
+    // them (protocol v3), every other hole it sees (bit n = hole n).
     let seenHole = 0;
+    let seenMaskHoles = 0;
+    function renderSeen() {
+      for (let n = 1; n <= LAST_HOLE; n++) {
+        document.getElementById(`hole${n}`).classList.toggle("seen", n === seenHole || (seenMaskHoles & (1 << n)) !== 0);
+      }
+    }
     function setSeenHole(hole) {
       if (hole === seenHole) return;
       seenHole = hole;
-      for (let n = 1; n <= LAST_HOLE; n++) {
-        document.getElementById(`hole${n}`).classList.toggle("seen", n === hole);
-      }
+      renderSeen();
     }
 
     // Slots 35-37 plus the frame (slots 5/6): is the camera locked on the
@@ -1771,7 +1790,16 @@
         rcFrameAgeMs: p.length > 38 ? Number(p[38]) : NaN,
         // Slot 39 (2026-10-27): lines from the robot bridge the Mega dropped
         // since boot (bad "*HH" check / malformed). Should stay near 0.
-        rcRejectedLines: p.length > 39 ? Number(p[39]) : NaN
+        rcRejectedLines: p.length > 39 ? Number(p[39]) : NaN,
+        // Slots 40-41 (2026-10-27): why the autos can't fire yet (bits: 1
+        // turret locked, 2 flywheel spun up, 4 shot for this hole, 8 READY)
+        // and the steadied shot distance (cm, 0 = none).
+        readyBits: p.length > 40 ? Number(p[40]) : NaN,
+        shotDistanceCm: p.length > 41 ? Number(p[41]) : NaN,
+        // Slots 42-44: turret AS5600 raw 0-4095, status bits, degrees x10.
+        turretRaw: p.length > 42 ? Number(p[42]) : NaN,
+        turretStatus: p.length > 43 ? Number(p[43]) : NaN,
+        turretDeg10: p.length > 44 ? Number(p[44]) : NaN
       };
     }
 
@@ -1806,6 +1834,8 @@
           (Number.isFinite(data.rcRejectedLines) ? ` · 丟棄 ${data.rcRejectedLines} 行` : "");
       }
       noteRejectedLines(data.rcRejectedLines);
+      renderReady(data);
+      renderTurret(data);
       if (Number.isFinite(data.controlOwner)) {
         el.controlOwner.textContent = OWNER_NAMES[data.controlOwner] ?? `#${data.controlOwner}`;
       }
@@ -1863,6 +1893,40 @@
         if (controlArmed && !wiredOwned) setControlArmed(false);
         else if (!controlArmed && enablePending && wiredOwned) setControlArmed(true);
       }
+    }
+
+    // Why the autos can't fire yet (TEL slots 40-41): each condition Auto
+    // waits for, so a test shows which one never comes.
+    function renderReady(data) {
+      if (!Number.isFinite(data.readyBits)) return;
+      if (operatorMode !== 0 && operatorMode !== 1) {
+        el.boardReady.textContent = "發射條件：只在半自動／全自動時判斷";
+        return;
+      }
+      const b = data.readyBits;
+      const mark = (bit) => (b & bit ? "✓" : "✗");
+      const shot = data.shotDistanceCm > 0 ? `${(data.shotDistanceCm / 100).toFixed(2)} m` : "--";
+      el.boardReady.textContent = `發射條件：轉台鎖定 ${mark(1)} · 飛輪轉穩 ${mark(2)} · 有射擊值 ${mark(4)}` +
+        ` · ${b & 8 ? "可發射" : "等待中"} · 射擊距離（穩定後）${shot}`;
+    }
+
+    // Turret AS5600 (TEL slots 42-44, src/Sensors/TurretAngle.h status bits).
+    function turretStatusText(status) {
+      if (status & 0x20) return "沒讀到感測器（檢查 D20/D21 接線、電源）";
+      if (status & 0x10) return "圈數不可信（曾經讀不到）：轉台擺回中間後重開機";
+      if (!(status & 0x01)) return "讀取失敗";
+      if (status & 0x04) return "磁鐵太遠";
+      if (status & 0x08) return "磁鐵太近";
+      if (!(status & 0x02)) return "沒偵測到磁鐵";
+      return "OK";
+    }
+    function renderTurret(data) {
+      if (!Number.isFinite(data.turretStatus)) return;
+      const ok = turretStatusText(data.turretStatus) === "OK";
+      const deg = data.turretDeg10 / 10;
+      el.boardTurret.textContent = ok || !(data.turretStatus & 0x20)
+        ? `${deg > 0 ? "+" : ""}${deg.toFixed(1)}°` : "--";
+      el.boardTurretRaw.textContent = `raw ${data.turretRaw} · ${turretStatusText(data.turretStatus)}`;
     }
 
     // Mega <-> bridge lines dropped (TEL slot 39): logged when it grows, at
@@ -2005,6 +2069,9 @@
           renderTargetAndAuto();
         }
         appendControlLog(eventName);
+        if (eventName === "LINK_VERSION_MISMATCH") {
+          appendControlLog("地面站和 Mega 的通道表版本不一致（CH10）：兩塊要燒同一版，之前不能無線 Enable");
+        }
         return;
       }
       if (line.startsWith("$GROUND_EVENT,")) {
@@ -2211,6 +2278,10 @@
     // wheel (Jeremy, 2026-10-17): -0.5 = the inner wheel runs backwards at
     // half speed. Must stay above -1. Turn alone stays equal and opposite.
     const TURN_INNER_RATIO = -0.5;
+    // Turning (stick X) scaled down, forward / back untouched (Jeremy,
+    // 2026-10-27: 60%). Applies to spinning in place and to turning while
+    // driving; wired and wireless both get the tank values from here.
+    const TURN_SPEED_SCALE = 0.6;
     const DRIVE_TURN_GAIN = (1 - TURN_INNER_RATIO) / (1 + TURN_INNER_RATIO);
     const GAMEPAD_PROFILES = {
       // 2026-10-18 (Jeremy): LB fires and RB is turret home (swapped from
@@ -2265,7 +2336,7 @@
     function gamepadTank(pad) {
       const profile = gamepadProfile(pad);
       const forward = -shapeAxis(pad.axes[profile.forwardAxis]); // stick up is negative
-      const turn = shapeAxis(pad.axes[profile.turnAxis]);
+      const turn = shapeAxis(pad.axes[profile.turnAxis]) * TURN_SPEED_SCALE;
       if (forward === 0 && turn === 0) return null;
       const gain = 1 + (DRIVE_TURN_GAIN - 1) * Math.abs(forward);
       let left = forward + turn * gain;

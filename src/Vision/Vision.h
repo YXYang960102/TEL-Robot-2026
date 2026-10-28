@@ -18,6 +18,9 @@ public:
     static double getDistance();
     static int getTargetId();
     static bool isValid();
+    // Bumped once per target frame from the Orin (valid or not), so a
+    // consumer can take each frame exactly once (Auto's distance filter).
+    static unsigned long getFrameCount();
 
     // The operator's chosen hole, in the Orin's numbering (0 = none, the
     // Orin picks; 4..12 = OperatorTarget::visionIdForHole()). Sent to the
@@ -53,6 +56,7 @@ private:
     static int targetId;
     static bool valid;
     static unsigned long lastPacketMs;
+    static unsigned long frameCount;
     static bool hasPacket;
     static bool sentReady;
     static unsigned long lastHeartbeatMs;

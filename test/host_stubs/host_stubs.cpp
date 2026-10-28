@@ -83,10 +83,14 @@ bool Shooter::setAnglePulseUs(double pulseUs) {
 void Shooter::setFlywheelOpenLoop(double command) { rec.flywheelCommand = command; }
 
 bool Shooter::isReady() { return hoststub::shooterReady; }
+bool Shooter::isRotateReady() { return hoststub::shooterReady; }
+bool Shooter::isFlywheelReady() { return hoststub::shooterReady; }
 
 bool Vision::isConnected() { return hoststub::visionReady; }
 bool Vision::isVisionReady() { return hoststub::visionReady; }
 bool Vision::isValid() { return hoststub::visionValid; }
+// Every call is a new frame (the stub's fields stand for the latest one).
+unsigned long Vision::getFrameCount() { static unsigned long frames = 0; return ++frames; }
 double Vision::getDistance() { return hoststub::visionDistanceMm; }
 double Vision::getTx() { return hoststub::visionTx; }
 double Vision::getTy() { return hoststub::visionTy; }

@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 #include "../Constants/TuningConstants.h"
+#include "../Control/ShotDistanceFilter.h"
 #include "../Control/ShotTableLookup.h"
 #include "../Dribbler/Dribbler.h"
 #include "../IO/ManualControl.h"
@@ -18,11 +19,31 @@ double Auto::lastShotElevationUs = 0.0;
 unsigned long Auto::lastShotMs = 0;
 uint8_t Auto::lastShotSelection = 0;
 unsigned long Auto::lastElevationSlewMs = 0;
+int Auto::lastShotTargetId = 0;
+uint8_t Auto::readyBits = 0;
+
+namespace {
+ShotDistanceFilter<TuningConstants::Auto::DISTANCE_MEDIAN_FRAMES> distanceFilter(
+    TuningConstants::Auto::DISTANCE_LATCH_BAND_M, TuningConstants::Auto::DISTANCE_LATCH_SETTLE_MS);
+unsigned long lastFilterFrame = 0;
+uint8_t filterSelection = 0;
+int filterTargetId = 0;
+}  // namespace
+
+double Auto::getShotDistanceM() {
+    return distanceFilter.latched();
+}
+
+uint8_t Auto::getReadyBits() {
+    return readyBits;
+}
 
 void Auto::init() {
     fireState = FireState::IDLE;
     fireStateEnteredMs = millis();
     haveLastShot = false;
+    distanceFilter.reset();
+    readyBits = 0;
 }
 
 void Auto::enterFireState(FireState next) {
@@ -38,6 +59,8 @@ void Auto::update() {
         ManualControl::takeFireRequest(); // never let a stale F carry over
         enterFireState(FireState::IDLE);
         haveLastShot = false;
+        distanceFilter.reset();
+        readyBits = 0;
         return;
     }
 
@@ -51,6 +74,8 @@ void Auto::update() {
         ManualControl::takeFireRequest(); // never set in test; never carry one over
         enterFireState(FireState::IDLE);
         haveLastShot = false;
+        distanceFilter.reset();
+        readyBits = 0;
         if (visionHealthy) {
             Shooter::setRotateVisionFollow();
             Shooter::setRotateAimOffsetPx(ManualControl::getAimOffsetPx());
@@ -67,6 +92,8 @@ void Auto::update() {
         Shooter::setFlywheelOpenLoop(0.0);
         enterFireState(FireState::IDLE);
         haveLastShot = false;
+        distanceFilter.reset();
+        readyBits = 0;
         if (firePressed) ManualControl::reportEvent(RCMAP_EVENT_FIRE_NOT_READY);
         return;
     }
@@ -80,27 +107,52 @@ void Auto::update() {
     // (the selected one, or the Orin's own pick with none selected), so the
     // table is that hole's row. valid=1 with distance 0 (the Orin's webcam
     // bench mode) or an id with no table can be aimed at but never fired at.
+    //
+    // The table is looked up at the STEADIED distance (2026-10-27,
+    // ShotDistanceFilter): each new depth frame of this target feeds it,
+    // and its latched value only moves for a real move, so standing still
+    // the flywheel command and the elevation target stay put and the
+    // shooter can count as ready. A new hole (selection, or the Orin's own
+    // pick changing) starts the filter over.
+    const unsigned long now = millis();
+    const uint8_t selection = Vision::getSelectedTarget();
+    const bool frameHasDepth = Vision::isValid() && Vision::getDistance() > 0.0;
+    if (selection != filterSelection ||
+        (Vision::isValid() && Vision::getTargetId() != filterTargetId)) {
+        distanceFilter.reset();
+        filterSelection = selection;
+        if (Vision::isValid()) filterTargetId = Vision::getTargetId();
+    }
+    const unsigned long frame = Vision::getFrameCount();
+    if (frameHasDepth && frame != lastFilterFrame) {
+        distanceFilter.addSample(Vision::getDistance() / 1000.0, now);
+    }
+    lastFilterFrame = frame;
     ShotTableLookup::Result shot = {0.0, 0.0};
-    const bool hasTarget = Vision::isValid() && Vision::getDistance() > 0.0 &&
-        ShotTableLookup::lookupTarget(Vision::getTargetId(), Vision::getDistance() / 1000.0, shot);
+    const bool hasTarget = frameHasDepth && distanceFilter.latched() > 0.0 &&
+        ShotTableLookup::lookupTarget(Vision::getTargetId(), distanceFilter.latched(), shot);
 
     // Target hold (2026-10-18): a single invalid / distance-0 / other-hole
     // frame used to drop the flywheel to the pre-spin for ~90 ms and back,
     // pulsing it and restarting its spin-up wait. The last target's shot
-    // is kept for TARGET_HOLD_MS (not across a new hole selection); firing
-    // still needs a target in the current frame (hasTarget below).
-    const unsigned long now = millis();
-    const uint8_t selection = Vision::getSelectedTarget();
+    // is kept for TARGET_HOLD_MS (not across a new hole selection). Firing
+    // needs the hole in the current frame (Vision::isValid(): the turret is
+    // locked on it) and a shot: this frame's, or the held one when only the
+    // depth dropped out for a moment (same hole).
     if (hasTarget) {
         haveLastShot = true;
         lastShotFlywheel = shot.flywheelCommand;
         lastShotElevationUs = shot.elevationPulseUs;
         lastShotMs = now;
         lastShotSelection = selection;
+        lastShotTargetId = Vision::getTargetId();
     }
     const bool holding = !hasTarget && haveLastShot && selection == lastShotSelection &&
         now - lastShotMs <= TuningConstants::Auto::TARGET_HOLD_MS;
-    if (!hasTarget && !holding) haveLastShot = false;
+    if (!hasTarget && !holding) {
+        haveLastShot = false;
+        distanceFilter.reset();
+    }
 
     // Flywheel from that table when there is (or was just) a target
     // (distance in mm -> m); otherwise the fixed SHOOT_COMMAND so it is
@@ -132,8 +184,10 @@ void Auto::update() {
 
     // Turret locked on the target (|tx + aim offset| <= 5 px for 100 ms),
     // flywheel commanded at shoot speed long enough to be spun up, and a
-    // target with a distance.
-    const bool ready = Shooter::isReady() && hasTarget;
+    // shot for the hole in this frame (its own, or the held one).
+    const bool shotAvailable = Vision::isValid() &&
+        (hasTarget || (holding && Vision::getTargetId() == lastShotTargetId));
+    const bool ready = Shooter::isReady() && shotAvailable;
     bool fired = false;
 
     if (fireState == FireState::IDLE) {
@@ -162,6 +216,12 @@ void Auto::update() {
             }
         }
     }
+
+    // Why it can't fire yet, for the Dashboard (TEL slot 40).
+    readyBits = static_cast<uint8_t>((Shooter::isRotateReady() ? 1u : 0u) |
+                                     (Shooter::isFlywheelReady() ? 2u : 0u) |
+                                     (shotAvailable ? 4u : 0u) |
+                                     (fireState == FireState::READY ? 8u : 0u));
 
     // Semi-auto F while not ready (still aiming / spinning up / cooling
     // down) is refused, not queued: the operator presses again.

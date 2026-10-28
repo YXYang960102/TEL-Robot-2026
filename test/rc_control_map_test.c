@@ -28,7 +28,7 @@ static void test_round_trip(void) {
     assert(ch[RCMAP_CH_TARGET] == 1560 && ch[RCMAP_CH_MODE] == 1750); /* 1000 + 80*7 */
     assert(ch[RCMAP_CH_FIRE] == 2000 && ch[RCMAP_CH_ARM] == 2000);
     assert(ch[RCMAP_CH_NUDGE] == 1600 && ch[RCMAP_CH_AUTO] == 1600);
-    assert(ch[8] == 1500 && ch[9] == 1500 && ch[15] == 1500);
+    assert(ch[8] == 1500 && ch[RCMAP_CH_VERSION] == 1200 && ch[15] == 1500); /* CH10 = link version 1 */
     rcmap_command d;
     assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
     assert(near(d.forward, 1.0f) && near(d.turn, -0.5f));
@@ -63,17 +63,17 @@ static void test_elrs_hybrid_values(void) {
     const int six[6] = {988, 1193, 1398, 1602, 1807, 2012};
     rcmap_command d;
     for (uint8_t k = 0; k < 5; k++) {
-        int ch[16] = {1500, 1500, 1401, 2000, 988, 2012, six[k], six[4 - k], 1500, 1500};
+        int ch[16] = {1500, 1500, 1401, 2000, 988, 2012, six[k], six[4 - k], 1500, six[1]};
         assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
         assert(d.nudge == k && d.auto_path == 4 - k && d.armed && !d.fire);
         assert(d.target == RCMAP_TARGET_NONE + 5); /* 1401 -> hole 5 (1000 + 80*5) */
     }
-    int ch[16] = {1500, 1500, 1000, 2000, 2012, 988, 988, 988, 1500, 1500};
+    int ch[16] = {1500, 1500, 1000, 2000, 2012, 988, 988, 988, 1500, 1193};
     assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.fire && !d.armed);
 }
 
 static void test_invalid_frames(void) {
-    int ok[16] = {1500, 1500, 1000, 2000, 1000, 1000, 1000, 1000, 1500, 1500};
+    int ok[16] = {1500, 1500, 1000, 2000, 1000, 1000, 1000, 1000, 1500, 1200};
     rcmap_command d = base();
     assert(rcmap_decode(ok, RCMAP_CHANNEL_COUNT, &d));
     int ch[16];
@@ -478,6 +478,31 @@ static void test_target_levels(void) {
     assert(ch[RCMAP_CH_TARGET] == 1000);
 }
 
+/* CH10 link version (2026-10-27): a frame from another channel table is
+ * rejected outright, never read with this table's levels. */
+static void test_link_version(void) {
+    rcmap_command c, d;
+    int ch[16];
+    memset(&c, 0, sizeof c);
+    c.target = 5;
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_VERSION] == 1000 + 200 * RCMAP_LINK_VERSION);
+    assert(rcmap_link_version_ok(ch, RCMAP_CHANNEL_COUNT) && rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    /* What ELRS's 6-position AUX actually delivers for level 1. */
+    ch[RCMAP_CH_VERSION] = 1193;
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.target == 5);
+    /* An older ground's 1500 arrives snapped to 1398 or 1602; any other
+     * level, or no CH10 at all, is rejected too. */
+    const int others[] = {1500, 1398, 1602, 988, 1807, 2012, 1300};
+    for (unsigned i = 0; i < sizeof others / sizeof others[0]; i++) {
+        ch[RCMAP_CH_VERSION] = others[i];
+        assert(!rcmap_link_version_ok(ch, RCMAP_CHANNEL_COUNT));
+        assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    }
+    assert(!rcmap_link_version_ok(ch, RCMAP_CHANNEL_COUNT - 1));
+    assert(strcmp(rcmap_event_name(RCMAP_EVENT_LINK_VERSION_MISMATCH), "LINK_VERSION_MISMATCH") == 0);
+}
+
 int main(void) {
     test_round_trip();
     test_elrs_hybrid_values();
@@ -490,6 +515,7 @@ int main(void) {
     test_test_mode();
     test_line_check();
     test_target_levels();
+    test_link_version();
     printf("rc_control_map host tests: all asserts passed\n");
     return 0;
 }

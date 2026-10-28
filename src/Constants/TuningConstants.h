@@ -156,6 +156,17 @@ constexpr double ELEVATION_SLEW_US_PER_SECOND = 400.0;
 // target in the current frame.
 constexpr uint32_t TARGET_HOLD_MS = 500;
 
+// Shot distance steadying (2026-10-27, src/Control/ShotDistanceFilter.h):
+// the table is looked up at the median of the last DISTANCE_MEDIAN_FRAMES
+// depth frames, latched; it only follows a move of more than
+// DISTANCE_LATCH_BAND_M that lasts DISTANCE_LATCH_SETTLE_MS. 5 cm is at most
+// ~1.1% flywheel / ~9 us elevation on the steepest measured segment
+// (hole 5, 2.5 -> 5 m: -21.6 %/m, -175 us/m) -- less than the frame-to-
+// frame depth noise it replaces.
+constexpr uint8_t DISTANCE_MEDIAN_FRAMES = 5;
+constexpr double DISTANCE_LATCH_BAND_M = 0.05;
+constexpr unsigned long DISTANCE_LATCH_SETTLE_MS = 300;
+
 // Minimum time from one auto shot to the next (src/Auto/Auto.cpp). The
 // feed tower's own lockout (DribblerConstants::Tower::COOLDOWN_MS, 1000 ms)
 // also applies, so the real full-auto rate is whichever is longer.

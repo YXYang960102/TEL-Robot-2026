@@ -827,6 +827,40 @@ void testShotTableDrivesFlywheel() {
     assert(nearly(rec.flywheelCommand, expected.flywheelCommand));
 }
 
+// Standing still, the depth wanders a few cm frame to frame (2026-10-27):
+// the shot table is looked up at the steadied distance, so the flywheel
+// command and the elevation target stay put and the shooter can get ready.
+void testSteadyShotDistance() {
+    reset();
+    hoststub::visionReady = true;
+    hoststub::visionValid = true;
+    hoststub::visionDistanceMm = 4000.0;
+    armWired();
+    send("M"); step();                                   // semi-auto
+    const double fly = rec.flywheelCommand;
+    ShotTableLookup::Result expected = {0.0, 0.0};
+    assert(ShotTableLookup::lookupTarget(hoststub::visionTargetId, 4.0, expected));
+    assert(nearly(fly, expected.flywheelCommand));
+    const double jitter[] = {4040, 3960, 4030, 3950, 4045, 3970, 4020, 3940};
+    for (int rep = 0; rep < 10; rep++) {
+        for (double mm : jitter) {
+            hoststub::visionDistanceMm = mm;
+            send("K");
+            step(33);
+            assert(nearly(rec.flywheelCommand, fly));     // unchanged, every frame
+        }
+    }
+    assert(nearly(Auto::getShotDistanceM(), 4.0));
+    // A real move (4.0 -> 4.5 m) is followed after DISTANCE_LATCH_SETTLE_MS.
+    hoststub::visionDistanceMm = 4500.0;
+    for (int i = 0; i < 20; i++) { send("K"); step(33); }
+    assert(nearly(Auto::getShotDistanceM(), 4.5));
+    // Ready bits: the shot is there (bit 2), the stub shooter not ready.
+    assert((Auto::getReadyBits() & 4u) && !(Auto::getReadyBits() & 1u));
+    send("X"); step();
+    assert(Auto::getReadyBits() == 0 && Auto::getShotDistanceM() == 0.0);
+}
+
 void testElevationTargetCommands() {
     reset();
     send("ANGT,90"); step();
@@ -1001,6 +1035,25 @@ void testTestModeWired() {
     send("MODE,3"); step();
     send("X"); step();
     assert(!ManualControl::isArmed() && ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
+}
+
+// A ground on another channel table (CH10): every frame rejected, no
+// Enable, and LINK_VERSION_MISMATCH at most once a second.
+void testWirelessLinkVersion() {
+    reset();
+    for (int i = 0; i < 60; i++) {           // 1.2 s of frames, arm low then high
+        wireless.armed = i >= 5;
+        rcFrame();
+        MechLink::channels[RCMAP_CH_VERSION] = 1500;   // an older ground
+        step(20);
+    }
+    assert(!ManualControl::isArmed());
+    size_t count = 0;
+    for (size_t at = 0; (at = Serial.output.find("$EVENT,LINK_VERSION_MISMATCH\n", at)) != std::string::npos; at++) count++;
+    assert(count >= 1 && count <= 2);
+    // The matching table enables as usual.
+    Serial.output.clear();
+    armWireless();
 }
 
 // Over the radio: CH4 full manual (+ Falcon) and CH9 high.
@@ -1279,6 +1332,7 @@ int main() {
     testFullAutoFiresByItself();
     testAutoWithoutCamera();
     testShotTableDrivesFlywheel();
+    testSteadyShotDistance();
     testWirelessMode();
     testWirelessFlywheel();
     testElevationTargetCommands();
@@ -1288,6 +1342,7 @@ int main() {
     testFineAdjustWireless();
     testTestModeWired();
     testTestModeWireless();
+    testWirelessLinkVersion();
     testModeCommandAndTargetReset();
     testAimUplink();
     testVisionUplink();

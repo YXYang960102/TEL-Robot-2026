@@ -28,6 +28,7 @@ unsigned long ManualControl::lastValidWirelessMs = 0;
 bool ManualControl::wirelessArmPrev = true;
 bool ManualControl::wirelessFirePrev = true;
 uint8_t ManualControl::wirelessAutoPrev = RCMAP_AUTO_NONE;
+unsigned long ManualControl::lastVersionEventMs = 0;
 
 double ManualControl::tankLeftCommand = 0.0;
 double ManualControl::tankRightCommand = 0.0;
@@ -359,6 +360,13 @@ void ManualControl::processWirelessFrame() {
 
     rcmap_command c;
     if (!rcmap_decode(MechLink::channels, RCMAP_CHANNEL_COUNT, &c)) {
+        // A ground on another channel table (CH10, RcControlMap.h): say so,
+        // once a second, so "Enable never confirms" has a visible reason.
+        if (!rcmap_link_version_ok(MechLink::channels, RCMAP_CHANNEL_COUNT) &&
+            millis() - lastVersionEventMs >= 1000) {
+            lastVersionEventMs = millis();
+            sendEvent(RCMAP_EVENT_LINK_VERSION_MISMATCH);
+        }
         return; // invalid frame: ignored; if it persists the watchdog disarms
     }
     lastValidWirelessMs = millis();

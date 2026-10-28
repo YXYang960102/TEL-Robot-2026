@@ -123,6 +123,7 @@ private:
     static bool wirelessArmPrev;
     static bool wirelessFirePrev;
     static uint8_t wirelessAutoPrev;
+    static unsigned long lastVersionEventMs; // LINK_VERSION_MISMATCH rate limit
 
     static double tankLeftCommand;
     static double tankRightCommand;

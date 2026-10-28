@@ -5,6 +5,8 @@
 #include "../Chassis/Chassis.h"
 #include "../Dribbler/Dribbler.h"
 #include "../IO/MechLink.h"
+#include "../Sensors/TurretAngle.h"
+#include "../Auto/Auto.h"
 #include "../IO/ManualControl.h"
 #include "../Shooter/Shooter.h"
 #include "../Vision/Vision.h"
@@ -136,5 +138,20 @@ void Telemetry::update() {
     Serial.print(",");
     // Slot 39 (appended 2026-10-27): lines from the bridge dropped since boot
     // (bad "*HH" check, malformed, oversize). Should stay at or near 0.
-    Serial.println(MechLink::rejectedLines);
+    Serial.print(MechLink::rejectedLines);
+    Serial.print(",");
+    // Slots 40-41 (2026-10-27): why the autos can't fire yet (Auto::
+    // getReadyBits: 1 turret locked, 2 flywheel spun up, 4 a shot for the
+    // hole in this frame, 8 READY) and the steadied shot distance, cm.
+    Serial.print(Auto::getReadyBits());
+    Serial.print(",");
+    Serial.print(static_cast<long>(Auto::getShotDistanceM() * 100.0 + 0.5));
+    Serial.print(",");
+    // Slots 42-44: the turret AS5600 (read only): raw 0-4095, status bits
+    // (TurretAngle.h), turret degrees x10 from straight ahead.
+    Serial.print(TurretAngle::raw());
+    Serial.print(",");
+    Serial.print(TurretAngle::status());
+    Serial.print(",");
+    Serial.println(static_cast<long>(lround(TurretAngle::angleDegrees() * 10.0)));
 }

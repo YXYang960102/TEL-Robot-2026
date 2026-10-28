@@ -9,6 +9,7 @@
 #include "Dribbler/Dribbler.h"
 #include "Chassis/Chassis.h"
 #include "Telemetry/Telemetry.h"
+#include "Sensors/TurretAngle.h"
 #include "Constants/ChassisConstants.h"
 #include "Constants/DribblerConstants.h"
 #include "Constants/ShooterConstants.h"
@@ -62,12 +63,14 @@ void setup() {
     Chassis::init();
     Telemetry::init();
     Auto::init();
+    TurretAngle::init(); // AS5600 on I2C D20/D21: read only for now
 }
 
 void loop() {
 
     MechLink::update();
     Vision::update();
+    TurretAngle::update();
 
     // ManualControl handles both operator sources (wired USB Dashboard and
     // the wireless ELRS channels MechLink just read) and applies its own

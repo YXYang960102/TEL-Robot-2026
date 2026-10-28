@@ -103,10 +103,20 @@ void rcmap_encode(const rcmap_command *c, int ch_us[16]) {
     const uint8_t path = c->auto_path <= RCMAP_AUTO_PATHS ? c->auto_path : RCMAP_AUTO_NONE;
     ch_us[RCMAP_CH_AUTO] = RCMAP_LEVEL_BASE_US + (int)path * RCMAP_LEVEL_STEP_US;
     ch_us[RCMAP_CH_TEST] = rcmap_command_mode(c) == RCMAP_MODE_TEST ? 2000 : 1500;
+    ch_us[RCMAP_CH_VERSION] = RCMAP_LEVEL_BASE_US + (int)RCMAP_LINK_VERSION * RCMAP_LEVEL_STEP_US;
+}
+
+bool rcmap_link_version_ok(const int *ch_us, uint8_t count) {
+    uint8_t version;
+    return count >= RCMAP_CHANNEL_COUNT &&
+           us_to_level(ch_us[RCMAP_CH_VERSION], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
+                       RCMAP_LEVEL_TOLERANCE_US, 6u, &version) &&
+           version == RCMAP_LINK_VERSION;
 }
 
 bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     if (count < RCMAP_CHANNEL_COUNT) return false;
+    if (!rcmap_link_version_ok(ch_us, count)) return false;
     for (uint8_t i = 0; i < RCMAP_CHANNEL_COUNT; i++) {
         if (ch_us[i] < RCMAP_MIN_VALID_US || ch_us[i] > RCMAP_MAX_VALID_US) return false;
     }
@@ -209,6 +219,7 @@ static const char *const event_names[RCMAP_EVENT_COUNT] = {
     "AUTO_PATH_STARTED",
     "AUTO_PATH_REJECTED",
     "MODE_TEST",
+    "LINK_VERSION_MISMATCH",
 };
 
 const char *rcmap_event_name(uint16_t code) {

@@ -32,6 +32,13 @@ public:
     static void init();
     static void update();
 
+    // The steadied distance the shot table is looked up at, meters (0 =
+    // none), and why Auto can't fire yet: bit 0 turret locked, 1 flywheel
+    // spun up, 2 a shot for the hole in this frame, 3 READY. Both 0 outside
+    // the autos. For the Dashboard (TEL slots 40-41).
+    static double getShotDistanceM();
+    static uint8_t getReadyBits();
+
 private:
     enum class FireState {
         IDLE,
@@ -53,4 +60,6 @@ private:
     static unsigned long lastShotMs;
     static uint8_t lastShotSelection;
     static unsigned long lastElevationSlewMs;
+    static int lastShotTargetId;
+    static uint8_t readyBits;
 };
