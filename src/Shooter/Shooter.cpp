@@ -256,12 +256,16 @@ void Shooter::updateRotate() {
         // Aim offset R: the loop drives tx + R to 0, i.e. holds the target
         // R px left of center, so the turret points R px right of it.
         // Example: R = +10, target at tx = -10 -> input 0 -> locked.
+        // Protocol v3: a PREDICTED position (the selected hole out of view)
+        // is followed too, so the turret turns toward it, but it is never
+        // a lock -- only the hole really in view can make the turret ready.
+        const bool seen = Vision::isValid();
         const double command = rotateVisionFollow.update(
             Vision::getTx() + rotateAimOffsetPx,
-            Vision::isValid(),
+            seen || Vision::isPredicted(),
             Vision::getTargetId(),
             millis());
-        rotateReady = rotateVisionFollow.isReady();
+        rotateReady = seen && rotateVisionFollow.isReady();
         writeRotateCommand(command);
         return;
     }

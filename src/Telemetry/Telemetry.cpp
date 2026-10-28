@@ -153,5 +153,11 @@ void Telemetry::update() {
     Serial.print(",");
     Serial.print(TurretAngle::status());
     Serial.print(",");
-    Serial.println(static_cast<long>(lround(TurretAngle::angleDegrees() * 10.0)));
+    Serial.print(static_cast<long>(lround(TurretAngle::angleDegrees() * 10.0)));
+    Serial.print(",");
+    // Slots 45-46 (Orin v3): the detected hole ids (bit id - 1) and the
+    // vision state: 0 nothing, 1 the target in view, 2 predicted position.
+    Serial.print(Vision::getSeenMask());
+    Serial.print(",");
+    Serial.println(Vision::isValid() ? 1 : (Vision::isPredicted() ? 2 : 0));
 }

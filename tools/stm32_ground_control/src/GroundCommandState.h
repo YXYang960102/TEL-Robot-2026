@@ -120,6 +120,9 @@ public:
     // Then "$VISION,<fresh>,<flywheelUs>,<tx*2>,<ty*2>,<valid>,<targetId>"
     // from the latest vision frame (tx / ty in half pixels; the Falcon's
     // actual PWM pulse), same rule.
+    // Then "$SEEN,<fresh>,<mask>,<state>" from the latest seen frame (Orin
+    // v3, 2026-10-27): detected hole ids as bit id - 1, and 0 nothing / 1
+    // target in view / 2 predicted position; same rule.
     void tick(uint32_t nowMs, GroundEmitFn emit, void* ctx);
 
     bool fresh(uint32_t nowMs) const;
@@ -140,5 +143,8 @@ private:
     rcmap_vision lastVision{};
     bool haveVision = false;
     uint32_t lastVisionMs = 0;
+    rcmap_seen lastSeen{};
+    bool haveSeen = false;
+    uint32_t lastSeenMs = 0;
     uint32_t lastReportMs = 0;
 };

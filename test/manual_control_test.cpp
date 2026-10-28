@@ -561,7 +561,7 @@ void testStatusUplink() {
     assert(rec.statusFlags & RCMAP_STATUS_PINS_CONFIRMED);
     assert(!(rec.statusFlags & RCMAP_STATUS_ARMED));
     armWireless();
-    runWireless(220); // status goes out every other 100 ms slot
+    runWireless(320); // status: slots 0 and 2 of 5 (100 ms each), so at most 300 ms apart
     assert(rec.statusFlags & RCMAP_STATUS_ARMED);
     assert(rec.statusFlags & RCMAP_STATUS_OWNER_WIRELESS);
     assert(rec.statusFlags & RCMAP_STATUS_RC_LINK_OK);
@@ -570,12 +570,12 @@ void testStatusUplink() {
     assert(rcmap_status_code_mode(rec.statusCode) == RCMAP_MODE_FULL_MANUAL);
     const unsigned long seq = rec.statusSeq;
     wireless.fire = true;
-    runWireless(220);
+    runWireless(320);
     assert(rcmap_status_code_event(rec.statusCode) == RCMAP_EVENT_FEED_TRIGGER_SENT &&
            rec.statusSeq == seq + 1);
     assert(rec.statusFlags & RCMAP_STATUS_FEED_BUSY);
     wireless.mode_us = RCMAP_MODE_SEMI_AUTO_US;
-    runWireless(220);
+    runWireless(320);
     assert(rcmap_status_code_mode(rec.statusCode) == RCMAP_MODE_SEMI_AUTO);
 }
 
@@ -593,7 +593,7 @@ rcmap_aim lastAim() {
 
 void testAimUplink() {
     reset();
-    // Status, aim, status, vision; one line per 100 ms.
+    // Status, aim, status, vision, seen (2026-10-27); one line per 100 ms.
     step(100);
     assert(rec.statusCount == 1 && rec.aimCount == 0 && rec.visionCount == 0);
     step(100);
@@ -602,8 +602,17 @@ void testAimUplink() {
     assert(rec.statusCount == 2 && rec.aimCount == 1 && rec.visionCount == 0);
     step(100);
     assert(rec.statusCount == 2 && rec.aimCount == 1 && rec.visionCount == 1);
-    for (int i = 0; i < 8; i++) step(100);
-    assert(rec.statusCount == 6 && rec.aimCount == 3 && rec.visionCount == 3);
+    step(100);
+    assert(rec.seenCount == 1 && rec.statusCount == 2);
+    for (int i = 0; i < 7; i++) step(100);
+    assert(rec.statusCount == 5 && rec.aimCount == 3 && rec.visionCount == 2 && rec.seenCount == 2);
+    {
+        rcmap_status st = {};
+        st.event_code = rec.seenCode;
+        rcmap_seen seen = {};
+        assert(rcmap_seen_from_status(&st, &seen) && seen.seen_mask == 0 &&
+               seen.state == RCMAP_VISION_STATE_NONE);
+    }
     // Nothing in view: no distance, not valid.
     rcmap_aim a = lastAim();
     assert(a.distance_cm == 0 && !a.valid && a.target_id == 0 && a.elevation_pulse_us == 1500);
@@ -617,13 +626,13 @@ void testAimUplink() {
     armWired();
     send("M"); step();                    // semi auto: arrows are fine-adjust
     send("ROT,1"); step(); send("ROT,0"); step();
-    runWithHeartbeat(350);
+    runWithHeartbeat(550);                // an aim frame every 500 ms (5 slots)
     a = lastAim();
     // The elevation servo's pulse when the frame went out (Auto slews it
     // toward the table, so it may trail the current one by one aim period).
     assert(a.distance_cm == 352);
     assert(abs(static_cast<int>(a.elevation_pulse_us) - hoststub::anglePulseUs) <=
-           static_cast<int>(TuningConstants::Auto::ELEVATION_SLEW_US_PER_SECOND * 0.41) + 1);
+           static_cast<int>(TuningConstants::Auto::ELEVATION_SLEW_US_PER_SECOND * 0.51) + 1);
     assert(a.selected_id == 10 && a.target_id == 10 && a.valid);
     assert(a.aim_offset_px == static_cast<int8_t>(TuningConstants::Auto::AIM_OFFSET_STEP_PX));
     // The status frames in between are untouched by it.
@@ -644,7 +653,7 @@ rcmap_vision lastVision() {
 
 void testVisionUplink() {
     reset();
-    for (int i = 0; i < 4; i++) step(100);
+    for (int i = 0; i < 5; i++) step(100);   // one vision frame per 5 slots
     // Nothing in view: zeros, not valid.
     rcmap_vision v = lastVision();
     assert(!v.valid && v.tx_px == 0.0f && v.ty_px == 0.0f);
@@ -655,13 +664,13 @@ void testVisionUplink() {
     hoststub::visionTargetId = 10;
     hoststub::visionTx = -62.4;           // -> -62.5 (0.5 px steps)
     hoststub::visionTy = 20.5;
-    for (int i = 0; i < 4; i++) step(100);
+    for (int i = 0; i < 5; i++) step(100);   // one vision frame per 5 slots
     v = lastVision();
     assert(v.valid && v.target_id == 10);
     assert(v.tx_px == -62.5f && v.ty_px == 20.5f);
     // Lost target: tx / ty back to 0 (not a stale value).
     hoststub::visionValid = false;
-    for (int i = 0; i < 4; i++) step(100);
+    for (int i = 0; i < 5; i++) step(100);   // one vision frame per 5 slots
     v = lastVision();
     assert(!v.valid && v.tx_px == 0.0f);
     hoststub::visionTx = 0.0;

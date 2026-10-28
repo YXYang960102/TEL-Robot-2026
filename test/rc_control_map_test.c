@@ -355,7 +355,7 @@ static void test_aim_frames(void) {
     st.event_seq = seq;
     st.event_code = code;
     assert(rcmap_aim_from_status(&st, &back));
-    assert(back.distance_cm == 0x7FFFu && back.elevation_pulse_us == 0x0FFFu);
+    assert(back.distance_cm == 0x3FFFu && back.elevation_pulse_us == 0x0FFFu); /* 14 bits since 2026-10-27 */
     assert(!back.valid && back.selected_id == 0 && back.target_id == 0 && back.aim_offset_px == 127);
 
     /* A status frame is not an aim frame. */
@@ -503,6 +503,30 @@ static void test_link_version(void) {
     assert(strcmp(rcmap_event_name(RCMAP_EVENT_LINK_VERSION_MISMATCH), "LINK_VERSION_MISMATCH") == 0);
 }
 
+/* Seen frames (2026-10-27, Orin v3): detected holes + vision state. */
+static void test_seen_frames(void) {
+    rcmap_seen v = {0x0FFF, RCMAP_VISION_STATE_PREDICTED}, back;
+    uint8_t flags; uint32_t seq; uint16_t code;
+    rcmap_seen_to_status(&v, &flags, &seq, &code);
+    assert(code == 0xEFFF && seq == 0 && flags == 0);
+    assert(rcmap_status_is_seen(code) && !rcmap_status_is_aim(code) && !rcmap_status_is_vision(code));
+    rcmap_status st = {0, code, 0, 0};
+    assert(rcmap_seen_from_status(&st, &back) && back.seen_mask == 0x0FFF &&
+           back.state == RCMAP_VISION_STATE_PREDICTED);
+    /* Bits beyond the 12 ids are dropped; a bad state is sent as none. */
+    v.seen_mask = 0xF123; v.state = 7;
+    rcmap_seen_to_status(&v, &flags, &seq, &code);
+    st.event_code = code;
+    assert(rcmap_seen_from_status(&st, &back) && back.seen_mask == 0x0123 &&
+           back.state == RCMAP_VISION_STATE_NONE);
+    /* The largest aim frame is still an aim frame, not a seen one. */
+    rcmap_aim a = {60000, 4095, 15, 15, true, -1};
+    rcmap_aim_to_status(&a, &flags, &seq, &code);
+    assert(rcmap_status_is_aim(code) && !rcmap_status_is_seen(code));
+    st.event_code = code;
+    assert(!rcmap_seen_from_status(&st, &back));
+}
+
 int main(void) {
     test_round_trip();
     test_elrs_hybrid_values();
@@ -516,6 +540,7 @@ int main(void) {
     test_line_check();
     test_target_levels();
     test_link_version();
+    test_seen_frames();
     printf("rc_control_map host tests: all asserts passed\n");
     return 0;
 }

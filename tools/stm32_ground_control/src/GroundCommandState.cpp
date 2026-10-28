@@ -328,10 +328,20 @@ void RobotStatusTracker::reset(uint32_t nowMs) {
     haveVision = false;
     lastVision = rcmap_vision{};
     lastVisionMs = nowMs;
+    haveSeen = false;
+    lastSeen = rcmap_seen{};
+    lastSeenMs = nowMs;
     lastReportMs = nowMs;
 }
 
 void RobotStatusTracker::onStatus(const rcmap_status& s, uint32_t nowMs, GroundEmitFn emit, void* ctx) {
+    rcmap_seen seen;
+    if (rcmap_seen_from_status(&s, &seen)) {
+        lastSeen = seen;
+        haveSeen = true;
+        lastSeenMs = nowMs;
+        return;
+    }
     rcmap_vision vision;
     if (rcmap_vision_from_status(&s, &vision)) {
         lastVision = vision;
@@ -414,5 +424,13 @@ void RobotStatusTracker::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
              static_cast<int>(lroundf(v.ty_px * 2.0f)),
              v.valid ? 1 : 0,
              static_cast<unsigned>(v.target_id));
+    emitLine(emit, ctx, text);
+
+    const bool seenFresh = haveSeen && nowMs - lastSeenMs <= STALE_MS;
+    const rcmap_seen sn = seenFresh ? lastSeen : rcmap_seen{};
+    snprintf(text, sizeof(text), "$SEEN,%d,%u,%u",
+             seenFresh ? 1 : 0,
+             static_cast<unsigned>(sn.seen_mask),
+             static_cast<unsigned>(sn.state));
     emitLine(emit, ctx, text);
 }

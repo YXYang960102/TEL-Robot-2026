@@ -1103,6 +1103,16 @@ async function emergencyStopViaEnter() {
   run('targetHole = 5; renderTargetAndAuto()');
   assert.equal(run('seenMaskHoles'), (1 << 4) | (1 << 5) | (1 << 11));
 
+  // Orin v3 detected holes: $SEEN (radio) and TEL slots 45-46 (USB).
+  line('$SEEN,1,' + ((1 << 3) | (1 << 4) | (1 << 1)) + ',1');   // Orin ids 4, 5, 2
+  assert.equal(run('seenMaskHoles'), (1 << 3) | (1 << 6) | (1 << 11)); // holes 3, 6, 11
+  line('$SEEN,1,0,2');
+  assert.match(elements.targetBoardState.textContent, /推算位置/);
+  line('$SEEN,0,4095,1');                                         // stale: nothing lit
+  assert.equal(run('seenMaskHoles'), 0);
+  clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',' + (1 << 7) + ',1');  // Orin id 8 = hole 5
+  assert.equal(run('seenMaskHoles'), 1 << 5);
+
   console.log('dashboard page control behavior tests passed');
 })().catch((e) => { console.error(e); process.exitCode = 1; });
 

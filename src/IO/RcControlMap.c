@@ -235,7 +235,7 @@ void rcmap_status_to_battery(const rcmap_status *s, uint16_t *voltage, uint16_t 
 }
 
 void rcmap_aim_to_status(const rcmap_aim *a, uint8_t *flags, uint32_t *seq, uint16_t *code) {
-    const uint16_t cm = a->distance_cm > 0x7FFFu ? 0x7FFFu : a->distance_cm;
+    const uint16_t cm = a->distance_cm > 0x3FFFu ? 0x3FFFu : a->distance_cm;
     const uint16_t pulse = a->elevation_pulse_us > 0x0FFFu ? 0x0FFFu : a->elevation_pulse_us;
     *code = (uint16_t)(RCMAP_AIM_FRAME_BIT | cm);
     *seq = (uint32_t)pulse | ((uint32_t)(a->selected_id & 0x0Fu) << 12) |
@@ -245,12 +245,26 @@ void rcmap_aim_to_status(const rcmap_aim *a, uint8_t *flags, uint32_t *seq, uint
 
 bool rcmap_aim_from_status(const rcmap_status *s, rcmap_aim *out) {
     if (!rcmap_status_is_aim(s->event_code)) return false;
-    out->distance_cm = (uint16_t)(s->event_code & 0x7FFFu);
+    out->distance_cm = (uint16_t)(s->event_code & 0x3FFFu);
     out->elevation_pulse_us = (uint16_t)(s->event_seq & 0x0FFFu);
     out->selected_id = (uint8_t)((s->event_seq >> 12) & 0x0Fu);
     out->target_id = (uint8_t)((s->event_seq >> 16) & 0x0Fu);
     out->valid = ((s->event_seq >> 20) & 1u) != 0u;
     out->aim_offset_px = (int8_t)s->flags;
+    return true;
+}
+
+void rcmap_seen_to_status(const rcmap_seen *v, uint8_t *flags, uint32_t *seq, uint16_t *code) {
+    const uint8_t state = v->state > RCMAP_VISION_STATE_PREDICTED ? RCMAP_VISION_STATE_NONE : v->state;
+    *code = (uint16_t)(RCMAP_SEEN_FRAME_BITS | ((uint16_t)state << 12) | (v->seen_mask & 0x0FFFu));
+    *seq = 0;
+    *flags = 0;
+}
+
+bool rcmap_seen_from_status(const rcmap_status *s, rcmap_seen *out) {
+    if (!rcmap_status_is_seen(s->event_code)) return false;
+    out->seen_mask = (uint16_t)(s->event_code & 0x0FFFu);
+    out->state = (uint8_t)((s->event_code >> 12) & 0x03u);
     return true;
 }
 

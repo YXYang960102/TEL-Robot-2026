@@ -89,6 +89,8 @@ bool Shooter::isFlywheelReady() { return hoststub::shooterReady; }
 bool Vision::isConnected() { return hoststub::visionReady; }
 bool Vision::isVisionReady() { return hoststub::visionReady; }
 bool Vision::isValid() { return hoststub::visionValid; }
+bool Vision::isPredicted() { return false; }
+uint16_t Vision::getSeenMask() { return 0; }
 // Every call is a new frame (the stub's fields stand for the latest one).
 unsigned long Vision::getFrameCount() { static unsigned long frames = 0; return ++frames; }
 double Vision::getDistance() { return hoststub::visionDistanceMm; }
@@ -105,7 +107,12 @@ bool MechLink::signalLost = true;
 int MechLink::modeChannel = RCMAP_MODE_FULL_MANUAL_US;
 
 void MechLink::sendStatus(uint8_t flags, unsigned long eventSeq, uint16_t eventCode) {
-    if (eventCode & 0x8000u) { // aim frame (RcControlMap.h): recorded apart from status
+    if ((eventCode & 0xC000u) == 0xC000u) { // seen frame (Orin v3): apart too
+        rec.seenCount++;
+        rec.seenCode = eventCode;
+        return;
+    }
+    if ((eventCode & 0xC000u) == 0x8000u) { // aim frame (RcControlMap.h): recorded apart from status
         rec.aimCount++;
         rec.aimFlags = flags;
         rec.aimSeq = eventSeq;

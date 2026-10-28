@@ -683,13 +683,18 @@ void ManualControl::sendStatusIfDue() {
     // robot bridge (which forwards the latest line every 100 ms) passes
     // them all.
     const uint8_t slot = statusSlot;
-    statusSlot = static_cast<uint8_t>((statusSlot + 1) % 4);
+    // 2026-10-27: a fifth slot, the seen frame (Orin v3 detected holes).
+    statusSlot = static_cast<uint8_t>((statusSlot + 1) % 5);
     if (slot == 1) {
         AimUplink::send();
         return;
     }
     if (slot == 3) {
         AimUplink::sendVision();
+        return;
+    }
+    if (slot == 4) {
+        AimUplink::sendSeen();
         return;
     }
     MechLink::sendStatus(statusFlags(), eventSeq,

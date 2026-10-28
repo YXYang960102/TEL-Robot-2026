@@ -18,6 +18,13 @@ public:
     static double getDistance();
     static int getTargetId();
     static bool isValid();
+    // Protocol v3: the selected hole is out of view and this is where the
+    // Orin predicts it (getTx() / getTy() are that position, clamped);
+    // aim only -- never counts as isValid(), never a distance. False again
+    // after PREDICTED_FOLLOW_MAX_MS of predictions without the real hole.
+    static bool isPredicted();
+    // The Orin's reliably detected hole ids in the last frame (bit id - 1).
+    static uint16_t getSeenMask();
     // Bumped once per target frame from the Orin (valid or not), so a
     // consumer can take each frame exactly once (Auto's distance filter).
     static unsigned long getFrameCount();
@@ -44,7 +51,8 @@ private:
         double ty,
         double distance,
         int targetId,
-        bool valid);
+        int validCode,
+        uint16_t seenMask);
     static void invalidateTarget();
     static void sendHeartbeat();
     static void sendSelection();
@@ -57,6 +65,9 @@ private:
     static bool valid;
     static unsigned long lastPacketMs;
     static unsigned long frameCount;
+    static bool predicted;
+    static unsigned long predictedSinceMs;
+    static uint16_t seenMask;
     static bool hasPacket;
     static bool sentReady;
     static unsigned long lastHeartbeatMs;

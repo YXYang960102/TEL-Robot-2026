@@ -1150,6 +1150,31 @@
         document.getElementById(`hole${n}`).classList.toggle("seen", n === seenHole || (seenMaskHoles & (1 << n)) !== 0);
       }
     }
+    // Orin protocol v3 (2026-10-27): its detected hole ids (bit id - 1) ->
+    // Dashboard holes (bit n = hole n), and the vision state (0 nothing,
+    // 1 target in view, 2 a predicted position of the out-of-view choice).
+    function holesFromOrinMask(mask) {
+      let holes = 0;
+      for (let id = 1; id <= 12; id++) {
+        if (mask & (1 << (id - 1))) holes |= 1 << holeForVisionId(id);
+      }
+      return holes;
+    }
+    function setSeenMask(orinMask, state) {
+      seenMaskHoles = holesFromOrinMask(orinMask);
+      renderSeen();
+      if (state === 2) {
+        el.targetBoardState.textContent = "選的洞不在畫面內：依看到的洞推算位置，轉台轉過去中（不會發射）";
+      }
+    }
+    // "$SEEN,<fresh>,<mask>,<state>" from the ground station.
+    function handleSeenStatus(line) {
+      const p = line.trim().split(",").map(Number);
+      if (p.length < 4 || p.slice(1).some((v) => !Number.isFinite(v))) return;
+      const [, fresh, mask, state] = p;
+      setSeenMask(fresh === 1 ? mask : 0, fresh === 1 ? state : 0);
+    }
+
     function setSeenHole(hole) {
       if (hole === seenHole) return;
       seenHole = hole;
@@ -1799,7 +1824,10 @@
         // Slots 42-44: turret AS5600 raw 0-4095, status bits, degrees x10.
         turretRaw: p.length > 42 ? Number(p[42]) : NaN,
         turretStatus: p.length > 43 ? Number(p[43]) : NaN,
-        turretDeg10: p.length > 44 ? Number(p[44]) : NaN
+        turretDeg10: p.length > 44 ? Number(p[44]) : NaN,
+        // Slots 45-46 (Orin v3): detected hole ids (bit id - 1), vision state.
+        seenMask: p.length > 45 ? Number(p[45]) : NaN,
+        visionState: p.length > 46 ? Number(p[46]) : NaN
       };
     }
 
@@ -1836,6 +1864,7 @@
       noteRejectedLines(data.rcRejectedLines);
       renderReady(data);
       renderTurret(data);
+      if (Number.isFinite(data.seenMask)) setSeenMask(data.seenMask, data.visionState);
       if (Number.isFinite(data.controlOwner)) {
         el.controlOwner.textContent = OWNER_NAMES[data.controlOwner] ?? `#${data.controlOwner}`;
       }
@@ -2093,6 +2122,11 @@
       if (line.startsWith("$AIM,")) {
         linkKind = "ground";
         handleAimStatus(line);
+        return;
+      }
+      if (line.startsWith("$SEEN,")) {
+        linkKind = "ground";
+        handleSeenStatus(line);
         return;
       }
       if (line.startsWith("$VISION,")) {

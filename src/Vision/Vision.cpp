@@ -15,6 +15,9 @@ int Vision::targetId = 0;
 bool Vision::valid = false;
 unsigned long Vision::lastPacketMs = 0;
 unsigned long Vision::frameCount = 0;
+bool Vision::predicted = false;
+unsigned long Vision::predictedSinceMs = 0;
+uint16_t Vision::seenMask = 0;
 bool Vision::hasPacket = false;
 bool Vision::sentReady = false;
 unsigned long Vision::lastHeartbeatMs = 0;
@@ -56,6 +59,7 @@ void Vision::update() {
 
     if (hasPacket && millis() - lastPacketMs > Transport::PACKET_TIMEOUT_MS) {
         invalidateTarget();
+        seenMask = 0;
     }
 
     if (orinState != OrinState::UNKNOWN &&
@@ -105,10 +109,19 @@ void Vision::setSelectedTarget(uint8_t visionId) {
     }
     selectedTargetId = visionId;
     selectionDirty = true;
+    predictedSinceMs = 0; // a new choice gets its own prediction budget
     // The frame in hand is for the old choice (or the Orin's own pick):
     // never aim at it after a switch. The Orin's next frame for the new
     // hole arrives within a camera cycle or two.
     invalidateTarget();
+}
+
+bool Vision::isPredicted() {
+    return predicted;
+}
+
+uint16_t Vision::getSeenMask() {
+    return seenMask;
 }
 
 unsigned long Vision::getFrameCount() {
@@ -176,13 +189,14 @@ bool Vision::parse(const String& input) {
             commaCount++;
         }
     }
-    if (commaCount != 4) return false;
+    // v3: tx,ty,distance,target_id,valid,seen_mask
+    if (commaCount != 5) return false;
 
-    String fields[5];
+    String fields[6];
     int fieldCount = 0;
     int start = 0;
 
-    while (fieldCount < 5 && start <= static_cast<int>(s.length())) {
+    while (fieldCount < 6 && start <= static_cast<int>(s.length())) {
         int idx = s.indexOf(',', start);
 
         if (idx < 0) {
@@ -194,7 +208,7 @@ bool Vision::parse(const String& input) {
         start = idx + 1;
     }
 
-    if (fieldCount != 5) return false;
+    if (fieldCount != 6) return false;
 
     char* end = nullptr;
     const double nextTx = strtod(fields[0].c_str(), &end);
@@ -210,11 +224,17 @@ bool Vision::parse(const String& input) {
     if (end == fields[3].c_str() || *end != '\0') return false;
 
     const long validValue = strtol(fields[4].c_str(), &end, 10);
-    if (end == fields[4].c_str() || *end != '\0' || (validValue != 0 && validValue != 1)) {
+    if (end == fields[4].c_str() || *end != '\0' || validValue < 0 || validValue > 2) {
         return false;
     }
 
-    if (abs(nextTx) > Validation::MAX_ABS_TX ||
+    const long mask = strtol(fields[5].c_str(), &end, 10);
+    if (end == fields[5].c_str() || *end != '\0' || mask < 0 || mask > Validation::MAX_SEEN_MASK) {
+        return false;
+    }
+
+    const double maxAbsTx = validValue == 2 ? Validation::MAX_ABS_PREDICTED_TX : Validation::MAX_ABS_TX;
+    if (abs(nextTx) > maxAbsTx ||
         abs(nextTy) > Validation::MAX_ABS_TY ||
         nextDistance < 0 ||
         nextDistance > Validation::MAX_DISTANCE_MM ||
@@ -228,7 +248,8 @@ bool Vision::parse(const String& input) {
         nextTy,
         nextDistance,
         static_cast<int>(nextTargetId),
-        validValue == 1);
+        static_cast<int>(validValue),
+        static_cast<uint16_t>(mask));
     return true;
 }
 
@@ -238,13 +259,37 @@ void Vision::storeTarget(
     double nextTy,
     double nextDistance,
     int nextTargetId,
-    bool nextValid) {
-    lastPacketMs = millis();
+    int validCode,
+    uint16_t nextSeenMask) {
+    const unsigned long now = millis();
+    lastPacketMs = now;
     hasPacket = true;
     frameCount++;
+    seenMask = nextSeenMask;
     // A frame for a hole other than the selected one is "no target" (the
     // link itself is still alive: isConnected() stays true).
-    valid = nextValid && OperatorTarget::frameMatchesSelection(selectedTargetId, nextTargetId);
+    valid = validCode == 1 && OperatorTarget::frameMatchesSelection(selectedTargetId, nextTargetId);
+
+    // v3 prediction: only for the hole the operator chose, and for at most
+    // PREDICTED_FOLLOW_MAX_MS from the first prediction. Only a real
+    // sighting or a new selection restarts that budget -- "nothing" frames
+    // in between don't, so an on / off stream can't turn the turret forever.
+    const bool nextPredicted = validCode == 2 && selectedTargetId != OperatorTarget::NONE &&
+                               nextTargetId == selectedTargetId;
+    predicted = false;
+    if (valid) {
+        predictedSinceMs = 0;
+    } else if (nextPredicted) {
+        if (predictedSinceMs == 0) predictedSinceMs = now == 0 ? 1 : now;
+        if (now - predictedSinceMs <= Transport::PREDICTED_FOLLOW_MAX_MS) {
+            predicted = true;
+            tx = constrain(nextTx, -Validation::MAX_ABS_TX, Validation::MAX_ABS_TX);
+            ty = nextTy;
+            distance = 0.0;
+            targetId = nextTargetId;
+            return;
+        }
+    }
 
     if (valid) {
         tx = constrain(
@@ -261,6 +306,7 @@ void Vision::storeTarget(
 
 void Vision::invalidateTarget() {
     valid = false;
+    predicted = false;
     tx = 0;
     ty = 0;
     distance = 0;

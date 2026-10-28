@@ -5631,3 +5631,143 @@ The "seen" mark covers only the hole in the current valid frame.
 1. Accept `MEGA_TARGET` ids 1–3, and confirm the bonus depth ring gives a distance for the small holes.
 2. When the selected hole is not detected but the grid is identified (geometry fit on ≥ 2 holes), predict its image position with `fit_affine` and send it as an aim-only frame. Proposed protocol v3: valid = 2 means "predicted". The Mega turret follows it, but it never counts as lock or fire.
 3. Report every detected id (a 12-bit mask). Then the Mega needs TEL / uplink changes for the board's multi-hole "seen".
+
+## 2026-10-27 — Claude Code: phase A (cb052d6) + phase B (Orin v3) — version guard, turning 60%, steadied shot distance, turret AS5600 read-only, board colors, predicted turret search, detected holes
+
+**User Request (Jeremy):**
+- Turn the chassis slower; forward / back unchanged.
+- The autos never fire because the elevation keeps changing with small
+  distance changes at the same spot. Fix the method, not the tolerance.
+- AS5600 turret angle, to measure the limits this weekend.
+- Show the depth ring on screen, for testing.
+- Board colors: detected green, selected blue, bonus red, undetected grey.
+- Plus the three earlier asks (Orin side included) and the CH10 version
+  guard.
+
+Jeremy's choices: turning at 60%; AS5600 read-only first; all the Orin
+work now; add the version guard.
+
+**Correction to the 3ed0402 entry.** It said a Mega / ground on different
+CH3 tables would mostly reject frames. That is wrong:
+- Old levels `1000 + 100k` decoded with 80 µs steps read 3→4, 4→5, 5→6,
+  7→9, 8→10, 9→11 (and 2, 6 are rejected).
+- So a mismatched pair selects the WRONG hole.
+- The CH10 guard below closes that.
+
+**Phase A (cb052d6):**
+- **CH10 link version.**
+  - The ground encodes `1000 + 200·RCMAP_LINK_VERSION` (v1 → 1200; ELRS
+    6-position delivers 1193).
+  - `rcmap_decode` rejects any frame whose CH10 isn't that level. An older
+    ground sends 1500, which ELRS snaps to 1398 or 1602: rejected.
+  - The Mega logs `LINK_VERSION_MISMATCH` at most once a second; the
+    Dashboard explains it.
+- **Turning 60%.** Dashboard `TURN_SPEED_SCALE = 0.6`, applied to the turn
+  axis before the tank mix. Example: full right stick gives `T,0.6,-0.6`
+  (was `T,1,-1`); full forward is still `T,1,1`.
+- **Steadied shot distance.**
+  - Cause:
+    - Shooter counts the flywheel spun up only after its command stays
+      within 2% for 1.5 s.
+    - On hole 5 between 2.5 and 5 m the table runs at −21.6 %/m, so
+      ±10 cm of depth noise moves the command ±2.2% and restarts the wait
+      forever.
+    - The elevation hunts by ±17 µs at the same time.
+  - Fix, `src/Control/ShotDistanceFilter.h` (no tolerance widened):
+    - the median of the last 5 depth frames;
+    - a latched shot distance that follows only when the median stays
+      more than 5 cm away for 300 ms;
+    - reset on a new hole / target id / lost target.
+  - 5 cm is worth at most ~1.1% flywheel / ~9 µs elevation.
+  - Also: a held shot (same hole, < 500 ms) counts when only the depth
+    drops out.
+  - Constants: `Auto::DISTANCE_MEDIAN_FRAMES` / `DISTANCE_LATCH_BAND_M` /
+    `DISTANCE_LATCH_SETTLE_MS`.
+- **TEL 40–41.** Ready bits (1 turret locked, 2 flywheel spun up, 4 a shot
+  for this hole, 8 READY) and the steadied shot distance in cm. The
+  Dashboard board shows them.
+- **Turret AS5600 (read only), `src/Sensors/TurretAngle`.**
+  - I2C D20/D21 at address 0x36, 100 kHz, read every 10 ms.
+  - `Wire.setWireTimeout(2000 µs, reset)`, so a missing sensor can't hang
+    the loop.
+  - Multi-turn: `delta = raw − lastRaw` folded into −2048..2047, then
+    `counts += delta`.
+  - `deg = counts / 56.11` (4096 · 180/36.5 / 360).
+  - `ZERO_RAW = −1` means the boot position is center; measure the real
+    value and set it. `INVERTED` sets the sign so right reads +. Both are
+    in `TurretAngleConstants.h`.
+  - Status bits: READ_OK, MAGNET, TOO_WEAK, TOO_STRONG, LOST (no good read
+    for > 100 ms; turns untrusted until reboot), NEVER_READ.
+  - TEL 42–44: raw, status, degrees×10.
+  - Nothing is limited or driven from it yet.
+- **Board colors.** Grey not detected / green detected / blue selected
+  (with a green dot when also detected) / bonus always red-framed.
+
+**Phase B (this commit; Orin YOLO_Detect_single 10ac7a8e, protocol v3 —
+see its `docs/operator-selection-v3.md`):**
+- **Vision.**
+  - `PROTOCOL_VERSION = 3`, 6-field frames.
+  - `valid` is 0 / 1 / 2: 2 is predicted, accepted only for the selected
+    hole; tx up to ±4000, clamped to ±400.
+  - `isPredicted()`, `getSeenMask()`.
+  - The prediction budget is `PREDICTED_FOLLOW_MAX_MS = 3000` from the
+    first prediction. Only a real sighting or a new selection restarts it;
+    "nothing" frames in between don't.
+  - A malformed line, now including a v2 frame, drops the target, as
+    before.
+- **Shooter.** Vision-follow also follows a predicted tx; `rotateReady`
+  needs `Vision::isValid()`. So a prediction is never a lock and never a
+  shot (Auto already needs `isValid()` and a distance).
+- **Uplink.**
+  - Aim distance is now 14 bits (max 16383 cm).
+  - Code bits 15–14 = 11 is the new seen frame: mask (ids 1–12, bits
+    0–11), state (bits 12–13: 0 none, 1 seen, 2 predicted).
+  - Slots are now status, aim, status, vision, seen (aim / vision every
+    500 ms, was 400).
+- **Ground.** Emits `$SEEN,<fresh>,<mask>,<state>`.
+- **Dashboard.**
+  - `$SEEN` (radio) and TEL 45–46 (USB) light every detected hole.
+  - State 2 shows "推算位置…轉過去中（不會發射）".
+
+**Boards:**
+- Mega + ground STM32 + Orin must be deployed together:
+  - CH10, CH3, the seen frame and v3 all have to match.
+  - Each mismatch now refuses instead of misreading:
+    - ground ↔ Mega: `LINK_VERSION_MISMATCH`, no Enable;
+    - Orin ↔ Mega: v2 / v3 refuse each other's lifecycle, as in the v2
+      upgrade.
+- The robot bridge `.bin` is unchanged (5f05e944…): no reflash.
+
+**Evidence:**
+- Host suite, 15 groups, all PASS. New / adapted cases include:
+  - the CH10 guard;
+  - the steady-distance regression (±4.5 cm jitter, flywheel command
+    constant on every frame);
+  - the filter;
+  - the v3 Vision link (bonus, seen-without-depth, predicted clamp,
+    budget with on / off frames, stale clears);
+  - the seen frame codec;
+  - ground `$SEEN`;
+  - Dashboard ready / turret / seen / turning.
+- A scratch simulation: AS5600 unwrap is exact for a ±100° sweep at
+  30 / 120 / 300 °/s with three zero offsets.
+- pio: all 9 Mega envs (production RAM 44.6%, flash 14.7%) and the ground.
+- Orin: 62/62.
+- **Nothing flashed or run on hardware.**
+
+**Next Test (weekend):**
+1. Flash the Mega + ground, deploy the Orin.
+2. Dashboard wired: 「丟棄」 ~0, no `LINK_VERSION_MISMATCH`.
+3. AS5600, outputs disabled:
+   - status OK, magnet OK;
+   - turn the turret by hand: the degrees track (+ to the right, else flip
+     `INVERTED`);
+   - record raw at center (→ `ZERO_RAW`) and the degrees at both
+     mechanical limits;
+   - then the soft-limit step.
+4. Semi-auto at a fixed spot: 「射擊距離（穩定後）」 holds; the ready bits
+   reach 可發射; firing works.
+5. Turn away from the chosen hole: the board shows 推算位置 and the turret
+   turns back toward it within 3 s; it never fires until the hole is seen.
+6. Q W E on the bonus holes: lock and distance; check the ring with `d` on
+   the Orin.

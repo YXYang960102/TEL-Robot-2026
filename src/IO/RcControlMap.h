@@ -308,8 +308,10 @@ bool rcmap_status_from_battery(uint16_t voltage, uint16_t current, uint32_t capa
  * <seq>,<code>" line and Battery frame -- the robot bridge forwards it
  * unchanged (its field ranges: flags <= 255, seq <= 0xFFFFFF, code <=
  * 65535), so the bridge firmware needed no change.
- *   code  bit 15 = 1 (aim frame; a status code is at most 0x3FFF),
- *         bits 0-14 = camera distance in cm (0 = none, max 32767)
+ *   code  bits 15-14 = 10 (aim frame; a status code is at most 0x3FFF),
+ *         bits 0-13 = camera distance in cm (0 = none, max 16383; 15
+ *         bits until 2026-10-27, when bits 15-14 = 11 became the seen
+ *         frame below)
  *   seq   bits 0-11 elevation pulse us, 12-15 vision id sent to the Orin,
  *         16-19 vision id of the frame in hand, 20 valid
  *   flags aim offset px as int8 (+ = right) */
@@ -323,11 +325,33 @@ typedef struct {
     int8_t aim_offset_px;
 } rcmap_aim;
 
-static inline bool rcmap_status_is_aim(uint16_t code) { return (code & RCMAP_AIM_FRAME_BIT) != 0u; }
+static inline bool rcmap_status_is_aim(uint16_t code) { return (code & 0xC000u) == RCMAP_AIM_FRAME_BIT; }
 /* Out-of-range values are clamped (distance, pulse) or masked (ids). */
 void rcmap_aim_to_status(const rcmap_aim *a, uint8_t *flags, uint32_t *seq, uint16_t *code);
 /* False if s is not an aim frame. */
 bool rcmap_aim_from_status(const rcmap_status *s, rcmap_aim *out);
+
+/* Seen frames (2026-10-27, Orin protocol v3): which holes the camera
+ * detects, for the Dashboard's board. The Mega's slots go status, aim,
+ * status, vision, seen (each 100 ms).
+ *   code  bits 15-14 = 11, bits 0-11 = the Orin's detected hole ids (bit
+ *         id - 1, ids 1-12), bits 12-13 = vision state: 0 nothing, 1 the
+ *         target in view, 2 a predicted (out-of-view) position
+ *   seq / flags  0 (spare)
+ * A ground older than this reads it as an aim frame: reflash both. */
+#define RCMAP_SEEN_FRAME_BITS 0xC000u
+#define RCMAP_VISION_STATE_NONE 0u
+#define RCMAP_VISION_STATE_SEEN 1u
+#define RCMAP_VISION_STATE_PREDICTED 2u
+typedef struct {
+    uint16_t seen_mask;  /* bit id - 1 */
+    uint8_t state;       /* RCMAP_VISION_STATE_* */
+} rcmap_seen;
+
+static inline bool rcmap_status_is_seen(uint16_t code) { return (code & 0xC000u) == RCMAP_SEEN_FRAME_BITS; }
+void rcmap_seen_to_status(const rcmap_seen *v, uint8_t *flags, uint32_t *seq, uint16_t *code);
+/* False if s is not a seen frame. */
+bool rcmap_seen_from_status(const rcmap_status *s, rcmap_seen *out);
 
 /* Vision frames (2026-10-17): tx / ty for the wireless Dashboard, in the
  * same ST line / Battery frame. The Mega's 100 ms slots go status, aim,

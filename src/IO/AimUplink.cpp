@@ -17,7 +17,7 @@ void AimUplink::send() {
     const bool valid = Vision::isValid();
     const double mm = Vision::getDistance();
     // 0 = no distance (no valid target, or the webcam's distance 0).
-    a.distance_cm = static_cast<uint16_t>(valid && mm > 0.0 ? clampLong(lround(mm / 10.0), 1, 0x7FFF) : 0);
+    a.distance_cm = static_cast<uint16_t>(valid && mm > 0.0 ? clampLong(lround(mm / 10.0), 1, 0x3FFF) : 0);
     a.elevation_pulse_us = static_cast<uint16_t>(clampLong(Shooter::getAnglePulseUs(), 0, 0x0FFF));
     a.selected_id = Vision::getSelectedTarget();
     a.target_id = static_cast<uint8_t>(valid ? clampLong(Vision::getTargetId(), 0, 15) : 0);
@@ -28,6 +28,19 @@ void AimUplink::send() {
     uint32_t seq = 0;
     uint16_t code = 0;
     rcmap_aim_to_status(&a, &flags, &seq, &code);
+    MechLink::sendStatus(flags, seq, code);
+}
+
+void AimUplink::sendSeen() {
+    rcmap_seen v = {};
+    v.seen_mask = Vision::getSeenMask();
+    v.state = Vision::isValid() ? RCMAP_VISION_STATE_SEEN
+            : Vision::isPredicted() ? RCMAP_VISION_STATE_PREDICTED
+                                    : RCMAP_VISION_STATE_NONE;
+    uint8_t flags = 0;
+    uint32_t seq = 0;
+    uint16_t code = 0;
+    rcmap_seen_to_status(&v, &flags, &seq, &code);
     MechLink::sendStatus(flags, seq, code);
 }
 

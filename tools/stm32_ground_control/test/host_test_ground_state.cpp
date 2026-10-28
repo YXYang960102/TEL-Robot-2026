@@ -569,6 +569,29 @@ static void testVisionFrames() {
     assert(lastLineStarting("$VISION,") == "$VISION,0,0,0,0,0,0");
 }
 
+// Seen frames (Orin v3, 2026-10-27): detected holes + vision state.
+static void testSeenFrames() {
+    RobotStatusTracker tr;
+    tr.reset(0);
+    lines.clear();
+    tr.tick(250, collect, nullptr);
+    assert(lastLineStarting("$SEEN,") == "$SEEN,0,0,0");          // none yet
+    tr.onStatus(status(RCMAP_STATUS_ARMED | RCMAP_STATUS_OWNER_WIRELESS, 3, RCMAP_EVENT_OUTPUTS_ENABLED),
+                260, collect, nullptr);
+    rcmap_seen sn{static_cast<uint16_t>((1u << 3) | (1u << 4) | (1u << 10)), RCMAP_VISION_STATE_PREDICTED};
+    rcmap_status ss{};
+    rcmap_seen_to_status(&sn, &ss.flags, &ss.event_seq, &ss.event_code);
+    lines.clear();
+    tr.onStatus(ss, 300, collect, nullptr);
+    assert(lines.empty());                                        // no bogus event / aim
+    tr.tick(500, collect, nullptr);
+    assert(lastLineStarting("$SEEN,") == "$SEEN,1,1048,2");
+    assert(lastLineStarting("$AIM,") == "$AIM,0,0,0,0,0,0,0");      // not read as an aim frame
+    lines.clear();
+    tr.tick(300 + RobotStatusTracker::STALE_MS + 250, collect, nullptr);
+    assert(lastLineStarting("$SEEN,") == "$SEEN,0,0,0");
+}
+
 static void testArmEdge() {
     GroundCommandState st;
     st.reset(1000);
@@ -646,6 +669,7 @@ int main() {
     testTestMode();
     testArmEdge();
     testVisionFrames();
+    testSeenFrames();
     testStatusInvalidate();
     testAimFrames();
     printf("ground control host tests: all asserts passed\n");

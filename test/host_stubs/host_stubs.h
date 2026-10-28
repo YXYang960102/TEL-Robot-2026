@@ -33,6 +33,8 @@ struct Recorder {
     uint8_t visionFlags = 0;
     unsigned long visionSeq = 0;
     uint16_t visionCode = 0;
+    unsigned long seenCount = 0;       // seen frames (code bits 15-14 = 11)
+    uint16_t seenCode = 0;
 };
 
 extern Recorder rec;
