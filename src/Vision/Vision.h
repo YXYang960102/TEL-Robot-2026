@@ -25,6 +25,13 @@ public:
     static bool isPredicted();
     // The Orin's reliably detected hole ids in the last frame (bit id - 1).
     static uint16_t getSeenMask();
+    // The target's depth sampling ring (2026-10-28, Dashboard only): the
+    // share of its pixels with usable depth, 0-100 (-1 = not reported or
+    // no valid target), and which of its 8 sectors have depth (bit k =
+    // sector k, k = 0 right, then clockwise on screen: 2 below, 4 left,
+    // 6 above).
+    static int8_t getRingPercent();
+    static uint8_t getRingSectors();
     // Bumped once per target frame from the Orin (valid or not), so a
     // consumer can take each frame exactly once (Auto's distance filter).
     static unsigned long getFrameCount();
@@ -68,6 +75,8 @@ private:
     static bool predicted;
     static unsigned long predictedSinceMs;
     static uint16_t seenMask;
+    static int8_t ringPercent;
+    static uint8_t ringSectors;
     static bool hasPacket;
     static bool sentReady;
     static unsigned long lastHeartbeatMs;

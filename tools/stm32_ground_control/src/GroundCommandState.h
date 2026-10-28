@@ -122,7 +122,10 @@ public:
     // actual PWM pulse), same rule.
     // Then "$SEEN,<fresh>,<mask>,<state>" from the latest seen frame (Orin
     // v3, 2026-10-27): detected hole ids as bit id - 1, and 0 nothing / 1
-    // target in view / 2 predicted position; same rule.
+    // target in view / 2 predicted position; same rule. 2026-10-28: then
+    // ",<turretDeg*10>,<as5600Status>,<ringPct>,<ringSectors>" -- the
+    // turret AS5600 angle and status bits, the depth ring's usable share
+    // (-1 = none) and its sectors with depth (bit k, 0 right, clockwise).
     void tick(uint32_t nowMs, GroundEmitFn emit, void* ctx);
 
     bool fresh(uint32_t nowMs) const;

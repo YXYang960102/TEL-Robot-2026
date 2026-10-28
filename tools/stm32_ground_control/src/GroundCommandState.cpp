@@ -427,10 +427,16 @@ void RobotStatusTracker::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
     emitLine(emit, ctx, text);
 
     const bool seenFresh = haveSeen && nowMs - lastSeenMs <= STALE_MS;
-    const rcmap_seen sn = seenFresh ? lastSeen : rcmap_seen{};
-    snprintf(text, sizeof(text), "$SEEN,%d,%u,%u",
+    rcmap_seen sn{};
+    sn.ring_percent = -1;
+    if (seenFresh) sn = lastSeen;
+    snprintf(text, sizeof(text), "$SEEN,%d,%u,%u,%d,%u,%d,%u",
              seenFresh ? 1 : 0,
              static_cast<unsigned>(sn.seen_mask),
-             static_cast<unsigned>(sn.state));
+             static_cast<unsigned>(sn.state),
+             static_cast<int>(sn.turret_deg10),
+             static_cast<unsigned>(sn.turret_status),
+             static_cast<int>(sn.ring_percent),
+             static_cast<unsigned>(sn.ring_sectors));
     emitLine(emit, ctx, text);
 }

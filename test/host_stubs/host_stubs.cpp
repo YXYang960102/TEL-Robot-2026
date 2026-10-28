@@ -7,6 +7,7 @@
 
 #include "../../src/Chassis/Chassis.h"
 #include "../../src/IO/MechLink.h"
+#include "../../src/Sensors/TurretAngle.h"
 #include "../../src/Shooter/Shooter.h"
 #include "../../src/Vision/Vision.h"
 
@@ -91,6 +92,11 @@ bool Vision::isVisionReady() { return hoststub::visionReady; }
 bool Vision::isValid() { return hoststub::visionValid; }
 bool Vision::isPredicted() { return false; }
 uint16_t Vision::getSeenMask() { return 0; }
+int8_t Vision::getRingPercent() { return -1; }
+uint8_t Vision::getRingSectors() { return 0; }
+// AimUplink's seen frame carries the turret angle (2026-10-28).
+double TurretAngle::angleDegrees() { return 0.0; }
+uint8_t TurretAngle::status() { return TurretAngle::NEVER_READ; }
 // Every call is a new frame (the stub's fields stand for the latest one).
 unsigned long Vision::getFrameCount() { static unsigned long frames = 0; return ++frames; }
 double Vision::getDistance() { return hoststub::visionDistanceMm; }

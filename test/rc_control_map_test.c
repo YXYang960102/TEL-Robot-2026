@@ -505,7 +505,7 @@ static void test_link_version(void) {
 
 /* Seen frames (2026-10-27, Orin v3): detected holes + vision state. */
 static void test_seen_frames(void) {
-    rcmap_seen v = {0x0FFF, RCMAP_VISION_STATE_PREDICTED}, back;
+    rcmap_seen v = {0x0FFF, RCMAP_VISION_STATE_PREDICTED, 0, 0, -1, 0}, back;
     uint8_t flags; uint32_t seq; uint16_t code;
     rcmap_seen_to_status(&v, &flags, &seq, &code);
     assert(code == 0xEFFF && seq == 0 && flags == 0);
@@ -519,6 +519,31 @@ static void test_seen_frames(void) {
     st.event_code = code;
     assert(rcmap_seen_from_status(&st, &back) && back.seen_mask == 0x0123 &&
            back.state == RCMAP_VISION_STATE_NONE);
+    /* 2026-10-28: turret degrees x 10 (12-bit signed), AS5600 status, the
+       depth ring's share (2 % steps) and sectors ride in seq / flags. */
+    rcmap_seen t = {0x0010, RCMAP_VISION_STATE_SEEN, -503, 0x23, 62, 0x3C};
+    rcmap_seen_to_status(&t, &flags, &seq, &code);
+    assert(flags == 0x3C && (seq & 0x0FFFu) == (uint32_t)(0x1000 - 503) &&
+           ((seq >> 12) & 0x3Fu) == 0x23 && (seq >> 18) == 32u);
+    rcmap_status ts = {flags, code, seq, 0};
+    assert(rcmap_seen_from_status(&ts, &back) && back.seen_mask == 0x0010 &&
+           back.turret_deg10 == -503 && back.turret_status == 0x23 &&
+           back.ring_percent == 62 && back.ring_sectors == 0x3C);
+    t.turret_deg10 = 3000; t.ring_percent = 100;   /* clamped / largest */
+    rcmap_seen_to_status(&t, &flags, &seq, &code);
+    ts.flags = flags; ts.event_seq = seq; ts.event_code = code;
+    assert(rcmap_seen_from_status(&ts, &back) && back.turret_deg10 == 2047 &&
+           back.ring_percent == 100 && back.ring_sectors == 0x3C);
+    t.turret_deg10 = -2047; t.ring_percent = 0;   /* 0 % is not "none" */
+    rcmap_seen_to_status(&t, &flags, &seq, &code);
+    ts.flags = flags; ts.event_seq = seq; ts.event_code = code;
+    assert(rcmap_seen_from_status(&ts, &back) && back.turret_deg10 == -2047 &&
+           back.ring_percent == 0);
+    t.ring_percent = -1;                           /* none: no sectors */
+    rcmap_seen_to_status(&t, &flags, &seq, &code);
+    ts.flags = flags; ts.event_seq = seq; ts.event_code = code;
+    assert(flags == 0 && rcmap_seen_from_status(&ts, &back) && back.ring_percent == -1 &&
+           back.ring_sectors == 0);
     /* The largest aim frame is still an aim frame, not a seen one. */
     rcmap_aim a = {60000, 4095, 15, 15, true, -1};
     rcmap_aim_to_status(&a, &flags, &seq, &code);

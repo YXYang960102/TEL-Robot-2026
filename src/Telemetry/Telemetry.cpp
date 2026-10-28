@@ -159,5 +159,12 @@ void Telemetry::update() {
     // vision state: 0 nothing, 1 the target in view, 2 predicted position.
     Serial.print(Vision::getSeenMask());
     Serial.print(",");
-    Serial.println(Vision::isValid() ? 1 : (Vision::isPredicted() ? 2 : 0));
+    Serial.print(Vision::isValid() ? 1 : (Vision::isPredicted() ? 2 : 0));
+    Serial.print(",");
+    // Slots 47-48 (2026-10-28): the target's depth sampling ring -- usable
+    // share 0-100 (-1 none) and its 8 sectors with depth (bit k = sector
+    // k, 0 right, clockwise on screen).
+    Serial.print(Vision::getRingPercent());
+    Serial.print(",");
+    Serial.println(Vision::getRingSectors());
 }

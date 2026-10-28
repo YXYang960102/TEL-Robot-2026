@@ -456,6 +456,30 @@
       font-size: 30px;
     }
 
+    /* Depth sampling ring (2026-10-28): the ring around the target that
+       the Orin reads the depth from, in 8 sectors as on its screen (0 =
+       right, clockwise). Green = that sector has depth, red = none, grey =
+       no data. The square in the middle is the hole's box. */
+    .ring-metric {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .ring-metric svg path {
+      fill: rgba(152, 164, 175, 0.18);
+      stroke: var(--line);
+    }
+
+    .ring-metric svg path.ok { fill: var(--green); }
+    .ring-metric svg path.bad { fill: var(--red); }
+
+    .ring-metric svg rect {
+      fill: none;
+      stroke: var(--muted);
+      stroke-dasharray: 3 2;
+    }
+
     @media (max-width: 720px) {
       .target-board { grid-template-columns: 1fr; }
     }
@@ -676,6 +700,7 @@
             <div class="metric"><div class="label">flywheel / 轉速（Falcon 實際）</div><div class="value" id="boardFlywheel">--</div><div class="subvalue" id="boardFlywheelCmd">--</div></div>
             <div class="metric"><div class="label">distance / 相機距離</div><div class="value" id="boardDistance">--</div></div>
             <div class="metric"><div class="label">turret / 轉台角度（AS5600）</div><div class="value" id="boardTurret">--</div><div class="subvalue" id="boardTurretRaw">--</div></div>
+            <div class="metric"><div class="label">depth ring / 深度取樣圈（目標周圍那圈）</div><div class="ring-metric"><svg viewBox="0 0 80 80" width="76" height="76" aria-label="depth ring sectors"><path id="ringSec0" d="M73.7 27.4A36 36 0 0 1 73.7 52.6L57.8 46.7A19 19 0 0 0 57.8 33.3Z"/><path id="ringSec1" d="M72.8 54.9A36 36 0 0 1 54.9 72.8L47.9 57.3A19 19 0 0 0 57.3 47.9Z"/><path id="ringSec2" d="M52.6 73.7A36 36 0 0 1 27.4 73.7L33.3 57.8A19 19 0 0 0 46.7 57.8Z"/><path id="ringSec3" d="M25.1 72.8A36 36 0 0 1 7.2 54.9L22.7 47.9A19 19 0 0 0 32.1 57.3Z"/><path id="ringSec4" d="M6.3 52.6A36 36 0 0 1 6.3 27.4L22.2 33.3A19 19 0 0 0 22.2 46.7Z"/><path id="ringSec5" d="M7.2 25.1A36 36 0 0 1 25.1 7.2L32.1 22.7A19 19 0 0 0 22.7 32.1Z"/><path id="ringSec6" d="M27.4 6.3A36 36 0 0 1 52.6 6.3L46.7 22.2A19 19 0 0 0 33.3 22.2Z"/><path id="ringSec7" d="M54.9 7.2A36 36 0 0 1 72.8 25.1L57.3 32.1A19 19 0 0 0 47.9 22.7Z"/><rect x="27" y="27" width="26" height="26"/></svg><div><div class="value" id="ringValue">--</div><div class="subvalue" id="ringDetail">--</div></div></div></div>
           </div>
         </div>
         <div class="label" id="boardReady" style="padding: 0 12px 4px">發射條件：--</div>
@@ -840,7 +865,7 @@
   </main>
 
   <script>
-    const ids = ["tx", "ty", "distance", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed", "aimState", "distanceRaw", "matchTimer", "matchState", "boardElevation", "boardFlywheel", "boardFlywheelCmd", "boardDistance", "targetBoardState", "boardReady", "boardTurret", "boardTurretRaw"];
+    const ids = ["tx", "ty", "distance", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed", "aimState", "distanceRaw", "matchTimer", "matchState", "boardElevation", "boardFlywheel", "boardFlywheelCmd", "boardDistance", "targetBoardState", "boardReady", "boardTurret", "boardTurretRaw", "ringValue", "ringDetail"];
     const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     const connectButton = document.getElementById("connect");
     const demoButton = document.getElementById("demo");
@@ -1167,12 +1192,22 @@
         el.targetBoardState.textContent = "選的洞不在畫面內：依看到的洞推算位置，轉台轉過去中（不會發射）";
       }
     }
-    // "$SEEN,<fresh>,<mask>,<state>" from the ground station.
+    // "$SEEN,<fresh>,<mask>,<state>[,<turretDeg*10>,<as5600Status>,
+    // <ringPct>,<ringSectors>]" from the ground station (the last four
+    // since 2026-10-28; every 500 ms).
     function handleSeenStatus(line) {
       const p = line.trim().split(",").map(Number);
       if (p.length < 4 || p.slice(1).some((v) => !Number.isFinite(v))) return;
-      const [, fresh, mask, state] = p;
+      const [, fresh, mask, state, deg10, turretStatus, ringPct, ringSectors] = p;
       setSeenMask(fresh === 1 ? mask : 0, fresh === 1 ? state : 0);
+      if (p.length < 8) return;
+      if (fresh === 1) {
+        renderTurret({ turretStatus, turretDeg10: deg10, turretRaw: NaN });
+      } else {
+        el.boardTurret.textContent = "--";
+        el.boardTurretRaw.textContent = "無線：沒有回傳";
+      }
+      renderRing(fresh === 1 ? ringPct : -1, ringSectors);
     }
 
     function setSeenHole(hole) {
@@ -1827,7 +1862,11 @@
         turretDeg10: p.length > 44 ? Number(p[44]) : NaN,
         // Slots 45-46 (Orin v3): detected hole ids (bit id - 1), vision state.
         seenMask: p.length > 45 ? Number(p[45]) : NaN,
-        visionState: p.length > 46 ? Number(p[46]) : NaN
+        visionState: p.length > 46 ? Number(p[46]) : NaN,
+        // Slots 47-48 (2026-10-28): the target's depth ring, usable share
+        // 0-100 (-1 none) and its sectors with depth (bit k, 0 right, cw).
+        ringPercent: p.length > 47 ? Number(p[47]) : NaN,
+        ringSectors: p.length > 48 ? Number(p[48]) : NaN
       };
     }
 
@@ -1865,6 +1904,7 @@
       renderReady(data);
       renderTurret(data);
       if (Number.isFinite(data.seenMask)) setSeenMask(data.seenMask, data.visionState);
+      if (Number.isFinite(data.ringPercent)) renderRing(data.ringPercent, data.ringSectors);
       if (Number.isFinite(data.controlOwner)) {
         el.controlOwner.textContent = OWNER_NAMES[data.controlOwner] ?? `#${data.controlOwner}`;
       }
@@ -1955,7 +1995,35 @@
       const deg = data.turretDeg10 / 10;
       el.boardTurret.textContent = ok || !(data.turretStatus & 0x20)
         ? `${deg > 0 ? "+" : ""}${deg.toFixed(1)}°` : "--";
-      el.boardTurretRaw.textContent = `raw ${data.turretRaw} · ${turretStatusText(data.turretStatus)}`;
+      // The radio's seen frame has no raw value (2026-10-28).
+      el.boardTurretRaw.textContent = (Number.isFinite(data.turretRaw) ? `raw ${data.turretRaw}` : "無線") +
+        ` · ${turretStatusText(data.turretStatus)}`;
+    }
+
+    // Depth sampling ring (TEL 47-48 / $SEEN): pct -1 = no data (no real
+    // sighting of the chosen hole). The Orin measures a distance from the
+    // ring only with at least 20 % of it usable (DEPTH_MIN_VALID_FRACTION).
+    const RING_SECTOR_NAMES = ["右", "右下", "下", "左下", "左", "左上", "上", "右上"];
+    let ringShown = { percent: -1, sectors: 0 };
+    function renderRing(percent, sectors) {
+      const has = Number.isFinite(percent) && percent >= 0;
+      ringShown = { percent: has ? percent : -1, sectors: has ? sectors : 0 };
+      for (let k = 0; k < 8; k++) {
+        const sector = document.getElementById(`ringSec${k}`);
+        const ok = has && (sectors & (1 << k)) !== 0;
+        sector.classList.toggle("ok", ok);
+        sector.classList.toggle("bad", has && !ok);
+      }
+      if (!has) {
+        el.ringValue.textContent = "--";
+        el.ringDetail.textContent = "沒有資料（沒有真的看到選的洞）";
+        return;
+      }
+      const missing = RING_SECTOR_NAMES.filter((_, k) => (sectors & (1 << k)) === 0);
+      el.ringValue.textContent = `有效 ${percent}%`;
+      el.ringDetail.textContent = (missing.length === 0 ? "整圈都有深度"
+        : missing.length === 8 ? "整圈都沒有深度" : `${missing.join("、")}側沒有深度`) +
+        (percent < 20 ? " · 低於 20%：這圈量不到距離" : "");
     }
 
     // Mega <-> bridge lines dropped (TEL slot 39): logged when it grows, at

@@ -5771,3 +5771,70 @@ see its `docs/operator-selection-v3.md`):**
    turns back toward it within 3 s; it never fires until the hole is seen.
 6. Q W E on the bonus holes: lock and distance; check the ring with `d` on
    the Orin.
+
+## 2026-10-28 — Claude Code: depth-ring view on the Dashboard, turret AS5600 angle over the radio too
+
+**User Request:** show the depth sampling ring in the Dashboard (Jeremy
+picked the 8-sector schematic over a video stream: works wired and
+wireless); the AS5600 angle visible both wired and wireless; push Orin v3
+(done: YOLO_Detect_single `10ac7a8e` on origin/main), keep the Mega dev
+unpushed.
+
+**Discussion Result:** the Orin's image can't go through the Mega serial /
+ELRS, so the Orin sends numbers: the target ring's usable share and which
+of 8 sectors have depth. The turret angle and the ring ride in the seen
+frame's spare `seq` / `flags` (no new slot, no bridge change).
+
+**Changed:**
+- Orin frame (v3, still `PROTOCOL_VERSION 3`): `tx,ty,dist,id,valid,mask`
+  may be followed by `ring_pct,ring_sectors` (8 fields). The Mega takes 6
+  or 8 (`Vision::parse`); 7 fields, pct outside −1..100 or sectors > 255
+  are refused like any malformed frame.
+- `Vision`: `getRingPercent()` (−1 = none) / `getRingSectors()`; kept only
+  with `isValid()` (a real sighting of the selected hole), cleared by
+  `invalidateTarget()`.
+- Seen uplink frame (`rcmap_seen`): `seq` bits 0–11 turret degrees ×10
+  (12-bit two's complement, clamped ±204.7°), 12–17 AS5600 status, 18–23
+  ring (0 none, else `(pct + 1) / 2 + 1`, 2% steps); `flags` = ring
+  sectors (0 when none). Before this `seq` / `flags` were 0.
+- Ground `$SEEN,<fresh>,<mask>,<state>,<deg×10>,<as5600Status>,<ringPct>,
+  <ringSectors>` (stale: `…,0,0,-1,0`).
+- TEL slots 47–48: ring pct, ring sectors.
+- Dashboard: Target panel gains 「深度取樣圈」 — 8 sectors (green has depth,
+  red none, grey no data) around the hole box, 「有效 N%」 and which sides
+  have no depth, plus 「低於 20%：這圈量不到距離」 (DEPTH_MIN_VALID_FRACTION).
+  The turret readout also comes from `$SEEN` (「無線 · OK」; no raw value
+  over the radio; 「無線：沒有回傳」 when stale). An older ground (4-field
+  `$SEEN`) only lights the board.
+
+**Calculation:**
+- Sector k of 8: angle = atan2(y, x) in box-normalized coordinates (image
+  y down, so increasing = clockwise on screen); k = floor((angle + 22.5°)
+  mod 360° / 45°): 0 right, 1 lower-right, 2 below, 3 lower-left, 4 left,
+  5 upper-left, 6 above, 7 upper-right. Sector has depth when ≥ 50 %
+  (`DEPTH_RING_SECTOR_GOOD_FRACTION`) of its ring pixels are usable (finite,
+  200–8000 mm, same rule as the distance). Pixels outside the image don't
+  count; an empty sector has no depth.
+- pct = round(100 × usable / all ring pixels).
+- Example: ring 62 %, sectors 0b11100011 → TEL `…,62,227`; radio seq bits
+  18–23 = (62 + 1) / 2 + 1 = 32 → back to (32 − 1) × 2 = 62; Dashboard
+  「有效 62%」「下、左下、左側沒有深度」.
+- Turret −50.3° → deg×10 −503 → 12-bit 0xE09 → back −503.
+
+**Impact:** Mega + ground must be flashed together (as already needed for
+dev). Bridge `.bin` rebuilt: sha256 still 5f05e944… (no reflash). An Orin
+on `10ac7a8e` (6 fields) still works with this Mega; this Orin (8 fields)
+needs this Mega (`d48b10d` refuses 8 fields — it was never pushed).
+Wireless angle / ring update every 500 ms (seen slot, 1 of 5).
+
+**Evidence:** host suite 18 groups PASS (adapted: rc_control_map seen
+codec, vision_link 8-field cases, ground `$SEEN`, Dashboard page ring +
+wireless turret). pio: 9 Mega envs (production RAM 44.6 %, flash 15.0 %)
++ ground. Orin 65/65 (ring coverage full / none / half / frame-edge).
+`ring_coverage` 0.4–1.9 ms per frame on the Mac (80–200 px boxes, 1280×720).
+**Nothing flashed or run on hardware.**
+
+**Next Test:** with the target in view, the Dashboard ring matches the
+Orin's `d` overlay (same sides red); move so the ring slides off the board
+edge → that side turns red and the share drops; wireless: angle and ring
+update about twice a second.

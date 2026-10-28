@@ -575,21 +575,22 @@ static void testSeenFrames() {
     tr.reset(0);
     lines.clear();
     tr.tick(250, collect, nullptr);
-    assert(lastLineStarting("$SEEN,") == "$SEEN,0,0,0");          // none yet
+    assert(lastLineStarting("$SEEN,") == "$SEEN,0,0,0,0,0,-1,0");  // none yet
     tr.onStatus(status(RCMAP_STATUS_ARMED | RCMAP_STATUS_OWNER_WIRELESS, 3, RCMAP_EVENT_OUTPUTS_ENABLED),
                 260, collect, nullptr);
-    rcmap_seen sn{static_cast<uint16_t>((1u << 3) | (1u << 4) | (1u << 10)), RCMAP_VISION_STATE_PREDICTED};
+    rcmap_seen sn{static_cast<uint16_t>((1u << 3) | (1u << 4) | (1u << 10)), RCMAP_VISION_STATE_PREDICTED,
+                  -503, 0x03, 62, 0x3C};
     rcmap_status ss{};
     rcmap_seen_to_status(&sn, &ss.flags, &ss.event_seq, &ss.event_code);
     lines.clear();
     tr.onStatus(ss, 300, collect, nullptr);
     assert(lines.empty());                                        // no bogus event / aim
     tr.tick(500, collect, nullptr);
-    assert(lastLineStarting("$SEEN,") == "$SEEN,1,1048,2");
+    assert(lastLineStarting("$SEEN,") == "$SEEN,1,1048,2,-503,3,62,60");
     assert(lastLineStarting("$AIM,") == "$AIM,0,0,0,0,0,0,0");      // not read as an aim frame
     lines.clear();
     tr.tick(300 + RobotStatusTracker::STALE_MS + 250, collect, nullptr);
-    assert(lastLineStarting("$SEEN,") == "$SEEN,0,0,0");
+    assert(lastLineStarting("$SEEN,") == "$SEEN,0,0,0,0,0,-1,0");
 }
 
 static void testArmEdge() {

@@ -1112,6 +1112,27 @@ async function emergencyStopViaEnter() {
   assert.equal(run('seenMaskHoles'), 0);
   clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',' + (1 << 7) + ',1');  // Orin id 8 = hole 5
   assert.equal(run('seenMaskHoles'), 1 << 5);
+  // 2026-10-28: the depth ring (TEL 47-48) ...
+  clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',' + (1 << 7) + ',1,62,' + 0b11100011);
+  assert.deepEqual({ ...run('ringShown') }, { percent: 62, sectors: 0b11100011 });
+  assert.equal(elements.ringValue.textContent, '有效 62%');
+  assert.equal(elements.ringDetail.textContent, '下、左下、左側沒有深度');
+  clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',0,0,-1,0');
+  assert.equal(elements.ringValue.textContent, '--');
+  // ... and over the radio, with the turret angle (no raw value there).
+  line('$SEEN,1,16,1,-503,3,12,1');
+  assert.equal(elements.boardTurret.textContent, '-50.3°');
+  assert.equal(elements.boardTurretRaw.textContent, '無線 · OK');
+  assert.match(elements.ringDetail.textContent, /右下、下、左下、左、左上、上、右上側沒有深度 · 低於 20%/);
+  line('$SEEN,1,16,1,0,32,100,255');
+  assert.match(elements.boardTurretRaw.textContent, /無線 · 沒讀到感測器/);
+  assert.equal(elements.ringDetail.textContent, '整圈都有深度');
+  line('$SEEN,0,0,0,0,0,-1,0');
+  assert.equal(elements.boardTurret.textContent, '--');
+  assert.equal(elements.boardTurretRaw.textContent, '無線：沒有回傳');
+  assert.equal(elements.ringValue.textContent, '--');
+  line('$SEEN,1,16,1');                                           // older ground: board only
+  assert.equal(elements.boardTurretRaw.textContent, '無線：沒有回傳');
 
   console.log('dashboard page control behavior tests passed');
 })().catch((e) => { console.error(e); process.exitCode = 1; });

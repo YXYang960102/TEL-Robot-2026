@@ -337,7 +337,12 @@ bool rcmap_aim_from_status(const rcmap_status *s, rcmap_aim *out);
  *   code  bits 15-14 = 11, bits 0-11 = the Orin's detected hole ids (bit
  *         id - 1, ids 1-12), bits 12-13 = vision state: 0 nothing, 1 the
  *         target in view, 2 a predicted (out-of-view) position
- *   seq / flags  0 (spare)
+ *   seq   (2026-10-28; 0 before) bits 0-11 turret AS5600 degrees x 10,
+ *         12-bit two's complement (+-204.7 deg), bits 12-17 its status
+ *         bits (TurretAngle.h), bits 18-23 the depth ring's usable share:
+ *         0 = none, else percent / 2 + 1 (2 % steps)
+ *   flags (2026-10-28) the depth ring's sectors with depth (bit k =
+ *         sector k: 0 right, clockwise on screen)
  * A ground older than this reads it as an aim frame: reflash both. */
 #define RCMAP_SEEN_FRAME_BITS 0xC000u
 #define RCMAP_VISION_STATE_NONE 0u
@@ -346,6 +351,10 @@ bool rcmap_aim_from_status(const rcmap_status *s, rcmap_aim *out);
 typedef struct {
     uint16_t seen_mask;  /* bit id - 1 */
     uint8_t state;       /* RCMAP_VISION_STATE_* */
+    int16_t turret_deg10;   /* AS5600 turret degrees x 10, +-2047 */
+    uint8_t turret_status;  /* TurretAngle status bits, 6 bits */
+    int8_t ring_percent;    /* 0-100, -1 = none (even percents only) */
+    uint8_t ring_sectors;   /* bit k = sector k has depth */
 } rcmap_seen;
 
 static inline bool rcmap_status_is_seen(uint16_t code) { return (code & 0xC000u) == RCMAP_SEEN_FRAME_BITS; }

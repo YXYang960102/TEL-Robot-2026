@@ -18,6 +18,8 @@ unsigned long Vision::frameCount = 0;
 bool Vision::predicted = false;
 unsigned long Vision::predictedSinceMs = 0;
 uint16_t Vision::seenMask = 0;
+int8_t Vision::ringPercent = -1;
+uint8_t Vision::ringSectors = 0;
 bool Vision::hasPacket = false;
 bool Vision::sentReady = false;
 unsigned long Vision::lastHeartbeatMs = 0;
@@ -124,6 +126,14 @@ uint16_t Vision::getSeenMask() {
     return seenMask;
 }
 
+int8_t Vision::getRingPercent() {
+    return isValid() ? ringPercent : static_cast<int8_t>(-1);
+}
+
+uint8_t Vision::getRingSectors() {
+    return isValid() ? ringSectors : 0;
+}
+
 unsigned long Vision::getFrameCount() {
     return frameCount;
 }
@@ -189,14 +199,15 @@ bool Vision::parse(const String& input) {
             commaCount++;
         }
     }
-    // v3: tx,ty,distance,target_id,valid,seen_mask
-    if (commaCount != 5) return false;
+    // v3: tx,ty,distance,target_id,valid,seen_mask -- optionally followed
+    // (2026-10-28) by ring_pct,ring_sectors, the depth ring's coverage
+    if (commaCount != 5 && commaCount != 7) return false;
 
-    String fields[6];
+    String fields[8];
     int fieldCount = 0;
     int start = 0;
 
-    while (fieldCount < 6 && start <= static_cast<int>(s.length())) {
+    while (fieldCount < 8 && start <= static_cast<int>(s.length())) {
         int idx = s.indexOf(',', start);
 
         if (idx < 0) {
@@ -208,7 +219,7 @@ bool Vision::parse(const String& input) {
         start = idx + 1;
     }
 
-    if (fieldCount != 6) return false;
+    if (fieldCount != commaCount + 1) return false;
 
     char* end = nullptr;
     const double nextTx = strtod(fields[0].c_str(), &end);
@@ -233,6 +244,15 @@ bool Vision::parse(const String& input) {
         return false;
     }
 
+    long nextRingPct = -1;
+    long nextRingSectors = 0;
+    if (fieldCount == 8) {
+        nextRingPct = strtol(fields[6].c_str(), &end, 10);
+        if (end == fields[6].c_str() || *end != '\0' || nextRingPct < -1 || nextRingPct > 100) return false;
+        nextRingSectors = strtol(fields[7].c_str(), &end, 10);
+        if (end == fields[7].c_str() || *end != '\0' || nextRingSectors < 0 || nextRingSectors > 0xFF) return false;
+    }
+
     const double maxAbsTx = validValue == 2 ? Validation::MAX_ABS_PREDICTED_TX : Validation::MAX_ABS_TX;
     if (abs(nextTx) > maxAbsTx ||
         abs(nextTy) > Validation::MAX_ABS_TY ||
@@ -250,6 +270,10 @@ bool Vision::parse(const String& input) {
         static_cast<int>(nextTargetId),
         static_cast<int>(validValue),
         static_cast<uint16_t>(mask));
+    // The ring is about the frame's own target: only kept for a real
+    // sighting of the hole the Mega aims at (isValid()).
+    ringPercent = valid ? static_cast<int8_t>(nextRingPct) : static_cast<int8_t>(-1);
+    ringSectors = valid && nextRingPct >= 0 ? static_cast<uint8_t>(nextRingSectors) : 0;
     return true;
 }
 
@@ -307,6 +331,8 @@ void Vision::storeTarget(
 void Vision::invalidateTarget() {
     valid = false;
     predicted = false;
+    ringPercent = -1;
+    ringSectors = 0;
     tx = 0;
     ty = 0;
     distance = 0;

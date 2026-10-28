@@ -256,15 +256,24 @@ bool rcmap_aim_from_status(const rcmap_status *s, rcmap_aim *out) {
 
 void rcmap_seen_to_status(const rcmap_seen *v, uint8_t *flags, uint32_t *seq, uint16_t *code) {
     const uint8_t state = v->state > RCMAP_VISION_STATE_PREDICTED ? RCMAP_VISION_STATE_NONE : v->state;
+    const int deg10 = v->turret_deg10 > 2047 ? 2047 : (v->turret_deg10 < -2047 ? -2047 : v->turret_deg10);
+    const uint32_t ring = v->ring_percent < 0 ? 0u
+                        : (uint32_t)((v->ring_percent > 100 ? 100 : v->ring_percent) + 1) / 2u + 1u;
     *code = (uint16_t)(RCMAP_SEEN_FRAME_BITS | ((uint16_t)state << 12) | (v->seen_mask & 0x0FFFu));
-    *seq = 0;
-    *flags = 0;
+    *seq = ((uint32_t)deg10 & 0x0FFFu) | ((uint32_t)(v->turret_status & 0x3Fu) << 12) | (ring << 18);
+    *flags = v->ring_percent < 0 ? 0u : v->ring_sectors;
 }
 
 bool rcmap_seen_from_status(const rcmap_status *s, rcmap_seen *out) {
     if (!rcmap_status_is_seen(s->event_code)) return false;
     out->seen_mask = (uint16_t)(s->event_code & 0x0FFFu);
     out->state = (uint8_t)((s->event_code >> 12) & 0x03u);
+    const uint32_t deg = s->event_seq & 0x0FFFu;
+    out->turret_deg10 = (int16_t)(deg >= 0x0800u ? (int32_t)deg - 0x1000 : (int32_t)deg);
+    out->turret_status = (uint8_t)((s->event_seq >> 12) & 0x3Fu);
+    const uint32_t ring = (s->event_seq >> 18) & 0x3Fu;
+    out->ring_percent = (int8_t)(ring == 0u ? -1 : (ring > 51u ? 100 : (int)(ring - 1u) * 2));
+    out->ring_sectors = ring == 0u ? 0u : s->flags;
     return true;
 }
 

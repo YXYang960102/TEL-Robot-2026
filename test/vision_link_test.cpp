@@ -157,6 +157,25 @@ int main() {
     orin("700,-40,0,2,2,48");
     tick();
     assert(Vision::isPredicted());
+    // 2026-10-28: optional ring_pct,ring_sectors (8 fields); kept only with
+    // a real sighting of the selected hole; 6 fields still accepted.
+    orin("-30,-200,2900,2,1,2,62,60");
+    tick();
+    assert(Vision::isValid() && Vision::getRingPercent() == 62 && Vision::getRingSectors() == 60);
+    orin("-30,-200,2900,2,1,2");
+    tick();
+    assert(Vision::isValid() && Vision::getRingPercent() == -1 && Vision::getRingSectors() == 0);
+    orin("-30,-200,2900,5,1,2,62,60");                  // not the selected hole
+    tick();
+    assert(!Vision::isValid() && Vision::getRingPercent() == -1);
+    orin("-30,-200,2900,2,1,2,101,0");                   // out of range: refused
+    orin("-30,-200,2900,2,1,2,50,256");
+    orin("-30,-200,2900,2,1,2,50");                      // 7 fields
+    tick();
+    assert(!Vision::isValid());
+    orin("700,-40,0,2,2,48,-1,0");
+    tick();
+    assert(Vision::isPredicted() && Vision::getRingPercent() == -1);
     // Stale link: no prediction, no mask.
     for (int i = 0; i < 35; i++) tick(10);
     assert(!Vision::isPredicted() && Vision::getSeenMask() == 0);

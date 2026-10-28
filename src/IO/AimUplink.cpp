@@ -2,6 +2,7 @@
 
 #include <math.h>
 
+#include "../Sensors/TurretAngle.h"
 #include "../Shooter/Shooter.h"
 #include "../Vision/Vision.h"
 #include "ManualControl.h"
@@ -37,6 +38,12 @@ void AimUplink::sendSeen() {
     v.state = Vision::isValid() ? RCMAP_VISION_STATE_SEEN
             : Vision::isPredicted() ? RCMAP_VISION_STATE_PREDICTED
                                     : RCMAP_VISION_STATE_NONE;
+    // 2026-10-28: the turret angle and the depth ring ride along, so the
+    // wireless Dashboard shows them too (every 500 ms).
+    v.turret_deg10 = static_cast<int16_t>(clampLong(lround(TurretAngle::angleDegrees() * 10.0), -2047, 2047));
+    v.turret_status = TurretAngle::status();
+    v.ring_percent = Vision::getRingPercent();
+    v.ring_sectors = Vision::getRingSectors();
     uint8_t flags = 0;
     uint32_t seq = 0;
     uint16_t code = 0;
