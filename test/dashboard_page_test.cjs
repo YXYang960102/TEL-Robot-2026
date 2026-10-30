@@ -1116,7 +1116,7 @@ async function emergencyStopViaEnter() {
   assert.equal(elements.boardTurret.textContent, '0.0°');
   assert.equal(elements.boardTurretRaw.textContent, 'raw 159 · 磁鐵太遠（讀值可用，只警告）');
   clock.t += 100; line(telFull(0, 0, 159, 0x05, 0));            // too weak, no magnet seen
-  assert.match(elements.boardTurretRaw.textContent, /沒偵測到磁鐵/);
+  assert.equal(elements.boardTurretRaw.textContent, 'raw -- · 沒偵測到磁鐵');  // no raw either
   assert.equal(elements.boardTurret.textContent, '--');            // no magnet: no angle
   // A ground on another channel table: the event, plus what to do.
   event('LINK_VERSION_MISMATCH');

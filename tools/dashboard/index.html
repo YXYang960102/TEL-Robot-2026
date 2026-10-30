@@ -2014,9 +2014,11 @@
       const deg = data.turretDeg10 / 10;
       el.boardTurret.textContent = turretAngleTrusted(data.turretStatus)
         ? `${deg > 0 ? "+" : ""}${deg.toFixed(1)}°` : "--";
-      // The radio's seen frame has no raw value (2026-10-28).
-      el.boardTurretRaw.textContent = (Number.isFinite(data.turretRaw) ? `raw ${data.turretRaw}` : "無線") +
-        ` · ${turretStatusText(data.turretStatus)}`;
+      // The radio's seen frame has no raw value (2026-10-28). No magnet or
+      // a failed read: no raw either (Jeremy 2026-10-31: it misleads).
+      const rawUsable = (data.turretStatus & 0x01) !== 0 && (data.turretStatus & 0x02) !== 0;
+      const rawText = !Number.isFinite(data.turretRaw) ? "無線" : rawUsable ? `raw ${data.turretRaw}` : "raw --";
+      el.boardTurretRaw.textContent = `${rawText} · ${turretStatusText(data.turretStatus)}`;
     }
 
     // AS5600 magnet strength (TEL 50-51, 2026-10-31), for setting the
