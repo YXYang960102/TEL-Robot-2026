@@ -1990,16 +1990,17 @@
     // Turret AS5600 (TEL slots 42-44, src/Sensors/TurretAngle.h status bits).
     function turretStatusText(status) {
       if (status & 0x20) return "沒讀到感測器（檢查 D20/D21 接線、電源）";
-      if (status & 0x10) return "圈數不可信（曾經讀不到）：轉台擺回中間後重開機";
+      if (status & 0x10) return "圈數不可信（曾經讀不到）：轉台鎖住，重開機後從 EEPROM 找回位置";
       if (!(status & 0x01)) return "讀取失敗";
-      if (status & 0x04) return "磁鐵太遠";
-      if (status & 0x08) return "磁鐵太近";
       if (!(status & 0x02)) return "沒偵測到磁鐵";
+      if (status & 0x08) return "磁鐵太近";
+      // Only a warning (TurretAngleConstants::WEAK_MAGNET_LOCKS, 2026-10-31).
+      if (status & 0x04) return "磁鐵太遠（讀值可用，只警告）";
       return "OK";
     }
     function renderTurret(data) {
       if (!Number.isFinite(data.turretStatus)) return;
-      const ok = turretStatusText(data.turretStatus) === "OK";
+      const ok = turretStatusText(data.turretStatus) === "OK" || (data.turretStatus & 0x07) === 0x07;
       const deg = data.turretDeg10 / 10;
       el.boardTurret.textContent = ok || !(data.turretStatus & 0x20)
         ? `${deg > 0 ? "+" : ""}${deg.toFixed(1)}°` : "--";

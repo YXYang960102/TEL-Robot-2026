@@ -5997,3 +5997,36 @@ Orin is unaffected.
 6. Leave it at about +30, power-cycle, Enable: it returns to 0.
 7. Then tune `LIMIT_STOP_LOOKAHEAD_S` and the return gains from how it
    coasts.
+
+## 2026-10-31 — Claude Code: AS5600 "magnet too weak" is a warning, not a lock
+
+**User Request:** on the robot the AS5600 reports 磁鐵太遠 (ML set) while
+raw is smooth. The guard therefore locked the turret, and 設為歸位點 was
+refused. Jeremy chose: warn only.
+
+**Changed:**
+- `TurretAngleConstants::WEAK_MAGNET_LOCKS = false`. `isHealthy()` and
+  `setZeroHere()` ignore TOO_WEAK unless it is set.
+- These still lock: no magnet (MD 0), a failed read, TOO_STRONG, LOST.
+- Dashboard: checks no-magnet before too-weak, and shows the text
+  「磁鐵太遠（讀值可用，只警告）」 with the angle.
+- The LOST text now says a reboot restores the position from EEPROM.
+
+**Also reported (not changed):**
+- Right after the c0d2197 flash, before the Dashboard was connected, the
+  turret turned right by itself; it was stopped with the E-stop.
+- While disarmed this firmware writes 1500 µs every loop, and the guard
+  runs only when enabled. So the suspects are:
+  (a) no PWM on D23 during the flash / reset, read as a command by the
+  controller — a pull-down of about 10 kΩ, and E-stop while flashing;
+  (b) 1500 µs is not this controller's stop — measure it disarmed and
+  powered.
+- Tests for both were given to Jeremy.
+
+**Evidence:** Dashboard page and control tests PASS (new too-weak cases);
+manual_control PASS; pio: production + 3 wired benches (RAM 48.7 %).
+No hardware.
+
+**Next Test:** set the home point with the weak magnet; check that the
+angle tracks a hand turn. Fix the magnet gap later, then set
+`WEAK_MAGNET_LOCKS` true.

@@ -36,7 +36,8 @@ public:
     static long counts();
     // Turret degrees from straight ahead (+ = right once INVERTED is set).
     static double angleDegrees();
-    // A good recent read, magnet in range, turns trusted.
+    // A good recent read, magnet in range, turns trusted ("too weak" only
+    // counts when TurretAngleConstants::WEAK_MAGNET_LOCKS is set).
     static bool isHealthy();
     // The angle is from the home point (restored or set), not from boot.
     static bool isAbsolute();

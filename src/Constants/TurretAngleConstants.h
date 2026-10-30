@@ -93,6 +93,14 @@ static_assert(LIMIT_LEFT_DEG < 0.0 && LIMIT_RIGHT_DEG > 0.0, "home must lie betw
 static_assert(LIMIT_RIGHT_DEG - LIMIT_LEFT_DEG < 360.0, "limits less than a turn apart");
 static_assert(RIGHT_COMMAND_SIGN == 1.0 || RIGHT_COMMAND_SIGN == -1.0, "a sign");
 
+// AS5600 "magnet too weak" (ML: its gain is at maximum). Jeremy
+// 2026-10-31: the robot's magnet reads that way but the raw angle is
+// smooth, so it is only a warning (Dashboard) -- the turret still runs and
+// the home point can be set. No magnet at all (MD = 0), a failed read or
+// "too strong" still lock the turret. Set true once the magnet sits at
+// 0.5-3 mm, so a magnet working loose stops the turret.
+constexpr bool WEAK_MAGNET_LOCKS = false;
+
 // No good read for this long and the turns count can't be trusted any
 // more (the magnet may have passed half a turn unseen): reported as LOST
 // until a reboot.

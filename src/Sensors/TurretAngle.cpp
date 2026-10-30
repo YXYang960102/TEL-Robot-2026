@@ -179,7 +179,7 @@ void TurretAngle::writeStoreStep() {
 
 bool TurretAngle::setZeroHere() {
     if (!haveReading || !(statusBits & READ_OK) || !(statusBits & MAGNET) ||
-        (statusBits & (TOO_WEAK | TOO_STRONG))) {
+        (statusBits & TOO_STRONG) || (WEAK_MAGNET_LOCKS && (statusBits & TOO_WEAK))) {
         return false;
     }
     accumulated = 0;
@@ -208,7 +208,8 @@ double TurretAngle::angleDegrees() {
 
 bool TurretAngle::isHealthy() {
     return (statusBits & READ_OK) && (statusBits & MAGNET) &&
-           !(statusBits & (TOO_WEAK | TOO_STRONG | LOST));
+           !(statusBits & (TOO_STRONG | LOST)) &&
+           !(WEAK_MAGNET_LOCKS && (statusBits & TOO_WEAK));
 }
 
 bool TurretAngle::isAbsolute() {
