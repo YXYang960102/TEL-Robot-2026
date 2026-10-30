@@ -23,7 +23,9 @@ void AimUplink::send() {
     a.selected_id = Vision::getSelectedTarget();
     a.target_id = static_cast<uint8_t>(valid ? clampLong(Vision::getTargetId(), 0, 15) : 0);
     a.valid = valid;
-    a.aim_offset_px = static_cast<int8_t>(clampLong(lround(ManualControl::getAimOffsetPx()), -127, 127));
+    // 4 px units since 2026-10-30 (the offset now reaches 300 px; the
+    // Dashboard multiplies by 4; the ground passes it through unchanged).
+    a.aim_offset_px = static_cast<int8_t>(clampLong(lround(ManualControl::getAimOffsetPx() / 4.0), -127, 127));
 
     uint8_t flags = 0;
     uint32_t seq = 0;

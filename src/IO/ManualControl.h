@@ -72,6 +72,13 @@ public:
     // Fine-adjust (TuningConstants::Auto): + = aim right / elevation up.
     static double getAimOffsetPx();
     static double getElevationOffsetUs();
+    // Autos and test (2026-10-30): left / right held = the operator turns
+    // the turret by hand, then it stands still AIM_JOG_SETTLE_MS before the
+    // camera takes over again with the new aim offset. While this is true
+    // Auto drives the turret open loop with getAimJogCommand() (0 during
+    // the wait) instead of the camera follow.
+    static bool isAimJogActive();
+    static double getAimJogCommand();
     // The autos' flywheel offset in percent (-20..20, LT / RT; 2026-10-18):
     // added to the shot table's value. Wired FLYO,<n> or CH4 in the autos;
     // 0 in full manual, after a mode change and on every Enable / disarm.
@@ -139,6 +146,9 @@ private:
     static double elevationOffsetUs;
     static int flywheelOffsetPct;
     static int rotateNudgePrev; // sign of the last ROT/nudge, for press edges
+    static bool aimJogging;          // left / right held in an auto / test
+    static bool aimJogSettling;      // released, waiting before the latch
+    static unsigned long aimJogReleasedMs;
     static int angleNudgePrev;
 
     static unsigned long eventSeq;

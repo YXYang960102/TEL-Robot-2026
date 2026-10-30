@@ -314,7 +314,8 @@ bool rcmap_status_from_battery(uint16_t voltage, uint16_t current, uint32_t capa
  *         frame below)
  *   seq   bits 0-11 elevation pulse us, 12-15 vision id sent to the Orin,
  *         16-19 vision id of the frame in hand, 20 valid
- *   flags aim offset px as int8 (+ = right) */
+ *   flags aim offset as int8 (+ = right), in px until 2026-10-30, in
+ *         4 px units since (the offset reaches 300 px; ground unchanged) */
 #define RCMAP_AIM_FRAME_BIT 0x8000u
 typedef struct {
     uint16_t distance_cm;

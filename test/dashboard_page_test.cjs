@@ -499,7 +499,7 @@ async function emergencyStopViaEnter() {
   assert.equal(elements.distance.textContent, '3.52 m');
   assert.match(elements.distanceRaw.textContent, /^3520 mm/);
   assert.equal(elements.anglePulse.textContent, '1620 us');
-  assert.equal(elements.aimState.textContent, '視覺 #10 已看到 ✓ 3.52 m · 微調 水平 -15 px');
+  assert.equal(elements.aimState.textContent, '視覺 #10 已看到 ✓ 3.52 m · 微調 水平 -60 px');  // 4 px units since 2026-10-30
   line('$AIM,1,0,1620,10,0,0,0');
   assert.equal(elements.distance.textContent, '--');
   assert.equal(elements.aimState.textContent, '視覺 #10 看不到 · 微調 水平 0 px');

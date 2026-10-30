@@ -26,6 +26,20 @@ namespace {
 ShotDistanceFilter<TuningConstants::Auto::DISTANCE_MEDIAN_FRAMES> distanceFilter(
     TuningConstants::Auto::DISTANCE_LATCH_BAND_M, TuningConstants::Auto::DISTANCE_LATCH_SETTLE_MS);
 unsigned long lastFilterFrame = 0;
+
+// The turret in the autos and test: the operator's hand turn (and its
+// settle wait) wins; otherwise the camera follow with the aim offset, or
+// hold it with no camera.
+void aimTurret(bool visionHealthy) {
+    if (ManualControl::isAimJogActive()) {
+        Shooter::setRotateOpenLoop(ManualControl::getAimJogCommand());
+    } else if (visionHealthy) {
+        Shooter::setRotateVisionFollow();
+        Shooter::setRotateAimOffsetPx(ManualControl::getAimOffsetPx());
+    } else {
+        Shooter::disableRotate();
+    }
+}
 uint8_t filterSelection = 0;
 int filterTargetId = 0;
 }  // namespace
@@ -76,19 +90,15 @@ void Auto::update() {
         haveLastShot = false;
         distanceFilter.reset();
         readyBits = 0;
-        if (visionHealthy) {
-            Shooter::setRotateVisionFollow();
-            Shooter::setRotateAimOffsetPx(ManualControl::getAimOffsetPx());
-        } else {
-            Shooter::disableRotate();
-        }
+        aimTurret(visionHealthy);
         return;
     }
 
     const bool firePressed = ManualControl::takeFireRequest();
     if (!visionHealthy) {
-        // No camera: nothing to aim at. Hold the turret, spin down.
-        Shooter::disableRotate();
+        // No camera: nothing to aim at. Hold the turret (the operator may
+        // still turn it by hand), spin down.
+        aimTurret(false);
         Shooter::setFlywheelOpenLoop(0.0);
         enterFireState(FireState::IDLE);
         haveLastShot = false;
@@ -98,8 +108,7 @@ void Auto::update() {
         return;
     }
 
-    Shooter::setRotateVisionFollow();
-    Shooter::setRotateAimOffsetPx(ManualControl::getAimOffsetPx());
+    aimTurret(true);
 
     // A target Auto may shoot at: a valid frame (with a hole selected, only
     // that hole's -- Vision drops every other id) that has a depth distance

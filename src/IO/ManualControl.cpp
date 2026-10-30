@@ -9,6 +9,7 @@
 #include "../Constants/TuningConstants.h"
 #include "../Dribbler/Dribbler.h"
 #include "../Shooter/Shooter.h"
+#include "../Vision/Vision.h"
 #include "AimUplink.h"
 #include "MechLink.h"
 
@@ -44,6 +45,9 @@ double ManualControl::aimOffsetPx = 0.0;
 double ManualControl::elevationOffsetUs = 0.0;
 int ManualControl::flywheelOffsetPct = 0;
 int ManualControl::rotateNudgePrev = 0;
+bool ManualControl::aimJogging = false;
+bool ManualControl::aimJogSettling = false;
+unsigned long ManualControl::aimJogReleasedMs = 0;
 int ManualControl::angleNudgePrev = 0;
 
 unsigned long ManualControl::eventSeq = 0;
@@ -495,6 +499,8 @@ void ManualControl::clearCommands() {
 void ManualControl::clearFineAdjust() {
     aimOffsetPx = 0.0;
     elevationOffsetUs = 0.0;
+    aimJogging = false;
+    aimJogSettling = false;
     // An arrow still held from before needs a release before it counts.
     rotateNudgePrev = NUDGE_NEEDS_RELEASE;
     angleNudgePrev = NUDGE_NEEDS_RELEASE;
@@ -520,15 +526,32 @@ void ManualControl::updateFineAdjust() {
     using namespace TuningConstants::Auto;
     const int rotateNow = signOf(rotateManualCommand);
     const int angleNow = signOf(angleManualCommand);
-    const bool rotatePress = nudgePressed(rotateNow, rotateNudgePrev);
+    nudgePressed(rotateNow, rotateNudgePrev); // keeps the release-first rule
     const bool anglePress = nudgePressed(angleNow, angleNudgePrev);
     if (operatorMode == OperatorMode::FULL_MANUAL) {
+        aimJogging = false;
+        aimJogSettling = false;
         return; // manual: the arrows are the hold-to-move jog
     }
-    // Autos and test: left / right step the turret's aim offset (the
-    // camera owns the turret). Up / down: see below (test: the jog).
-    if (rotatePress) {
-        aimOffsetPx = clampAbs(aimOffsetPx + rotateNow * AIM_OFFSET_STEP_PX, AIM_OFFSET_MAX_PX);
+    // Autos and test: left / right held = turn the turret by hand (Auto
+    // asks isAimJogActive()); after release and AIM_JOG_SETTLE_MS still,
+    // the hole's place in the image becomes the aim offset. Example: let
+    // go with the hole 120 px left of center (tx = -120) -> offset +120,
+    // the camera keeps the hole 120 px left. Up / down: see below.
+    const bool jogNow = rotateNow != 0 && rotateNudgePrev != NUDGE_NEEDS_RELEASE;
+    if (jogNow) {
+        aimJogging = true;
+        aimJogSettling = false;
+    } else if (aimJogging) {
+        aimJogging = false;
+        aimJogSettling = true;
+        aimJogReleasedMs = millis();
+    }
+    if (aimJogSettling && millis() - aimJogReleasedMs >= AIM_JOG_SETTLE_MS) {
+        aimJogSettling = false;
+        if (Vision::isValid()) {
+            aimOffsetPx = clampAbs(-Vision::getTx(), AIM_OFFSET_MAX_PX);
+        }
     }
     // Up/down only adjust Auto's elevation once Auto owns it; until the
     // shot table is measured they stay the manual jog (applyOutputs).
@@ -546,6 +569,16 @@ int ManualControl::getFlywheelOffsetPct() {
 
 double ManualControl::getAimOffsetPx() {
     return aimOffsetPx;
+}
+
+bool ManualControl::isAimJogActive() {
+    return aimJogging || aimJogSettling;
+}
+
+double ManualControl::getAimJogCommand() {
+    if (!aimJogging) return 0.0; // the wait: stand still
+    const double jogSign = TuningConstants::Rotate::MANUAL_JOG_INVERTED ? -1.0 : 1.0;
+    return jogSign * rotateManualCommand * ManualControlConstants::ROTATE_MANUAL_SCALE;
 }
 
 double ManualControl::getElevationOffsetUs() {

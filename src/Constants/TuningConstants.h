@@ -172,18 +172,25 @@ constexpr unsigned long DISTANCE_LATCH_SETTLE_MS = 300;
 // also applies, so the real full-auto rate is whichever is longer.
 constexpr uint32_t COOLDOWN_MS = 300;
 
-// Operator fine-adjust in the auto modes (Jeremy, 2026-10-16): each arrow
-// press (wireless: each nudge from center) adds one step; a new target hole,
-// Enable and disarm clear both. PROVISIONAL step sizes -- tune on the field.
-//   left/right: the turret aims this many pixels right (+) / left (-) of
-//     the hole's center (vision-follow drives tx + offset to 0).
-//   up/down: added to the shot table's elevation pulse; only once the
-//     table is measured (ShotTable::ELEVATION_MEASURED), until then up/down
-//     stay the manual elevation jog.
-// 20 px (2026-10-18, was 5): 5 px x kP 0.01 = a ~25 us turret command,
-// inside the servo's deadband, so a press barely moved the turret.
-constexpr double AIM_OFFSET_STEP_PX = 20.0;
-constexpr double AIM_OFFSET_MAX_PX = 100.0;
+// Operator fine-adjust in the auto modes and test (Jeremy, 2026-10-16); a
+// new target hole, Enable and disarm clear both. PROVISIONAL -- tune on
+// the field.
+//   left/right (2026-10-30, Jeremy; was one 20 px step per press, max 100
+//     px, which the camera then pulled back from): held = the operator
+//     turns the turret by hand (the camera lets go, same jog as full
+//     manual); after release the turret stands still AIM_JOG_SETTLE_MS so
+//     the camera frames catch up, then where the hole is in the image
+//     becomes the aim offset: offset = -tx, so the camera holds the turret
+//     right there (vision-follow drives tx + offset to 0). Clamped to
+//     AIM_OFFSET_MAX_PX, below VisionConstants MAX_ABS_TX (400: frames
+//     further out are refused) so the hole stays usable. 300 px is about
+//     16 deg on the 1280 px, ~69 deg D435 image. No hole in view at the
+//     end of the wait: the old offset stays.
+//   up/down: one step per press, added to the shot table's elevation
+//     pulse; only once the table is measured (ShotTable::
+//     ELEVATION_MEASURED), until then up/down stay the manual elevation jog.
+constexpr unsigned long AIM_JOG_SETTLE_MS = 300;
+constexpr double AIM_OFFSET_MAX_PX = 300.0;
 constexpr double ELEVATION_OFFSET_STEP_US = 10.0;
 constexpr double ELEVATION_OFFSET_MAX_US = 200.0;
 
@@ -281,7 +288,7 @@ static_assert(Rotate::VISION_MAX_INTEGRAL_COMMAND >= 0.0 &&
               "Vision-follow integral limit must fit inside the command limit");
 static_assert(Rotate::VISION_kIZONE_PX >= 0.0 && Rotate::VISION_READY_TOLERANCE_PX > 0.0,
               "Vision-follow pixel windows must be non-negative");
-static_assert(Auto::AIM_OFFSET_STEP_PX > 0.0 && Auto::AIM_OFFSET_MAX_PX >= Auto::AIM_OFFSET_STEP_PX &&
+static_assert(Auto::AIM_OFFSET_MAX_PX > 0.0 && Auto::AIM_OFFSET_MAX_PX < 400.0 &&
               Auto::ELEVATION_OFFSET_STEP_US > 0.0 &&
               Auto::ELEVATION_OFFSET_MAX_US >= Auto::ELEVATION_OFFSET_STEP_US,
               "Fine-adjust steps must be positive and fit inside their limits");

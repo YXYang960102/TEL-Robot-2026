@@ -625,7 +625,9 @@ void testAimUplink() {
     hoststub::anglePulseUs = 1620;
     armWired();
     send("M"); step();                    // semi auto: arrows are fine-adjust
-    send("ROT,1"); step(); send("ROT,0"); step();
+    send("ROT,1"); step();
+    hoststub::visionTx = -80.0;           // let go with the hole 80 px left
+    send("ROT,0"); step();
     runWithHeartbeat(550);                // an aim frame every 500 ms (5 slots)
     a = lastAim();
     // The elevation servo's pulse when the frame went out (Auto slews it
@@ -634,7 +636,8 @@ void testAimUplink() {
     assert(abs(static_cast<int>(a.elevation_pulse_us) - hoststub::anglePulseUs) <=
            static_cast<int>(TuningConstants::Auto::ELEVATION_SLEW_US_PER_SECOND * 0.51) + 1);
     assert(a.selected_id == 10 && a.target_id == 10 && a.valid);
-    assert(a.aim_offset_px == static_cast<int8_t>(TuningConstants::Auto::AIM_OFFSET_STEP_PX));
+    assert(a.aim_offset_px == 20);        // +80 px in 4 px units (2026-10-30)
+    hoststub::visionTx = 0.0;
     // The status frames in between are untouched by it.
     assert(rec.statusFlags & RCMAP_STATUS_ARMED);
     assert(!rcmap_status_is_aim(rec.statusCode));
@@ -1011,11 +1014,17 @@ void testTestModeWired() {
     send("ANG,0"); step();
     send("ANGT,120"); step();
     assert(!saw("REJECTED_AUTO_MODE"));
-    // Left / right: aim-offset steps for the camera follow, not a jog.
+    // Left / right (2026-10-30): held = turn by hand, then the camera
+    // holds the new place as the aim offset.
     send("ROT,1"); step();
-    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
-    assert(nearly(rec.aimOffsetPx, AIM_OFFSET_STEP_PX) && rec.rotateMode == "vision");
+    assert(rec.rotateMode == "manual" && fabs(rec.rotateCommand) > 0.5);
+    hoststub::visionTx = -60.0;
     send("ROT,0"); step();
+    assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, 0.0));
+    runWithHeartbeat(TuningConstants::Auto::AIM_JOG_SETTLE_MS);
+    assert(nearly(ManualControl::getAimOffsetPx(), 60.0));
+    assert(nearly(rec.aimOffsetPx, 60.0) && rec.rotateMode == "vision");
+    hoststub::visionTx = 0.0;
     // F fires the tower right away, locked or not (no FIRE_NOT_READY).
     hoststub::shooterReady = false;
     Serial.output.clear();
@@ -1184,30 +1193,59 @@ void testFineAdjustWired() {
     send("ROT,1"); step();
     assert(nearly(ManualControl::getAimOffsetPx(), 0.0) && rec.rotateMode == "manual");
     send("ROT,0"); send("M"); step();                     // semi-auto
-    // One press = one step; holding (heartbeat resends) adds nothing.
+    hoststub::visionValid = true;
+    hoststub::visionTx = 0.0;
+    // 2026-10-30: held = the turret turns by hand (same jog as full
+    // manual), the camera lets go; heartbeat resends keep it going.
+    const double jog = (TuningConstants::Rotate::MANUAL_JOG_INVERTED ? -1.0 : 1.0) *
+                       ManualControlConstants::ROTATE_MANUAL_SCALE;
     send("ROT,1"); step();
+    assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, jog));
     send("ROT,1"); step();
-    send("ROT,1"); step();
-    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
-    assert(nearly(rec.aimOffsetPx, AIM_OFFSET_STEP_PX));  // Auto hands it to the turret
+    assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, jog));
+    assert(nearly(ManualControl::getAimOffsetPx(), 0.0));
+    // Released: stands still AIM_JOG_SETTLE_MS, then the hole's place in
+    // the image (tx = -120: 120 px left of center) becomes offset +120.
+    hoststub::visionTx = -120.0;
     send("ROT,0"); step();
+    assert(ManualControl::isAimJogActive() && rec.rotateMode == "manual" && nearly(rec.rotateCommand, 0.0));
+    runWithHeartbeat(AIM_JOG_SETTLE_MS - 20);
+    assert(ManualControl::isAimJogActive() && nearly(ManualControl::getAimOffsetPx(), 0.0));
+    runWithHeartbeat(20);
+    assert(!ManualControl::isAimJogActive());
+    assert(nearly(ManualControl::getAimOffsetPx(), 120.0));
+    assert(nearly(rec.aimOffsetPx, 120.0) && rec.rotateMode == "vision"); // Auto hands it to the turret
+    // The other way, straight from one side to the other, and clamped.
     send("ROT,1"); step();
-    assert(nearly(ManualControl::getAimOffsetPx(), 2 * AIM_OFFSET_STEP_PX));
-    send("ROT,-1"); step();                               // straight to the other side
-    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
-    // Clamped.
-    for (int i = 0; i < 100; i++) { send("ROT,0"); step(); send("ROT,1"); step(); }
-    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_MAX_PX));
-    // A new hole clears it, and a key still held then needs a release.
+    send("ROT,-1"); step();
+    assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, -jog));
+    hoststub::visionTx = 500.0;
+    send("ROT,0"); step(); runWithHeartbeat(AIM_JOG_SETTLE_MS);
+    assert(nearly(ManualControl::getAimOffsetPx(), -AIM_OFFSET_MAX_PX));
+    // No hole in view at the end of the wait: the old offset stays.
+    hoststub::visionValid = false;
+    send("ROT,1"); step(); send("ROT,0"); step(); runWithHeartbeat(AIM_JOG_SETTLE_MS);
+    assert(nearly(ManualControl::getAimOffsetPx(), -AIM_OFFSET_MAX_PX));
+    hoststub::visionValid = true;
+    hoststub::visionTx = -40.0;
+    send("ROT,1"); step(); send("ROT,0"); step(); runWithHeartbeat(AIM_JOG_SETTLE_MS);
+    assert(nearly(ManualControl::getAimOffsetPx(), 40.0));
+    // A new hole clears it (and stops a hand turn), and a key still held
+    // then needs a release.
+    send("ROT,1"); step();
     send("TGT,4"); step();
-    assert(nearly(ManualControl::getAimOffsetPx(), 0.0));
+    assert(nearly(ManualControl::getAimOffsetPx(), 0.0) && !ManualControl::isAimJogActive());
+    assert(rec.rotateMode == "vision");
     send("ROT,1"); step(); send("ROT,1"); step();
-    assert(nearly(ManualControl::getAimOffsetPx(), 0.0));
+    assert(rec.rotateMode == "vision");
     send("ROT,0"); step(); send("ROT,1"); step();
-    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
+    assert(rec.rotateMode == "manual");
+    send("ROT,0"); step(); runWithHeartbeat(AIM_JOG_SETTLE_MS);
+    assert(nearly(ManualControl::getAimOffsetPx(), 40.0));
     // The same hole again is not a change: kept.
     send("TGT,4"); step();
-    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
+    assert(nearly(ManualControl::getAimOffsetPx(), 40.0));
+    hoststub::visionTx = 0.0;
     // Up/down: Auto owns the elevation now (measured table), so each press
     // adds one elevation-offset step instead of jogging.
     static_assert(TuningConstants::ShotTable::ELEVATION_MEASURED,
@@ -1228,14 +1266,21 @@ void testFineAdjustWireless() {
     armWireless();
     wireless.mode_us = RCMAP_MODE_SEMI_AUTO_US;
     rcStep();
+    hoststub::visionValid = true;
     wireless.nudge = RCMAP_NUDGE_RIGHT;
     runWireless(200);                                     // held: every frame repeats it
-    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
-    wireless.nudge = RCMAP_NUDGE_CENTER; rcStep();
-    wireless.nudge = RCMAP_NUDGE_RIGHT; rcStep();
-    assert(nearly(ManualControl::getAimOffsetPx(), 2 * AIM_OFFSET_STEP_PX));
+    assert(rec.rotateMode == "manual" && fabs(rec.rotateCommand) > 0.5);
+    hoststub::visionTx = 90.0;
+    wireless.nudge = RCMAP_NUDGE_CENTER;
+    runWireless(AIM_JOG_SETTLE_MS + 20);
+    assert(nearly(ManualControl::getAimOffsetPx(), -90.0) && rec.rotateMode == "vision");
     wireless.nudge = RCMAP_NUDGE_LEFT; rcStep();
-    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
+    assert(rec.rotateMode == "manual");
+    hoststub::visionTx = 30.0;
+    wireless.nudge = RCMAP_NUDGE_CENTER;
+    runWireless(AIM_JOG_SETTLE_MS + 20);
+    assert(nearly(ManualControl::getAimOffsetPx(), -30.0));
+    hoststub::visionTx = 0.0;
     // Switching hole on CH3 clears it.
     wireless.nudge = RCMAP_NUDGE_CENTER;
     wireless.target = 2;

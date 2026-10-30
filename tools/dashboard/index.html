@@ -753,7 +753,7 @@
         </div>
         <div class="stream-controls">
           <button id="enableControl" disabled>Enable / 啟用輸出</button>
-          <span class="label">Xbox 手把：左蘑菇頭 前後・右蘑菇頭 轉向・十字鍵 ↑↓ 仰角 ←→ 水平（全手動按住移動；自動模式每按一下微調一格）・X 全自動・A 半自動・B 全手動・RB 發射・LB 轉台回正（待 AS5600）・Y 開始比賽｜鍵盤：1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・Q W E 選加分框左中右・0 回到 AI 自選・S 記錄射擊點・Enter 停用・Space 停用並斷線｜測試模式（模式選單）：水平由鏡頭鎖定（←→ 微調），仰角、轉速、發射跟全手動一樣</span>
+          <span class="label">Xbox 手把：左蘑菇頭 前後・右蘑菇頭 轉向・十字鍵 ↑↓ 仰角 ←→ 水平（全手動按住移動；自動／測試模式 ←→ 按住手動轉，放開 0.3 秒後鏡頭鎖住這個位置，↑↓ 每按一下微調一格）・X 全自動・A 半自動・B 全手動・RB 發射・LB 轉台回正（待 AS5600）・Y 開始比賽｜鍵盤：1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・Q W E 選加分框左中右・0 回到 AI 自選・S 記錄射擊點・Enter 停用・Space 停用並斷線｜測試模式（模式選單）：水平由鏡頭鎖定（←→ 按住手動轉、放開後鎖住新位置），仰角、轉速、發射跟全手動一樣</span>
         </div>
         <div class="stream-controls">
           <button id="startMatch" disabled>開始比賽 / Start（Y）</button>
@@ -1446,13 +1446,15 @@
     }
 
     // "$AIM,<fresh>,<distanceCm>,<elevationPulseUs>,<selectedId>,
-    // <targetId>,<valid>,<aimOffsetPx>" from the ground station: the robot's
+    // <targetId>,<valid>,<aimOffset>" from the ground station: the robot's
     // aim frame over the radio (2026-10-17). On the Mega's USB the TEL line
-    // carries all of this instead.
+    // carries all of this instead. The aim offset comes in 4 px units since
+    // 2026-10-30 (it now reaches 300 px; an int8 on the radio).
     function handleAimStatus(line) {
       const p = line.trim().split(",").map(Number);
       if (p.length < 8 || p.slice(1).some((v) => !Number.isFinite(v))) return;
-      const [, fresh, distanceCm, pulseUs, selectedId, targetId, valid, aimOffsetPx] = p;
+      const [, fresh, distanceCm, pulseUs, selectedId, targetId, valid, aimOffsetQuads] = p;
+      const aimOffsetPx = aimOffsetQuads * 4;
       if (!fresh) {
         el.distance.textContent = "--";
         el.boardDistance.textContent = "--";
