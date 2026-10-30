@@ -469,6 +469,30 @@ static void testTestMode() {
     assert(!onAir(st).test_mode);
 }
 
+// THOME (RB, 2026-10-31): CH9's home level for HOME_PULSE_MS, in normal
+// and in test mode; only while enabled; X ends it.
+static void testTurretHome() {
+    GroundCommandState st;
+    st.reset(0);
+    lines.clear();
+    send(st, "THOME", 1);
+    assert(saw("$GROUND_EVENT,REJECTED_NOT_ENABLED") && !onAir(st).turret_home);
+    send(st, "E", 2);
+    send(st, "THOME", 3);
+    rcmap_command d = onAir(st);
+    assert(d.turret_home && !d.test_mode);
+    st.tick(3 + GroundCommandState::HOME_PULSE_MS - 1, collect, nullptr);
+    assert(onAir(st).turret_home);
+    st.tick(3 + GroundCommandState::HOME_PULSE_MS, collect, nullptr);
+    assert(!onAir(st).turret_home);
+    send(st, "MODE,3", 300);
+    send(st, "THOME", 301);
+    d = onAir(st);
+    assert(d.turret_home && d.test_mode && rcmap_command_mode(&d) == RCMAP_MODE_TEST);
+    send(st, "X", 302);
+    assert(!onAir(st).turret_home);
+}
+
 static void testFlywheel() {
     GroundCommandState st;
     st.reset(0);
@@ -669,6 +693,7 @@ int main() {
     testModeKey();
     testFlywheel();
     testTestMode();
+    testTurretHome();
     testArmEdge();
     testVisionFrames();
     testSeenFrames();

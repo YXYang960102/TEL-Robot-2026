@@ -30,6 +30,7 @@ unsigned long ManualControl::lastValidWirelessMs = 0;
 bool ManualControl::wirelessArmPrev = true;
 bool ManualControl::wirelessFirePrev = true;
 uint8_t ManualControl::wirelessAutoPrev = RCMAP_AUTO_NONE;
+bool ManualControl::wirelessHomePrev = true;
 unsigned long ManualControl::lastVersionEventMs = 0;
 
 double ManualControl::tankLeftCommand = 0.0;
@@ -370,6 +371,7 @@ void ManualControl::resetWirelessTracking() {
     wirelessArmPrev = true;
     wirelessFirePrev = true;
     wirelessAutoPrev = 0xFF; // "unknown": needs a NONE first
+    wirelessHomePrev = true;
 }
 
 void ManualControl::processWirelessFrame() {
@@ -417,6 +419,8 @@ void ManualControl::processWirelessFrame() {
     wirelessFirePrev = c.fire;
     const bool autoEdge = c.auto_path != RCMAP_AUTO_NONE && wirelessAutoPrev == RCMAP_AUTO_NONE;
     wirelessAutoPrev = c.auto_path;
+    const bool homeEdge = c.turret_home && !wirelessHomePrev;
+    wirelessHomePrev = c.turret_home;
 
     if (owner == Owner::WIRELESS) {
         // Arcade -> tank with the same polarity as the Dashboard: turn +1
@@ -435,7 +439,8 @@ void ManualControl::processWirelessFrame() {
         selectTarget(c.target);
         if (fireEdge) handleFire();
         if (autoEdge) requestAutoPath(c.auto_path);
-    } else if (fireEdge || autoEdge) {
+        if (homeEdge) Shooter::requestTurretReturn(); // RB (CH9): back to 0 deg
+    } else if (fireEdge || autoEdge || homeEdge) {
         sendEvent(owner == Owner::NONE ? RCMAP_EVENT_REJECTED_DISARMED
                                        : RCMAP_EVENT_REJECTED_NOT_OWNER);
     }

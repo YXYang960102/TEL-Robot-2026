@@ -43,20 +43,20 @@ constexpr bool INVERTED = true;
 // still read and shown, and the home point can still be set.
 constexpr bool GUARD_ENABLED = false;
 
-// ---- Absolute position (2026-10-31, Jeremy; AS5600 only, no switch, no
+// ---- Home point, by hand (2026-10-31, Jeremy; AS5600 only, no switch, no
 // end stop to push against: past the limits below the mechanism breaks).
-// 0 deg = the home point, set once with the Dashboard's 「設為歸位點」
-// (wired TZERO, disarmed). Saved to EEPROM whenever the turret has moved
-// SAVE_STEP_DEG, or stood still SAVE_STILL_MS after a move of at least
-// SAVE_MIN_CHANGE_DEG. At boot the saved angle + the AS5600's change since
-// gives the angle back, if the turret was not turned more than ~36 deg by
-// hand while off. A restored angle further than RESTORE_MARGIN_DEG outside
-// the limits is not trusted (the turret stays locked until set again).
-constexpr double SAVE_STEP_DEG = 10.0;
-constexpr unsigned long SAVE_STILL_MS = 500;
-constexpr double SAVE_STILL_DEG = 0.3;      // "still": moved less than this
-constexpr double SAVE_MIN_CHANGE_DEG = 0.2;
-constexpr double RESTORE_MARGIN_DEG = 10.0;
+// The home point's raw reading is saved once in EEPROM with the
+// Dashboard's 「設為歸位點」 (wired TZERO, disarmed). Before power-up the
+// turret is turned by hand back to within HOME_WINDOW_DEG of its home mark
+// (after a match, after work on the robot); at boot
+//   angle = fold(raw - home raw) / 56.11   (one magnet turn = 73 deg)
+// is the turret's real angle, and the first Enable turns it back to 0.
+// Outside the window the turret stays locked (turn it back, reboot).
+// NOT caught: a turret left a whole magnet turn away (about 73 or 146
+// deg) reads like one near home -- turn it back to the mark every time.
+constexpr double HOME_WINDOW_DEG = 20.0;
+static_assert(HOME_WINDOW_DEG > 0.0 && HOME_WINDOW_DEG < 36.0,
+              "the window must lie within half a magnet turn (36.5 deg)");
 
 // Soft limits (Jeremy 2026-10-31, from the home point; the turret turns
 // further but breaks things there). Measured: right -36.0 / left +136.0

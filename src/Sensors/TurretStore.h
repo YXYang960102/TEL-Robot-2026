@@ -2,13 +2,12 @@
 
 #include <stdint.h>
 
-// The turret's last known position, kept in the Mega's EEPROM (2026-10-31,
-// Jeremy). The AS5600 only knows the angle within one magnet turn (73 deg
-// of turret), so the absolute turret angle is remembered instead:
-//   saved:  counts (all turns, raw-sensor direction) + the raw reading then
-//   boot:   counts = saved.counts + fold(raw now - saved.raw)
-// which is right as long as the turret moved less than half a magnet turn
-// (+-36.5 deg of turret) while the power was off.
+// The turret's home point, kept in the Mega's EEPROM (2026-10-31, Jeremy):
+// the AS5600 raw reading at the home point (counts 0), written once by
+// 設為歸位點. At boot the turret has been turned back near home by hand
+// and its angle is fold(raw now - saved.raw) (TurretAngle.cpp).
+// MAGIC 0xA8 since the hand-home change: records of the earlier
+// "position saved on the move" scheme (0xA7) are ignored.
 //
 // One record = 12 bytes:
 //   [0] MAGIC  [1..4] seq  [5..8] counts  [9..10] raw  [11] CRC-8 of [0..10]
@@ -18,7 +17,7 @@
 // No Arduino code here, so the encoding can be checked on a PC.
 namespace TurretStore {
 
-constexpr uint8_t MAGIC = 0xA7;
+constexpr uint8_t MAGIC = 0xA8;
 constexpr uint8_t RECORD_BYTES = 12;
 constexpr uint8_t SLOTS = 32;
 constexpr int BASE_ADDRESS = 0; // EEPROM 0..383; nothing else uses it

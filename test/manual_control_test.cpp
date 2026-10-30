@@ -1311,6 +1311,22 @@ void testTurretHomeCommands() {
     hoststub::turretState = 5;                            // AT_RIGHT
     runWithHeartbeat(550);
     assert(lastAim().turret_state == 5);
+
+    // RB over the radio (CH9 home level, 2026-10-31): one return per rising
+    // edge, only for the wireless owner.
+    reset();
+    armWireless();
+    wireless.turret_home = true; rcStep(); rcStep(); rcStep();
+    assert(rec.turretReturns == 1);
+    wireless.turret_home = false; rcStep();
+    wireless.turret_home = true; rcStep();
+    assert(rec.turretReturns == 2);
+    wireless.turret_home = false; rcStep();
+    send("X"); step();                                    // disarmed: refused
+    Serial.output.clear();
+    wireless.armed = false; rcStep();
+    wireless.turret_home = true; rcStep();
+    assert(rec.turretReturns == 2 && saw("REJECTED_DISARMED"));
 }
 
 // Dashboard menus (2026-10-16): MODE,<n> sets the mode directly, and every

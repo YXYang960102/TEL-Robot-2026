@@ -12,9 +12,11 @@
 //   counts += delta
 //   degrees = counts / 56.11   (sign: TurretAngleConstants::INVERTED)
 // Absolute (2026-10-31): counts are relative to the home point set with
-// setZeroHere(), saved to EEPROM (TurretStore.h) and restored at boot as
-// saved counts + fold(raw now - saved raw). No saved record, a restored
-// angle far outside the limits, or a read outage (LOST) = not absolute.
+// setZeroHere() (its raw saved to EEPROM, TurretStore.h). At boot the
+// turret has been turned back near home by hand: counts = fold(raw now -
+// home raw), absolute only within HOME_WINDOW_DEG. No home saved, a boot
+// outside the window (OUTSIDE_HOME), or a read outage (LOST) = not
+// absolute.
 class TurretAngle {
 public:
     // Status bits (TEL slot 43).
@@ -25,6 +27,7 @@ public:
     static constexpr uint8_t LOST = 0x10;         // turns no longer trusted
     static constexpr uint8_t NEVER_READ = 0x20;   // nothing since boot
     static constexpr uint8_t ABSOLUTE = 0x40;     // counts are from the home point
+    static constexpr uint8_t OUTSIDE_HOME = 0x80; // booted outside HOME_WINDOW_DEG
 
     static void init();
     static void update();
@@ -60,7 +63,7 @@ public:
 private:
     static bool readSensor(uint8_t& statusReg, uint16_t& rawAngle);
     static void readStrength(unsigned long now);
-    static void restoreFromStore(uint16_t rawAngle);
-    static void saveIfDue(unsigned long now);
+    static void bootFromHome(uint16_t rawAngle);
+    static void saveHomeIfDue();
     static void writeStoreStep();
 };

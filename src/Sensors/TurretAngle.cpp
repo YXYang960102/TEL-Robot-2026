@@ -29,17 +29,12 @@ unsigned long lastStrengthMs = 0;
 TurretStore::Record stored = {0, 0, 0};
 bool haveStored = false;
 uint8_t nextSlot = 0;
-long savedCounts = 0;
 uint8_t writeBytes[TurretStore::RECORD_BYTES];
 uint8_t writeIndex = TurretStore::RECORD_BYTES; // == RECORD_BYTES: idle
 int writeAddress = 0;
 bool saveForced = false;
-long stillRefCounts = 0;
-unsigned long stillSinceMs = 0;
-
-long degreesToCounts(double deg) {
-    return lround(deg * COUNTS_PER_TURRET_DEG);
-}
+uint16_t homeRawToSave = 0;
+bool outsideHome = false;
 
 double countsToDegrees(long counts) {
     const double deg = counts / COUNTS_PER_TURRET_DEG;
@@ -79,21 +74,21 @@ bool TurretAngle::readSensor(uint8_t& statusReg, uint16_t& rawAngle) {
     return true;
 }
 
-// First reading: the saved position plus how far the magnet turned since
-// (folded: right only if that was less than half a magnet turn).
-// Example: saved +20.0 deg (counts -1122 with INVERTED), raw 1500; now raw
-// 1781 -> fold +281 -> counts -841 -> +15.0 deg.
-void TurretAngle::restoreFromStore(uint16_t rawAngle) {
+// First reading: the turret was turned back near home by hand, so its
+// angle is how far the magnet is from the home raw, folded into half a
+// magnet turn either way. Example: home raw 3918, boot raw 522 -> fold
+// 522 - 3918 = -3396 -> +700 counts -> -700 / 56.11 = -12.5 deg (INVERTED)
+// -> within 20 deg: absolute, the first Enable turns it 12.5 deg right.
+void TurretAngle::bootFromHome(uint16_t rawAngle) {
     if (!haveStored) {
-        accumulated = 0; // relative to boot: limits can't be trusted
+        accumulated = 0; // no home point yet: limits can't be trusted
         absolute = false;
+        outsideHome = false;
         return;
     }
-    accumulated = stored.counts + foldDelta(rawAngle, stored.raw);
-    const double deg = countsToDegrees(accumulated);
-    absolute = deg >= LIMIT_LEFT_DEG - RESTORE_MARGIN_DEG && deg <= LIMIT_RIGHT_DEG + RESTORE_MARGIN_DEG;
-    savedCounts = accumulated;
-    stillRefCounts = accumulated;
+    accumulated = foldDelta(rawAngle, stored.raw);
+    absolute = fabs(countsToDegrees(accumulated)) <= HOME_WINDOW_DEG;
+    outsideHome = !absolute;
 }
 
 void TurretAngle::update() {
@@ -113,16 +108,15 @@ void TurretAngle::update() {
         statusBits = static_cast<uint8_t>(statusBits & ~READ_OK);
         if (haveReading && now - lastGoodMs > LOST_AFTER_MS) {
             lost = true;
-            absolute = false; // turns unknown: never saved from here on
+            absolute = false; // turns unknown
         }
         if (lost) statusBits |= LOST;
         return;
     }
 
     if (!haveReading) {
-        restoreFromStore(rawAngle);
+        bootFromHome(rawAngle);
         haveReading = true;
-        stillSinceMs = now;
     } else {
         if (now - lastGoodMs > LOST_AFTER_MS) {
             lost = true; // too long without a read to know the turns
@@ -139,37 +133,27 @@ void TurretAngle::update() {
     if (statusReg & 0x08) statusBits |= TOO_STRONG;
     if (lost) statusBits |= LOST;
     if (absolute) statusBits |= ABSOLUTE;
+    if (outsideHome) statusBits |= OUTSIDE_HOME;
 
-    saveIfDue(now);
+    saveHomeIfDue();
 }
 
-// Save when moved SAVE_STEP_DEG, or still for SAVE_STILL_MS after a small
-// change; only an absolute, healthy position.
-void TurretAngle::saveIfDue(unsigned long now) {
-    if (labs(accumulated - stillRefCounts) > degreesToCounts(SAVE_STILL_DEG)) {
-        stillRefCounts = accumulated;
-        stillSinceMs = now;
-    }
-    if (!absolute || !isHealthy() || writeIndex < TurretStore::RECORD_BYTES) {
-        return;
-    }
-    const long change = labs(accumulated - savedCounts);
-    const bool due = saveForced || change >= degreesToCounts(SAVE_STEP_DEG) ||
-                     (now - stillSinceMs >= SAVE_STILL_MS && change >= degreesToCounts(SAVE_MIN_CHANGE_DEG));
-    if (!due) {
+// The home point goes to EEPROM once, after 設為歸位點, as soon as the
+// reading is healthy and the writer idle (the raw taken at the press).
+void TurretAngle::saveHomeIfDue() {
+    if (!saveForced || !isHealthy() || writeIndex < TurretStore::RECORD_BYTES) {
         return;
     }
     TurretStore::Record r;
     r.seq = haveStored ? stored.seq + 1 : 1;
-    r.counts = static_cast<int32_t>(accumulated);
-    r.raw = lastRaw;
+    r.counts = 0;
+    r.raw = homeRawToSave;
     TurretStore::encode(r, writeBytes);
     writeAddress = TurretStore::slotAddress(nextSlot);
     writeIndex = 0;
     nextSlot = static_cast<uint8_t>((nextSlot + 1) % TurretStore::SLOTS);
     stored = r;
     haveStored = true;
-    savedCounts = accumulated;
     saveForced = false;
 }
 
@@ -189,7 +173,9 @@ bool TurretAngle::setZeroHere() {
     accumulated = 0;
     lost = false;
     absolute = true;
-    statusBits = static_cast<uint8_t>((statusBits & ~LOST) | ABSOLUTE);
+    outsideHome = false;
+    statusBits = static_cast<uint8_t>((statusBits & ~(LOST | OUTSIDE_HOME)) | ABSOLUTE);
+    homeRawToSave = lastRaw;
     saveForced = true; // goes out as soon as the EEPROM writer is idle
     return true;
 }

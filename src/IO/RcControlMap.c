@@ -102,7 +102,11 @@ void rcmap_encode(const rcmap_command *c, int ch_us[16]) {
     ch_us[RCMAP_CH_NUDGE] = RCMAP_LEVEL_BASE_US + (int)nudge * RCMAP_LEVEL_STEP_US;
     const uint8_t path = c->auto_path <= RCMAP_AUTO_PATHS ? c->auto_path : RCMAP_AUTO_NONE;
     ch_us[RCMAP_CH_AUTO] = RCMAP_LEVEL_BASE_US + (int)path * RCMAP_LEVEL_STEP_US;
-    ch_us[RCMAP_CH_TEST] = rcmap_command_mode(c) == RCMAP_MODE_TEST ? 2000 : 1500;
+    {
+        const bool test = rcmap_command_mode(c) == RCMAP_MODE_TEST;
+        const int level = test ? (c->turret_home ? 5 : 4) : (c->turret_home ? 1 : 2);
+        ch_us[RCMAP_CH_TEST] = RCMAP_LEVEL_BASE_US + level * RCMAP_LEVEL_STEP_US;
+    }
     ch_us[RCMAP_CH_VERSION] = RCMAP_LEVEL_BASE_US + (int)RCMAP_LINK_VERSION * RCMAP_LEVEL_STEP_US;
 }
 
@@ -120,7 +124,7 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     for (uint8_t i = 0; i < RCMAP_CHANNEL_COUNT; i++) {
         if (ch_us[i] < RCMAP_MIN_VALID_US || ch_us[i] > RCMAP_MAX_VALID_US) return false;
     }
-    uint8_t target, nudge, path;
+    uint8_t target, nudge, path, test_level;
     int mode_us;
     float flywheel;
     int8_t offset_pct;
@@ -130,7 +134,9 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
         !us_to_level(ch_us[RCMAP_CH_NUDGE], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
                      RCMAP_LEVEL_TOLERANCE_US, RCMAP_FIVE_LEVELS, &nudge) ||
         !us_to_level(ch_us[RCMAP_CH_AUTO], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
-                     RCMAP_LEVEL_TOLERANCE_US, RCMAP_FIVE_LEVELS, &path)) {
+                     RCMAP_LEVEL_TOLERANCE_US, RCMAP_FIVE_LEVELS, &path) ||
+        !us_to_level(ch_us[RCMAP_CH_TEST], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
+                     RCMAP_LEVEL_TOLERANCE_US, 6u, &test_level)) {
         return false;
     }
     out->forward = us_to_axis(ch_us[RCMAP_CH_FORWARD]);
@@ -145,8 +151,12 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     out->auto_path = path;
     /* Fail-safe like fire / arm: only a clear high counts, and only with
        CH4 in full manual (any other level is that mode, whatever CH9 says). */
-    out->test_mode = ch_us[RCMAP_CH_TEST] >= RCMAP_SWITCH_ON_US &&
+    /* CH9 (a level, like CH7 / CH8: between levels = corrupt frame): TEST
+       only with CH4 in full manual (any other level is that mode, whatever
+       CH9 says); turret home on levels 1 and 5. */
+    out->test_mode = (test_level == 4u || test_level == 5u) &&
                      rcmap_mode_from_us(mode_us) == RCMAP_MODE_FULL_MANUAL;
+    out->turret_home = test_level == 1u || test_level == 5u;
     return true;
 }
 

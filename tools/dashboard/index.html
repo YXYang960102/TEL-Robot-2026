@@ -753,7 +753,7 @@
         </div>
         <div class="stream-controls">
           <button id="enableControl" disabled>Enable / 啟用輸出</button>
-          <span class="label">Xbox 手把：左蘑菇頭 前後・右蘑菇頭 轉向・十字鍵 ↑↓ 仰角 ←→ 水平（全手動按住移動；自動／測試模式 ←→ 按住手動轉，放開 0.3 秒後鏡頭鎖住這個位置，↑↓ 每按一下微調一格）・X 全自動・A 半自動・B 全手動・LB 發射・RB 轉台回 0°（有線）・Y 開始比賽｜鍵盤：1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・Q W E 選加分框左中右・0 回到 AI 自選・S 記錄射擊點・Enter 停用・Space 停用並斷線｜測試模式（模式選單）：水平由鏡頭鎖定（←→ 按住手動轉、放開後鎖住新位置），仰角、轉速、發射跟全手動一樣</span>
+          <span class="label">Xbox 手把：左蘑菇頭 前後・右蘑菇頭 轉向・十字鍵 ↑↓ 仰角 ←→ 水平（全手動按住移動；自動／測試模式 ←→ 按住手動轉，放開 0.3 秒後鏡頭鎖住這個位置，↑↓ 每按一下微調一格）・X 全自動・A 半自動・B 全手動・LB 發射・RB 轉台回 0°・Y 開始比賽｜鍵盤：1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・Q W E 選加分框左中右・0 回到 AI 自選・S 記錄射擊點・Enter 停用・Space 停用並斷線｜測試模式（模式選單）：水平由鏡頭鎖定（←→ 按住手動轉、放開後鎖住新位置），仰角、轉速、發射跟全手動一樣</span>
         </div>
         <div class="stream-controls">
           <button id="startMatch" disabled>開始比賽 / Start（Y）</button>
@@ -2011,6 +2011,8 @@
     }
     function renderTurret(data) {
       if (!Number.isFinite(data.turretStatus)) return;
+      // Only the USB status has bit 0x80 (the radio carries 6 bits).
+      turretStatusShown = Number.isFinite(data.turretRaw) ? data.turretStatus : NaN;
       const deg = data.turretDeg10 / 10;
       el.boardTurret.textContent = turretAngleTrusted(data.turretStatus)
         ? `${deg > 0 ? "+" : ""}${deg.toFixed(1)}°` : "--";
@@ -2053,7 +2055,7 @@
     // absolute angle from EEPROM, soft limits, back to 0 on the first
     // Enable. The limits shown are TurretAngleConstants::LIMIT_*_DEG.
     const TURRET_STATE_TEXT = {
-      0: "位置未知：轉台鎖住。把轉台擺到歸位點，Disable 時按「設為歸位點」",
+      0: "位置未知：轉台鎖住（沒有歸位點，或開機時不在歸位點 ±20° 內）",
       1: "AS5600 異常：轉台鎖住",
       2: "方向錯誤：轉台鎖住（INVERTED / RIGHT_COMMAND_SIGN 不對，改好後重開機）",
       3: "回正中（轉回 0°）",
@@ -2062,11 +2064,21 @@
       6: "到左限位 −136°（只能往右）",
       7: "轉台保護關閉：沒有軟限位，手動操作注意 +36° / −136°",
     };
+    // On USB the AS5600 status says which "unknown" it is (bit 0x80:
+    // booted outside the home window; TurretAngle.h).
+    const TURRET_UNKNOWN_TEXT = {
+      noHome: "沒有歸位點：轉台鎖住。轉到歸位記號，Disable 時按「設為歸位點」",
+      outside: "開機時不在歸位點 ±20° 內：轉台鎖住。Disable，用手轉回歸位記號附近，再重開機",
+    };
     let turretStateShown = NaN;
+    let turretStatusShown = NaN;
     function renderTurretGuard(state) {
       turretStateShown = state;
-      el.boardTurretGuard.textContent = Number.isFinite(state)
-        ? (TURRET_STATE_TEXT[state] ?? `狀態 ${state}`) : "--";
+      let text = Number.isFinite(state) ? (TURRET_STATE_TEXT[state] ?? `狀態 ${state}`) : "--";
+      if (state === 0 && Number.isFinite(turretStatusShown)) {
+        text = turretStatusShown & 0x80 ? TURRET_UNKNOWN_TEXT.outside : TURRET_UNKNOWN_TEXT.noHome;
+      }
+      el.boardTurretGuard.textContent = text;
     }
 
     // 「設為歸位點」: wired, disarmed, the turret by hand at its home point.
@@ -2611,11 +2623,9 @@
         return;
       }
       if (edge(profile.startButton)) await startMatch();
-      if (edge(profile.homeButton)) {
-        // RB: turret back to 0 deg (wired only: no radio channel for it).
-        if (linkKind === "robot") await sendControl("THOME");
-        else appendControlLog("RB 轉台回 0° 只支援有線；無線時開機後第一次 Enable 會自動回正");
-      }
+      // RB: turret back to 0 deg -- THOME to the Mega (USB) or to the
+      // ground station, which sends it on CH9 (2026-10-31).
+      if (edge(profile.homeButton)) await sendControl("THOME");
       if (!matchStarted) return; // the robot holds still until Y
 
       let drive = gamepadTank(pad);

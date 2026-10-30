@@ -28,7 +28,8 @@ static void test_round_trip(void) {
     assert(ch[RCMAP_CH_TARGET] == 1560 && ch[RCMAP_CH_MODE] == 1750); /* 1000 + 80*7 */
     assert(ch[RCMAP_CH_FIRE] == 2000 && ch[RCMAP_CH_ARM] == 2000);
     assert(ch[RCMAP_CH_NUDGE] == 1600 && ch[RCMAP_CH_AUTO] == 1600);
-    assert(ch[8] == 1500 && ch[RCMAP_CH_VERSION] == 1200 && ch[15] == 1500); /* CH10 = link version 1 */
+    /* CH9 level 2 = normal; CH10 = link version 4 (2026-10-31). */
+    assert(ch[8] == 1400 && ch[RCMAP_CH_VERSION] == 1800 && ch[15] == 1500);
     rcmap_command d;
     assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
     assert(near(d.forward, 1.0f) && near(d.turn, -0.5f));
@@ -63,17 +64,17 @@ static void test_elrs_hybrid_values(void) {
     const int six[6] = {988, 1193, 1398, 1602, 1807, 2012};
     rcmap_command d;
     for (uint8_t k = 0; k < 5; k++) {
-        int ch[16] = {1500, 1500, 1401, 2000, 988, 2012, six[k], six[4 - k], 1500, six[1]};
+        int ch[16] = {1500, 1500, 1401, 2000, 988, 2012, six[k], six[4 - k], six[2], six[4]};
         assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
         assert(d.nudge == k && d.auto_path == 4 - k && d.armed && !d.fire);
         assert(d.target == RCMAP_TARGET_NONE + 5); /* 1401 -> hole 5 (1000 + 80*5) */
     }
-    int ch[16] = {1500, 1500, 1000, 2000, 2012, 988, 988, 988, 1500, 1193};
+    int ch[16] = {1500, 1500, 1000, 2000, 2012, 988, 988, 988, 1398, 1807};
     assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.fire && !d.armed);
 }
 
 static void test_invalid_frames(void) {
-    int ok[16] = {1500, 1500, 1000, 2000, 1000, 1000, 1000, 1000, 1500, 1200};
+    int ok[16] = {1500, 1500, 1000, 2000, 1000, 1000, 1000, 1000, 1400, 1800};
     rcmap_command d = base();
     assert(rcmap_decode(ok, RCMAP_CHANNEL_COUNT, &d));
     int ch[16];
@@ -382,7 +383,7 @@ static void test_test_mode(void) {
     assert(rcmap_command_mode(&c) == RCMAP_MODE_TEST);
     int ch[16];
     rcmap_encode(&c, ch);
-    assert(ch[RCMAP_CH_TEST] == 2000);
+    assert(ch[RCMAP_CH_TEST] == 1800);  /* level 4 (2026-10-31; was 2000) */
     assert(ch[RCMAP_CH_MODE] == RCMAP_FLYWHEEL_BASE_US + 138); /* 46% = 138 us */
     rcmap_command d;
     assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
@@ -392,12 +393,16 @@ static void test_test_mode(void) {
     ch[RCMAP_CH_MODE] = RCMAP_MODE_FULL_MANUAL_US;
     assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && rcmap_command_mode(&d) == RCMAP_MODE_TEST);
     assert(near(d.flywheel, 0.0f));
-    /* An older ground's 1500, or anything below the switch threshold: no. */
-    for (int us = 988; us <= 1602; us += 307) {
-        ch[RCMAP_CH_TEST] = us;
+    /* Levels 0-3 (ELRS 988 / 1193 / 1398 / 1602): not TEST. */
+    for (int k = 0; k < 4; k++) {
+        const int six[4] = {988, 1193, 1398, 1602};
+        ch[RCMAP_CH_TEST] = six[k];
         assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && !d.test_mode);
         assert(rcmap_command_mode(&d) == RCMAP_MODE_FULL_MANUAL);
     }
+    /* Between levels: the whole frame is corrupt (like CH7 / CH8). */
+    ch[RCMAP_CH_TEST] = 1500;
+    assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
     /* CH4 at an auto level wins over a lagging CH9 high. */
     ch[RCMAP_CH_TEST] = 2012;
     ch[RCMAP_CH_MODE] = RCMAP_MODE_SEMI_AUTO_US;
@@ -406,7 +411,23 @@ static void test_test_mode(void) {
     /* Encode never sends the flag with an auto level. */
     c.mode_us = RCMAP_MODE_FULL_AUTO_US;
     rcmap_encode(&c, ch);
-    assert(ch[RCMAP_CH_TEST] == 1500 && rcmap_command_mode(&c) == RCMAP_MODE_FULL_AUTO);
+    assert(ch[RCMAP_CH_TEST] == 1400 && rcmap_command_mode(&c) == RCMAP_MODE_FULL_AUTO);
+    /* Turret home (RB, 2026-10-31): level 1 normal, 5 in TEST. */
+    c.turret_home = true;
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_TEST] == 1200 && rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    assert(d.turret_home && !d.test_mode && rcmap_command_mode(&d) == RCMAP_MODE_FULL_AUTO);
+    c.mode_us = RCMAP_MODE_FULL_MANUAL_US;
+    c.test_mode = true;
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_TEST] == 2000 && rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    assert(d.turret_home && d.test_mode && rcmap_command_mode(&d) == RCMAP_MODE_TEST);
+    ch[RCMAP_CH_TEST] = 1193;                                  /* ELRS level 1 */
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.turret_home && !d.test_mode);
+    c.turret_home = false;
+    rcmap_encode(&c, ch);
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && !d.turret_home && d.test_mode);
+    c.test_mode = false;
     /* Status: mode + 1 = 4 would be the vision marker, so TEST goes as
      * full manual in the code + the TEST flag. */
     const uint16_t code = rcmap_status_code(RCMAP_EVENT_MODE_TEST, RCMAP_MODE_TEST);
@@ -497,12 +518,13 @@ static void test_link_version(void) {
     rcmap_encode(&c, ch);
     assert(ch[RCMAP_CH_VERSION] == 1000 + 200 * RCMAP_LINK_VERSION);
     assert(rcmap_link_version_ok(ch, RCMAP_CHANNEL_COUNT) && rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
-    /* What ELRS's 6-position AUX actually delivers for level 1. */
-    ch[RCMAP_CH_VERSION] = 1193;
+    /* What ELRS's 6-position AUX actually delivers for level 4. */
+    ch[RCMAP_CH_VERSION] = 1807;
     assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.target == 5);
-    /* An older ground's 1500 arrives snapped to 1398 or 1602; any other
-     * level, or no CH10 at all, is rejected too. */
-    const int others[] = {1500, 1398, 1602, 988, 1807, 2012, 1300};
+    /* A pre-10-27 ground's 1500 arrives snapped to 1398 or 1602 (hence no
+     * versions 2 / 3); version 1 (1193 / 1200), any other level, or no
+     * CH10 at all, is rejected too. */
+    const int others[] = {1500, 1398, 1602, 988, 1193, 1200, 2012, 1300};
     for (unsigned i = 0; i < sizeof others / sizeof others[0]; i++) {
         ch[RCMAP_CH_VERSION] = others[i];
         assert(!rcmap_link_version_ok(ch, RCMAP_CHANNEL_COUNT));

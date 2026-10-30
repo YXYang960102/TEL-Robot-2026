@@ -24,6 +24,8 @@
 //   FLYO,<n>    -> the autos' flywheel offset -20..20 %, on CH4 with the
 //                  auto level (same resets; dropped in full manual)
 //   AUTO,<n>    -> auto path (CH8) for AUTO_PULSE_MS, then none
+//   THOME       -> turret back to 0 deg (RB, 2026-10-31): CH9's home
+//                  level for HOME_PULSE_MS, then off
 //
 // No Arduino here, so it runs unchanged in the host test.
 using GroundEmitFn = void (*)(void* ctx, const char* line);
@@ -52,6 +54,7 @@ public:
     // sure it is seen (CH5 is in every packet; CH8 is round-robin).
     static constexpr uint32_t FIRE_PULSE_MS = 100;
     static constexpr uint32_t AUTO_PULSE_MS = 200;
+    static constexpr uint32_t HOME_PULSE_MS = 200;
 
     void reset(uint32_t nowMs);
     void rxByte(char c, uint32_t nowMs, GroundEmitFn emit, void* ctx);
@@ -85,6 +88,7 @@ private:
     int8_t angle = 0;
     uint32_t fireStartMs = 0;
     uint32_t autoStartMs = 0;
+    uint32_t homeStartMs = 0;
     char line[MAX_LINE_LENGTH]{};
     size_t length = 0;
     bool discarding = false;

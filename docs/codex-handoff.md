@@ -6103,3 +6103,72 @@ PASS; pio production + 3 wired benches (RAM 48.8 %). No hardware.
 line shows 轉台保護關閉; after Enable + Y the D-pad jogs the turret.
 Re-enable later: fix the magnet → 設為歸位點 → `GUARD_ENABLED` true →
 confirm `RIGHT_COMMAND_SIGN`.
+
+## 2026-10-31 — Claude Code: turret home by hand (boot window ±20°) + RB over the radio (CH9, link version 4)
+
+**User Request:**
+- EEPROM alone can't work: after a match the turret is moved during
+  repairs, so the saved position goes stale.
+- New procedure:
+  - before power-up the turret is turned by hand to within about ±20° of
+    home;
+  - at boot the absolute angle is read and the turret returns to 0;
+  - during Enable, a button (RB) brings it back to 0 from anywhere.
+- RB must work wired and wireless.
+
+**Changed:**
+- `TurretAngle`:
+  - the EEPROM holds only the home point's raw, written once by
+    設為歸位點. `TurretStore::MAGIC` is 0xA8, so old 0xA7 position records
+    are ignored.
+  - At boot: `counts = fold(raw − home raw)`. Absolute only if |angle| ≤
+    `HOME_WINDOW_DEG` (20); else status bit `OUTSIDE_HOME` (0x80), angle
+    unknown → locked.
+  - No more saving while the turret moves.
+- CH9 has six levels: k = 2 normal, 1 normal + home, 4 TEST, 5 TEST +
+  home; 0 / 3 read as normal; between levels = corrupt frame.
+  `rcmap_command::turret_home`.
+- `RCMAP_LINK_VERSION` 1 → **4** (CH10 1800 / ELRS 1807). Versions 2 and 3
+  are skipped: a pre-10-27 ground's 1500 arrives snapped to 1398 / 1602.
+- Mega: a rising `turret_home` (wireless owner) → `Shooter::requestTurretReturn()`.
+- Ground: `THOME` → CH9 home level for `HOME_PULSE_MS` 200.
+- Dashboard: RB always sends `THOME` (USB or ground). Unknown-state text:
+  沒有歸位點 / 開機時不在歸位點 ±20° 內 (USB, bit 0x80), or a combined
+  text over the radio.
+
+**Calculation:**
+- Example: home raw 3918, boot raw 522 → fold −3396 → +700 counts →
+  −700 / 56.11 = −12.48° → accepted. The first Enable turns it 12.5°
+  right.
+- PC check of the decode (home 3918):
+  - at 0 / ±12.5 / ±19.5 the reading is the angle itself → accepted;
+  - at 25 / −30 / 35 / −45 (−45 reads +28) → locked;
+  - **at −60 / −73 / −89 / −146 the readings alias to +13 / 0 / −16 / 0 →
+    wrongly accepted.** One magnet turn is 73° of turret; the procedure
+    must bring it back to the mark.
+
+**Impact:**
+- Flash the Mega **and** the ground together: CH9 / CH10 changed, and
+  mismatched pairs refuse with `LINK_VERSION_MISMATCH`.
+- Bridge `.bin` rebuilt and unchanged (5f05e944…). Orin unaffected.
+- `GUARD_ENABLED` stays false: no limits, no lock, no return yet. RB /
+  CH9 is plumbed but does nothing until the guard is on.
+- The home point must be set again: old records are ignored.
+
+**Evidence:**
+- Host suite all PASS: codec (CH9 levels, home in normal / TEST, ELRS
+  1193, version 4 vs 1500 / 1398 / 1602 / 1193 / 1200), manual_control
+  (wireless home edge, disarmed refusal), ground (THOME pulse, test mode,
+  X), Dashboard (RB → THOME, unknown texts).
+- pio: 9 Mega envs (RAM 48.7 %) + ground. Boot-window PC simulation as
+  above.
+- No hardware.
+
+**Next Test:**
+1. Fix the magnet. Flash the Mega + ground with the turret motor
+   unpowered.
+2. Set the home point.
+3. Power-cycle with the turret at about ±15°: the angle is right.
+4. At about 30°: 開機時不在歸位點 (locked).
+5. Then set `GUARD_ENABLED` true and test the return and RB (wired and
+   radio) slowly.

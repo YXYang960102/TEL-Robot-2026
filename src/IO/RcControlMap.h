@@ -46,16 +46,21 @@
  *                        left / right (elevation up/down, turret left/right)
  *   CH8  auto path       1000 + 200*k, k = 0..4: none / 1 / 2 / 3 / 4
  *                        (keys Q W E R = left 1, left 2, right 1, right 2)
- *   CH9  test mode       1500 = off, 2000 = TEST (2026-10-26): the
- *                        operator mode is TEST only while CH9 is high AND
- *                        CH4 carries full manual (with its flywheel), so
- *                        test mode reuses full manual's CH4 Falcon
- *                        encoding. Any other CH4 level wins over CH9 (a
- *                        round-robin channel lags CH4 by tens of ms; a mode
- *                        change never waits for it). A ground still on the
- *                        older image sends 1500 here: never TEST.
+ *   CH9  test + home     1000 + 200*k (2026-10-31, link version 4; was
+ *                        1500 off / 2000 TEST): k = 2 normal, 1 normal +
+ *                        turret home, 4 TEST, 5 TEST + turret home (0 / 3
+ *                        read as normal). TEST counts only while CH4
+ *                        carries full manual (with its flywheel), so test
+ *                        mode reuses full manual's CH4 Falcon encoding;
+ *                        any other CH4 level wins over CH9 (a round-robin
+ *                        channel lags CH4 by tens of ms). Turret home =
+ *                        RB: the ground holds it 200 ms per press, the
+ *                        robot acts on its rising edge (back to 0 deg).
  *   CH10 link version    1000 + 200*v (2026-10-27: v = RCMAP_LINK_VERSION,
- *                        1 -> 1200; ELRS's 6-position AUX sends 1193). The
+ *                        1 -> 1200; ELRS's 6-position AUX sends 1193;
+ *                        2026-10-31: 4 -> 1800 / 1807, versions 2 and 3
+ *                        skipped -- a pre-10-27 ground's 1500 arrives
+ *                        snapped to 1398 or 1602, i.e. their levels). The
  *                        robot rejects every frame whose CH10 isn't this
  *                        version's level: a ground on another channel
  *                        table (an older one sends 1500 here) can then
@@ -88,8 +93,10 @@ extern "C" {
 #define RCMAP_CH_TEST 8u
 #define RCMAP_CH_VERSION 9u
 /* 1 = table v2 + CH3 80 us steps (bonus holes) + CH9 test (2026-10-27).
- * 0..5 only (CH10 is a 6-position AUX channel). */
-#define RCMAP_LINK_VERSION 1u
+ * 4 = CH9 six levels with the turret-home request (2026-10-31; 2 and 3
+ * would collide with an old ground's 1500 on CH10). 0..5 only (CH10 is a
+ * 6-position AUX channel). */
+#define RCMAP_LINK_VERSION 4u
 #define RCMAP_CHANNEL_COUNT 10u
 
 #define RCMAP_TARGET_NONE 0u
@@ -159,6 +166,7 @@ typedef struct {
     bool armed;        /* CH6 high = enable requested */
     uint8_t nudge;     /* RCMAP_NUDGE_* */
     uint8_t auto_path; /* 0 = none, 1..4 */
+    bool turret_home;  /* CH9 (2026-10-31): RB, turret back to 0 deg */
 } rcmap_command;
 
 /* The operator mode a command carries: CH4's level, or TEST when CH4 is

@@ -54,6 +54,7 @@ void GroundCommandState::release(uint32_t nowMs) {
     cmd.turn = 0.0f;
     cmd.fire = false;
     cmd.auto_path = RCMAP_AUTO_NONE;
+    cmd.turret_home = false;
     rotate = 0;
     angle = 0;
     updateNudge();
@@ -175,8 +176,9 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
     // auto level; dropped in full manual and on every mode change.
     const bool isFlywheelOffset = strncmp(line, "FLYO,", 5) == 0;
     const bool isSingle = line[1] == '\0' && (line[0] == 'F' || line[0] == 'M');
+    const bool isTurretHome = strcmp(line, "THOME") == 0;
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isNoChannel && !isTarget &&
-        !isAutoPath && !isModeSet && !isFlywheelOffset && !isSingle) {
+        !isAutoPath && !isModeSet && !isFlywheelOffset && !isSingle && !isTurretHome) {
         emitLine(emit, ctx, "$GROUND_EVENT,UNKNOWN_COMMAND");
         return;
     }
@@ -274,6 +276,14 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
     if (isNoChannel) {
         return;
     }
+    if (isTurretHome) {
+        // One RB press = one pulse; the robot acts on the rising edge.
+        if (!cmd.turret_home) {
+            cmd.turret_home = true;
+            homeStartMs = nowMs;
+        }
+        return;
+    }
     if (line[0] == 'F') {
         if (!cmd.fire) {
             cmd.fire = true;
@@ -307,6 +317,9 @@ void GroundCommandState::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
     }
     if (cmd.auto_path != RCMAP_AUTO_NONE && nowMs - autoStartMs >= AUTO_PULSE_MS) {
         cmd.auto_path = RCMAP_AUTO_NONE;
+    }
+    if (cmd.turret_home && nowMs - homeStartMs >= HOME_PULSE_MS) {
+        cmd.turret_home = false;
     }
     raiseArmIfReady(nowMs);
     if (enabled && nowMs - lastPcMs > PC_TIMEOUT_MS) {

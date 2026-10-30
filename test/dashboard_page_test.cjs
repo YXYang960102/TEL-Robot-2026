@@ -527,12 +527,11 @@ async function emergencyStopViaEnter() {
     assert.doesNotMatch(html, new RegExp(`id="${gone}"`), gone);
   }
 
-  // RB (turret back to 0 deg, 2026-10-31) is wired only: over the ground
-  // station it only explains that.
+  // RB (turret back to 0 deg, 2026-10-31): THOME, also to the ground
+  // station (CH9).
   writes.length = 0;
   await press(XB.RB);
-  assert.equal(writes.length, 0);
-  assert.match(run('log.textContent'), /RB 轉台回 0° 只支援有線/);
+  assert.deepEqual(writes, ['THOME']);
 
   // Stale status: warn only, keep driving (the robot's own RC-loss
   // failsafe is what stops it).
@@ -1159,6 +1158,11 @@ async function emergencyStopViaEnter() {
   // 2026-10-31: the turret guard -- TEL 49 and the 9th $AIM field.
   clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',0,0,-1,0,5');
   assert.equal(elements.boardTurretGuard.textContent, '到右限位 +36°（只能往左）');
+  clock.t += 100; line(telFull(0, 0, 159, 0x83, 0) + ',0,0,-1,0,0');   // booted outside the window
+  assert.match(elements.boardTurretGuard.textContent, /^開機時不在歸位點 ±20° 內/);
+  clock.t += 100; line(telFull(0, 0, 159, 0x03, 0) + ',0,0,-1,0,0');   // no home point saved
+  assert.match(elements.boardTurretGuard.textContent, /^沒有歸位點/);
+  line('$SEEN,1,16,1,0,3,-1,0');                                     // radio: no 0x80 bit
   line('$AIM,1,352,1620,10,10,1,-15,0');
   assert.match(elements.boardTurretGuard.textContent, /^位置未知：轉台鎖住/);
   line('$AIM,0,0,0,0,0,0,0,0');
