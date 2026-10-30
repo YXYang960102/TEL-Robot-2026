@@ -5892,3 +5892,108 @@ flash 15.1 %, plus 3 wired benches. **No hardware.**
 **Next Test:** flash the Mega; semi-auto / test, hold ← → to move off the
 hole, release: turret stops, after ~0.3 s stays there (Dashboard 微調 水平
 shows the offset); a new hole clears it.
+
+## 2026-10-31 — Claude Code: turret absolute angle from EEPROM, soft limits, return to 0 (AS5600 only)
+
+**User Request:** remember the turret's absolute position. On power-up,
+bring it back to the home point. Keep it inside the limits Jeremy measured
+from home: right −36.0 / left +136.0 read with `INVERTED` false, i.e.
+**+36 / −136** with right = +. The turret turns further, but the mechanism
+breaks there, so there is no end stop to home against. AS5600 only.
+
+**Discussion Result:**
+- The AS5600 on the motor shaft repeats every 73° of turret (belt
+  180:36.5), and the travel is 172°. So the position is remembered in
+  EEPROM.
+- Homing against the right end stop was proposed first and dropped:
+  pushing past +36 breaks things.
+
+**Added:**
+- `src/Sensors/TurretStore.h` (pure):
+  - 12-byte records: magic, seq, counts, raw, CRC-8 (poly 0x07);
+  - 32 round-robin slots at EEPROM 0–383;
+  - `findNewest`, where the highest valid seq wins and a torn record fails
+    its CRC.
+- `src/Shooter/TurretGuard.h` (pure; uses `PidfController`). Every turret
+  command goes through `filter()`:
+  - locked (0) when the angle is not absolute (`UNKNOWN`), the AS5600 is
+    unhealthy (`SENSOR`), or after a direction fault (`DIRECTION`, until
+    reboot);
+  - `RETURNING`: a P loop to 0° replaces the command (`RETURN_kP` 0.03 per
+    degree, max 0.4, ±1° for 200 ms, 5 s timeout) on the first Enable after
+    power-up, and on wired `THOME` (RB);
+  - soft limits with a 10° slow zone (min 0.15), checked at the stopping
+    angle = angle + speed × `LIMIT_STOP_LOOKAHEAD_S` (0.15 s);
+  - direction check: a command of 0.2 or more held one way that moves the
+    turret 2° the other way (150 ms grace after a reversal, 300 ms windows)
+    locks the turret;
+  - state codes 0–6 on TEL slot 49 and in aim-frame seq bits 21–23.
+- `TurretAngle`:
+  - `init` finds the newest record;
+  - the first read restores `counts = saved + fold(raw − saved raw)`. It
+    is absolute only if within the limits ±`RESTORE_MARGIN_DEG` (10°);
+  - saves when the turret has moved 10°, or has stood still for 500 ms
+    after a change of 0.2° or more. One EEPROM byte per loop, only when
+    `eeprom_is_ready()`, so it never blocks;
+  - `setZeroHere()` (needs a healthy read) sets 0 and saves at once;
+  - LOST clears absolute;
+  - status bit `ABSOLUTE` 0x40.
+- Wired commands:
+  - `TZERO`: disarmed only; events `TURRET_ZERO_SET` / `TURRET_ZERO_REJECTED`;
+  - `THOME`: wired owner only.
+- Dashboard:
+  - turret guard state line;
+  - 「設為歸位點」 button (USB and disabled only, with a confirm);
+  - RB sends `THOME` when wired;
+  - help text fixed to LB 發射 / RB 轉台回 0° (it had LB and RB swapped
+    since 10-18).
+- Ground: a 9th field in `$AIM`, `turretState`.
+
+**Changed:**
+- `INVERTED` is true.
+- `ZERO_RAW` is removed.
+- `Shooter::updateRotate` → `driveRotate()` through the guard. The first
+  Enable starts the return; a disarm restarts an unfinished return.
+
+**Calculation:**
+- 56.11 counts per degree.
+- Restore example: saved +20.0° (counts −1122 with INVERTED), raw 1500;
+  boot raw 1781 → fold +281 → −841 → +14.99°.
+- Limit example: at +31° a full right command → room 5 / 10 → 0.5; at +36
+  → 0.
+- Return example: at +36 → error −36 × 0.03 → −1.08 → clamped −0.4 →
+  motor command +0.4 (`RIGHT_COMMAND_SIGN` −1).
+
+**Impact:** flash the Mega and the ground (the `$AIM` field and the event
+names). The bridge `.bin` was rebuilt and is unchanged (5f05e944…). The
+Orin is unaffected.
+
+**Evidence:**
+- Host suite: 18 groups PASS. Adapted: manual_control (TZERO / THOME, aim
+  turret_state), rc_control_map (aim bits 21–23), ground `$AIM`, Dashboard
+  page (guard text, zero button gating, events, RB over the ground).
+- pio: all 9 Mega envs, production RAM 48.7 %, flash 16.6 %; ground OK.
+- Scratch PC simulation (not committed; plant 120 °/s, 0.12 s lag):
+  - store round trip, a slot wrap and a torn record;
+  - the restore example;
+  - limit maths;
+  - return from +36 in 1.2 s and from −120 in 2.9 s, ending within 0.4°;
+  - full right held stops at +36.17° (+44.7° without the lookahead);
+  - a fast reversal gives no false fault;
+  - with the sign wrong it locks after 200 ms and 7.8° of wrong travel.
+- **Nothing on hardware.** `RIGHT_COMMAND_SIGN` is derived from the
+  vision-follow direction, not measured.
+
+**Next Test** (outputs live, hand near the Disable):
+1. Flash the Mega and the ground.
+2. USB, disabled: turn the turret to home by hand and press 設為歸位點.
+   The angle reads 0.0 and the state shows 正常.
+3. Turn it by hand to about +20 and back while disabled; the angle
+   follows. Power-cycle; it comes back with the same angle.
+4. Enable in full manual, at home: jog right slowly. The angle should
+   increase, it stops at +36 (到右限位), and only left works there. A wrong
+   sign shows 方向錯誤 and locks.
+5. Same on the left at −136.
+6. Leave it at about +30, power-cycle, Enable: it returns to 0.
+7. Then tune `LIMIT_STOP_LOOKAHEAD_S` and the return gains from how it
+   coasts.

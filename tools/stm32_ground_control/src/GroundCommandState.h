@@ -115,8 +115,10 @@ public:
     // none, 1 wired, 2 wireless, and mode is 0 full auto, 1 semi auto,
     // 2 full manual, 3 test, -1 not reported.
     // Then "$AIM,<fresh>,<distanceCm>,<elevationPulseUs>,<selectedId>,
-    // <targetId>,<valid>,<aimOffsetPx>" from the latest aim frame (fresh 0
-    // and zeros when none came within STALE_MS).
+    // <targetId>,<valid>,<aimOffset>,<turretState>" from the latest aim
+    // frame (fresh 0 and zeros when none came within STALE_MS). aimOffset
+    // in 4 px units (2026-10-30); turretState = TurretGuard::State
+    // (2026-10-31).
     // Then "$VISION,<fresh>,<flywheelUs>,<tx*2>,<ty*2>,<valid>,<targetId>"
     // from the latest vision frame (tx / ty in half pixels; the Falcon's
     // actual PWM pulse), same rule.

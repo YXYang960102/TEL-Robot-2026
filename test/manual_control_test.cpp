@@ -55,6 +55,8 @@ void reset() {
     hoststub::anglePulseUs = 1500;
     hoststub::visionTy = 0.0;
     hoststub::shooterReady = false;
+    hoststub::turretZeroOk = true;
+    hoststub::turretState = 4;
     MechLink::signalLost = true;
     MechLink::frameCount = 0;
     wireless = rcmap_command{};
@@ -1288,6 +1290,29 @@ void testFineAdjustWireless() {
     assert(nearly(ManualControl::getAimOffsetPx(), 0.0) && ManualControl::getTarget() == 2);
 }
 
+// Turret home point and return (2026-10-31): TZERO only while disarmed,
+// THOME only for the wired owner; the guard's state rides the aim frame.
+void testTurretHomeCommands() {
+    reset();
+    send("TZERO"); step();
+    assert(saw("TURRET_ZERO_SET"));
+    Serial.output.clear();
+    hoststub::turretZeroOk = false;                       // no healthy AS5600 reading
+    send("TZERO"); step();
+    assert(saw("TURRET_ZERO_REJECTED") && !saw("TURRET_ZERO_SET"));
+    hoststub::turretZeroOk = true;
+    send("THOME"); step();
+    assert(saw("REJECTED_DISARMED") && rec.turretReturns == 0);
+    armWired();
+    send("TZERO"); step();                                // armed: refused
+    assert(saw("TURRET_ZERO_REJECTED"));
+    send("THOME"); step();
+    assert(rec.turretReturns == 1);
+    hoststub::turretState = 5;                            // AT_RIGHT
+    runWithHeartbeat(550);
+    assert(lastAim().turret_state == 5);
+}
+
 // Dashboard menus (2026-10-16): MODE,<n> sets the mode directly, and every
 // Enable starts on the Orin's own pick (target 0).
 void testModeCommandAndTargetReset() {
@@ -1394,6 +1419,7 @@ int main() {
     testShotTableByHeight();
     testFineAdjustWired();
     testFineAdjustWireless();
+    testTurretHomeCommands();
     testTestModeWired();
     testTestModeWireless();
     testWirelessLinkVersion();

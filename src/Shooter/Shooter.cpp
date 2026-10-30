@@ -3,7 +3,9 @@
 #include "../Constants/BuildProfile.h"
 #include "../Control/ServoPositionJog.h"
 #include "../Control/VisionFollowController.h"
+#include "../Sensors/TurretAngle.h"
 #include "../Vision/Vision.h"
+#include "TurretGuard.h"
 
 using namespace ShooterConstants;
 
@@ -16,6 +18,8 @@ constexpr bool DRIVES_FLYWHEEL = BuildProfile::DRIVES_FLYWHEEL;
 ServoPositionJog anglePosition(Angle::POSITION_INITIAL_US);
 VisionFollowController rotateVisionFollow(Rotate::VISION_FOLLOW);
 uint32_t angleJogLastMs = 0;
+TurretGuard turretGuard;
+bool turretReturnDone = false; // back at 0 once since power-up
 
 int commandToPulseUs(double command, const ServoMotorConfig& config) {
     command = constrain(command, -1.0, 1.0);
@@ -129,10 +133,42 @@ void Shooter::setOutputsEnabled(bool enabled) {
     if (!DRIVES_AXES) {
         enabled = false; // drive-only bench: the shooter never enables
     }
+    if (enabled && !outputsEnabled && !turretReturnDone) {
+        turretGuard.beginReturn(); // first Enable after power-up: back to 0 deg
+    }
     outputsEnabled = enabled;
     if (!outputsEnabled) {
+        turretGuard.onDisabled();
         stopAll();
     }
+}
+
+void Shooter::requestTurretReturn() {
+    turretGuard.beginReturn();
+}
+
+uint8_t Shooter::getTurretState() {
+    return turretGuard.state();
+}
+
+// Every turret command while enabled goes through the guard: soft limits,
+// locked while the angle is unknown, the return to 0 deg (which replaces
+// the command), the direction check.
+void Shooter::driveRotate(double command) {
+    TurretGuard::Inputs in;
+    in.absolute = TurretAngle::isAbsolute();
+    in.healthy = TurretAngle::isHealthy();
+    in.angleDeg = TurretAngle::angleDegrees();
+    in.nowMs = millis();
+    const bool wasReturning = turretGuard.isReturning();
+    const double out = turretGuard.filter(command, in);
+    if (wasReturning && !turretGuard.isReturning() && turretGuard.allowsLock()) {
+        turretReturnDone = true;
+    }
+    if (!turretGuard.allowsLock()) {
+        rotateReady = false;
+    }
+    writeRotateCommand(out);
 }
 
 bool Shooter::areOutputsEnabled() {
@@ -245,9 +281,17 @@ void Shooter::updateAngle() {
 }
 
 void Shooter::updateRotate() {
+    if (turretGuard.isReturning()) {
+        // The guard drives the turret back to 0 deg; nothing else does, and
+        // the camera follow starts fresh afterwards.
+        rotateReady = false;
+        rotateVisionFollow.reset();
+        driveRotate(0.0);
+        return;
+    }
     if (rotateMode == RotateControlMode::MANUAL_OPEN_LOOP) {
         rotateReady = false;
-        writeRotateCommand(rotateManualCommand);
+        driveRotate(rotateManualCommand);
         return;
     }
     if (rotateMode == RotateControlMode::VISION_FOLLOW) {
@@ -266,11 +310,11 @@ void Shooter::updateRotate() {
             Vision::getTargetId(),
             millis());
         rotateReady = seen && rotateVisionFollow.isReady();
-        writeRotateCommand(command);
+        driveRotate(command);
         return;
     }
     rotateReady = false;
-    writeRotateCommand(0.0);
+    driveRotate(0.0);
 }
 
 void Shooter::updateFlywheelReady() {

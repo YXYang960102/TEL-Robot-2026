@@ -328,6 +328,7 @@ static void testAimFrames() {
     a.target_id = 10;
     a.valid = true;
     a.aim_offset_px = -15;
+    a.turret_state = 5; // 2026-10-31: the turret guard's state rides along
     rcmap_status af{};
     uint8_t flags;
     uint32_t seq;
@@ -341,7 +342,7 @@ static void testAimFrames() {
     assert(tr.flags() == st.flags);
     tr.tick(300, collect, nullptr);
     assert(saw("$WIRELESS,1,1,2,0,0,0,0,290,1"));   // status as before (mode semi)
-    assert(saw("$AIM,1,352,1620,10,10,1,-15"));
+    assert(saw("$AIM,1,352,1620,10,10,1,-15,5"));
     // The next status frame's event still reports normally.
     st.event_seq = 6;
     st.event_code = rcmap_status_code(RCMAP_EVENT_FEED_TRIGGER_SENT, RCMAP_MODE_SEMI_AUTO);
@@ -359,13 +360,13 @@ static void testAimFrames() {
     // No aim frame for > STALE_MS: fresh 0 and zeros.
     lines.clear();
     tr.tick(20 + RobotStatusTracker::STALE_MS + 300, collect, nullptr);
-    assert(saw("$AIM,0,0,0,0,0,0,0"));
+    assert(saw("$AIM,0,0,0,0,0,0,0,0"));
     // Never any aim frame (older robot firmware): $AIM,0,...
     RobotStatusTracker none;
     none.reset(0);
     lines.clear();
     none.tick(300, collect, nullptr);
-    assert(saw("$AIM,0,0,0,0,0,0,0"));
+    assert(saw("$AIM,0,0,0,0,0,0,0,0"));
 }
 
 static void testModeKey() {
@@ -587,7 +588,7 @@ static void testSeenFrames() {
     assert(lines.empty());                                        // no bogus event / aim
     tr.tick(500, collect, nullptr);
     assert(lastLineStarting("$SEEN,") == "$SEEN,1,1048,2,-503,3,62,60");
-    assert(lastLineStarting("$AIM,") == "$AIM,0,0,0,0,0,0,0");      // not read as an aim frame
+    assert(lastLineStarting("$AIM,") == "$AIM,0,0,0,0,0,0,0,0");      // not read as an aim frame
     lines.clear();
     tr.tick(300 + RobotStatusTracker::STALE_MS + 250, collect, nullptr);
     assert(lastLineStarting("$SEEN,") == "$SEEN,0,0,0,0,0,-1,0");

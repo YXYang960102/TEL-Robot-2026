@@ -252,6 +252,8 @@ typedef enum {
                                    such a status as corrupt -- reflash both */
     RCMAP_EVENT_LINK_VERSION_MISMATCH, /* 2026-10-27: RC frames from a ground
                                           on another channel table (CH10) */
+    RCMAP_EVENT_TURRET_ZERO_SET,       /* 2026-10-31: home point set (TZERO) */
+    RCMAP_EVENT_TURRET_ZERO_REJECTED,  /* armed, or no healthy AS5600 reading */
     RCMAP_EVENT_COUNT
 } rcmap_event;
 
@@ -313,7 +315,8 @@ bool rcmap_status_from_battery(uint16_t voltage, uint16_t current, uint32_t capa
  *         bits until 2026-10-27, when bits 15-14 = 11 became the seen
  *         frame below)
  *   seq   bits 0-11 elevation pulse us, 12-15 vision id sent to the Orin,
- *         16-19 vision id of the frame in hand, 20 valid
+ *         16-19 vision id of the frame in hand, 20 valid, 21-23 turret
+ *         guard state (2026-10-31, TurretGuard::State 0-6; 0 before)
  *   flags aim offset as int8 (+ = right), in px until 2026-10-30, in
  *         4 px units since (the offset reaches 300 px; ground unchanged) */
 #define RCMAP_AIM_FRAME_BIT 0x8000u
@@ -324,6 +327,7 @@ typedef struct {
     uint8_t target_id;
     bool valid;
     int8_t aim_offset_px;
+    uint8_t turret_state; /* 0-7 */
 } rcmap_aim;
 
 static inline bool rcmap_status_is_aim(uint16_t code) { return (code & 0xC000u) == RCMAP_AIM_FRAME_BIT; }

@@ -527,11 +527,12 @@ async function emergencyStopViaEnter() {
     assert.doesNotMatch(html, new RegExp(`id="${gone}"`), gone);
   }
 
-  // RB (turret home) only explains that the AS5600 isn't there yet.
+  // RB (turret back to 0 deg, 2026-10-31) is wired only: over the ground
+  // station it only explains that.
   writes.length = 0;
   await press(XB.RB);
   assert.equal(writes.length, 0);
-  assert.match(run('log.textContent'), /AS5600 尚未安裝/);
+  assert.match(run('log.textContent'), /RB 轉台回 0° 只支援有線/);
 
   // Stale status: warn only, keep driving (the robot's own RC-loss
   // failsafe is what stops it).
@@ -1133,6 +1134,31 @@ async function emergencyStopViaEnter() {
   assert.equal(elements.ringValue.textContent, '--');
   line('$SEEN,1,16,1');                                           // older ground: board only
   assert.equal(elements.boardTurretRaw.textContent, '無線：沒有回傳');
+  // 2026-10-31: the turret guard -- TEL 49 and the 9th $AIM field.
+  clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',0,0,-1,0,5');
+  assert.equal(elements.boardTurretGuard.textContent, '到右限位 +36°（只能往左）');
+  line('$AIM,1,352,1620,10,10,1,-15,0');
+  assert.match(elements.boardTurretGuard.textContent, /^位置未知：轉台鎖住/);
+  line('$AIM,0,0,0,0,0,0,0,0');
+  assert.equal(elements.boardTurretGuard.textContent, '--');
+  // 「設為歸位點」: only on the Mega's USB and disabled.
+  writes.length = 0;
+  await run('setTurretZero()');                                     // the ground is the link now
+  assert.equal(writes.length, 0);
+  assert.match(run('log.textContent'), /只能用 USB 有線連 Mega/);
+  clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',0,0,-1,0,4');     // the Mega's USB again
+  assert.equal(elements.boardTurretGuard.textContent, '正常 · 限位 −136°～+36°');
+  run('controlArmed = true');
+  await run('setTurretZero()');
+  assert.equal(writes.length, 0);
+  assert.match(run('log.textContent'), /要先 Disable/);
+  run('controlArmed = false');
+  await run('setTurretZero()');
+  assert.equal(last(), 'TZERO');
+  event('TURRET_ZERO_SET');
+  assert.match(run('log.textContent'), /已設定歸位點/);
+  event('TURRET_ZERO_REJECTED');
+  assert.match(run('log.textContent'), /設定歸位點被拒絕/);
 
   console.log('dashboard page control behavior tests passed');
 })().catch((e) => { console.error(e); process.exitCode = 1; });

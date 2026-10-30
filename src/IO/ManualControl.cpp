@@ -8,6 +8,7 @@
 #include "../Constants/Pins.h"
 #include "../Constants/TuningConstants.h"
 #include "../Dribbler/Dribbler.h"
+#include "../Sensors/TurretAngle.h"
 #include "../Shooter/Shooter.h"
 #include "../Vision/Vision.h"
 #include "AimUplink.h"
@@ -201,6 +202,15 @@ void ManualControl::processCommand(char* command) {
         return;
     }
 
+    // TZERO (2026-10-31): the turret is at its home point now -- angle 0,
+    // saved to EEPROM. Only while disarmed: the operator sets the turret
+    // there by hand first (Dashboard 「設為歸位點」, wired).
+    if (strcmp(command, "TZERO") == 0) {
+        const bool ok = owner == Owner::NONE && TurretAngle::setZeroHere();
+        sendEvent(ok ? RCMAP_EVENT_TURRET_ZERO_SET : RCMAP_EVENT_TURRET_ZERO_REJECTED);
+        return;
+    }
+
     const bool isTank = strncmp(command, "T,", 2) == 0;
     const bool isRotate = strncmp(command, "ROT,", 4) == 0;
     const bool isAngle = strncmp(command, "ANG,", 4) == 0;
@@ -222,9 +232,11 @@ void ManualControl::processCommand(char* command) {
     // pad), added to the shot table. Absolute, so a resend is harmless.
     const bool isFlywheelOffset = strncmp(command, "FLYO,", 5) == 0;
     const bool isSingle = command[1] == '\0' && (command[0] == 'F' || command[0] == 'M');
+    // THOME (2026-10-31, RB): drive the turret back to 0 deg.
+    const bool isTurretHome = strcmp(command, "THOME") == 0;
 
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle && !isAngleTarget &&
-        !isTarget && !isAutoPath && !isModeSet && !isFlywheelOffset) {
+        !isTarget && !isAutoPath && !isModeSet && !isFlywheelOffset && !isTurretHome) {
         sendEvent(RCMAP_EVENT_UNKNOWN_COMMAND);
         return;
     }
@@ -239,6 +251,11 @@ void ManualControl::processCommand(char* command) {
         return;
     }
 
+    if (isTurretHome) {
+        refreshWiredWatchdog();
+        Shooter::requestTurretReturn();
+        return;
+    }
     if (isTank) {
         double left = 0.0;
         double right = 0.0;

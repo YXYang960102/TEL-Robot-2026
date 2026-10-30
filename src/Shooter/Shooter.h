@@ -69,6 +69,12 @@ public:
     static AngleControlMode getAngleControlMode();
     static RotateControlMode getRotateControlMode();
 
+    // Turret soft limits / home (2026-10-31, TurretGuard.h): every turret
+    // command passes the guard. The first Enable after power-up drives the
+    // turret back to 0 deg; this asks for that again (wired RB).
+    static void requestTurretReturn();
+    static uint8_t getTurretState(); // TurretGuard::State
+
     // Telemetry
     static int getAnglePulseUs();
     static int getRotatePulseUs();
@@ -84,6 +90,7 @@ private:
     static void writeAngleCommand(double command);
     static void releaseAngle();
     static void writeRotateCommand(double command);
+    static void driveRotate(double command); // through the turret guard
     static void writeFlywheelCommand(double command);
 
     static Servo angleServo;

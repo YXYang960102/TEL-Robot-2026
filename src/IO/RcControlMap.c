@@ -220,6 +220,8 @@ static const char *const event_names[RCMAP_EVENT_COUNT] = {
     "AUTO_PATH_REJECTED",
     "MODE_TEST",
     "LINK_VERSION_MISMATCH",
+    "TURRET_ZERO_SET",
+    "TURRET_ZERO_REJECTED",
 };
 
 const char *rcmap_event_name(uint16_t code) {
@@ -239,7 +241,8 @@ void rcmap_aim_to_status(const rcmap_aim *a, uint8_t *flags, uint32_t *seq, uint
     const uint16_t pulse = a->elevation_pulse_us > 0x0FFFu ? 0x0FFFu : a->elevation_pulse_us;
     *code = (uint16_t)(RCMAP_AIM_FRAME_BIT | cm);
     *seq = (uint32_t)pulse | ((uint32_t)(a->selected_id & 0x0Fu) << 12) |
-           ((uint32_t)(a->target_id & 0x0Fu) << 16) | ((uint32_t)(a->valid ? 1u : 0u) << 20);
+           ((uint32_t)(a->target_id & 0x0Fu) << 16) | ((uint32_t)(a->valid ? 1u : 0u) << 20) |
+           ((uint32_t)(a->turret_state & 0x07u) << 21);
     *flags = (uint8_t)a->aim_offset_px;
 }
 
@@ -250,6 +253,7 @@ bool rcmap_aim_from_status(const rcmap_status *s, rcmap_aim *out) {
     out->selected_id = (uint8_t)((s->event_seq >> 12) & 0x0Fu);
     out->target_id = (uint8_t)((s->event_seq >> 16) & 0x0Fu);
     out->valid = ((s->event_seq >> 20) & 1u) != 0u;
+    out->turret_state = (uint8_t)((s->event_seq >> 21) & 0x07u);
     out->aim_offset_px = (int8_t)s->flags;
     return true;
 }

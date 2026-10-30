@@ -26,6 +26,8 @@ double visionTx = 0.0;
 double visionTy = 0.0;
 int anglePulseUs = 1500;
 int flywheelPulseUs = 1490;
+bool turretZeroOk = true;
+uint8_t turretState = 4; // TurretGuard::READY
 bool shooterReady = false;
 }
 
@@ -97,6 +99,9 @@ uint8_t Vision::getRingSectors() { return 0; }
 // AimUplink's seen frame carries the turret angle (2026-10-28).
 double TurretAngle::angleDegrees() { return 0.0; }
 uint8_t TurretAngle::status() { return TurretAngle::NEVER_READ; }
+bool TurretAngle::setZeroHere() { return hoststub::turretZeroOk; }
+void Shooter::requestTurretReturn() { rec.turretReturns++; }
+uint8_t Shooter::getTurretState() { return hoststub::turretState; }
 // Every call is a new frame (the stub's fields stand for the latest one).
 unsigned long Vision::getFrameCount() { static unsigned long frames = 0; return ++frames; }
 double Vision::getDistance() { return hoststub::visionDistanceMm; }

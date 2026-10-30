@@ -166,5 +166,10 @@ void Telemetry::update() {
     // k, 0 right, clockwise on screen).
     Serial.print(Vision::getRingPercent());
     Serial.print(",");
-    Serial.println(Vision::getRingSectors());
+    Serial.print(Vision::getRingSectors());
+    Serial.print(",");
+    // Slot 49 (2026-10-31): the turret guard's state (TurretGuard::State:
+    // 0 angle unknown, 1 sensor, 2 direction fault -- all three locked --,
+    // 3 returning to 0, 4 ready, 5 / 6 at the right / left limit).
+    Serial.println(Shooter::getTurretState());
 }

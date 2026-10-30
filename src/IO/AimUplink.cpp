@@ -26,6 +26,7 @@ void AimUplink::send() {
     // 4 px units since 2026-10-30 (the offset now reaches 300 px; the
     // Dashboard multiplies by 4; the ground passes it through unchanged).
     a.aim_offset_px = static_cast<int8_t>(clampLong(lround(ManualControl::getAimOffsetPx() / 4.0), -127, 127));
+    a.turret_state = Shooter::getTurretState(); // 2026-10-31
 
     uint8_t flags = 0;
     uint32_t seq = 0;

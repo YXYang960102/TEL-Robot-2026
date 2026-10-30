@@ -341,7 +341,14 @@ static void test_aim_frames(void) {
     assert(rcmap_aim_from_status(&got, &back));
     assert(back.distance_cm == 352 && back.elevation_pulse_us == 1620);
     assert(back.selected_id == 10 && back.target_id == 10 && back.valid);
-    assert(back.aim_offset_px == -15);
+    assert(back.aim_offset_px == -15 && back.turret_state == 0);
+    /* 2026-10-31: the turret guard's state in seq bits 21-23. */
+    a.turret_state = 6;
+    rcmap_aim_to_status(&a, &flags, &seq, &code);
+    assert(((seq >> 21) & 7u) == 6u && (seq & 0x1FFFFFu) == (got.event_seq & 0x1FFFFFu));
+    st.flags = flags; st.event_seq = seq; st.event_code = code;
+    assert(rcmap_aim_from_status(&st, &back) && back.turret_state == 6 && back.valid);
+    a.turret_state = 0;
 
     /* Clamps and masks. */
     a.distance_cm = 60000;
@@ -350,6 +357,7 @@ static void test_aim_frames(void) {
     a.target_id = 0;
     a.valid = false;
     a.aim_offset_px = 127;
+    a.turret_state = 0xFF;  /* masked to 3 bits */
     rcmap_aim_to_status(&a, &flags, &seq, &code);
     st.flags = flags;
     st.event_seq = seq;
@@ -357,6 +365,7 @@ static void test_aim_frames(void) {
     assert(rcmap_aim_from_status(&st, &back));
     assert(back.distance_cm == 0x3FFFu && back.elevation_pulse_us == 0x0FFFu); /* 14 bits since 2026-10-27 */
     assert(!back.valid && back.selected_id == 0 && back.target_id == 0 && back.aim_offset_px == 127);
+    assert(back.turret_state == 7 && seq <= 0xFFFFFFu);
 
     /* A status frame is not an aim frame. */
     st.event_code = rcmap_status_code(RCMAP_EVENT_OUTPUTS_ENABLED, RCMAP_MODE_FULL_MANUAL);
@@ -545,7 +554,7 @@ static void test_seen_frames(void) {
     assert(flags == 0 && rcmap_seen_from_status(&ts, &back) && back.ring_percent == -1 &&
            back.ring_sectors == 0);
     /* The largest aim frame is still an aim frame, not a seen one. */
-    rcmap_aim a = {60000, 4095, 15, 15, true, -1};
+    rcmap_aim a = {60000, 4095, 15, 15, true, -1, 7};
     rcmap_aim_to_status(&a, &flags, &seq, &code);
     assert(rcmap_status_is_aim(code) && !rcmap_status_is_seen(code));
     st.event_code = code;

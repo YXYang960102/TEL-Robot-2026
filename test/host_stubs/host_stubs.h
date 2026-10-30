@@ -35,6 +35,7 @@ struct Recorder {
     uint16_t visionCode = 0;
     unsigned long seenCount = 0;       // seen frames (code bits 15-14 = 11)
     uint16_t seenCode = 0;
+    unsigned long turretReturns = 0;   // Shooter::requestTurretReturn (THOME)
 };
 
 extern Recorder rec;
@@ -48,5 +49,7 @@ extern double visionTy;          // Vision::getTy()
 extern int anglePulseUs;      // Shooter::getAnglePulseUs()
 extern int flywheelPulseUs;   // Shooter::getFlywheelPulseUs()
 extern bool shooterReady;     // Shooter::isReady() (turret locked && flywheel up)
+extern bool turretZeroOk;     // TurretAngle::setZeroHere()
+extern uint8_t turretState;   // Shooter::getTurretState()
 
 }

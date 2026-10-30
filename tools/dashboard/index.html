@@ -699,7 +699,7 @@
             <div class="metric"><div class="label">elevation / 仰角脈寬</div><div class="value" id="boardElevation">--</div></div>
             <div class="metric"><div class="label">flywheel / 轉速（Falcon 實際）</div><div class="value" id="boardFlywheel">--</div><div class="subvalue" id="boardFlywheelCmd">--</div></div>
             <div class="metric"><div class="label">distance / 相機距離</div><div class="value" id="boardDistance">--</div></div>
-            <div class="metric"><div class="label">turret / 轉台角度（AS5600）</div><div class="value" id="boardTurret">--</div><div class="subvalue" id="boardTurretRaw">--</div></div>
+            <div class="metric"><div class="label">turret / 轉台角度（AS5600）</div><div class="value" id="boardTurret">--</div><div class="subvalue" id="boardTurretRaw">--</div><div class="subvalue" id="boardTurretGuard">--</div><button id="turretZero" type="button">設為歸位點（有線、Disable 時）</button></div>
             <div class="metric"><div class="label">depth ring / 深度取樣圈（目標周圍那圈）</div><div class="ring-metric"><svg viewBox="0 0 80 80" width="76" height="76" aria-label="depth ring sectors"><path id="ringSec0" d="M73.7 27.4A36 36 0 0 1 73.7 52.6L57.8 46.7A19 19 0 0 0 57.8 33.3Z"/><path id="ringSec1" d="M72.8 54.9A36 36 0 0 1 54.9 72.8L47.9 57.3A19 19 0 0 0 57.3 47.9Z"/><path id="ringSec2" d="M52.6 73.7A36 36 0 0 1 27.4 73.7L33.3 57.8A19 19 0 0 0 46.7 57.8Z"/><path id="ringSec3" d="M25.1 72.8A36 36 0 0 1 7.2 54.9L22.7 47.9A19 19 0 0 0 32.1 57.3Z"/><path id="ringSec4" d="M6.3 52.6A36 36 0 0 1 6.3 27.4L22.2 33.3A19 19 0 0 0 22.2 46.7Z"/><path id="ringSec5" d="M7.2 25.1A36 36 0 0 1 25.1 7.2L32.1 22.7A19 19 0 0 0 22.7 32.1Z"/><path id="ringSec6" d="M27.4 6.3A36 36 0 0 1 52.6 6.3L46.7 22.2A19 19 0 0 0 33.3 22.2Z"/><path id="ringSec7" d="M54.9 7.2A36 36 0 0 1 72.8 25.1L57.3 32.1A19 19 0 0 0 47.9 22.7Z"/><rect x="27" y="27" width="26" height="26"/></svg><div><div class="value" id="ringValue">--</div><div class="subvalue" id="ringDetail">--</div></div></div></div>
           </div>
         </div>
@@ -753,7 +753,7 @@
         </div>
         <div class="stream-controls">
           <button id="enableControl" disabled>Enable / 啟用輸出</button>
-          <span class="label">Xbox 手把：左蘑菇頭 前後・右蘑菇頭 轉向・十字鍵 ↑↓ 仰角 ←→ 水平（全手動按住移動；自動／測試模式 ←→ 按住手動轉，放開 0.3 秒後鏡頭鎖住這個位置，↑↓ 每按一下微調一格）・X 全自動・A 半自動・B 全手動・RB 發射・LB 轉台回正（待 AS5600）・Y 開始比賽｜鍵盤：1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・Q W E 選加分框左中右・0 回到 AI 自選・S 記錄射擊點・Enter 停用・Space 停用並斷線｜測試模式（模式選單）：水平由鏡頭鎖定（←→ 按住手動轉、放開後鎖住新位置），仰角、轉速、發射跟全手動一樣</span>
+          <span class="label">Xbox 手把：左蘑菇頭 前後・右蘑菇頭 轉向・十字鍵 ↑↓ 仰角 ←→ 水平（全手動按住移動；自動／測試模式 ←→ 按住手動轉，放開 0.3 秒後鏡頭鎖住這個位置，↑↓ 每按一下微調一格）・X 全自動・A 半自動・B 全手動・LB 發射・RB 轉台回 0°（有線）・Y 開始比賽｜鍵盤：1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・Q W E 選加分框左中右・0 回到 AI 自選・S 記錄射擊點・Enter 停用・Space 停用並斷線｜測試模式（模式選單）：水平由鏡頭鎖定（←→ 按住手動轉、放開後鎖住新位置），仰角、轉速、發射跟全手動一樣</span>
         </div>
         <div class="stream-controls">
           <button id="startMatch" disabled>開始比賽 / Start（Y）</button>
@@ -865,10 +865,11 @@
   </main>
 
   <script>
-    const ids = ["tx", "ty", "distance", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed", "aimState", "distanceRaw", "matchTimer", "matchState", "boardElevation", "boardFlywheel", "boardFlywheelCmd", "boardDistance", "targetBoardState", "boardReady", "boardTurret", "boardTurretRaw", "ringValue", "ringDetail"];
+    const ids = ["tx", "ty", "distance", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed", "aimState", "distanceRaw", "matchTimer", "matchState", "boardElevation", "boardFlywheel", "boardFlywheelCmd", "boardDistance", "targetBoardState", "boardReady", "boardTurret", "boardTurretRaw", "boardTurretGuard", "ringValue", "ringDetail"];
     const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     const connectButton = document.getElementById("connect");
     const demoButton = document.getElementById("demo");
+    const turretZeroButton = document.getElementById("turretZero");
     const enableButton = document.getElementById("enableControl");
     // Dashboard menus (Jeremy, 2026-10-16): the mode and auto path picked
     // before Enable are applied right after the robot confirms it (the
@@ -1455,6 +1456,8 @@
       if (p.length < 8 || p.slice(1).some((v) => !Number.isFinite(v))) return;
       const [, fresh, distanceCm, pulseUs, selectedId, targetId, valid, aimOffsetQuads] = p;
       const aimOffsetPx = aimOffsetQuads * 4;
+      // 9th field (2026-10-31): the turret guard's state.
+      if (p.length > 8) renderTurretGuard(fresh ? p[8] : NaN);
       if (!fresh) {
         el.distance.textContent = "--";
         el.boardDistance.textContent = "--";
@@ -1868,7 +1871,9 @@
         // Slots 47-48 (2026-10-28): the target's depth ring, usable share
         // 0-100 (-1 none) and its sectors with depth (bit k, 0 right, cw).
         ringPercent: p.length > 47 ? Number(p[47]) : NaN,
-        ringSectors: p.length > 48 ? Number(p[48]) : NaN
+        ringSectors: p.length > 48 ? Number(p[48]) : NaN,
+        // Slot 49 (2026-10-31): the turret guard's state (TURRET_STATE_TEXT).
+        turretState: p.length > 49 ? Number(p[49]) : NaN
       };
     }
 
@@ -1907,6 +1912,7 @@
       renderTurret(data);
       if (Number.isFinite(data.seenMask)) setSeenMask(data.seenMask, data.visionState);
       if (Number.isFinite(data.ringPercent)) renderRing(data.ringPercent, data.ringSectors);
+      if (Number.isFinite(data.turretState)) renderTurretGuard(data.turretState);
       if (Number.isFinite(data.controlOwner)) {
         el.controlOwner.textContent = OWNER_NAMES[data.controlOwner] ?? `#${data.controlOwner}`;
       }
@@ -2000,6 +2006,40 @@
       // The radio's seen frame has no raw value (2026-10-28).
       el.boardTurretRaw.textContent = (Number.isFinite(data.turretRaw) ? `raw ${data.turretRaw}` : "無線") +
         ` · ${turretStatusText(data.turretStatus)}`;
+    }
+
+    // Turret guard (TEL 49 / $AIM, src/Shooter/TurretGuard.h, 2026-10-31):
+    // absolute angle from EEPROM, soft limits, back to 0 on the first
+    // Enable. The limits shown are TurretAngleConstants::LIMIT_*_DEG.
+    const TURRET_STATE_TEXT = {
+      0: "位置未知：轉台鎖住。把轉台擺到歸位點，Disable 時按「設為歸位點」",
+      1: "AS5600 異常：轉台鎖住",
+      2: "方向錯誤：轉台鎖住（INVERTED / RIGHT_COMMAND_SIGN 不對，改好後重開機）",
+      3: "回正中（轉回 0°）",
+      4: "正常 · 限位 −136°～+36°",
+      5: "到右限位 +36°（只能往左）",
+      6: "到左限位 −136°（只能往右）",
+    };
+    let turretStateShown = NaN;
+    function renderTurretGuard(state) {
+      turretStateShown = state;
+      el.boardTurretGuard.textContent = Number.isFinite(state)
+        ? (TURRET_STATE_TEXT[state] ?? `狀態 ${state}`) : "--";
+    }
+
+    // 「設為歸位點」: wired, disarmed, the turret by hand at its home point.
+    async function setTurretZero() {
+      if (linkKind !== "robot") {
+        appendControlLog("設為歸位點只能用 USB 有線連 Mega");
+        return;
+      }
+      if (controlArmed) {
+        appendControlLog("設為歸位點要先 Disable");
+        return;
+      }
+      const ok = typeof window.confirm === "function"
+        ? window.confirm("轉台現在在歸位點（0°）嗎？確定要把這裡設成 0°？") : true;
+      if (ok) await sendControl("TZERO");
     }
 
     // Depth sampling ring (TEL 47-48 / $SEEN): pct -1 = no data (no real
@@ -2171,6 +2211,12 @@
         if (eventName === "LINK_VERSION_MISMATCH") {
           appendControlLog("地面站和 Mega 的通道表版本不一致（CH10）：兩塊要燒同一版，之前不能無線 Enable");
         }
+        if (eventName === "TURRET_ZERO_SET") {
+          appendControlLog("已設定歸位點：轉台現在是 0°，位置已存進 EEPROM");
+        }
+        if (eventName === "TURRET_ZERO_REJECTED") {
+          appendControlLog("設定歸位點被拒絕：要先 Disable，且 AS5600 狀態要正常（有讀到、有磁鐵）");
+        }
         return;
       }
       if (line.startsWith("$GROUND_EVENT,")) {
@@ -2294,6 +2340,7 @@
       });
     });
 
+    turretZeroButton.addEventListener("click", () => { setTurretZero(); });
     demoButton.addEventListener("click", () => {
       if (demoTimer) {
         clearInterval(demoTimer);
@@ -2522,7 +2569,11 @@
         return;
       }
       if (edge(profile.startButton)) await startMatch();
-      if (edge(profile.homeButton)) appendControlLog("turret home / 轉台回正：AS5600 尚未安裝，之後實作");
+      if (edge(profile.homeButton)) {
+        // RB: turret back to 0 deg (wired only: no radio channel for it).
+        if (linkKind === "robot") await sendControl("THOME");
+        else appendControlLog("RB 轉台回 0° 只支援有線；無線時開機後第一次 Enable 會自動回正");
+      }
       if (!matchStarted) return; // the robot holds still until Y
 
       let drive = gamepadTank(pad);

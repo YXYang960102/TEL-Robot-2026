@@ -403,14 +403,15 @@ void RobotStatusTracker::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
 
     const bool aimFresh = haveAim && nowMs - lastAimMs <= STALE_MS;
     const rcmap_aim a = aimFresh ? lastAim : rcmap_aim{};
-    snprintf(text, sizeof(text), "$AIM,%d,%u,%u,%u,%u,%d,%d",
+    snprintf(text, sizeof(text), "$AIM,%d,%u,%u,%u,%u,%d,%d,%u",
              aimFresh ? 1 : 0,
              static_cast<unsigned>(a.distance_cm),
              static_cast<unsigned>(a.elevation_pulse_us),
              static_cast<unsigned>(a.selected_id),
              static_cast<unsigned>(a.target_id),
              a.valid ? 1 : 0,
-             static_cast<int>(a.aim_offset_px));
+             static_cast<int>(a.aim_offset_px),
+             static_cast<unsigned>(a.turret_state));
     emitLine(emit, ctx, text);
 
     // tx / ty in half pixels (no float printf on this board): the page
