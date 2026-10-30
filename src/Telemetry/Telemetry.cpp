@@ -171,5 +171,12 @@ void Telemetry::update() {
     // Slot 49 (2026-10-31): the turret guard's state (TurretGuard::State:
     // 0 angle unknown, 1 sensor, 2 direction fault -- all three locked --,
     // 3 returning to 0, 4 ready, 5 / 6 at the right / left limit).
-    Serial.println(Shooter::getTurretState());
+    Serial.print(Shooter::getTurretState());
+    Serial.print(",");
+    // Slots 50-51 (2026-10-31): AS5600 magnet strength for setting the
+    // magnet gap -- AGC (0-255 / 0-128, higher = weaker) and MAGNITUDE
+    // (0-4095, higher = stronger); -1 = not read.
+    Serial.print(TurretAngle::agc());
+    Serial.print(",");
+    Serial.println(TurretAngle::magnitude());
 }

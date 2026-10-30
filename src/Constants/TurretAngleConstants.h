@@ -14,6 +14,13 @@ constexpr uint8_t I2C_ADDRESS = 0x36;
 // strong), then RAW ANGLE high nibble / low byte: one 3-byte read.
 constexpr uint8_t REG_STATUS = 0x0B;
 constexpr uint32_t I2C_CLOCK_HZ = 100000;
+// Magnet strength (2026-10-31, for setting the magnet gap on the bench):
+// AGC (0x1A) = the chip's gain, 0-255 in 5 V mode / 0-128 in 3.3 V mode,
+// higher = weaker field (magnet further away); MAGNITUDE (0x1B-0x1C,
+// 12 bits) = the field it sees, higher = stronger. Read every
+// AGC_READ_PERIOD_MS (TEL slots 50-51, Dashboard).
+constexpr uint8_t REG_AGC = 0x1A;
+constexpr unsigned long AGC_READ_PERIOD_MS = 100;
 // A missing / shorted sensor must never hang the main loop (the safety
 // watchdogs run there): every I2C transfer gives up after this, us.
 constexpr uint32_t I2C_TIMEOUT_US = 2000;

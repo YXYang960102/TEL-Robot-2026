@@ -6030,3 +6030,47 @@ No hardware.
 **Next Test:** set the home point with the weak magnet; check that the
 angle tracks a hand turn. Fix the magnet gap later, then set
 `WEAK_MAGNET_LOCKS` true.
+
+## 2026-10-31 — Claude Code: Dashboard hides an untrusted turret angle; AS5600 AGC / magnitude for the magnet gap
+
+**User Request:**
+- On the robot the AS5600 now reads 沒偵測到磁鐵. The Dashboard still showed an angle, which misleads.
+- How can the magnet distance be judged?
+
+**Found:** with MD = 0 `isHealthy()` is false, so the forced save after
+TZERO never went out. After a reboot there is no record → 位置未知
+(locked). That is the intended behaviour. The magnet needs fixing:
+diametric magnet, 0.5–3 mm, centered.
+
+**Changed / Added:**
+- Dashboard (e76939a): the angle shows only when the reading is trusted
+  (READ_OK, MAGNET, not LOST / NEVER_READ); otherwise `--`. Raw is still
+  shown.
+- AS5600 strength: `TurretAngle::agc()` / `magnitude()`. One 3-byte read
+  from 0x1A every 100 ms (`AGC_READ_PERIOD_MS`); −1 = no read.
+- TEL slots 50–51 carry them.
+- Dashboard line: 「磁場 AGC n（10 秒內 min–max，越大越弱）· 強度 m（min–max）」
+  plus a too-weak / too-strong / no-magnet hint. Over one turn of the
+  travel, a small AGC spread means the magnet is centered.
+
+**Calculation:**
+- AGC is 0–255 in 5 V mode and 0–128 in 3.3 V mode; higher = weaker field.
+- MAGNITUDE is 12 bits; higher = stronger.
+- When ML (too weak) is set, AGC sits at its maximum.
+
+**Evidence:** Dashboard page tests PASS (no-magnet / LOST → `--`, the AGC
+line with its 10 s window). pio: production + 3 wired benches (RAM 48.8 %).
+No hardware.
+
+**Next Test** (flash with the turret motor unpowered):
+1. Adjust the magnet until the status stays OK over the whole travel and
+   AGC sits mid-range with a small spread.
+2. Then 設為歸位點, unplug and replug USB: the same angle and 正常.
+3. Then set `WEAK_MAGNET_LOCKS` true.
+
+**Also learned 10-31:**
+- The turret ran on its own after flashing only while its motor was
+  powered: no PWM during the upload. Flash with the turret motor
+  unpowered; a 10 kΩ pull-down on D23 is suggested.
+- The belt skipped teeth while the turret was turned by hand, which
+  shifted 0 by 6.2°. Re-set the home point after any skip.

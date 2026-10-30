@@ -19,6 +19,9 @@ bool lost = false;
 bool absolute = false;
 unsigned long lastReadMs = 0;
 unsigned long lastGoodMs = 0;
+int agcValue = -1;
+int magnitudeValue = -1;
+unsigned long lastStrengthMs = 0;
 
 // EEPROM: the newest record found at boot, and the one being written.
 // A record goes out one byte per loop, only when the EEPROM is idle, so
@@ -96,6 +99,7 @@ void TurretAngle::restoreFromStore(uint16_t rawAngle) {
 void TurretAngle::update() {
     const unsigned long now = millis();
     writeStoreStep();
+    readStrength(now);
     if (now - lastReadMs < READ_PERIOD_MS) {
         return;
     }
@@ -188,6 +192,35 @@ bool TurretAngle::setZeroHere() {
     statusBits = static_cast<uint8_t>((statusBits & ~LOST) | ABSOLUTE);
     saveForced = true; // goes out as soon as the EEPROM writer is idle
     return true;
+}
+
+// AGC + MAGNITUDE in one 3-byte read, every AGC_READ_PERIOD_MS.
+void TurretAngle::readStrength(unsigned long now) {
+    if (now - lastStrengthMs < AGC_READ_PERIOD_MS) {
+        return;
+    }
+    lastStrengthMs = now;
+    Wire.beginTransmission(I2C_ADDRESS);
+    Wire.write(REG_AGC);
+    if (Wire.endTransmission(false) != 0 ||
+        Wire.requestFrom(I2C_ADDRESS, static_cast<uint8_t>(3)) != 3) {
+        Wire.clearWireTimeoutFlag();
+        agcValue = -1;
+        magnitudeValue = -1;
+        return;
+    }
+    agcValue = Wire.read();
+    const uint8_t high = static_cast<uint8_t>(Wire.read());
+    const uint8_t low = static_cast<uint8_t>(Wire.read());
+    magnitudeValue = ((high & 0x0F) << 8) | low;
+}
+
+int TurretAngle::agc() {
+    return agcValue;
+}
+
+int TurretAngle::magnitude() {
+    return magnitudeValue;
 }
 
 uint16_t TurretAngle::raw() {

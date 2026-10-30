@@ -36,6 +36,10 @@ public:
     static long counts();
     // Turret degrees from straight ahead (+ = right once INVERTED is set).
     static double angleDegrees();
+    // Magnet strength (bench aid for the magnet gap): AGC 0-255 (higher =
+    // weaker field) and MAGNITUDE 0-4095 (higher = stronger); -1 = no read.
+    static int agc();
+    static int magnitude();
     // A good recent read, magnet in range, turns trusted ("too weak" only
     // counts when TurretAngleConstants::WEAK_MAGNET_LOCKS is set).
     static bool isHealthy();
@@ -55,6 +59,7 @@ public:
 
 private:
     static bool readSensor(uint8_t& statusReg, uint16_t& rawAngle);
+    static void readStrength(unsigned long now);
     static void restoreFromStore(uint16_t rawAngle);
     static void saveIfDue(unsigned long now);
     static void writeStoreStep();

@@ -1098,6 +1098,19 @@ async function emergencyStopViaEnter() {
   assert.match(elements.boardReady.textContent, /只在半自動／全自動/);
   assert.match(elements.boardTurretRaw.textContent, /圈數不可信/);
   assert.equal(elements.boardTurret.textContent, '--');            // turns lost: no angle
+  // AS5600 magnet strength (TEL 50-51): AGC, MAGNITUDE and their 10 s span.
+  const telMagnet = (status, agc, mag) =>
+    telFull(0, 0, 159, status, 0) + `,0,0,-1,0,4,${agc},${mag}`;
+  clock.t += 100; line(telMagnet(0x07, 255, 900));
+  assert.equal(elements.boardTurretMagnet.textContent,
+    '磁場 AGC 255（10 秒內 255–255，越大越弱）· 強度 900（900–900）· 太弱：磁鐵再靠近');
+  clock.t += 100; line(telMagnet(0x03, 140, 1800));
+  assert.equal(elements.boardTurretMagnet.textContent,
+    '磁場 AGC 140（10 秒內 140–255，越大越弱）· 強度 1800（900–1800）');
+  clock.t += 11000; line(telMagnet(0x03, 150, 1700));             // older samples drop out
+  assert.match(elements.boardTurretMagnet.textContent, /10 秒內 150–150/);
+  clock.t += 100; line(telMagnet(0x03, -1, -1));
+  assert.equal(elements.boardTurretMagnet.textContent, '磁場：讀不到 AGC');
   // "Too weak" with the magnet seen: a warning, the angle still shows (2026-10-31).
   clock.t += 100; line(telFull(0, 0, 159, 0x07, 0));
   assert.equal(elements.boardTurret.textContent, '0.0°');
