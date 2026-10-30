@@ -1998,11 +1998,17 @@
       if (status & 0x04) return "磁鐵太遠（讀值可用，只警告）";
       return "OK";
     }
+    // The angle only when the reading can be trusted: read OK, magnet seen,
+    // turns not lost (Jeremy 2026-10-31: an angle shown without a magnet
+    // misleads). "Too weak" alone still shows it (only a warning). The raw
+    // value stays visible for lining the magnet up.
+    function turretAngleTrusted(status) {
+      return (status & 0x01) !== 0 && (status & 0x02) !== 0 && (status & 0x30) === 0;
+    }
     function renderTurret(data) {
       if (!Number.isFinite(data.turretStatus)) return;
-      const ok = turretStatusText(data.turretStatus) === "OK" || (data.turretStatus & 0x07) === 0x07;
       const deg = data.turretDeg10 / 10;
-      el.boardTurret.textContent = ok || !(data.turretStatus & 0x20)
+      el.boardTurret.textContent = turretAngleTrusted(data.turretStatus)
         ? `${deg > 0 ? "+" : ""}${deg.toFixed(1)}°` : "--";
       // The radio's seen frame has no raw value (2026-10-28).
       el.boardTurretRaw.textContent = (Number.isFinite(data.turretRaw) ? `raw ${data.turretRaw}` : "無線") +

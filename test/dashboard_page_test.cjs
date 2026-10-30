@@ -1090,18 +1090,21 @@ async function emergencyStopViaEnter() {
   clock.t += 100; line(telFull(15, 305, 1234, 0x01, 0));
   assert.match(elements.boardReady.textContent, /可發射/);
   assert.match(elements.boardTurretRaw.textContent, /沒偵測到磁鐵/);
+  assert.equal(elements.boardTurret.textContent, '--');            // no magnet: no angle
   clock.t += 100; line(telFull(0, 0, 0, 0x20, 0));
   assert.equal(elements.boardTurret.textContent, '--');
   assert.match(elements.boardTurretRaw.textContent, /沒讀到感測器/);
   clock.t += 100; line(telFull(0, 0, 4000, 0x13, 853, 2));
   assert.match(elements.boardReady.textContent, /只在半自動／全自動/);
   assert.match(elements.boardTurretRaw.textContent, /圈數不可信/);
+  assert.equal(elements.boardTurret.textContent, '--');            // turns lost: no angle
   // "Too weak" with the magnet seen: a warning, the angle still shows (2026-10-31).
   clock.t += 100; line(telFull(0, 0, 159, 0x07, 0));
   assert.equal(elements.boardTurret.textContent, '0.0°');
   assert.equal(elements.boardTurretRaw.textContent, 'raw 159 · 磁鐵太遠（讀值可用，只警告）');
   clock.t += 100; line(telFull(0, 0, 159, 0x05, 0));            // too weak, no magnet seen
   assert.match(elements.boardTurretRaw.textContent, /沒偵測到磁鐵/);
+  assert.equal(elements.boardTurret.textContent, '--');            // no magnet: no angle
   // A ground on another channel table: the event, plus what to do.
   event('LINK_VERSION_MISMATCH');
   assert.match(elements.log.textContent, /通道表版本不一致/);
