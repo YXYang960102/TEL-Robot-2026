@@ -6074,3 +6074,32 @@ No hardware.
   unpowered; a 10 kΩ pull-down on D23 is suggested.
 - The belt skipped teeth while the turret was turned by hand, which
   shifted 0 by 6.2°. Re-set the home point after any skip.
+
+## 2026-10-31 — Claude Code: turret guard switched off until the magnet reads
+
+**User Request:** turn the AS5600 function off for now. On the robot the
+magnet reads AGC 128 (the 3.3 V-mode maximum) and magnitude ~150, i.e.
+no magnet. The guard therefore kept the turret locked as 位置未知, so the
+turret could not be driven at all.
+
+**Changed:**
+- `TurretAngleConstants::GUARD_ENABLED = false`.
+- `Shooter::driveRotate` writes the command straight through (the
+  behaviour before c0d2197). No return-to-0 on Enable; `THOME` is ignored.
+- `getTurretState()` = 7 (new `TurretGuard::OFF`). The Dashboard shows
+  「轉台保護關閉：沒有軟限位，手動操作注意 +36° / −136°」.
+- Kept: the AS5600 reading, AGC / magnitude, raw / angle display, TZERO
+  and EEPROM saving. They are display-only while the guard is off.
+- Also e59931b: no raw value on the Dashboard without a magnet or after a
+  failed read.
+
+**Impact:** Mega only. **No soft limits**: the operator must keep the
+turret inside +36 / −136 by eye.
+
+**Evidence:** Dashboard page / control, manual_control and rc_control_map
+PASS; pio production + 3 wired benches (RAM 48.8 %). No hardware.
+
+**Next Test:** flash the Mega with the turret motor unpowered. The state
+line shows 轉台保護關閉; after Enable + Y the D-pad jogs the turret.
+Re-enable later: fix the magnet → 設為歸位點 → `GUARD_ENABLED` true →
+confirm `RIGHT_COMMAND_SIGN`.

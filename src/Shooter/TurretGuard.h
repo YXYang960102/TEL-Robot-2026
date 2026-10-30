@@ -29,6 +29,7 @@ public:
         READY = 4,
         AT_RIGHT = 5,    // ready, at the right limit
         AT_LEFT = 6,     // ready, at the left limit
+        OFF = 7,         // guard switched off (TurretAngleConstants::GUARD_ENABLED)
     };
 
     struct Inputs {

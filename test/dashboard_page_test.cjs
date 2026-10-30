@@ -1170,6 +1170,8 @@ async function emergencyStopViaEnter() {
   assert.match(run('log.textContent'), /只能用 USB 有線連 Mega/);
   clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',0,0,-1,0,4');     // the Mega's USB again
   assert.equal(elements.boardTurretGuard.textContent, '正常 · 限位 −136°～+36°');
+  clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',0,0,-1,0,7');     // guard switched off
+  assert.match(elements.boardTurretGuard.textContent, /^轉台保護關閉/);
   run('controlArmed = true');
   await run('setTurretZero()');
   assert.equal(writes.length, 0);

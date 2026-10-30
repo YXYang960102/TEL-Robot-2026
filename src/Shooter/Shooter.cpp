@@ -133,7 +133,7 @@ void Shooter::setOutputsEnabled(bool enabled) {
     if (!DRIVES_AXES) {
         enabled = false; // drive-only bench: the shooter never enables
     }
-    if (enabled && !outputsEnabled && !turretReturnDone) {
+    if (TurretAngleConstants::GUARD_ENABLED && enabled && !outputsEnabled && !turretReturnDone) {
         turretGuard.beginReturn(); // first Enable after power-up: back to 0 deg
     }
     outputsEnabled = enabled;
@@ -144,17 +144,21 @@ void Shooter::setOutputsEnabled(bool enabled) {
 }
 
 void Shooter::requestTurretReturn() {
-    turretGuard.beginReturn();
+    if (TurretAngleConstants::GUARD_ENABLED) turretGuard.beginReturn();
 }
 
 uint8_t Shooter::getTurretState() {
-    return turretGuard.state();
+    return TurretAngleConstants::GUARD_ENABLED ? turretGuard.state() : TurretGuard::OFF;
 }
 
 // Every turret command while enabled goes through the guard: soft limits,
 // locked while the angle is unknown, the return to 0 deg (which replaces
 // the command), the direction check.
 void Shooter::driveRotate(double command) {
+    if (!TurretAngleConstants::GUARD_ENABLED) {
+        writeRotateCommand(command); // guard off: straight through, as before
+        return;
+    }
     TurretGuard::Inputs in;
     in.absolute = TurretAngle::isAbsolute();
     in.healthy = TurretAngle::isHealthy();

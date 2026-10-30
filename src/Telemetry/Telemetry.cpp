@@ -170,7 +170,8 @@ void Telemetry::update() {
     Serial.print(",");
     // Slot 49 (2026-10-31): the turret guard's state (TurretGuard::State:
     // 0 angle unknown, 1 sensor, 2 direction fault -- all three locked --,
-    // 3 returning to 0, 4 ready, 5 / 6 at the right / left limit).
+    // 3 returning to 0, 4 ready, 5 / 6 at the right / left limit, 7 guard
+    // switched off).
     Serial.print(Shooter::getTurretState());
     Serial.print(",");
     // Slots 50-51 (2026-10-31): AS5600 magnet strength for setting the
