@@ -2056,7 +2056,7 @@
     // Enable. The limits shown are TurretAngleConstants::LIMIT_*_DEG
     // (keep them in step).
     const TURRET_STATE_TEXT = {
-      0: "位置未知：轉台鎖住（沒有歸位點，或開機時不在歸位點 ±20° 內）",
+      0: "位置未知：轉台鎖住（沒有歸位點，或開機時不在歸位點 ±25° 內）",
       1: "AS5600 異常：轉台鎖住",
       2: "方向錯誤：轉台鎖住（INVERTED / RIGHT_COMMAND_SIGN 不對，改好後重開機）",
       3: "回正中（轉回 0°）",
@@ -2069,7 +2069,7 @@
     // booted outside the home window; TurretAngle.h).
     const TURRET_UNKNOWN_TEXT = {
       noHome: "沒有歸位點：轉台鎖住。轉到歸位記號，Disable 時按「設為歸位點」",
-      outside: "開機時不在歸位點 ±20° 內：轉台鎖住。Disable，用手轉回歸位記號附近，再重開機",
+      outside: "開機時不在歸位點 ±25° 內：轉台鎖住。Disable，用手轉回歸位記號附近，再重開機",
     };
     let turretStateShown = NaN;
     let turretStatusShown = NaN;

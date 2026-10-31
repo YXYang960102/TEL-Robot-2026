@@ -55,7 +55,7 @@ constexpr bool GUARD_ENABLED = true;
 // Outside the window the turret stays locked (turn it back, reboot).
 // NOT caught: a turret left a whole magnet turn away (about 73 or 146
 // deg) reads like one near home -- turn it back to the mark every time.
-constexpr double HOME_WINDOW_DEG = 20.0;
+constexpr double HOME_WINDOW_DEG = 25.0; // 20 until 2026-10-31 (Jeremy: +-25)
 static_assert(HOME_WINDOW_DEG > 0.0 && HOME_WINDOW_DEG < 36.0,
               "the window must lie within half a magnet turn (36.5 deg)");
 

@@ -6216,3 +6216,17 @@ command sign locks after 200 ms / 7.8°. **Not on hardware.**
    at +38.5 (到右限位). A wrong sign shows 方向錯誤 and locks.
 3. Left to −166.
 4. RB from about 60° → back to 0, wired and over the radio.
+
+## 2026-10-31 — Claude Code: boot window ±25° (was ±20°)
+
+**User Request:** hand-turning back to within ±20° is too tight; use ±25°.
+
+**Changed:** `HOME_WINDOW_DEG` 20 → 25; Dashboard texts 「±25° 內」.
+
+**Trade-off:** with window W, a forgotten turret is caught between W and
+73 − W: 25–48° now (was 20–53°). Beyond about 48° it aliases into the
+window undetected.
+
+**Evidence:** Dashboard page test PASS; pio production OK; boot-window PC
+simulation (25 → locked at the edge, −45 → reads +28 → locked, −60 / −73 /
+−89 alias → accepted). No hardware.

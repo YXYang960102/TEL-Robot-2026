@@ -1159,7 +1159,7 @@ async function emergencyStopViaEnter() {
   clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',0,0,-1,0,5');
   assert.equal(elements.boardTurretGuard.textContent, '到右限位 +38.5°（只能往左）');
   clock.t += 100; line(telFull(0, 0, 159, 0x83, 0) + ',0,0,-1,0,0');   // booted outside the window
-  assert.match(elements.boardTurretGuard.textContent, /^開機時不在歸位點 ±20° 內/);
+  assert.match(elements.boardTurretGuard.textContent, /^開機時不在歸位點 ±25° 內/);
   clock.t += 100; line(telFull(0, 0, 159, 0x03, 0) + ',0,0,-1,0,0');   // no home point saved
   assert.match(elements.boardTurretGuard.textContent, /^沒有歸位點/);
   line('$SEEN,1,16,1,0,3,-1,0');                                     // radio: no 0x80 bit
