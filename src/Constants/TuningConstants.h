@@ -157,7 +157,7 @@ constexpr double ELEVATION_READY_TOLERANCE_US = 10.0;
 
 // Full auto cycle (Jeremy 2026-10-31; full auto = the Orin's own pick):
 // the first hole fired at stays chosen (or the operator's hole); after
-// SHOTS_PER_HOLE balls Auto moves on in OperatorTarget::cycleHole order --
+// SHOTS_PER_HOLE balls Auto moves on in OperatorTarget::buildCycle order --
 // a snake, one hole per move: from 5: 5 8 2, 1 4 7, 9 6 3, then the bonus
 // row Q W E (from a bonus start: the bonus row only) -- skipping
 // holes with no shot table. After the last one it stops firing (stays
@@ -165,6 +165,12 @@ constexpr double ELEVATION_READY_TOLERANCE_US = 10.0;
 // the mode changes. Counts trigger pulses sent to the tower, one ball each.
 constexpr bool ROW_CYCLE_ENABLED = true;
 constexpr uint8_t SHOTS_PER_HOLE = 3;
+// Holes full auto never fires at (bit n = Dashboard hole n). Jeremy
+// 2026-10-31: the bottom row 1 / 4 / 7 out for now. The cycle drops a row
+// that is all out (from 5: 5 8 2, 3 6 9, E W Q); an excluded hole the
+// Orin picks is swapped for the nearest allowed one in its column (4 ->
+// 5). Semi-auto is not affected. 0 = none out.
+constexpr uint16_t FULL_AUTO_EXCLUDED_HOLES = (1u << 1) | (1u << 4) | (1u << 7);
 // A lit bonus hole (the Orin's red-ring detection, frame field 9) comes
 // first in full auto: SHOTS_PER_HOLE balls at it, then the cycle carries
 // on where it stopped. The same box fires again only after it has been

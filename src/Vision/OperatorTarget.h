@@ -87,52 +87,67 @@ constexpr uint8_t cycleRow(uint8_t startRow, uint8_t i) {
          : startRow == 0 ? i
                          : static_cast<uint8_t>(2 - i);
 }
-// Column of the j-th hole (0..2) of the k-th row from start column c0.
-// Row 0: middle -> 1 2 0, left -> 0 1 2, right -> 2 1 0; it ends at the
-// left edge unless it started there. Later rows start where the previous
-// ended (rows 1, 3: that edge; row 2: the other) and sweep across.
-constexpr uint8_t firstRowEndColumn(uint8_t c0) {
-    return c0 == 0 ? 2 : 0;
+
+constexpr uint8_t MAX_CYCLE = 12;
+
+// The cycle from `start` into out[] (returns its length). Rows whose three
+// holes are all in excludedHoles (bit n = hole n, e.g. full auto's
+// TuningConstants::Auto::FULL_AUTO_EXCLUDED_HOLES) are dropped and the
+// snake carries on from the row before, so moves stay one hole: with the
+// bottom row out, from 5: 5 8 2, 3 6 9, E W Q. Single excluded holes in a
+// kept row stay listed (Auto skips them like holes without a table).
+inline uint8_t buildCycle(uint8_t start, uint16_t excludedHoles, uint8_t out[MAX_CYCLE]) {
+    if (start < 1 || start > LAST_HOLE) return 0;
+    const uint8_t startRow = rowOf(start);
+    uint8_t rows[4];
+    uint8_t rowCount = 0;
+    const uint8_t candidates = startRow == 3 ? 1 : 4;
+    for (uint8_t i = 0; i < candidates; i++) {
+        const uint8_t row = startRow == 3 ? 3 : cycleRow(startRow, i);
+        bool anyAllowed = i == 0; // the start row always
+        for (uint8_t c = 0; c < 3; c++) {
+            if (!(excludedHoles & (1u << holeAt(row, c)))) anyAllowed = true;
+        }
+        if (anyAllowed) rows[rowCount++] = row;
+    }
+    uint8_t count = 0;
+    const uint8_t c0 = columnOf(start);
+    // Row 0: middle -> 1 2 0, left -> 0 1 2, right -> 2 1 0.
+    for (uint8_t j = 0; j < 3; j++) {
+        const uint8_t col = c0 == 1 ? static_cast<uint8_t>((1 + j) % 3)
+                          : c0 == 0 ? j : static_cast<uint8_t>(2 - j);
+        out[count++] = holeAt(rows[0], col);
+    }
+    uint8_t endColumn = c0 == 0 ? 2 : 0;
+    // Later rows: from the column the previous one ended in, across.
+    for (uint8_t k = 1; k < rowCount; k++) {
+        for (uint8_t j = 0; j < 3; j++) {
+            out[count++] = holeAt(rows[k], endColumn == 0 ? j : static_cast<uint8_t>(2 - j));
+        }
+        endColumn = static_cast<uint8_t>(2 - endColumn);
+    }
+    return count;
 }
-constexpr uint8_t cycleColumn(uint8_t c0, uint8_t k, uint8_t j) {
-    return k == 0 ? (c0 == 1 ? static_cast<uint8_t>((1 + j) % 3)
-                    : c0 == 0 ? j
-                              : static_cast<uint8_t>(2 - j))
-         : ((k % 2 == 1 ? firstRowEndColumn(c0) : static_cast<uint8_t>(2 - firstRowEndColumn(c0))) == 0
-                ? j
-                : static_cast<uint8_t>(2 - j));
-}
-constexpr uint8_t cycleLength(uint8_t start) {
-    return (start >= FIRST_BONUS_HOLE && start <= LAST_HOLE) ? 3 : (start >= 1 && start <= 9) ? 12 : 0;
-}
-constexpr uint8_t cycleHole(uint8_t start, uint8_t index) {
-    return index >= cycleLength(start) ? NONE
-         : holeAt(rowOf(start) == 3 ? 3 : cycleRow(rowOf(start), static_cast<uint8_t>(index / 3)),
-                  cycleColumn(columnOf(start), static_cast<uint8_t>(index / 3), static_cast<uint8_t>(index % 3)));
+
+// The hole to start from instead of an excluded one the Orin picked: the
+// same column, the nearest allowed grid row (above first); NONE if none.
+// With the bottom row out: 4 -> 5, 1 -> 2, 7 -> 8.
+inline uint8_t nearestAllowedInColumn(uint8_t hole, uint16_t excludedHoles) {
+    if (hole < 1 || hole > 9) return NONE;
+    const uint8_t row = rowOf(hole);
+    const uint8_t col = columnOf(hole);
+    const int8_t order[4] = {1, 2, -1, -2};
+    for (uint8_t i = 0; i < 4; i++) {
+        const int r = row + order[i];
+        if (r < 0 || r > 2) continue;
+        const uint8_t candidate = holeAt(static_cast<uint8_t>(r), col);
+        if (!(excludedHoles & (1u << candidate))) return candidate;
+    }
+    return NONE;
 }
 
 static_assert(holeForVisionId(10) == 1 && holeForVisionId(8) == 5 && holeForVisionId(2) == 11 &&
               holeForVisionId(0) == NONE && holeForVisionId(13) == NONE,
               "inverse of visionIdForHole");
-static_assert(cycleHole(5, 0) == 5 && cycleHole(5, 1) == 8 && cycleHole(5, 2) == 2 &&
-              cycleHole(5, 3) == 1 && cycleHole(5, 4) == 4 && cycleHole(5, 5) == 7 &&
-              cycleHole(5, 6) == 9 && cycleHole(5, 7) == 6 && cycleHole(5, 8) == 3 &&
-              cycleHole(5, 9) == 10 && cycleHole(5, 10) == 11 && cycleHole(5, 11) == 12 &&
-              cycleHole(5, 12) == NONE,
-              "from 5: 5 8 2, 1 4 7, 9 6 3, Q W E -- one hole per move");
-static_assert(cycleHole(4, 0) == 4 && cycleHole(4, 2) == 1 && cycleHole(4, 3) == 2 &&
-              cycleHole(4, 5) == 8 && cycleHole(4, 6) == 9 && cycleHole(4, 8) == 3 &&
-              cycleHole(4, 9) == 10,
-              "from 4: 4 7 1, 2 5 8, 9 6 3, Q W E");
-static_assert(cycleHole(3, 0) == 3 && cycleHole(3, 2) == 9 && cycleHole(3, 3) == 8 &&
-              cycleHole(3, 5) == 2 && cycleHole(3, 6) == 1 && cycleHole(3, 8) == 7 &&
-              cycleHole(3, 9) == 12 && cycleHole(3, 11) == 10,
-              "from 3: 3 6 9, 8 5 2, 1 4 7, E W Q");
-static_assert(cycleHole(7, 0) == 7 && cycleHole(7, 2) == 1 && cycleHole(7, 3) == 2 &&
-              cycleHole(7, 6) == 9,
-              "from 7: 7 4 1, 2 5 8, 9 6 3");
-static_assert(cycleHole(11, 0) == 11 && cycleHole(11, 1) == 12 && cycleHole(11, 2) == 10 &&
-              cycleHole(11, 3) == NONE && cycleHole(0, 0) == NONE,
-              "a bonus start: the bonus row only");
 
 }  // namespace OperatorTarget

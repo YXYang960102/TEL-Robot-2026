@@ -857,26 +857,26 @@ void testFullAutoRowCycle() {
     reset();
     hoststub::visionReady = true;
     targetInView();
-    hoststub::visionTargetId = 11;                        // the Orin picked hole 4 (middle bottom)
+    hoststub::visionTargetId = 8;                         // the Orin picked hole 5 (center)
     armWired();
     send("M"); send("M"); step();                         // full auto, no hole chosen
     assert(Auto::getAimTarget() == 0);
     runArmed(6000);                                       // elevation to the table first
     hoststub::shooterReady = true;
     assert(runUntilShots(1, 3000) == 1);
-    assert(Auto::getAimTarget() == 4 && Auto::getRowShots() == 1);   // pinned to it
-    // A snake, one hole per move: 4 7 1 (bottom, right then the far
-    // left), 2 5 8 (from right above 1), 9 6 3 (from right above 8), then
-    // the bonus row Q W E (from above 3).
-    const uint8_t order[] = {4, 7, 1, 2, 5, 8, 9, 6, 3, 10, 11, 12};
+    assert(Auto::getAimTarget() == 5 && Auto::getRowShots() == 1);   // pinned to it
+    // A snake, one hole per move, with the bottom row out in full auto
+    // (FULL_AUTO_EXCLUDED_HOLES, 2026-10-31): 5 8 2, then 3 6 9 (from
+    // right above 2), then the bonus row E W Q (from above 9).
+    const uint8_t order[] = {5, 8, 2, 3, 6, 9, 12, 11, 10};
     for (unsigned i = 0; i < sizeof order; i++) {
         const unsigned long done = 3 * i;
         if (i > 0) assert(runUntilShots(done, 10000) == done);
         // (each hole with a table: own, or its row center's -- W's for Q / E)
         assert(Auto::getAimTarget() == order[i] || Auto::isRowDone());
     }
-    assert(runUntilShots(36, 12000) == 36);
-    assert(Auto::isRowDone() && Auto::getAimTarget() == 12);
+    assert(runUntilShots(27, 12000) == 27);
+    assert(Auto::isRowDone() && Auto::getAimTarget() == 10);
     assert(shotsDuring(3000) == 0);                       // all done: holds fire
     // A hole key starts over from that hole.
     send("TGT,8"); step();                                // right middle
@@ -888,6 +888,23 @@ void testFullAutoRowCycle() {
     // Semi-auto: no cycle, the operator's hole.
     send("MODE,1"); step();
     assert(Auto::getAimTarget() == 8 && !Auto::isRowDone() && Auto::getRowShots() == 0);
+
+    // The bottom row is out in full auto: the Orin picking 4 is swapped for
+    // 5 right away (nothing fired at 4); a chosen 4 starts past its row.
+    reset();
+    hoststub::visionReady = true;
+    targetInView();
+    hoststub::visionTargetId = 11;                        // the Orin picked hole 4
+    hoststub::shooterReady = true;
+    armWired();
+    send("M"); send("M"); step();                         // full auto
+    assert(Auto::getAimTarget() == 5);
+    hoststub::visionTargetId = 11;                        // still on 4 (not following yet)
+    assert(shotsDuring(8000) == 0);                       // never fired at an excluded hole
+    send("TGT,4"); step();
+    assert(Auto::getAimTarget() == 2);                    // 4 7 1 out: 2 5 8 next
+    send("MODE,1"); step();                               // semi-auto: 4 is the operator's
+    assert(Auto::getAimTarget() == 4);
 }
 
 void testFullAutoLitBonusFirst() {
@@ -1291,8 +1308,8 @@ void testShotTableByHeight() {
     assert(nearly(rec.flywheelCommand, TuningConstants::Flywheel::SHOOT_COMMAND));
     hoststub::visionTargetId = 13;                        // an unknown id: no table
     assert(shotsDuring(2500) == 0);
-    hoststub::visionTargetId = 11;                        // bottom row: fired at
-    assert(shotsDuring(4000) >= 2);                       // once the elevation is there (2026-10-31)
+    hoststub::visionTargetId = 8;                         // middle row: fired at (the bottom row
+    assert(shotsDuring(4000) >= 2);                       // is out in full auto, 2026-10-31)
 }
 
 void testFineAdjustWired() {

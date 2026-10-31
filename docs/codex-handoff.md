@@ -6539,3 +6539,38 @@ A hole the Orin cannot see or predict still stalls the cycle.
 
 **Evidence:** manual_control (3 builds), operator_target and Dashboard
 PASS; pio production OK. No hardware.
+
+## 2026-10-31 — Claude Code: full auto leaves out the bottom row (1 4 7) for now
+
+**User Request:** don't put 1 / 4 / 7 among full auto's targets for now.
+
+**Changed:**
+- `TuningConstants::Auto::FULL_AUTO_EXCLUDED_HOLES` = holes 1 | 4 | 7
+  (bit n = hole n; 0 = none out).
+- `OperatorTarget::buildCycle(start, excluded, out[12])` replaces the
+  constexpr `cycleHole`. It is the same snake, but a row whose holes are
+  all excluded is dropped and the snake carries on from the row before,
+  so moves stay one hole:
+  - from 5: 5 8 2, 3 6 9, E W Q;
+  - from 9: 9 6 3, 2 5 8, E W Q.
+- `nearestAllowedInColumn()`: an excluded pick is swapped for the nearest
+  allowed hole in its column, above first (4 → 5, 1 → 2, 7 → 8).
+- `Auto`:
+  - `startCycle()` builds the list;
+  - the skip passes excluded holes as well as holes with no table;
+  - an Orin pick on an excluded hole starts the cycle at the swapped hole
+    at once;
+  - fire guard: full auto never fires when the frame's hole is excluded.
+  - Semi-auto is untouched.
+
+**Evidence:**
+- operator_target: snake orders from 5 / 4 / 3 / 7 / W, with the bottom
+  row out from 5 / 9 / 4, and the swaps.
+- manual_control (3 builds):
+  - the full cycle 5 8 2 3 6 9 E W Q → done after 27 balls;
+  - a pick on 4 aims at 5 at once and never fires at 4;
+  - TGT,4 starts at 2;
+  - semi keeps 4.
+- shot_table, vision_link and Dashboard PASS; pio production + 3 wired
+  benches.
+- No hardware.

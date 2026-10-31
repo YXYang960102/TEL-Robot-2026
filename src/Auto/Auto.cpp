@@ -27,6 +27,8 @@ uint8_t Auto::rowStartHole = 0;
 uint8_t Auto::rowStep = 0;
 uint8_t Auto::rowShots = 0;
 bool Auto::rowDone = false;
+uint8_t Auto::cycleHoles[12] = {0};
+uint8_t Auto::cycleLength = 0;
 uint8_t Auto::lastCycleHole = 0;
 bool Auto::litActive = false;
 uint8_t Auto::litHole = 0;
@@ -73,11 +75,16 @@ namespace {
 bool hasShotTable(uint8_t hole) {
     return TuningConstants::ShotTable::tableForVisionId(OperatorTarget::visionIdForHole(hole)).entries != nullptr;
 }
+
+// A hole full auto never fires at (TuningConstants::Auto::FULL_AUTO_EXCLUDED_HOLES).
+bool excludedInFullAuto(uint8_t hole) {
+    return hole <= 15 && (TuningConstants::Auto::FULL_AUTO_EXCLUDED_HOLES & (1u << hole)) != 0;
+}
 }  // namespace
 
 uint8_t Auto::getAimTarget() {
     if (litActive) return litHole;
-    if (rowActive) return rowDone ? lastCycleHole : OperatorTarget::cycleHole(rowStartHole, rowStep);
+    if (rowActive) return rowDone ? lastCycleHole : cycleHoles[rowStep];
     return ManualControl::getTarget();
 }
 
@@ -138,31 +145,46 @@ void Auto::updateRowCycle(OperatorMode mode) {
         }
     }
     if (ROW_CYCLE_ENABLED && !rowActive && !rowDone && ManualControl::getTarget() != OperatorTarget::NONE) {
-        rowActive = true;
-        rowStartHole = ManualControl::getTarget();
-        rowStep = 0;
-        rowShots = 0;
-        skipHolesWithoutTable();
+        startCycle(ManualControl::getTarget());
+    }
+    // The Orin's own pick on an excluded hole: never fired at; start the
+    // cycle at the nearest allowed hole of that column instead (4 -> 5).
+    if (ROW_CYCLE_ENABLED && !rowActive && !rowDone && Vision::isValid()) {
+        const uint8_t picked = OperatorTarget::holeForVisionId(Vision::getTargetId());
+        if (excludedInFullAuto(picked)) {
+            const uint8_t instead = OperatorTarget::nearestAllowedInColumn(picked, FULL_AUTO_EXCLUDED_HOLES);
+            if (instead != OperatorTarget::NONE) startCycle(instead);
+        }
     }
 }
 
-// Past cycle positions whose hole has no shot table (Auto could never fire
-// there); off the end = the cycle is done.
+void Auto::startCycle(uint8_t hole) {
+    rowActive = true;
+    rowStartHole = hole;
+    rowStep = 0;
+    rowShots = 0;
+    lastCycleHole = hole;
+    cycleLength = OperatorTarget::buildCycle(hole, TuningConstants::Auto::FULL_AUTO_EXCLUDED_HOLES, cycleHoles);
+    skipHolesWithoutTable();
+}
+
+// Past cycle positions full auto can't fire at (no shot table, or an
+// excluded hole); off the end = the cycle is done.
 void Auto::skipHolesWithoutTable() {
-    const uint8_t length = OperatorTarget::cycleLength(rowStartHole);
-    while (rowStep < length && !hasShotTable(OperatorTarget::cycleHole(rowStartHole, rowStep))) {
+    while (rowStep < cycleLength &&
+           (!hasShotTable(cycleHoles[rowStep]) || excludedInFullAuto(cycleHoles[rowStep]))) {
         rowStep++;
     }
-    if (rowStep >= length) {
+    if (rowStep >= cycleLength) {
         rowDone = true;
     } else {
-        lastCycleHole = OperatorTarget::cycleHole(rowStartHole, rowStep);
+        lastCycleHole = cycleHoles[rowStep];
     }
 }
 
 // One ball sent in full auto. A lit bonus hole first: SHOTS_PER_HOLE at
 // it, then back to the cycle as it was. Otherwise SHOTS_PER_HOLE at a
-// hole, then the next one in cycleHole order; after the last, done.
+// hole, then the next one in buildCycle order; after the last, done.
 // Example: the Orin picked vision id 8 (hole 5): 5 8 2, 1 4 7, 9 6 3,
 // Q W E -- 36 balls with every hole on a table.
 void Auto::countRowShot() {
@@ -178,11 +200,7 @@ void Auto::countRowShot() {
     if (!rowActive) {
         const uint8_t hole = OperatorTarget::holeForVisionId(Vision::getTargetId());
         if (hole == OperatorTarget::NONE) return;
-        rowActive = true;
-        rowStartHole = hole;
-        rowStep = 0;
-        rowShots = 0;
-        lastCycleHole = hole;
+        startCycle(hole);
     }
     if (++rowShots < SHOTS_PER_HOLE) return;
     rowShots = 0;
@@ -342,7 +360,11 @@ void Auto::update() {
     // elevation at that shot's pulse.
     const bool shotAvailable = Vision::isValid() &&
         (hasTarget || (holding && Vision::getTargetId() == lastShotTargetId));
-    const bool ready = Shooter::isReady() && shotAvailable && elevationArrived;
+    // Full auto never fires at an excluded hole (FULL_AUTO_EXCLUDED_HOLES),
+    // whatever picked it.
+    const bool holeAllowed = mode != OperatorMode::FULL_AUTO ||
+        !excludedInFullAuto(OperatorTarget::holeForVisionId(Vision::getTargetId()));
+    const bool ready = Shooter::isReady() && shotAvailable && elevationArrived && holeAllowed;
     bool fired = false;
 
     if (fireState == FireState::IDLE) {
