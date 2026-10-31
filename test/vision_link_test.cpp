@@ -176,6 +176,23 @@ int main() {
     orin("700,-40,0,2,2,48,-1,0");
     tick();
     assert(Vision::isPredicted() && Vision::getRingPercent() == -1);
+    // 2026-10-31: field 9, the lit bonus hole (vision id 1-3, 0 none) --
+    // kept whatever hole the frame is about; 6 / 8 fields = none.
+    orin("-30,-200,2900,5,1,2,62,60,3");                // another hole's frame
+    tick();
+    assert(!Vision::isValid() && Vision::getLitBonusId() == 3);
+    orin("-30,-200,2900,2,1,2,62,60,0");
+    tick();
+    assert(Vision::isValid() && Vision::getLitBonusId() == 0);
+    orin("-30,-200,2900,2,1,2,62,60,2");
+    tick();
+    assert(Vision::getLitBonusId() == 2);
+    orin("-30,-200,2900,2,1,2,62,60");                   // 8 fields: none
+    tick();
+    assert(Vision::getLitBonusId() == 0);
+    orin("-30,-200,2900,2,1,2,62,60,4");                 // out of range: refused
+    tick();
+    assert(!Vision::isValid());
     // Stale link: no prediction, no mask.
     for (int i = 0; i < 35; i++) tick(10);
     assert(!Vision::isPredicted() && Vision::getSeenMask() == 0);

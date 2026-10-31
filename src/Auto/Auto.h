@@ -14,12 +14,15 @@
 //
 // Target: the operator's hole (keys 1-9) in both auto modes; Vision only
 // passes on that hole's frames (the Orin is told which via MEGA_TARGET).
-// No hole selected = the Orin's own pick. Full auto row cycle (2026-10-31,
+// No hole selected = the Orin's own pick. Full auto cycle (2026-10-31,
 // TuningConstants::Auto::ROW_CYCLE_ENABLED): 3 balls at a hole, then the
-// next hole of that row to the right (wrapping), then stop after the row
-// -- starting from the chosen hole, or from the first hole shot at when
-// the Orin picks (getAimTarget(), handed to Vision by main.cpp). Either
-// way the frame's id picks
+// next in OperatorTarget::cycleHole order (that row to the right /
+// wrapping, the row below, the row above, then the bonus row), skipping
+// holes without a shot table, then stop -- starting from the chosen hole,
+// or from the first hole shot at when the Orin picks. A lit bonus hole
+// (Vision::getLitBonusId) is served first, 3 balls (LIT_BONUS_PRIORITY).
+// getAimTarget() is handed to Vision by main.cpp. Either way the frame's
+// id picks
 // the shot table for that hole's height (TuningConstants::ShotTable: bottom,
 // middle, top, bonus) plus the hole's elevation trim. A target needs a
 // depth distance (> 0) and a table to be shot at.
@@ -54,7 +57,9 @@ public:
     // done (full auto holds fire), for the Dashboard (TEL slots 53-55).
     static uint8_t getAimTarget();
     static uint8_t getRowShots();
-    static bool isRowDone();
+    static bool isRowDone();      // the whole cycle (not one row)
+    // A lit bonus hole being served first (Dashboard hole 10-12, 0 = none).
+    static uint8_t getLitPriorityHole();
 
 private:
     enum class FireState {
@@ -67,13 +72,20 @@ private:
     static void enterFireState(FireState next);
     static void updateRowCycle(OperatorMode mode);
     static void countRowShot();
+    static void skipHolesWithoutTable();
 
     static bool rowActive;
     static uint8_t rowStartHole;
-    static uint8_t rowStep;      // 0..2: holes moved on from the start
+    static uint8_t rowStep;      // index into OperatorTarget::cycleHole
     static uint8_t rowShots;     // at the current hole
     static bool rowDone;
+    static uint8_t lastCycleHole;
     static uint16_t rowSelectSeq;
+    static bool litActive;
+    static uint8_t litHole;
+    static uint8_t litShots;
+    static uint8_t litServedMask; // bit vision id 1-3: served, waiting to go dark
+    static unsigned long litLastSeenMs[4];
     static OperatorMode rowMode;
 
     static FireState fireState;

@@ -51,5 +51,6 @@ extern int flywheelPulseUs;   // Shooter::getFlywheelPulseUs()
 extern bool shooterReady;     // Shooter::isReady() (turret locked && flywheel up)
 extern bool turretZeroOk;     // TurretAngle::setZeroHere()
 extern uint8_t turretState;   // Shooter::getTurretState()
+extern uint8_t litBonusId;    // Vision::getLitBonusId()
 
 }

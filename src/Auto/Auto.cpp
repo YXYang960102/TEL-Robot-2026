@@ -27,6 +27,12 @@ uint8_t Auto::rowStartHole = 0;
 uint8_t Auto::rowStep = 0;
 uint8_t Auto::rowShots = 0;
 bool Auto::rowDone = false;
+uint8_t Auto::lastCycleHole = 0;
+bool Auto::litActive = false;
+uint8_t Auto::litHole = 0;
+uint8_t Auto::litShots = 0;
+uint8_t Auto::litServedMask = 0;
+unsigned long Auto::litLastSeenMs[4] = {0, 0, 0, 0};
 uint16_t Auto::rowSelectSeq = 0;
 OperatorMode Auto::rowMode = OperatorMode::FULL_MANUAL;
 
@@ -62,24 +68,39 @@ uint8_t Auto::getReadyBits() {
     return readyBits;
 }
 
+namespace {
+// A hole Auto can fire at: its own shot table or its row center's.
+bool hasShotTable(uint8_t hole) {
+    return TuningConstants::ShotTable::tableForVisionId(OperatorTarget::visionIdForHole(hole)).entries != nullptr;
+}
+}  // namespace
+
 uint8_t Auto::getAimTarget() {
-    return rowActive ? OperatorTarget::rowNeighbor(rowStartHole, rowStep) : ManualControl::getTarget();
+    if (litActive) return litHole;
+    if (rowActive) return rowDone ? lastCycleHole : OperatorTarget::cycleHole(rowStartHole, rowStep);
+    return ManualControl::getTarget();
 }
 
 uint8_t Auto::getRowShots() {
-    return rowActive ? rowShots : 0;
+    return litActive ? litShots : (rowActive ? rowShots : 0);
 }
 
 bool Auto::isRowDone() {
     return rowDone;
 }
 
-// Row cycle bookkeeping, every loop (TuningConstants::Auto::
-// ROW_CYCLE_ENABLED). Starts over on a mode change, a hole choice (wired:
+uint8_t Auto::getLitPriorityHole() {
+    return litActive ? litHole : 0;
+}
+
+// Cycle bookkeeping, every loop (TuningConstants::Auto::ROW_CYCLE_ENABLED,
+// LIT_BONUS_PRIORITY). Starts over on a mode change, a hole choice (wired:
 // even the same hole) and every disarm (= full manual). In full auto with a
 // hole chosen the cycle starts at that hole; with the Orin's own pick it
 // starts at the first hole shot (countRowShot), which then stays chosen.
+// A lit bonus hole (Vision::getLitBonusId) takes over first.
 void Auto::updateRowCycle(OperatorMode mode) {
+    using namespace TuningConstants::Auto;
     const uint16_t seq = ManualControl::getTargetSelectSeq();
     if (mode != rowMode || seq != rowSelectSeq) {
         rowMode = mode;
@@ -88,27 +109,72 @@ void Auto::updateRowCycle(OperatorMode mode) {
         rowDone = false;
         rowStep = 0;
         rowShots = 0;
+        litActive = false;
+        litServedMask = 0;
     }
-    if (!TuningConstants::Auto::ROW_CYCLE_ENABLED || mode != OperatorMode::FULL_AUTO) {
+    // A served lit box may fire again once it has been dark LIT_DARK_MS.
+    const unsigned long now = millis();
+    const uint8_t litId = Vision::getLitBonusId();
+    for (uint8_t id = 1; id <= 3; id++) {
+        if (litId == id) {
+            litLastSeenMs[id] = now;
+        } else if ((litServedMask & (1u << id)) && now - litLastSeenMs[id] > LIT_DARK_MS) {
+            litServedMask = static_cast<uint8_t>(litServedMask & ~(1u << id));
+        }
+    }
+    if (mode != OperatorMode::FULL_AUTO) {
         rowActive = false;
         rowDone = false;
+        litActive = false;
         return;
     }
-    if (!rowActive && !rowDone && ManualControl::getTarget() != OperatorTarget::NONE) {
+    if (LIT_BONUS_PRIORITY && !litActive && litId >= 1 && litId <= 3 &&
+        !(litServedMask & (1u << litId))) {
+        const uint8_t hole = OperatorTarget::holeForVisionId(litId);
+        if (hasShotTable(hole)) {
+            litActive = true;
+            litHole = hole;
+            litShots = 0;
+        }
+    }
+    if (ROW_CYCLE_ENABLED && !rowActive && !rowDone && ManualControl::getTarget() != OperatorTarget::NONE) {
         rowActive = true;
         rowStartHole = ManualControl::getTarget();
         rowStep = 0;
         rowShots = 0;
+        skipHolesWithoutTable();
     }
 }
 
-// One ball sent in full auto: SHOTS_PER_HOLE at a hole -> the next hole of
-// the row; after the third hole the row is done (no more firing).
-// Example: the Orin picked vision id 11 (hole 4): 3 shots there, then 7,
-// then 1, then done -- 9 balls.
+// Past cycle positions whose hole has no shot table (Auto could never fire
+// there); off the end = the cycle is done.
+void Auto::skipHolesWithoutTable() {
+    const uint8_t length = OperatorTarget::cycleLength(rowStartHole);
+    while (rowStep < length && !hasShotTable(OperatorTarget::cycleHole(rowStartHole, rowStep))) {
+        rowStep++;
+    }
+    if (rowStep >= length) {
+        rowDone = true;
+    } else {
+        lastCycleHole = OperatorTarget::cycleHole(rowStartHole, rowStep);
+    }
+}
+
+// One ball sent in full auto. A lit bonus hole first: SHOTS_PER_HOLE at
+// it, then back to the cycle as it was. Otherwise SHOTS_PER_HOLE at a
+// hole, then the next one in cycleHole order; after the last, done.
+// Example: the Orin picked vision id 8 (hole 5): 5 8 2, 4 7 1, 6 9 3,
+// W E Q -- 36 balls with every hole on a table.
 void Auto::countRowShot() {
     using namespace TuningConstants::Auto;
-    if (!ROW_CYCLE_ENABLED) return;
+    if (litActive) {
+        if (++litShots >= SHOTS_PER_HOLE) {
+            litActive = false;
+            litServedMask = static_cast<uint8_t>(litServedMask | (1u << OperatorTarget::visionIdForHole(litHole)));
+        }
+        return;
+    }
+    if (!ROW_CYCLE_ENABLED || rowDone) return;
     if (!rowActive) {
         const uint8_t hole = OperatorTarget::holeForVisionId(Vision::getTargetId());
         if (hole == OperatorTarget::NONE) return;
@@ -116,15 +182,12 @@ void Auto::countRowShot() {
         rowStartHole = hole;
         rowStep = 0;
         rowShots = 0;
+        lastCycleHole = hole;
     }
-    rowShots++;
-    if (rowShots < SHOTS_PER_HOLE) return;
-    if (rowStep + 1 >= 3) {
-        rowDone = true; // stays aimed at the last hole, holds fire
-        return;
-    }
-    rowStep++;
+    if (++rowShots < SHOTS_PER_HOLE) return;
     rowShots = 0;
+    rowStep++;
+    skipHolesWithoutTable(); // stays aimed at lastCycleHole once done
 }
 
 void Auto::init() {
@@ -295,7 +358,7 @@ void Auto::update() {
     if (fireState == FireState::READY) {
         if (!ready) {
             enterFireState(FireState::SPINNING_UP); // lost lock or spun down
-        } else if ((mode == OperatorMode::FULL_AUTO && !rowDone) || firePressed) {
+        } else if ((mode == OperatorMode::FULL_AUTO && (!rowDone || litActive)) || firePressed) {
             if (Dribbler::requestFeed()) {
                 ManualControl::reportEvent(RCMAP_EVENT_FEED_TRIGGER_SENT);
                 enterFireState(FireState::COOLDOWN);

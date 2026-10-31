@@ -437,6 +437,12 @@
       color: #fff;
     }
 
+    /* A lit bonus hole the camera sees (TEL 56, 2026-10-31): full auto
+       shoots it first. */
+    .hole-grid span.lit {
+      box-shadow: 0 0 0 4px var(--yellow) inset;
+    }
+
     .hole-grid span.seen::after {
       content: "";
       position: absolute;
@@ -711,7 +717,7 @@
           </div>
         </div>
         <div class="label" id="boardReady" style="padding: 0 12px 4px">發射條件：--</div>
-        <div class="label" style="padding: 0 12px 10px">灰＝沒偵測到、綠＝偵測到、藍＝鎖定中（綠點＝也偵測到）、紅框＝加分框、整格紅＝鎖定加分框。</div>
+        <div class="label" style="padding: 0 12px 10px">灰＝沒偵測到、綠＝偵測到、藍＝鎖定中（綠點＝也偵測到）、紅框＝加分框、整格紅＝鎖定加分框、黃框＝加分框亮了（全自動優先打 3 發）。</div>
       </section>
 
       <section class="panel" data-panel="vision" style="margin-top:14px">
@@ -999,6 +1005,8 @@
     let aimHole = 0;
     let rowShotsShown = 0;
     let rowDoneShown = false;
+    let litHoleShown = 0;      // TEL 56: the lit bonus hole the Orin sees
+    let litPriorityShown = 0;  // TEL 57: the one full auto serves first
     let autoPathThisEnable = 0;
     let autoPathsUsedMask = 0;
     let robotReportsTarget = false;  // TEL slots 32-34 seen
@@ -1538,10 +1546,13 @@
       let text = targetHole ? `${targetHole} · ${HOLE_NAMES[targetHole]}` : "none / 未選（AI 自選）";
       if (aimHole && aimHole !== targetHole) text += ` → 正在打 ${aimHole} · ${HOLE_NAMES[aimHole]}`;
       if (aimHole && operatorMode === 0) text += ` · 這洞已打 ${rowShotsShown}/3`;
-      if (rowDoneShown) text += " · 這排打完：選洞或換模式繼續";
+      if (litPriorityShown) text += " · 加分框亮了：優先打";
+      if (rowDoneShown) text += " · 全部打完：選洞或換模式重新開始";
       el.targetHole.textContent = text;
       for (let n = 1; n <= LAST_HOLE; n++) {
-        document.getElementById(`hole${n}`).classList.toggle("selected", n === shown);
+        const cell = document.getElementById(`hole${n}`);
+        cell.classList.toggle("selected", n === shown);
+        cell.classList.toggle("lit", n === litHoleShown);
       }
       el.autoPath.textContent = autoPathThisEnable
         ? `已啟動 ${AUTO_PATH_NAMES[autoPathThisEnable]}`
@@ -1907,7 +1918,10 @@
         // Slots 53-55 (2026-10-31): Auto's aim hole, balls at it, row done.
         aimHole: p.length > 53 ? Number(p[53]) : NaN,
         rowShots: p.length > 54 ? Number(p[54]) : NaN,
-        rowDone: p.length > 55 ? Number(p[55]) : NaN
+        rowDone: p.length > 55 ? Number(p[55]) : NaN,
+        // Slots 56-57 (2026-10-31): lit bonus hole seen / served first.
+        litHole: p.length > 56 ? Number(p[56]) : NaN,
+        litPriority: p.length > 57 ? Number(p[57]) : NaN
       };
     }
 
@@ -1950,6 +1964,8 @@
         aimHole = data.aimHole;
         rowShotsShown = Number.isFinite(data.rowShots) ? data.rowShots : 0;
         rowDoneShown = data.rowDone === 1;
+        litHoleShown = Number.isFinite(data.litHole) ? data.litHole : 0;
+        litPriorityShown = Number.isFinite(data.litPriority) ? data.litPriority : 0;
         renderTargetAndAuto();
       }
       if (Number.isFinite(data.turretState)) {

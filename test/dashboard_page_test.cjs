@@ -1120,10 +1120,14 @@ async function emergencyStopViaEnter() {
   assert.equal(run('aimHole'), 7);
   assert.match(elements.targetHole.textContent, /→ 正在打 7 · 右下 · 這洞已打 2\/3$/);
   clock.t += 100; line(telRow(1, 3, 1));
-  assert.match(elements.targetHole.textContent, /正在打 1 · 左下 · 這洞已打 3\/3 · 這排打完/);
+  assert.match(elements.targetHole.textContent, /正在打 1 · 左下 · 這洞已打 3\/3 · 全部打完/);
+  // A lit bonus hole served first (TEL 56-57).
+  clock.t += 100; line(telRow(11, 1, 0) + ',11,11');
+  assert.equal(run('litHoleShown'), 11);
+  assert.match(elements.targetHole.textContent, /正在打 11 · 加分中 · 這洞已打 1\/3 · 加分框亮了：優先打/);
   clock.t += 100; line(telRow(0, 0, 0));                         // AI pick, nothing pinned
   assert.equal(run('aimHole'), 0);
-  assert.doesNotMatch(elements.targetHole.textContent, /正在打|這排打完/);
+  assert.doesNotMatch(elements.targetHole.textContent, /正在打|全部打完|加分框亮了/);
   // "Too weak" with the magnet seen: a warning, the angle still shows (2026-10-31).
   clock.t += 100; line(telFull(0, 0, 159, 0x07, 0));
   assert.equal(elements.boardTurret.textContent, '0.0°');

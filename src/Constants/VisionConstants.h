@@ -19,6 +19,9 @@ constexpr unsigned long HEARTBEAT_INTERVAL_MS = 100;
 // turns toward it, never a lock or a shot); valid = 1 may come with
 // distance 0 (hole seen, depth failed this frame); MEGA_TARGET may carry
 // the bonus holes 1-3. Deploy with YOLO_Detect_single protocol v3.
+// Optional trailing fields, same version: ring_pct,ring_sectors
+// (2026-10-28) and lit_id (2026-10-31, the lit bonus hole); 6, 8 or 9
+// fields are accepted (Vision::parse).
 constexpr int PROTOCOL_VERSION = 3;
 // Follow predicted positions at most this long without the hole really
 // coming into view (no turret angle limits yet: never turn on forever).

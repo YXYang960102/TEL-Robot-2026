@@ -19,6 +19,7 @@ bool Vision::predicted = false;
 unsigned long Vision::predictedSinceMs = 0;
 uint16_t Vision::seenMask = 0;
 int8_t Vision::ringPercent = -1;
+uint8_t Vision::litBonusId = 0;
 uint8_t Vision::ringSectors = 0;
 bool Vision::hasPacket = false;
 bool Vision::sentReady = false;
@@ -62,6 +63,7 @@ void Vision::update() {
     if (hasPacket && millis() - lastPacketMs > Transport::PACKET_TIMEOUT_MS) {
         invalidateTarget();
         seenMask = 0;
+        litBonusId = 0;
     }
 
     if (orinState != OrinState::UNKNOWN &&
@@ -124,6 +126,10 @@ bool Vision::isPredicted() {
 
 uint16_t Vision::getSeenMask() {
     return seenMask;
+}
+
+uint8_t Vision::getLitBonusId() {
+    return isConnected() ? litBonusId : 0;
 }
 
 int8_t Vision::getRingPercent() {
@@ -200,14 +206,16 @@ bool Vision::parse(const String& input) {
         }
     }
     // v3: tx,ty,distance,target_id,valid,seen_mask -- optionally followed
-    // (2026-10-28) by ring_pct,ring_sectors, the depth ring's coverage
-    if (commaCount != 5 && commaCount != 7) return false;
+    // (2026-10-28) by ring_pct,ring_sectors, the depth ring's coverage, and
+    // (2026-10-31) lit_id, the lit bonus hole the Orin sees (vision id
+    // 1-3, 0 = none)
+    if (commaCount != 5 && commaCount != 7 && commaCount != 8) return false;
 
-    String fields[8];
+    String fields[9];
     int fieldCount = 0;
     int start = 0;
 
-    while (fieldCount < 8 && start <= static_cast<int>(s.length())) {
+    while (fieldCount < 9 && start <= static_cast<int>(s.length())) {
         int idx = s.indexOf(',', start);
 
         if (idx < 0) {
@@ -246,7 +254,12 @@ bool Vision::parse(const String& input) {
 
     long nextRingPct = -1;
     long nextRingSectors = 0;
-    if (fieldCount == 8) {
+    long nextLitId = 0;
+    if (fieldCount == 9) {
+        nextLitId = strtol(fields[8].c_str(), &end, 10);
+        if (end == fields[8].c_str() || *end != '\0' || nextLitId < 0 || nextLitId > 3) return false;
+    }
+    if (fieldCount >= 8) {
         nextRingPct = strtol(fields[6].c_str(), &end, 10);
         if (end == fields[6].c_str() || *end != '\0' || nextRingPct < -1 || nextRingPct > 100) return false;
         nextRingSectors = strtol(fields[7].c_str(), &end, 10);
@@ -274,6 +287,9 @@ bool Vision::parse(const String& input) {
     // sighting of the hole the Mega aims at (isValid()).
     ringPercent = valid ? static_cast<int8_t>(nextRingPct) : static_cast<int8_t>(-1);
     ringSectors = valid && nextRingPct >= 0 ? static_cast<uint8_t>(nextRingSectors) : 0;
+    // Whatever hole the frame is about (even one not selected): Auto's lit
+    // bonus priority must hear of a lit box while aiming elsewhere.
+    litBonusId = static_cast<uint8_t>(nextLitId);
     return true;
 }
 

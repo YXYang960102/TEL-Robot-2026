@@ -9,6 +9,7 @@
 #include "../Auto/Auto.h"
 #include "../IO/ManualControl.h"
 #include "../Shooter/Shooter.h"
+#include "../Vision/OperatorTarget.h"
 #include "../Vision/Vision.h"
 
 unsigned long Telemetry::lastSendMs = 0;
@@ -192,5 +193,11 @@ void Telemetry::update() {
     Serial.print(",");
     Serial.print(Auto::getRowShots());
     Serial.print(",");
-    Serial.println(Auto::isRowDone() ? 1 : 0);
+    Serial.print(Auto::isRowDone() ? 1 : 0);
+    Serial.print(",");
+    // Slots 56-57 (2026-10-31): the lit bonus hole the Orin sees (Dashboard
+    // 10-12, 0 none) and the one full auto is serving first (0 none).
+    Serial.print(OperatorTarget::holeForVisionId(Vision::getLitBonusId()));
+    Serial.print(",");
+    Serial.println(Auto::getLitPriorityHole());
 }

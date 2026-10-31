@@ -155,15 +155,22 @@ constexpr double ELEVATION_SLEW_US_PER_SECOND = 400.0;
 // takes 3.5 s -- and the shot used to go out mid-move.
 constexpr double ELEVATION_READY_TOLERANCE_US = 10.0;
 
-// Full auto row cycle (Jeremy 2026-10-31): with a hole chosen, after
-// SHOTS_PER_HOLE balls Auto moves on to the next hole of the same row
-// (same height), left -> middle -> right, wrapping, starting from the
-// chosen one: e.g. 4 -> 7 -> 1, Q W E for the bonus row. After the row's
-// three holes it stops firing (stays aimed at the last one) until the
-// operator picks a hole (wired: even the same one again) or the mode
-// changes. Counts trigger pulses sent to the tower, one ball each.
+// Full auto cycle (Jeremy 2026-10-31; full auto = the Orin's own pick):
+// the first hole fired at stays chosen (or the operator's hole); after
+// SHOTS_PER_HOLE balls Auto moves on in OperatorTarget::cycleHole order --
+// that row left -> right (wrapping), the row below, the row above, then
+// the bonus row Q W E (from a bonus start: the bonus row only) -- skipping
+// holes with no shot table. After the last one it stops firing (stays
+// aimed there) until a hole is picked (wired: even the same one again) or
+// the mode changes. Counts trigger pulses sent to the tower, one ball each.
 constexpr bool ROW_CYCLE_ENABLED = true;
 constexpr uint8_t SHOTS_PER_HOLE = 3;
+// A lit bonus hole (the Orin's red-ring detection, frame field 9) comes
+// first in full auto: SHOTS_PER_HOLE balls at it, then the cycle carries
+// on where it stopped. The same box fires again only after it has been
+// dark for LIT_DARK_MS and lights up again.
+constexpr bool LIT_BONUS_PRIORITY = true;
+constexpr unsigned long LIT_DARK_MS = 1000;
 
 // After the target drops out of a frame, Auto keeps its last shot (flywheel
 // and elevation) this long before falling back to the pre-spin (2026-10-18:

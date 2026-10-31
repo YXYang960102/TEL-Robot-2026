@@ -31,6 +31,9 @@ public:
     // sector k, k = 0 right, then clockwise on screen: 2 below, 4 left,
     // 6 above).
     static int8_t getRingPercent();
+    // The lit bonus hole the Orin sees (vision id 1-3; 0 = none, or an
+    // Orin without frame field 9), from the latest frame whatever its hole.
+    static uint8_t getLitBonusId();
     static uint8_t getRingSectors();
     // Bumped once per target frame from the Orin (valid or not), so a
     // consumer can take each frame exactly once (Auto's distance filter).
@@ -76,6 +79,7 @@ private:
     static unsigned long predictedSinceMs;
     static uint16_t seenMask;
     static int8_t ringPercent;
+    static uint8_t litBonusId;
     static uint8_t ringSectors;
     static bool hasPacket;
     static bool sentReady;

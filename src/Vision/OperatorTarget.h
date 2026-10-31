@@ -58,24 +58,59 @@ constexpr uint8_t holeForVisionId(long visionId, uint8_t hole = 1) {
          : holeForVisionId(visionId, static_cast<uint8_t>(hole + 1));
 }
 
-// The same row (same height), `step` holes to the right of `hole`,
-// wrapping from the right column back to the left (Auto's row cycle,
-// 2026-10-31). Grid key k: column (k-1)/3, row (k-1)%3; the bonus row
-// 10 11 12. Example: 4 (middle bottom) -> step 1: 7, step 2: 1.
-constexpr uint8_t rowNeighbor(uint8_t hole, uint8_t step) {
-    return (hole >= FIRST_BONUS_HOLE && hole <= LAST_HOLE)
-               ? static_cast<uint8_t>(FIRST_BONUS_HOLE + (hole - FIRST_BONUS_HOLE + step) % 3)
-           : (hole < 1 || hole > 9)
-               ? NONE
-               : static_cast<uint8_t>(1 + (hole - 1) % 3 + 3 * (((hole - 1) / 3 + step) % 3));
+// Full auto's shooting order (Auto's cycle, 2026-10-31, Jeremy). From the
+// first hole: its row left -> right (wrapping, starting at its column),
+// then the row below, then the row above (always the adjacent row: from
+// the middle 2-5-8 -> 1-4-7 -> 3-6-9; from the bottom up; from the top
+// down), each from the same column, then the bonus row Q W E; 12 holes.
+// Starting on a bonus hole: the bonus row only (3 holes).
+// Grid key k: column (k-1)/3 (0 left), row (k-1)%3 (0 bottom); row 3 = bonus.
+constexpr uint8_t rowOf(uint8_t hole) {
+    return hole >= FIRST_BONUS_HOLE ? 3 : static_cast<uint8_t>((hole - 1) % 3);
+}
+constexpr uint8_t columnOf(uint8_t hole) {
+    return hole >= FIRST_BONUS_HOLE ? static_cast<uint8_t>(hole - FIRST_BONUS_HOLE)
+                                    : static_cast<uint8_t>((hole - 1) / 3);
+}
+constexpr uint8_t holeAt(uint8_t row, uint8_t column) {
+    return row == 3 ? static_cast<uint8_t>(FIRST_BONUS_HOLE + column)
+                    : static_cast<uint8_t>(1 + row + 3 * column);
+}
+// The i-th row visited from a grid start row: start, adjacent below
+// first, then the rest; i = 3 is the bonus row.
+constexpr uint8_t cycleRow(uint8_t startRow, uint8_t i) {
+    return i == 3 ? 3
+         : i == 0 ? startRow
+         : startRow == 1 ? (i == 1 ? 0 : 2)
+         : startRow == 0 ? i
+                         : static_cast<uint8_t>(2 - i);
+}
+constexpr uint8_t cycleLength(uint8_t start) {
+    return (start >= FIRST_BONUS_HOLE && start <= LAST_HOLE) ? 3 : (start >= 1 && start <= 9) ? 12 : 0;
+}
+constexpr uint8_t cycleHole(uint8_t start, uint8_t index) {
+    return index >= cycleLength(start) ? NONE
+         : holeAt(rowOf(start) == 3 ? 3 : cycleRow(rowOf(start), static_cast<uint8_t>(index / 3)),
+                  static_cast<uint8_t>((columnOf(start) + index % 3) % 3));
 }
 
 static_assert(holeForVisionId(10) == 1 && holeForVisionId(8) == 5 && holeForVisionId(2) == 11 &&
               holeForVisionId(0) == NONE && holeForVisionId(13) == NONE,
               "inverse of visionIdForHole");
-static_assert(rowNeighbor(4, 1) == 7 && rowNeighbor(4, 2) == 1 && rowNeighbor(1, 1) == 4 &&
-              rowNeighbor(9, 1) == 3 && rowNeighbor(11, 1) == 12 && rowNeighbor(12, 1) == 10 &&
-              rowNeighbor(5, 0) == 5 && rowNeighbor(0, 1) == NONE,
-              "row neighbours: same height, left to right, wrapping");
+static_assert(cycleHole(5, 0) == 5 && cycleHole(5, 1) == 8 && cycleHole(5, 2) == 2 &&
+              cycleHole(5, 3) == 4 && cycleHole(5, 4) == 7 && cycleHole(5, 5) == 1 &&
+              cycleHole(5, 6) == 6 && cycleHole(5, 7) == 9 && cycleHole(5, 8) == 3 &&
+              cycleHole(5, 9) == 11 && cycleHole(5, 10) == 12 && cycleHole(5, 11) == 10 &&
+              cycleHole(5, 12) == NONE,
+              "from the middle: 5 8 2, down 4 7 1, up 6 9 3, then W E Q");
+static_assert(cycleHole(4, 0) == 4 && cycleHole(4, 2) == 1 && cycleHole(4, 3) == 5 &&
+              cycleHole(4, 6) == 6 && cycleHole(4, 9) == 11,
+              "from the bottom: up row by row");
+static_assert(cycleHole(3, 0) == 3 && cycleHole(3, 1) == 6 && cycleHole(3, 3) == 2 &&
+              cycleHole(3, 6) == 1 && cycleHole(3, 9) == 10,
+              "from the top: down row by row");
+static_assert(cycleHole(11, 0) == 11 && cycleHole(11, 1) == 12 && cycleHole(11, 2) == 10 &&
+              cycleHole(11, 3) == NONE && cycleHole(0, 0) == NONE,
+              "a bonus start: the bonus row only");
 
 }  // namespace OperatorTarget

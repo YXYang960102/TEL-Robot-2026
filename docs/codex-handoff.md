@@ -6450,3 +6450,58 @@ pins 4 → 7 → 1 → done, holds fire, TGT,8 restarts → 2, semi has no
 cycle), operator_target, shot_table, rcmap, vision_link, ground and
 Dashboard (row text) all PASS; pio production RAM 48.8 %, flash 17.1 %.
 No hardware.
+
+## 2026-10-31 — Claude Code: full auto cycle covers every row, then the bonus row; a lit bonus hole comes first
+
+**User Request:**
+- Hardware test: after 2-5-8 the cycle did not move on to 1-4-7 / 3-6-9.
+- Jeremy chose: next the row below, then the row above (258 → 147 → 369;
+  from the bottom it goes up, from the top it goes down), then the bonus
+  row, then stop.
+- And: a lit bonus box comes first, 3 balls, in full auto only.
+
+**Changed:**
+- `OperatorTarget`: `rowNeighbor` is replaced by `cycleHole(start, index)`
+  and `cycleLength(start)`:
+  - a grid start gives 12 holes: start row from the start column, right /
+    wrapping, then the adjacent rows, then the bonus row;
+  - a bonus start gives the bonus row only;
+  - helpers `rowOf`, `columnOf`, `holeAt`, `cycleRow`;
+  - C++11 static_asserts for the 5 / 4 / 3 / 11 examples.
+- `Auto`:
+  - the cycle index walks `cycleHole`;
+  - `skipHolesWithoutTable()` passes holes with no shot table, so it never
+    waits forever;
+  - `rowDone` = the whole cycle, aimed at `lastCycleHole`.
+- Lit bonus priority (`LIT_BONUS_PRIORITY`, `LIT_DARK_MS` 1000):
+  - Vision field 9 `lit_id` gives `Vision::getLitBonusId()`. It is kept
+    for any frame (even one for another hole) and cleared on a link
+    timeout.
+  - In full auto, a lit box with a table and not served takes the aim
+    target for 3 balls, then the cycle resumes unchanged.
+  - Served boxes re-arm after being dark for 1 s. A mode change or a hole
+    choice clears the served mask.
+  - It also fires after the cycle is done.
+- Vision accepts 6, 8 or 9 fields; `lit_id` must be 0–3.
+- TEL 56 = lit hole seen; 57 = lit hole being served.
+- Dashboard: a yellow inset frame on the lit bonus cell; texts
+  「加分框亮了：優先打」 and 「全部打完：選洞或換模式重新開始」; legend.
+
+**Calculation:** the Orin picks vision id 11 (hole 4): 4 7 1, 5 8 2,
+6 9 3, W E Q, 36 balls. If W lights up after the first ball at 5:
+W ×3, then back to 5 with 1 / 3 already done.
+
+**Impact:** deploy with YOLO_Detect_single 00004371 (field 9). An older
+Orin's 8 fields still work, without lit priority. Mega only on the
+TEL side; the ground is unchanged.
+
+**Evidence:**
+- manual_control (3 builds): full cycle order with done / hold / TGT
+  restart / semi; lit priority: serve, resume, no repeat while lit,
+  re-arm after dark, semi ignores.
+- vision_link: field 9, kept for another hole's frame, 8 fields = none,
+  range check.
+- operator_target, shot_table, rcmap, ground, pidf, follow and Dashboard
+  PASS.
+- pio production RAM 49.0 %, flash 17.3 %.
+- No hardware.
