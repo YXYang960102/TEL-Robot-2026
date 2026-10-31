@@ -8,6 +8,7 @@
 #include "../Dribbler/Dribbler.h"
 #include "../IO/ManualControl.h"
 #include "../IO/OperatorMode.h"
+#include "../Vision/OperatorTarget.h"
 #include "../Shooter/Shooter.h"
 #include "../Vision/Vision.h"
 
@@ -21,6 +22,13 @@ uint8_t Auto::lastShotSelection = 0;
 unsigned long Auto::lastElevationSlewMs = 0;
 int Auto::lastShotTargetId = 0;
 uint8_t Auto::readyBits = 0;
+bool Auto::rowActive = false;
+uint8_t Auto::rowStartHole = 0;
+uint8_t Auto::rowStep = 0;
+uint8_t Auto::rowShots = 0;
+bool Auto::rowDone = false;
+uint16_t Auto::rowSelectSeq = 0;
+OperatorMode Auto::rowMode = OperatorMode::FULL_MANUAL;
 
 namespace {
 ShotDistanceFilter<TuningConstants::Auto::DISTANCE_MEDIAN_FRAMES> distanceFilter(
@@ -54,6 +62,71 @@ uint8_t Auto::getReadyBits() {
     return readyBits;
 }
 
+uint8_t Auto::getAimTarget() {
+    return rowActive ? OperatorTarget::rowNeighbor(rowStartHole, rowStep) : ManualControl::getTarget();
+}
+
+uint8_t Auto::getRowShots() {
+    return rowActive ? rowShots : 0;
+}
+
+bool Auto::isRowDone() {
+    return rowDone;
+}
+
+// Row cycle bookkeeping, every loop (TuningConstants::Auto::
+// ROW_CYCLE_ENABLED). Starts over on a mode change, a hole choice (wired:
+// even the same hole) and every disarm (= full manual). In full auto with a
+// hole chosen the cycle starts at that hole; with the Orin's own pick it
+// starts at the first hole shot (countRowShot), which then stays chosen.
+void Auto::updateRowCycle(OperatorMode mode) {
+    const uint16_t seq = ManualControl::getTargetSelectSeq();
+    if (mode != rowMode || seq != rowSelectSeq) {
+        rowMode = mode;
+        rowSelectSeq = seq;
+        rowActive = false;
+        rowDone = false;
+        rowStep = 0;
+        rowShots = 0;
+    }
+    if (!TuningConstants::Auto::ROW_CYCLE_ENABLED || mode != OperatorMode::FULL_AUTO) {
+        rowActive = false;
+        rowDone = false;
+        return;
+    }
+    if (!rowActive && !rowDone && ManualControl::getTarget() != OperatorTarget::NONE) {
+        rowActive = true;
+        rowStartHole = ManualControl::getTarget();
+        rowStep = 0;
+        rowShots = 0;
+    }
+}
+
+// One ball sent in full auto: SHOTS_PER_HOLE at a hole -> the next hole of
+// the row; after the third hole the row is done (no more firing).
+// Example: the Orin picked vision id 11 (hole 4): 3 shots there, then 7,
+// then 1, then done -- 9 balls.
+void Auto::countRowShot() {
+    using namespace TuningConstants::Auto;
+    if (!ROW_CYCLE_ENABLED) return;
+    if (!rowActive) {
+        const uint8_t hole = OperatorTarget::holeForVisionId(Vision::getTargetId());
+        if (hole == OperatorTarget::NONE) return;
+        rowActive = true;
+        rowStartHole = hole;
+        rowStep = 0;
+        rowShots = 0;
+    }
+    rowShots++;
+    if (rowShots < SHOTS_PER_HOLE) return;
+    if (rowStep + 1 >= 3) {
+        rowDone = true; // stays aimed at the last hole, holds fire
+        return;
+    }
+    rowStep++;
+    rowShots = 0;
+}
+
 void Auto::init() {
     fireState = FireState::IDLE;
     fireStateEnteredMs = millis();
@@ -69,6 +142,7 @@ void Auto::enterFireState(FireState next) {
 
 void Auto::update() {
     const OperatorMode mode = ManualControl::getOperatorMode();
+    updateRowCycle(mode);
     // getOperatorMode() is FULL_MANUAL whenever disarmed (and always on the
     // wired-manual benches), so this also covers "nobody armed".
     if (mode == OperatorMode::FULL_MANUAL) {
@@ -221,11 +295,12 @@ void Auto::update() {
     if (fireState == FireState::READY) {
         if (!ready) {
             enterFireState(FireState::SPINNING_UP); // lost lock or spun down
-        } else if (mode == OperatorMode::FULL_AUTO || firePressed) {
+        } else if ((mode == OperatorMode::FULL_AUTO && !rowDone) || firePressed) {
             if (Dribbler::requestFeed()) {
                 ManualControl::reportEvent(RCMAP_EVENT_FEED_TRIGGER_SENT);
                 enterFireState(FireState::COOLDOWN);
                 fired = true;
+                if (mode == OperatorMode::FULL_AUTO) countRowShot();
             } else if (firePressed) {
                 // Tower still in its own lockout. Full-auto just retries next
                 // loop without reporting every attempt.

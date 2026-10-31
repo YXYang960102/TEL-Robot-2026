@@ -837,6 +837,54 @@ void testFullAutoFiresByItself() {
     assert(shotsDuring(2500) == 0);
 }
 
+// Full auto row cycle (2026-10-31): with the Orin's own pick, the first hole
+// shot starts the cycle and stays chosen; 3 balls each, then the next hole
+// of the same row to the right (wrapping); after the third hole it stops.
+// A hole key (even the same one) or a mode change starts over.
+unsigned long runUntilShots(unsigned long count, unsigned long maxMs) {
+    for (unsigned long t = 0; t < maxMs && Dribbler::getTriggerCount() < count; t += 10) {
+        if (t % 50 == 0) send("K");
+        step(10);
+    }
+    return Dribbler::getTriggerCount();
+}
+
+void testFullAutoRowCycle() {
+    reset();
+    hoststub::visionReady = true;
+    targetInView();
+    hoststub::visionTargetId = 11;                        // the Orin picked hole 4 (middle bottom)
+    armWired();
+    send("M"); send("M"); step();                         // full auto, no hole chosen
+    assert(Auto::getAimTarget() == 0);
+    runArmed(6000);                                       // elevation to the table first
+    hoststub::shooterReady = true;
+    assert(runUntilShots(1, 3000) == 1);
+    assert(Auto::getAimTarget() == 4 && Auto::getRowShots() == 1);   // pinned to it
+    assert(runUntilShots(3, 5000) == 3);
+    assert(Auto::getAimTarget() == 7 && Auto::getRowShots() == 0);   // next to the right
+    hoststub::visionTargetId = 12;                        // the Orin now on hole 7
+    assert(runUntilShots(6, 8000) == 6);
+    assert(Auto::getAimTarget() == 1);                    // wraps to the left
+    hoststub::visionTargetId = 10;
+    assert(runUntilShots(9, 8000) == 9);
+    assert(Auto::isRowDone() && Auto::getAimTarget() == 1);
+    assert(shotsDuring(3000) == 0);                       // row done: holds fire
+    // A hole key starts over from that hole.
+    send("TGT,8"); step();                                // right middle
+    assert(!Auto::isRowDone() && Auto::getAimTarget() == 8);
+    hoststub::visionTargetId = OperatorTarget::visionIdForHole(8);
+    // (It may fire in that same loop: ready, elevation already there.)
+    const unsigned long before = Dribbler::getTriggerCount() - Auto::getRowShots();
+    assert(runUntilShots(before + 2, 8000) == before + 2);
+    assert(Auto::getAimTarget() == 8 && Auto::getRowShots() == 2);
+    assert(runUntilShots(before + 3, 8000) == before + 3);
+    assert(Auto::getAimTarget() == 2);                    // 8 -> 2 (wraps: right -> left, middle row)
+    // Semi-auto: no cycle, the operator's hole.
+    send("MODE,1"); step();
+    assert(Auto::getAimTarget() == 8 && !Auto::isRowDone() && Auto::getRowShots() == 0);
+}
+
 void testAutoWithoutCamera() {
     reset();
     hoststub::visionReady = false;
@@ -1475,6 +1523,7 @@ int main() {
     testModeKeyWired();
     testSemiAutoFiresOnlyWhenReady();
     testFullAutoFiresByItself();
+    testFullAutoRowCycle();
     testAutoWithoutCamera();
     testShotTableDrivesFlywheel();
     testSteadyShotDistance();

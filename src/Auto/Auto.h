@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 
+#include "../IO/OperatorMode.h"
+
 // Semi-auto / full-auto shooting (OperatorMode.h). Runs right after
 // ManualControl::update() each loop, and only while an operator has the
 // robot armed in SEMI_AUTO, FULL_AUTO or TEST (TEST: the turret's camera
@@ -12,7 +14,12 @@
 //
 // Target: the operator's hole (keys 1-9) in both auto modes; Vision only
 // passes on that hole's frames (the Orin is told which via MEGA_TARGET).
-// No hole selected = the Orin's own pick. Either way the frame's id picks
+// No hole selected = the Orin's own pick. Full auto row cycle (2026-10-31,
+// TuningConstants::Auto::ROW_CYCLE_ENABLED): 3 balls at a hole, then the
+// next hole of that row to the right (wrapping), then stop after the row
+// -- starting from the chosen hole, or from the first hole shot at when
+// the Orin picks (getAimTarget(), handed to Vision by main.cpp). Either
+// way the frame's id picks
 // the shot table for that hole's height (TuningConstants::ShotTable: bottom,
 // middle, top, bonus) plus the hole's elevation trim. A target needs a
 // depth distance (> 0) and a table to be shot at.
@@ -40,6 +47,15 @@ public:
     static double getShotDistanceM();
     static uint8_t getReadyBits();
 
+    // The hole Auto aims at (Dashboard numbering, 0 = the Orin's pick):
+    // the operator's, or in full auto the row cycle's current hole
+    // (TuningConstants::Auto::ROW_CYCLE_ENABLED). main.cpp hands it to
+    // Vision. Shots at that hole in this cycle, and whether the row is
+    // done (full auto holds fire), for the Dashboard (TEL slots 53-55).
+    static uint8_t getAimTarget();
+    static uint8_t getRowShots();
+    static bool isRowDone();
+
 private:
     enum class FireState {
         IDLE,
@@ -49,6 +65,16 @@ private:
     };
 
     static void enterFireState(FireState next);
+    static void updateRowCycle(OperatorMode mode);
+    static void countRowShot();
+
+    static bool rowActive;
+    static uint8_t rowStartHole;
+    static uint8_t rowStep;      // 0..2: holes moved on from the start
+    static uint8_t rowShots;     // at the current hole
+    static bool rowDone;
+    static uint16_t rowSelectSeq;
+    static OperatorMode rowMode;
 
     static FireState fireState;
     static unsigned long fireStateEnteredMs;

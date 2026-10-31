@@ -184,5 +184,13 @@ void Telemetry::update() {
     Serial.print(",");
     // Slot 52 (2026-10-31): 1 = RB holds the turret at 0 deg in the autos /
     // test (no camera follow until a hole, a mode change or the hand turn).
-    Serial.println(ManualControl::isTurretHeldHome() ? 1 : 0);
+    Serial.print(ManualControl::isTurretHeldHome() ? 1 : 0);
+    Serial.print(",");
+    // Slots 53-55 (2026-10-31): the hole Auto aims at (Dashboard numbering;
+    // the row cycle's in full auto), balls at it in this cycle, row done.
+    Serial.print(Auto::getAimTarget());
+    Serial.print(",");
+    Serial.print(Auto::getRowShots());
+    Serial.print(",");
+    Serial.println(Auto::isRowDone() ? 1 : 0);
 }

@@ -155,6 +155,16 @@ constexpr double ELEVATION_SLEW_US_PER_SECOND = 400.0;
 // takes 3.5 s -- and the shot used to go out mid-move.
 constexpr double ELEVATION_READY_TOLERANCE_US = 10.0;
 
+// Full auto row cycle (Jeremy 2026-10-31): with a hole chosen, after
+// SHOTS_PER_HOLE balls Auto moves on to the next hole of the same row
+// (same height), left -> middle -> right, wrapping, starting from the
+// chosen one: e.g. 4 -> 7 -> 1, Q W E for the bonus row. After the row's
+// three holes it stops firing (stays aimed at the last one) until the
+// operator picks a hole (wired: even the same one again) or the mode
+// changes. Counts trigger pulses sent to the tower, one ball each.
+constexpr bool ROW_CYCLE_ENABLED = true;
+constexpr uint8_t SHOTS_PER_HOLE = 3;
+
 // After the target drops out of a frame, Auto keeps its last shot (flywheel
 // and elevation) this long before falling back to the pre-spin (2026-10-18:
 // single-frame vision dropouts pulsed the flywheel). Firing still needs a

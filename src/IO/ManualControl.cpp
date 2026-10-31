@@ -48,6 +48,7 @@ double ManualControl::elevationOffsetUs = 0.0;
 int ManualControl::flywheelOffsetPct = 0;
 int ManualControl::rotateNudgePrev = 0;
 bool ManualControl::turretHeldHome = false;
+uint16_t ManualControl::targetSelectSeq = 0;
 bool ManualControl::aimJogging = false;
 bool ManualControl::aimJogSettling = false;
 unsigned long ManualControl::aimJogReleasedMs = 0;
@@ -306,6 +307,7 @@ void ManualControl::processCommand(char* command) {
             flywheelOffsetPct = isAutoMode(operatorMode) ? static_cast<int>(n) : 0;
         } else if (isTarget) {
             turretHeldHome = false; // a hole key, even the same one: follow again
+            targetSelectSeq++;      // ...and the row cycle starts over
             selectTarget(static_cast<uint8_t>(n));
         } else if (isAutoPath) {
             requestAutoPath(static_cast<uint8_t>(n));
@@ -604,6 +606,10 @@ void ManualControl::requestTurretHome() {
     turretHeldHome = true;
 }
 
+uint16_t ManualControl::getTargetSelectSeq() {
+    return targetSelectSeq;
+}
+
 bool ManualControl::isTurretHeldHome() {
     return turretHeldHome;
 }
@@ -648,6 +654,7 @@ void ManualControl::selectTarget(uint8_t hole) {
     // main.cpp hands it to Vision (MEGA_TARGET -> the Orin locks on this
     // hole) and Auto looks it up in that hole's shot table.
     target = hole;
+    targetSelectSeq++;
     // Offsets belong to the hole they were set for.
     clearFineAdjust();
     sendEvent(RCMAP_EVENT_TARGET_SELECTED);

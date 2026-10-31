@@ -6401,3 +6401,52 @@ distance, and Q / E borrow it.
 
 Tests that assumed "a bonus hole has no table" now use an unknown id (13),
 or follow whether W has points.
+
+## 2026-10-31 — Claude Code: full auto row cycle (3 balls per hole, then the next hole of the row); selected bonus hole filled red
+
+**User Request:**
+- In full auto, after 3 balls move on to the other holes of the same row.
+- Jeremy chose: start from the hole being shot, go right and wrap, and
+  stop firing once the row is done.
+- Full auto is the AI's own pick.
+- On the Dashboard a locked bonus hole is filled red.
+
+**Changed / Added:**
+- `TuningConstants::Auto::ROW_CYCLE_ENABLED` = true and `SHOTS_PER_HOLE` = 3.
+- `OperatorTarget::holeForVisionId()` (the inverse) and `rowNeighbor(hole,
+  step)` (same height, step columns to the right, wrapping; the bonus row
+  10 11 12), with static_asserts.
+- `Auto` (full auto only):
+  - `updateRowCycle()` runs every loop. It starts over on a mode change, on
+    any hole choice (`ManualControl::getTargetSelectSeq()`: wired `TGT`,
+    even the same hole, and any target change) and on disarm.
+  - A chosen hole starts the cycle there. With the AI pick, the first ball
+    pins the hole it was fired at (`countRowShot()` reads
+    `Vision::getTargetId()`).
+  - After 3 balls the cycle moves to `rowNeighbor(start, step + 1)`; after
+    the third hole `rowDone` holds full-auto fire (it stays aimed at the
+    last hole).
+  - `getAimTarget()` = the cycle's hole, else the operator's;
+    `getRowShots()`, `isRowDone()`.
+- `main.cpp` hands `Auto::getAimTarget()` to Vision (MEGA_TARGET; one loop
+  behind Auto).
+- TEL slots 53–55: aim hole, balls at it, row done.
+- Dashboard:
+  - blue = the aim hole (TEL 53, or the radio's aim-frame selected id);
+  - target text: 「→ 正在打 7 · 右下 · 這洞已打 2/3」 and 「這排打完：選洞或換模式繼續」;
+  - a selected bonus hole is filled `--red`; the legend is updated.
+
+**Calculation:** the AI picks vision id 11 (hole 4) → 3 balls → 7 → 3 →
+1 → 3 → done (9 balls). From 8: 8 → 2 → 5. From W: 11 → 12 → 10.
+
+**Not covered:**
+- Balls are counted as tower trigger pulses, not hits.
+- Over the radio, re-pressing the same hole does not restart the cycle
+  (CH3 is a level); another hole or a mode change does.
+- Row done is shown only wired; the radio shows the aim hole.
+
+**Evidence:** manual_control (3 builds, new testFullAutoRowCycle: AI pick
+pins 4 → 7 → 1 → done, holds fire, TGT,8 restarts → 2, semi has no
+cycle), operator_target, shot_table, rcmap, vision_link, ground and
+Dashboard (row text) all PASS; pio production RAM 48.8 %, flash 17.1 %.
+No hardware.

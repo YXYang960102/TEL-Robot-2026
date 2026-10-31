@@ -51,4 +51,31 @@ static_assert(visionIdForHole(10) == 1 && visionIdForHole(11) == 2 && visionIdFo
               "bonus row, left to right");
 static_assert(visionIdForHole(13) == NONE, "nothing past the bonus row");
 
+// Orin vision id -> Dashboard hole (the inverse; NONE for 0 / unknown).
+constexpr uint8_t holeForVisionId(long visionId, uint8_t hole = 1) {
+    return hole > LAST_HOLE ? NONE
+         : visionIdForHole(hole) == visionId && visionId != NONE ? hole
+         : holeForVisionId(visionId, static_cast<uint8_t>(hole + 1));
+}
+
+// The same row (same height), `step` holes to the right of `hole`,
+// wrapping from the right column back to the left (Auto's row cycle,
+// 2026-10-31). Grid key k: column (k-1)/3, row (k-1)%3; the bonus row
+// 10 11 12. Example: 4 (middle bottom) -> step 1: 7, step 2: 1.
+constexpr uint8_t rowNeighbor(uint8_t hole, uint8_t step) {
+    return (hole >= FIRST_BONUS_HOLE && hole <= LAST_HOLE)
+               ? static_cast<uint8_t>(FIRST_BONUS_HOLE + (hole - FIRST_BONUS_HOLE + step) % 3)
+           : (hole < 1 || hole > 9)
+               ? NONE
+               : static_cast<uint8_t>(1 + (hole - 1) % 3 + 3 * (((hole - 1) / 3 + step) % 3));
+}
+
+static_assert(holeForVisionId(10) == 1 && holeForVisionId(8) == 5 && holeForVisionId(2) == 11 &&
+              holeForVisionId(0) == NONE && holeForVisionId(13) == NONE,
+              "inverse of visionIdForHole");
+static_assert(rowNeighbor(4, 1) == 7 && rowNeighbor(4, 2) == 1 && rowNeighbor(1, 1) == 4 &&
+              rowNeighbor(9, 1) == 3 && rowNeighbor(11, 1) == 12 && rowNeighbor(12, 1) == 10 &&
+              rowNeighbor(5, 0) == 5 && rowNeighbor(0, 1) == NONE,
+              "row neighbours: same height, left to right, wrapping");
+
 }  // namespace OperatorTarget

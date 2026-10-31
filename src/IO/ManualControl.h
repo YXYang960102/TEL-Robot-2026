@@ -66,7 +66,10 @@ public:
     // Lets Auto report what it did on the same "$EVENT" / status channel.
     static void reportEvent(rcmap_event event);
 
-    static uint8_t getTarget();               // 0 = none, 1..9
+    static uint8_t getTarget();               // 0 = none, 1..12
+    // Bumped on every hole choice: a change (wired or radio) and every
+    // wired TGT, even of the same hole -- Auto's row cycle starts over.
+    static uint16_t getTargetSelectSeq();
     static uint8_t getAutoPathThisEnable();   // 0 = none, 1..4
     static uint8_t getAutoPathsUsedMask();    // bit n = path n started since boot
     // Fine-adjust (TuningConstants::Auto): + = aim right / elevation up.
@@ -153,6 +156,7 @@ private:
     static int flywheelOffsetPct;
     static int rotateNudgePrev; // sign of the last ROT/nudge, for press edges
     static bool turretHeldHome;
+    static uint16_t targetSelectSeq;
     static void requestTurretHome();
     static bool aimJogging;          // left / right held in an auto / test
     static bool aimJogSettling;      // released, waiting before the latch

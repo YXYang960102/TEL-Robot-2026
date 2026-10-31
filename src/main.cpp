@@ -80,7 +80,9 @@ void loop() {
 
     // The operator's hole (keys 1-9 / CH3) -> the Orin's numbering. Before
     // Auto, so a switch drops the old hole's frame in this same loop.
-    Vision::setSelectedTarget(OperatorTarget::visionIdForHole(ManualControl::getTarget()));
+    // Auto's aim target: the operator's hole, or in full auto the row
+    // cycle's current one (2026-10-31; one loop behind Auto, harmless).
+    Vision::setSelectedTarget(OperatorTarget::visionIdForHole(Auto::getAimTarget()));
 
     // Rotate mode arbitration and the auto-fire sequence both live in
     // Auto::update() now (moved out of here 2026-10-06) so "what mode is

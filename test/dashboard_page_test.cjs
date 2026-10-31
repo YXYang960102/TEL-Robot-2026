@@ -1112,6 +1112,18 @@ async function emergencyStopViaEnter() {
   assert.match(elements.boardTurretMagnet.textContent, /10 秒內 150–150/);
   clock.t += 100; line(telMagnet(0x03, -1, -1));
   assert.equal(elements.boardTurretMagnet.textContent, '磁場：讀不到 AGC');
+  // Full auto row cycle (TEL 53-55, 2026-10-31): the robot's aim hole, balls
+  // at it, row done.
+  const telRow = (aim, shotsAtHole, done) =>
+    telFull(0, 0, 159, 3, 0, 0) + `,0,0,-1,0,4,128,1000,0,${aim},${shotsAtHole},${done}`;
+  clock.t += 100; line(telRow(7, 2, 0));
+  assert.equal(run('aimHole'), 7);
+  assert.match(elements.targetHole.textContent, /→ 正在打 7 · 右下 · 這洞已打 2\/3$/);
+  clock.t += 100; line(telRow(1, 3, 1));
+  assert.match(elements.targetHole.textContent, /正在打 1 · 左下 · 這洞已打 3\/3 · 這排打完/);
+  clock.t += 100; line(telRow(0, 0, 0));                         // AI pick, nothing pinned
+  assert.equal(run('aimHole'), 0);
+  assert.doesNotMatch(elements.targetHole.textContent, /正在打|這排打完/);
   // "Too weak" with the magnet seen: a warning, the angle still shows (2026-10-31).
   clock.t += 100; line(telFull(0, 0, 159, 0x07, 0));
   assert.equal(elements.boardTurret.textContent, '0.0°');

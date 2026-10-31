@@ -401,7 +401,7 @@
 
     /* Colors (Jeremy, 2026-10-27): grey = not detected, green = detected,
        blue = selected (wins over green; a green dot still says "seen"),
-       the bonus holes always red-framed. */
+       the bonus holes always red-framed and, when selected, filled red. */
     .hole-grid span {
       background: rgba(152, 164, 175, 0.08);
     }
@@ -428,6 +428,13 @@
     .hole-grid span.bonus.seen,
     .hole-grid span.bonus.selected {
       border-color: var(--red);
+    }
+
+    /* A bonus hole being aimed at: filled solid red, not blue (Jeremy,
+       2026-10-31), so it can't be mistaken for a grid hole. */
+    .hole-grid span.bonus.selected {
+      background: var(--red);
+      color: #fff;
     }
 
     .hole-grid span.seen::after {
@@ -704,7 +711,7 @@
           </div>
         </div>
         <div class="label" id="boardReady" style="padding: 0 12px 4px">發射條件：--</div>
-        <div class="label" style="padding: 0 12px 10px">灰＝沒偵測到、綠＝偵測到、藍＝選中（綠點＝也偵測到）、紅框＝加分框。</div>
+        <div class="label" style="padding: 0 12px 10px">灰＝沒偵測到、綠＝偵測到、藍＝鎖定中（綠點＝也偵測到）、紅框＝加分框、整格紅＝鎖定加分框。</div>
       </section>
 
       <section class="panel" data-panel="vision" style="margin-top:14px">
@@ -987,6 +994,11 @@
     const LAST_HOLE = 12;
     const AUTO_PATH_NAMES = ["", "左一", "左二", "右一", "右二"];
     let targetHole = 0;
+    // The hole the robot actually aims at (TEL 53 / $AIM's selected id):
+    // the operator's, or full auto's row cycle (2026-10-31). 0 = AI pick.
+    let aimHole = 0;
+    let rowShotsShown = 0;
+    let rowDoneShown = false;
     let autoPathThisEnable = 0;
     let autoPathsUsedMask = 0;
     let robotReportsTarget = false;  // TEL slots 32-34 seen
@@ -1456,6 +1468,12 @@
       if (p.length < 8 || p.slice(1).some((v) => !Number.isFinite(v))) return;
       const [, fresh, distanceCm, pulseUs, selectedId, targetId, valid, aimOffsetQuads] = p;
       const aimOffsetPx = aimOffsetQuads * 4;
+      // The radio's aim frame carries the selected vision id = the robot's
+      // aim hole (row cycle included).
+      if (fresh) {
+        const hole = holeForVisionId(selectedId);
+        if (hole !== aimHole) { aimHole = hole; renderTargetAndAuto(); }
+      }
       // 9th field (2026-10-31): the turret guard's state.
       if (p.length > 8) renderTurretGuard(fresh ? p[8] : NaN);
       if (!fresh) {
@@ -1514,9 +1532,16 @@
     }
 
     function renderTargetAndAuto() {
-      el.targetHole.textContent = targetHole ? `${targetHole} · ${HOLE_NAMES[targetHole]}` : "none / 未選";
+      // Blue = what the robot aims at; full auto's row cycle can move it
+      // away from the operator's choice (or pin the AI's pick).
+      const shown = aimHole || targetHole;
+      let text = targetHole ? `${targetHole} · ${HOLE_NAMES[targetHole]}` : "none / 未選（AI 自選）";
+      if (aimHole && aimHole !== targetHole) text += ` → 正在打 ${aimHole} · ${HOLE_NAMES[aimHole]}`;
+      if (aimHole && operatorMode === 0) text += ` · 這洞已打 ${rowShotsShown}/3`;
+      if (rowDoneShown) text += " · 這排打完：選洞或換模式繼續";
+      el.targetHole.textContent = text;
       for (let n = 1; n <= LAST_HOLE; n++) {
-        document.getElementById(`hole${n}`).classList.toggle("selected", n === targetHole);
+        document.getElementById(`hole${n}`).classList.toggle("selected", n === shown);
       }
       el.autoPath.textContent = autoPathThisEnable
         ? `已啟動 ${AUTO_PATH_NAMES[autoPathThisEnable]}`
@@ -1878,7 +1903,11 @@
         magnetAgc: p.length > 50 ? Number(p[50]) : NaN,
         magnetMagnitude: p.length > 51 ? Number(p[51]) : NaN,
         // Slot 52 (2026-10-31): RB holds the turret at 0 deg (autos / test).
-        turretHeldHome: p.length > 52 ? Number(p[52]) : NaN
+        turretHeldHome: p.length > 52 ? Number(p[52]) : NaN,
+        // Slots 53-55 (2026-10-31): Auto's aim hole, balls at it, row done.
+        aimHole: p.length > 53 ? Number(p[53]) : NaN,
+        rowShots: p.length > 54 ? Number(p[54]) : NaN,
+        rowDone: p.length > 55 ? Number(p[55]) : NaN
       };
     }
 
@@ -1917,6 +1946,12 @@
       renderTurret(data);
       if (Number.isFinite(data.seenMask)) setSeenMask(data.seenMask, data.visionState);
       if (Number.isFinite(data.ringPercent)) renderRing(data.ringPercent, data.ringSectors);
+      if (Number.isFinite(data.aimHole)) {
+        aimHole = data.aimHole;
+        rowShotsShown = Number.isFinite(data.rowShots) ? data.rowShots : 0;
+        rowDoneShown = data.rowDone === 1;
+        renderTargetAndAuto();
+      }
       if (Number.isFinite(data.turretState)) {
         renderTurretGuard(data.turretState);
         if (data.turretHeldHome === 1 && data.operatorMode !== 2) {
