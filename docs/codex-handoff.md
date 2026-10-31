@@ -6505,3 +6505,37 @@ TEL side; the ground is unchanged.
   PASS.
 - pio production RAM 49.0 %, flash 17.3 %.
 - No hardware.
+
+## 2026-10-31 — Claude Code: full auto cycle is a snake (one hole per move)
+
+**Hardware report:**
+- Order seen: 5 8 2 then 1 4 7. After the third ball at 7 it stopped and
+  the turret did not move at all.
+- In the previous order the next hole was far across the board (1 / 3).
+  Most likely the Orin neither saw nor could predict it, so it sent no
+  target and the turret held. Not confirmed: no wired readout yet.
+
+**User Request:** after a row, start the next row at the adjacent hole:
+after 5 8 2 → 1 (or 3); after 1 4 7 → 9 (above 7).
+
+**Changed:**
+- `OperatorTarget::cycleColumn()` / `firstRowEndColumn()`.
+- Row 0: from the middle 1 2 0 (5 8 2); from an edge straight across.
+- Each later row starts in the column where the previous one ended (right
+  above / below) and sweeps to the other edge.
+- Row order is unchanged (below first, then above, then the bonus row).
+- Examples:
+  - from 5: 5 8 2, 1 4 7, 9 6 3, Q W E;
+  - from 4: 4 7 1, 2 5 8, 9 6 3, Q W E;
+  - from 3: 3 6 9, 8 5 2, 1 4 7, E W Q;
+  - from 7: 7 4 1, 2 5 8, 9 6 3.
+
+  All are C++11 static_asserts.
+- Test expectations updated: the order from 4, the last hole 12, the
+  TGT,8 restart → 5.
+
+**Not added:** a per-hole timeout. It was offered; Jeremy chose the snake.
+A hole the Orin cannot see or predict still stalls the cycle.
+
+**Evidence:** manual_control (3 builds), operator_target and Dashboard
+PASS; pio production OK. No hardware.

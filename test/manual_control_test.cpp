@@ -865,9 +865,10 @@ void testFullAutoRowCycle() {
     hoststub::shooterReady = true;
     assert(runUntilShots(1, 3000) == 1);
     assert(Auto::getAimTarget() == 4 && Auto::getRowShots() == 1);   // pinned to it
-    // 4 7 1 (bottom, right / wrapping), 5 8 2 (the row above: from the
-    // bottom it goes up), 6 9 3, then the bonus row W E Q.
-    const uint8_t order[] = {4, 7, 1, 5, 8, 2, 6, 9, 3, 11, 12, 10};
+    // A snake, one hole per move: 4 7 1 (bottom, right then the far
+    // left), 2 5 8 (from right above 1), 9 6 3 (from right above 8), then
+    // the bonus row Q W E (from above 3).
+    const uint8_t order[] = {4, 7, 1, 2, 5, 8, 9, 6, 3, 10, 11, 12};
     for (unsigned i = 0; i < sizeof order; i++) {
         const unsigned long done = 3 * i;
         if (i > 0) assert(runUntilShots(done, 10000) == done);
@@ -875,7 +876,7 @@ void testFullAutoRowCycle() {
         assert(Auto::getAimTarget() == order[i] || Auto::isRowDone());
     }
     assert(runUntilShots(36, 12000) == 36);
-    assert(Auto::isRowDone() && Auto::getAimTarget() == 10);
+    assert(Auto::isRowDone() && Auto::getAimTarget() == 12);
     assert(shotsDuring(3000) == 0);                       // all done: holds fire
     // A hole key starts over from that hole.
     send("TGT,8"); step();                                // right middle
@@ -883,7 +884,7 @@ void testFullAutoRowCycle() {
     // (It may fire in that same loop: ready, elevation already there.)
     const unsigned long before = Dribbler::getTriggerCount() - Auto::getRowShots();
     assert(runUntilShots(before + 3, 8000) == before + 3);
-    assert(Auto::getAimTarget() == 2);                    // 8 -> 2 (wraps: right -> left, middle row)
+    assert(Auto::getAimTarget() == 5);                    // from the right edge: 8 -> 5 -> 2
     // Semi-auto: no cycle, the operator's hole.
     send("MODE,1"); step();
     assert(Auto::getAimTarget() == 8 && !Auto::isRowDone() && Auto::getRowShots() == 0);

@@ -163,8 +163,8 @@ void Auto::skipHolesWithoutTable() {
 // One ball sent in full auto. A lit bonus hole first: SHOTS_PER_HOLE at
 // it, then back to the cycle as it was. Otherwise SHOTS_PER_HOLE at a
 // hole, then the next one in cycleHole order; after the last, done.
-// Example: the Orin picked vision id 8 (hole 5): 5 8 2, 4 7 1, 6 9 3,
-// W E Q -- 36 balls with every hole on a table.
+// Example: the Orin picked vision id 8 (hole 5): 5 8 2, 1 4 7, 9 6 3,
+// Q W E -- 36 balls with every hole on a table.
 void Auto::countRowShot() {
     using namespace TuningConstants::Auto;
     if (litActive) {

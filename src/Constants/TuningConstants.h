@@ -158,8 +158,8 @@ constexpr double ELEVATION_READY_TOLERANCE_US = 10.0;
 // Full auto cycle (Jeremy 2026-10-31; full auto = the Orin's own pick):
 // the first hole fired at stays chosen (or the operator's hole); after
 // SHOTS_PER_HOLE balls Auto moves on in OperatorTarget::cycleHole order --
-// that row left -> right (wrapping), the row below, the row above, then
-// the bonus row Q W E (from a bonus start: the bonus row only) -- skipping
+// a snake, one hole per move: from 5: 5 8 2, 1 4 7, 9 6 3, then the bonus
+// row Q W E (from a bonus start: the bonus row only) -- skipping
 // holes with no shot table. After the last one it stops firing (stays
 // aimed there) until a hole is picked (wired: even the same one again) or
 // the mode changes. Counts trigger pulses sent to the tower, one ball each.
