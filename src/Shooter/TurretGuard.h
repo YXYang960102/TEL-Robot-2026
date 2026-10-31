@@ -102,8 +102,8 @@ public:
     }
 
     // Soft limits, as a pure function: + = right in degrees, command sign
-    // per RIGHT_COMMAND_SIGN. Example: at +31 deg (5 deg from +36), a full
-    // right command 1.0 becomes 5 / 10 = 0.5; at +36 or beyond, 0; any
+    // per RIGHT_COMMAND_SIGN. Example: at +33.5 deg (5 deg from +38.5), a
+    // full right command 1.0 becomes 5 / 10 = 0.5; at +38.5 or beyond, 0; any
     // left command passes unchanged.
     static double limit(double command, double angleDeg) {
         using namespace TurretAngleConstants;
@@ -137,7 +137,8 @@ private:
     // Where the turret would stop if the command were dropped now: the
     // present angle plus LIMIT_STOP_LOOKAHEAD_S of its present speed, only
     // in the commanded direction. Example: at +28 deg moving right at 60
-    // deg/s -> +37 -> already past +36, so a right command becomes 0.
+    // deg/s -> +37 (limit +38.5): a right command is cut to 1.5 / 10 =
+    // 0.15 of itself (no less than LIMIT_SLOW_MIN_COMMAND).
     double stoppingAngle(double command) const {
         using namespace TurretAngleConstants;
         const double rightward = command * RIGHT_COMMAND_SIGN;

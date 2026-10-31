@@ -1157,7 +1157,7 @@ async function emergencyStopViaEnter() {
   assert.equal(elements.boardTurretRaw.textContent, '無線：沒有回傳');
   // 2026-10-31: the turret guard -- TEL 49 and the 9th $AIM field.
   clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',0,0,-1,0,5');
-  assert.equal(elements.boardTurretGuard.textContent, '到右限位 +36°（只能往左）');
+  assert.equal(elements.boardTurretGuard.textContent, '到右限位 +38.5°（只能往左）');
   clock.t += 100; line(telFull(0, 0, 159, 0x83, 0) + ',0,0,-1,0,0');   // booted outside the window
   assert.match(elements.boardTurretGuard.textContent, /^開機時不在歸位點 ±20° 內/);
   clock.t += 100; line(telFull(0, 0, 159, 0x03, 0) + ',0,0,-1,0,0');   // no home point saved
@@ -1173,7 +1173,7 @@ async function emergencyStopViaEnter() {
   assert.equal(writes.length, 0);
   assert.match(run('log.textContent'), /只能用 USB 有線連 Mega/);
   clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',0,0,-1,0,4');     // the Mega's USB again
-  assert.equal(elements.boardTurretGuard.textContent, '正常 · 限位 −136°～+36°');
+  assert.equal(elements.boardTurretGuard.textContent, '正常 · 限位 −166°～+38.5°');
   clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',0,0,-1,0,7');     // guard switched off
   assert.match(elements.boardTurretGuard.textContent, /^轉台保護關閉/);
   run('controlArmed = true');

@@ -39,7 +39,7 @@ constexpr bool INVERTED = true;
 // Master switch for the turret guard (src/Shooter/TurretGuard.h: soft
 // limits, return to 0 deg, locks). Jeremy 2026-10-31: OFF until the
 // magnet reads reliably -- the turret then runs as before the AS5600 (no
-// limits: mind the +36 / -136 deg mechanism limits by eye). The AS5600 is
+// limits: mind the +38.5 / -166 deg limits by eye). The AS5600 is
 // still read and shown, and the home point can still be set.
 constexpr bool GUARD_ENABLED = false;
 
@@ -60,12 +60,15 @@ static_assert(HOME_WINDOW_DEG > 0.0 && HOME_WINDOW_DEG < 36.0,
 
 // Soft limits (Jeremy 2026-10-31, from the home point; the turret turns
 // further but breaks things there). Measured: right -36.0 / left +136.0
-// with INVERTED false, i.e. +36 / -136 now. Commands that would go past
+// with INVERTED false, i.e. +36 / -136; 2026-10-31 later, after the belt
+// skip and with the magnet refitted (home raw 1414): +38.5 deg (raw 3350)
+// and -166 deg (raw 2528), Jeremy: these are the limits wanted. Both
+// raws match 56.11 counts / deg to within 8 counts. Commands that would go past
 // are dropped; within LIMIT_SLOW_ZONE_DEG of a limit the outward command
 // is scaled down (to no less than LIMIT_SLOW_MIN_COMMAND) so the turret
 // doesn't coast past it.
-constexpr double LIMIT_RIGHT_DEG = 36.0;
-constexpr double LIMIT_LEFT_DEG = -136.0;
+constexpr double LIMIT_RIGHT_DEG = 38.5;
+constexpr double LIMIT_LEFT_DEG = -166.0;
 constexpr double LIMIT_SLOW_ZONE_DEG = 10.0;
 constexpr double LIMIT_SLOW_MIN_COMMAND = 0.15;
 // The turret coasts after the command drops: the limits are checked

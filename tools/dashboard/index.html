@@ -2053,16 +2053,17 @@
 
     // Turret guard (TEL 49 / $AIM, src/Shooter/TurretGuard.h, 2026-10-31):
     // absolute angle from EEPROM, soft limits, back to 0 on the first
-    // Enable. The limits shown are TurretAngleConstants::LIMIT_*_DEG.
+    // Enable. The limits shown are TurretAngleConstants::LIMIT_*_DEG
+    // (keep them in step).
     const TURRET_STATE_TEXT = {
       0: "位置未知：轉台鎖住（沒有歸位點，或開機時不在歸位點 ±20° 內）",
       1: "AS5600 異常：轉台鎖住",
       2: "方向錯誤：轉台鎖住（INVERTED / RIGHT_COMMAND_SIGN 不對，改好後重開機）",
       3: "回正中（轉回 0°）",
-      4: "正常 · 限位 −136°～+36°",
-      5: "到右限位 +36°（只能往左）",
-      6: "到左限位 −136°（只能往右）",
-      7: "轉台保護關閉：沒有軟限位，手動操作注意 +36° / −136°",
+      4: "正常 · 限位 −166°～+38.5°",
+      5: "到右限位 +38.5°（只能往左）",
+      6: "到左限位 −166°（只能往右）",
+      7: "轉台保護關閉：沒有軟限位，手動操作注意 +38.5° / −166°",
     };
     // On USB the AS5600 status says which "unknown" it is (bit 0x80:
     // booted outside the home window; TurretAngle.h).

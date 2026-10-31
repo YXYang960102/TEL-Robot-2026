@@ -6172,3 +6172,23 @@ confirm `RIGHT_COMMAND_SIGN`.
 4. At about 30°: 開機時不在歸位點 (locked).
 5. Then set `GUARD_ENABLED` true and test the return and RB (wired and
    radio) slowly.
+
+## 2026-10-31 — Claude Code: turret soft limits +38.5 / −166°
+
+**User Request:** Jeremy measured with the refitted magnet (home raw 1414):
++38.5° → raw 3350, −166° → raw 2528. "These are the soft limits wanted."
+
+**Changed:**
+- `LIMIT_RIGHT_DEG` 36 → 38.5 and `LIMIT_LEFT_DEG` −136 → −166.
+- Dashboard limit texts (state 4 / 5 / 6 / 7) and their page test; guard
+  comments.
+
+**Calculation:**
+- +38.5: 1414 − 38.5 × 56.11 = −746 → 3350 (exact).
+- −166: 1414 + 166 × 56.11 = 10728 → mod 4096 → 2536 vs 2528 measured
+  (8 counts = 0.14°).
+- So the belt ratio and the multi-turn count hold over 2.3 magnet turns.
+
+**Evidence:** Dashboard tests PASS. PC model (120 °/s, 0.12 s lag): full
+right held peaks at +38.64°, full left at −166.07°. pio production OK.
+`GUARD_ENABLED` is still false. No hardware.
