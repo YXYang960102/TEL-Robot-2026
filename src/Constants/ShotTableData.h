@@ -54,9 +54,9 @@ constexpr Point HOLE_6[] = {
 // Hole 7: no points (uses hole 4).
 // Hole 8: no points (uses hole 5).
 // Hole 9: no points (uses hole 6).
-// Hole 10 (bonus): no points (never fired at).
-// Hole 11 (bonus): no points (never fired at).
-// Hole 12 (bonus): no points (never fired at).
+// Hole 10 (bonus): no points (uses hole 11).
+// Hole 11 (bonus): no points (row center: never fired at).
+// Hole 12 (bonus): no points (uses hole 11).
 
 // Index = Dashboard hole key (0 unused).
 constexpr const Point* HOLE_POINTS[13] = {

@@ -116,8 +116,15 @@ int main() {
             assert(fabs(r.flywheelCommand - (ShotTableLookup::flywheel(t.entries[0]) +
                                              ShotTableLookup::flywheel(t.entries[1])) / 2.0) < 1e-6);
         }
-        // Bonus holes: no data yet, no table.
-        for (int id : {1, 2, 3}) assert(tableForVisionId(id).entries == nullptr);
+        // Bonus holes (vision ids 1-3 = Q W E): their own, else W's (hole
+        // 11, the row center, 2026-10-31); W without points: none.
+        for (int id : {1, 2, 3}) {
+            const uint8_t hole = static_cast<uint8_t>(id + 9);
+            const ShotTableData::Point* expected =
+                ShotTableData::HOLE_COUNTS[hole] > 0 ? ShotTableData::HOLE_POINTS[hole]
+                                                     : ShotTableData::HOLE_POINTS[11];
+            assert(tableForVisionId(id).entries == expected);
+        }
     }
 
     // lookupTarget: the id's table plus that hole's elevation trim; no

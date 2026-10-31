@@ -6365,3 +6365,29 @@ PASS; pio production + 3 wired benches. No hardware.
   0.12, below the turret's ~0.16 stall, so it may hover outside 5 px and
   never lock. Watch tx on the wired Dashboard.
 - Fire conditions are visible only wired (TEL slot 40).
+
+## 2026-10-31 — Claude Code: bonus holes borrow like the other rows (Q / E → W)
+
+**User Request:** the bonus holes should borrow parameters like the other
+holes. Jeremy chose to borrow only W, like the other rows: no fallback to
+hole 6.
+
+**Changed:**
+- `ShotTable::tableForVisionId`: a hole without points uses its row
+  center, and the bonus row's center is W (hole 11): 10 / 12 → 11. With no
+  points at the center as well, no table (Auto never fires there).
+- `apply.py`: `FALLBACK` adds 10 / 12 → 11; header comments and console
+  notes follow.
+- `shot_table.xlsx` rebuilt with `--export` (same 24 points, checked) so
+  its 說明 sheet states the new rule.
+- Tests: manual_control loops holes 1–12 with the rule; shot_table_lookup
+  checks the bonus ids against it.
+
+**Evidence:**
+- tests PASS; pio production OK;
+- scratch check with a fake W table (2 points): vision ids 1 / 2 / 3 all
+  resolve to W's table;
+- the regenerated header is unchanged apart from its comments.
+
+**Impact:** no bonus data exists yet, so nothing fires at the bonus row
+until W (hole 11) is measured. Measure W first; Q / E then borrow it.

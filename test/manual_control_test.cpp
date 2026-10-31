@@ -1173,17 +1173,17 @@ void testAutoNeedsDistance() {
 void testShotTableByHeight() {
     using namespace TuningConstants::ShotTable;
     // Orin vision id -> its Dashboard hole's generated table, or that row's
-    // center hole (keys 4 / 5 / 6) when the hole has no points; nothing for
-    // the bonus holes, 0 or unknown ids.
-    for (uint8_t hole = 1; hole <= 9; hole++) {
+    // center hole (keys 4 / 5 / 6; the bonus row's W = 11, 2026-10-31) when
+    // the hole has no points; nothing for 0 or unknown ids.
+    for (uint8_t hole = 1; hole <= 12; hole++) {
         const int id = OperatorTarget::visionIdForHole(hole);
-        const uint8_t center = static_cast<uint8_t>(4 + (hole - 1) % 3);
+        const uint8_t center = hole >= 10 ? 11 : static_cast<uint8_t>(4 + (hole - 1) % 3);
         const ShotTableData::Point* expected =
             ShotTableData::HOLE_COUNTS[hole] > 0 ? ShotTableData::HOLE_POINTS[hole]
                                                  : ShotTableData::HOLE_POINTS[center];
         assert(tableForVisionId(id).entries == expected);
     }
-    for (int id : {0, 1, 2, 3, 13, -1, 99}) assert(tableForVisionId(id).entries == nullptr);
+    for (int id : {0, 13, -1, 99}) assert(tableForVisionId(id).entries == nullptr);
 
     // Auto uses the frame's hole: the flywheel follows that hole's table.
     reset();

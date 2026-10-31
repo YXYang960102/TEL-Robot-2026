@@ -254,8 +254,9 @@ struct Table {
 };
 
 // Orin vision id -> its hole's table (Dashboard hole via OperatorTarget),
-// or, for a grid hole with no points, that row's center hole; {nullptr, 0}
-// for 0, unknown ids, a bonus hole without points and an empty row (Auto
+// or, for a hole with no points, that row's center hole -- the bonus row
+// too since 2026-10-31 (Jeremy: Q / E borrow W, hole 11, like the other
+// rows); {nullptr, 0} for 0, unknown ids and an empty row center (Auto
 // never fires).
 inline Table tableForVisionId(int visionId) {
     for (uint8_t hole = 1; hole <= OperatorTarget::LAST_HOLE; hole++) {
@@ -263,10 +264,11 @@ inline Table tableForVisionId(int visionId) {
         if (ShotTableData::HOLE_COUNTS[hole] > 0) {
             return {ShotTableData::HOLE_POINTS[hole], ShotTableData::HOLE_COUNTS[hole]};
         }
-        if (hole >= OperatorTarget::FIRST_BONUS_HOLE) {
-            return {nullptr, 0};
-        }
-        const uint8_t center = static_cast<uint8_t>(4 + (hole - 1) % 3); // same row, middle column
+        // Same row, middle column: 1 / 7 -> 4, 2 / 8 -> 5, 3 / 9 -> 6; the
+        // bonus row 10 / 12 -> 11 (11 itself: none).
+        const uint8_t center = hole >= OperatorTarget::FIRST_BONUS_HOLE
+            ? static_cast<uint8_t>(OperatorTarget::FIRST_BONUS_HOLE + 1)
+            : static_cast<uint8_t>(4 + (hole - 1) % 3);
         if (ShotTableData::HOLE_COUNTS[center] > 0) {
             return {ShotTableData::HOLE_POINTS[center], ShotTableData::HOLE_COUNTS[center]};
         }

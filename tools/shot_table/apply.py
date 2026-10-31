@@ -28,9 +28,9 @@ Other columns (notes, dates...) may be added anywhere, but need a header of
 their own; they are ignored. Rows may be in any order; empty rows are
 skipped. Any error -> nothing is written and nothing is uploaded.
 
-A grid hole with no rows uses its row's center hole (1/7 -> 4, 2/8 -> 5,
-3/9 -> 6) on the robot; if that has none either, the autos never fire at
-that row. A bonus hole (10-12) with no rows is never fired at.
+A hole with no rows uses its row's center hole (1/7 -> 4, 2/8 -> 5,
+3/9 -> 6, the bonus row 10/12 -> 11; 2026-10-31) on the robot; if that has
+none either, the autos never fire at it.
 
 Standard library only (no openpyxl), so it runs on any Python 3.8+.
 """
@@ -273,7 +273,7 @@ def parse_points(cells):
 
 # ----------------------------------------------------------------- header
 
-FALLBACK = {1: 4, 7: 4, 2: 5, 8: 5, 3: 6, 9: 6}
+FALLBACK = {1: 4, 7: 4, 2: 5, 8: 5, 3: 6, 9: 6, 10: 11, 12: 11}
 HOLES = range(1, 13)       # 1-9 the grid, 10-12 the bonus holes (Q W E)
 BONUS = {10: "加分左", 11: "加分中", 12: "加分右"}
 
@@ -304,10 +304,10 @@ def render_header(points):
     for h in HOLES:
         pts = points.get(h, [])
         if not pts:
-            if h in BONUS:
-                lines.append(f"// Hole {h} (bonus): no points (never fired at).")
+            if h not in FALLBACK:
+                lines.append(f"// Hole {h}{' (bonus)' if h in BONUS else ''}: no points (row center: never fired at).")
             else:
-                lines.append(f"// Hole {h}: no points (uses hole {FALLBACK.get(h, h)}).")
+                lines.append(f"// Hole {h}{' (bonus)' if h in BONUS else ''}: no points (uses hole {FALLBACK[h]}).")
             continue
         lines.append(f"constexpr Point HOLE_{h}[] = {{")
         for cm, permille, us in pts:
@@ -546,8 +546,8 @@ def write_xlsx(path, points):
         "- 任何一格不符合，就不會產生檔案、也不會燒錄，畫面會指出是哪一格。",
         "",
         "沒有資料的洞",
-        "- 會借用同一排中間洞的值：1、7 用 4，2、8 用 5，3、9 用 6。",
-        "- 加分框（10–12）不借用：沒有資料的加分框，自動模式不會對它發射。",
+        "- 會借用同一排中間洞的值：1、7 用 4，2、8 用 5，3、9 用 6，加分框 10、12 用 11（W）。",
+        "- 中間洞（4、5、6、11）自己沒有資料時，那一排自動模式都不會發射。",
         "- Mega 在兩個量測點之間用直線內插；比最近的點還近就用最近的點；比最遠的點還遠就用最遠的點。",
         "- 曲線圖上的轉速曲線是 Excel 的乘冪趨勢線（y = a·x^b，從原點出發），只是用來看資料合不合理、哪個點量歪了；Mega 不是照這條曲線打。",
         "",
@@ -918,8 +918,8 @@ def main():
     missing = [h for h in HOLES if h not in points]
     for h in missing:
         src = FALLBACK.get(h)
-        if h in BONUS:
-            note = "自動模式不會對它發射（加分框不借用別的洞）"
+        if src is None:
+            note = "這一排的中間洞，沒有資料 -> 自動模式不會對它發射"
         else:
             note = f"借用洞口 {src}" if src in points else "同排中間洞也沒有 -> 自動模式不會對它發射"
         print(f"  洞口 {h}{'（' + BONUS[h] + '）' if h in BONUS else ''} 沒有資料：{note}")
