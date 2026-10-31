@@ -776,9 +776,20 @@ void testSemiAutoFiresOnlyWhenReady() {
     runArmed(200);
     assert(Dribbler::getTriggerCount() == 0);              // no late shot
 
-    // Locked and spun up: F fires exactly one ball.
+    // Locked and spun up, but the elevation still slewing to the table's
+    // pulse (400 us/s): refused (2026-10-31).
     hoststub::shooterReady = true;
     step();
+    if (fabs(hoststub::anglePulseUs - shot.elevationPulseUs) >
+        TuningConstants::Auto::ELEVATION_READY_TOLERANCE_US) {
+        Serial.output.clear();
+        send("F"); step();
+        assert(saw("FIRE_NOT_READY") && !triggerHigh());
+    }
+    runArmed(6000);
+    assert(fabs(hoststub::anglePulseUs - shot.elevationPulseUs) <=
+           TuningConstants::Auto::ELEVATION_READY_TOLERANCE_US);
+    // Locked, spun up, elevation there: F fires exactly one ball.
     Serial.output.clear();
     send("F"); step();
     assert(saw("FEED_TRIGGER_SENT") && triggerHigh());
@@ -800,6 +811,17 @@ void testFullAutoFiresByItself() {
     send("M"); send("M"); step();                         // full auto
     assert(ManualControl::getOperatorMode() == OperatorMode::FULL_AUTO);
     assert(shotsDuring(500) == 0);                         // not ready: holds fire
+    // Ready, but the elevation still slewing to the table's pulse
+    // (400 us/s): holds fire until it gets there (2026-10-31).
+    hoststub::shooterReady = true;
+    ShotTableLookup::Result shot = {0.0, 0.0};
+    assert(ShotTableLookup::lookupTarget(hoststub::visionTargetId, 4.0, shot));
+    while (fabs(hoststub::anglePulseUs - shot.elevationPulseUs) >
+           TuningConstants::Auto::ELEVATION_READY_TOLERANCE_US + 50.0) {
+        assert(shotsDuring(100) == 0);
+    }
+    hoststub::shooterReady = false;
+    runArmed(1000);                                       // there now
     hoststub::shooterReady = true;
     // Fires whenever ready, paced by the tower's 1000 ms lockout (longer
     // than Auto's own 300 ms cooldown): ~3 shots in 2.5 s.
@@ -937,7 +959,7 @@ void testWirelessMode() {
     assert(saw("FIRE_NOT_READY") && Dribbler::getTriggerCount() == 0);
     hoststub::shooterReady = true;
     wireless.fire = false;
-    rcStep();
+    runWireless(6000);                                    // the elevation slews to the table first
     wireless.fire = true;
     rcStep();
     assert(Dribbler::getTriggerCount() == 1);
@@ -1137,7 +1159,7 @@ void testAutoNeedsDistance() {
     assert(shotsDuring(2500) == 0);
     assert(nearly(rec.flywheelCommand, TuningConstants::Flywheel::SHOOT_COMMAND));
     hoststub::visionDistanceMm = 4000.0;
-    assert(shotsDuring(2500) >= 2);
+    assert(shotsDuring(5000) >= 2);                       // after the elevation slew (2026-10-31)
     // Semi-auto F without a distance: refused.
     hoststub::visionDistanceMm = 0.0;
     send("M"); send("M"); step();                         // full auto -> manual -> semi
@@ -1183,7 +1205,7 @@ void testShotTableByHeight() {
     hoststub::visionTargetId = 2;                         // a bonus hole without points: no table
     assert(shotsDuring(2500) == 0);
     hoststub::visionTargetId = 11;                        // bottom row: fired at
-    assert(shotsDuring(2500) >= 2);
+    assert(shotsDuring(4000) >= 2);                       // once the elevation is there (2026-10-31)
 }
 
 void testFineAdjustWired() {

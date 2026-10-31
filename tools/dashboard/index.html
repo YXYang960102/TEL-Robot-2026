@@ -1994,8 +1994,9 @@
       const b = data.readyBits;
       const mark = (bit) => (b & bit ? "✓" : "✗");
       const shot = data.shotDistanceCm > 0 ? `${(data.shotDistanceCm / 100).toFixed(2)} m` : "--";
+      // Bit 16 (2026-10-31): the elevation has reached the table's pulse.
       el.boardReady.textContent = `發射條件：轉台鎖定 ${mark(1)} · 飛輪轉穩 ${mark(2)} · 有射擊值 ${mark(4)}` +
-        ` · ${b & 8 ? "可發射" : "等待中"} · 射擊距離（穩定後）${shot}`;
+        ` · 仰角到位 ${mark(16)} · ${b & 8 ? "可發射" : "等待中"} · 射擊距離（穩定後）${shot}`;
     }
 
     // Turret AS5600 (TEL slots 42-44, src/Sensors/TurretAngle.h status bits).

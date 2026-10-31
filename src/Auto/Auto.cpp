@@ -169,6 +169,9 @@ void Auto::update() {
     // (distance in mm -> m); otherwise the fixed SHOOT_COMMAND so it is
     // already spinning when a target appears.
     double flywheelCommand = TuningConstants::Flywheel::SHOOT_COMMAND;
+    // Elevation at its table pulse (2026-10-31): true with no measured
+    // table (the operator holds the elevation then).
+    bool elevationArrived = !TuningConstants::ShotTable::ELEVATION_MEASURED;
     if (hasTarget || holding) {
         // Plus the operator's LT / RT offset (percent), kept within 0..1.
         flywheelCommand = constrain(
@@ -186,6 +189,9 @@ void Auto::update() {
             const double maxStep = TuningConstants::Auto::ELEVATION_SLEW_US_PER_SECOND * elapsed / 1000.0;
             const double currentUs = Shooter::getAnglePulseUs();
             const double delta = targetUs - currentUs;
+            // Where it is now (before this loop's step): one loop late at
+            // most, never early.
+            elevationArrived = fabs(delta) <= TuningConstants::Auto::ELEVATION_READY_TOLERANCE_US;
             Shooter::setAnglePulseUs(delta > maxStep ? currentUs + maxStep
                                      : delta < -maxStep ? currentUs - maxStep : targetUs);
         }
@@ -194,11 +200,12 @@ void Auto::update() {
     Shooter::setFlywheelOpenLoop(flywheelCommand);
 
     // Turret locked on the target (|tx + aim offset| <= 5 px for 100 ms),
-    // flywheel commanded at shoot speed long enough to be spun up, and a
-    // shot for the hole in this frame (its own, or the held one).
+    // flywheel commanded at shoot speed long enough to be spun up, a shot
+    // for the hole in this frame (its own, or the held one), and the
+    // elevation at that shot's pulse.
     const bool shotAvailable = Vision::isValid() &&
         (hasTarget || (holding && Vision::getTargetId() == lastShotTargetId));
-    const bool ready = Shooter::isReady() && shotAvailable;
+    const bool ready = Shooter::isReady() && shotAvailable && elevationArrived;
     bool fired = false;
 
     if (fireState == FireState::IDLE) {
@@ -232,7 +239,8 @@ void Auto::update() {
     readyBits = static_cast<uint8_t>((Shooter::isRotateReady() ? 1u : 0u) |
                                      (Shooter::isFlywheelReady() ? 2u : 0u) |
                                      (shotAvailable ? 4u : 0u) |
-                                     (fireState == FireState::READY ? 8u : 0u));
+                                     (fireState == FireState::READY ? 8u : 0u) |
+                                     (elevationArrived ? 16u : 0u));
 
     // Semi-auto F while not ready (still aiming / spinning up / cooling
     // down) is refused, not queued: the operator presses again.

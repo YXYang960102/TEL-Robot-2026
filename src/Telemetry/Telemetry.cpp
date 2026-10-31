@@ -142,7 +142,8 @@ void Telemetry::update() {
     Serial.print(",");
     // Slots 40-41 (2026-10-27): why the autos can't fire yet (Auto::
     // getReadyBits: 1 turret locked, 2 flywheel spun up, 4 a shot for the
-    // hole in this frame, 8 READY) and the steadied shot distance, cm.
+    // hole in this frame, 8 READY, 16 elevation at the table pulse --
+    // 2026-10-31) and the steadied shot distance, cm.
     Serial.print(Auto::getReadyBits());
     Serial.print(",");
     Serial.print(static_cast<long>(Auto::getShotDistanceM() * 100.0 + 0.5));

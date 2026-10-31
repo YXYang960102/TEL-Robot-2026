@@ -1083,7 +1083,9 @@ async function emergencyStopViaEnter() {
     telShot({ mode }) + `,0,${ready},${shotCm},${raw},${status},${deg10}`;
   run('setOperatorMode(1)');
   clock.t += 100; line(telFull(5, 305, 1234, 3, -125));
-  assert.match(elements.boardReady.textContent, /轉台鎖定 ✓ · 飛輪轉穩 ✗ · 有射擊值 ✓ · 等待中 · 射擊距離（穩定後）3\.05 m/);
+  assert.match(elements.boardReady.textContent, /轉台鎖定 ✓ · 飛輪轉穩 ✗ · 有射擊值 ✓ · 仰角到位 ✗ · 等待中 · 射擊距離（穩定後）3\.05 m/);
+  clock.t += 100; line(telFull(5 | 16, 305, 1234, 3, -125));     // bit 16: elevation there (2026-10-31)
+  assert.match(elements.boardReady.textContent, /有射擊值 ✓ · 仰角到位 ✓ · 等待中/);
   assert.equal(elements.boardTurret.textContent, '-12.5°');
   assert.equal(elements.boardTurretRaw.textContent, 'raw 1234 · OK');
   clock.t += 100; line(telFull(15, 305, 1234, 0x01, 0));

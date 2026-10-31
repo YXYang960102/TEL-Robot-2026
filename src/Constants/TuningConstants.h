@@ -149,6 +149,11 @@ namespace Auto {
 // 400 us/s, e.g. 2063 -> 2442 us in ~0.95 s. The D-pad jog in full manual
 // keeps its own Angle::POSITION_RATE_US_PER_SECOND.
 constexpr double ELEVATION_SLEW_US_PER_SECOND = 400.0;
+// The autos fire only once the elevation has reached the table's pulse to
+// within this (2026-10-31, Jeremy): the slew is slower than the flywheel's
+// 1.5 s spin-up wait -- e.g. hole 4 (500 us) -> hole 6 at 3.25 m (1913 us)
+// takes 3.5 s -- and the shot used to go out mid-move.
+constexpr double ELEVATION_READY_TOLERANCE_US = 10.0;
 
 // After the target drops out of a frame, Auto keeps its last shot (flywheel
 // and elevation) this long before falling back to the pre-spin (2026-10-18:

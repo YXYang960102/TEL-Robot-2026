@@ -6329,3 +6329,39 @@ Merged, the interpolation would zig-zag.
 
 **Evidence:** shot_table_lookup and manual_control PASS; pio production
 (RAM 48.6 %). No hardware.
+
+## 2026-10-31 — Claude Code: the autos fire only once the elevation is at the table's pulse
+
+**User Request:** the autos may fire while the elevation is still
+slewing; add that condition (Jeremy approved "A") before the wireless
+full-auto test.
+
+**Found:**
+- `ELEVATION_SLEW_US_PER_SECOND` is 400, and readiness checked only the
+  turret lock, the flywheel spin-up (1.5 s time proxy) and the shot.
+- Example: hole 4 (500 µs) → hole 6 at 3.25 m (1913 µs) takes 3.5 s, so
+  the shot could leave mid-move.
+
+**Changed:**
+- `Auto`: `elevationArrived = |table pulse + offset − current pulse| ≤
+  ELEVATION_READY_TOLERANCE_US` (10 µs). It is checked before this loop's
+  slew step, so it can be one loop late but never early, and it is true
+  when `ELEVATION_MEASURED` is false.
+- `ready = Shooter::isReady() && shotAvailable && elevationArrived`.
+- Ready bits: 16 = elevation arrived (TEL slot 40).
+- Dashboard 發射條件 adds 「仰角到位 ✓ / ✗」.
+
+**Tests adapted:**
+- semi-auto F is refused while slewing, then fires;
+- full auto holds fire until the pulse arrives;
+- the wireless semi F and the distance / bottom-row windows wait out the
+  slew.
+
+**Evidence:** manual_control (3 builds), Dashboard, shot_table_lookup
+PASS; pio production + 3 wired benches. No hardware.
+
+**Noted, not changed:**
+- Vision-follow lock is |tx| ≤ 5 px. At 5 px the PIDF gives 0.05 + I ≤
+  0.12, below the turret's ~0.16 stall, so it may hover outside 5 px and
+  never lock. Watch tx on the wired Dashboard.
+- Fire conditions are visible only wired (TEL slot 40).
