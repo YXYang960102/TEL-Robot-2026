@@ -6391,3 +6391,13 @@ hole 6.
 
 **Impact:** no bonus data exists yet, so nothing fires at the bonus row
 until W (hole 11) is measured. Measure W first; Q / E then borrow it.
+
+**Same day, later:** Jeremy ran `apply.py --import --upload` with
+`shot_log_20261031_2204.csv`, which holds the same 24 points plus W (hole
+11): 4.55 m, 65 %, 1784 µs. That import was re-run on this branch: the
+data is identical to his uncommitted file and the header matches apart
+from comments. With one point, W's table gives that point at every
+distance, and Q / E borrow it.
+
+Tests that assumed "a bonus hole has no table" now use an unknown id (13),
+or follow whether W has points.

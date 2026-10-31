@@ -141,7 +141,8 @@ int main() {
         }
         ShotTableLookup::Result r = {0.0, 0.0};
         assert(!ShotTableLookup::lookupTarget(0, 4.0, r));
-        assert(!ShotTableLookup::lookupTarget(2, 4.0, r));
+        // A bonus id has a table only through its own points or W's.
+        assert(ShotTableLookup::lookupTarget(2, 4.0, r) == (ShotTableData::HOLE_COUNTS[11] > 0));
         assert(!ShotTableLookup::lookupTarget(13, 4.0, r));
     }
 

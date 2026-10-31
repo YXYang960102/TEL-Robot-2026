@@ -55,7 +55,9 @@ constexpr Point HOLE_6[] = {
 // Hole 8: no points (uses hole 5).
 // Hole 9: no points (uses hole 6).
 // Hole 10 (bonus): no points (uses hole 11).
-// Hole 11 (bonus): no points (row center: never fired at).
+constexpr Point HOLE_11[] = {
+    {455, 650, 1784},  // 4.55 m, 65.0%, 1784 us
+};
 // Hole 12 (bonus): no points (uses hole 11).
 
 // Index = Dashboard hole key (0 unused).
@@ -71,9 +73,9 @@ constexpr const Point* HOLE_POINTS[13] = {
     nullptr,
     nullptr,
     nullptr,
-    nullptr,
+    HOLE_11,
     nullptr,
 };
-constexpr uint8_t HOLE_COUNTS[13] = {0, 0, 0, 0, 10, 8, 6, 0, 0, 0, 0, 0, 0};
+constexpr uint8_t HOLE_COUNTS[13] = {0, 0, 0, 0, 10, 8, 6, 0, 0, 0, 0, 1, 0};
 
 }  // namespace ShotTableData

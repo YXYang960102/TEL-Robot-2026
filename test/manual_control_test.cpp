@@ -1202,7 +1202,7 @@ void testShotTableByHeight() {
     send("M"); step();                                    // full auto
     assert(shotsDuring(2500) == 0);
     assert(nearly(rec.flywheelCommand, TuningConstants::Flywheel::SHOOT_COMMAND));
-    hoststub::visionTargetId = 2;                         // a bonus hole without points: no table
+    hoststub::visionTargetId = 13;                        // an unknown id: no table
     assert(shotsDuring(2500) == 0);
     hoststub::visionTargetId = 11;                        // bottom row: fired at
     assert(shotsDuring(4000) >= 2);                       // once the elevation is there (2026-10-31)
