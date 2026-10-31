@@ -6192,3 +6192,27 @@ confirm `RIGHT_COMMAND_SIGN`.
 **Evidence:** Dashboard tests PASS. PC model (120 °/s, 0.12 s lag): full
 right held peaks at +38.64°, full left at −166.07°. pio production OK.
 `GUARD_ENABLED` is still false. No hardware.
+
+## 2026-10-31 — Claude Code: turret guard ON (`GUARD_ENABLED` true)
+
+**User Request:** with the magnet refitted (magnitude ~1030), Jeremy set the
+home point. The boot-window test passed: about +15° read back right after
+a power cycle, and about 30° was refused. Turn the guard on.
+
+**Changed:** `TurretAngleConstants::GUARD_ENABLED = true`. The soft limits
+are +38.5 / −166, the first Enable after power-up returns to 0, and
+RB / `THOME` (wired and radio CH9) returns to 0. The turret locks while the
+angle is unknown, the sensor is bad, or a direction fault is seen.
+
+**Evidence:** pio: production + 3 wired benches (RAM 48.7 %, flash 16.8 %).
+PC guard simulation re-run with the current constants: return from +36 in
+1.2 s and from −120 in 2.9 s; full right held peaks at +38.64; a wrong
+command sign locks after 200 ms / 7.8°. **Not on hardware.**
+`RIGHT_COMMAND_SIGN` (−1) is still unconfirmed.
+
+**Next Test** (hand on the E-stop; flash with the turret motor unpowered):
+1. Boot near home → Enable: it returns to 0.
+2. Full manual, after Y: slow D-pad right → the angle rises and it stops
+   at +38.5 (到右限位). A wrong sign shows 方向錯誤 and locks.
+3. Left to −166.
+4. RB from about 60° → back to 0, wired and over the radio.

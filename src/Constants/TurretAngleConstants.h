@@ -37,11 +37,12 @@ constexpr double COUNTS_PER_TURRET_DEG = 4096.0 * BELT_RATIO / 360.0;
 constexpr bool INVERTED = true;
 
 // Master switch for the turret guard (src/Shooter/TurretGuard.h: soft
-// limits, return to 0 deg, locks). Jeremy 2026-10-31: OFF until the
-// magnet reads reliably -- the turret then runs as before the AS5600 (no
-// limits: mind the +38.5 / -166 deg limits by eye). The AS5600 is
-// still read and shown, and the home point can still be set.
-constexpr bool GUARD_ENABLED = false;
+// limits, return to 0 deg, locks). Jeremy 2026-10-31: was OFF until the
+// magnet read reliably; ON again after the refitted magnet (magnitude
+// ~1030), the home point set and the boot-window test passed. false = the
+// turret runs as before the AS5600 (no limits: mind +38.5 / -166 deg by
+// eye); the AS5600 is still read and shown either way.
+constexpr bool GUARD_ENABLED = true;
 
 // ---- Home point, by hand (2026-10-31, Jeremy; AS5600 only, no switch, no
 // end stop to push against: past the limits below the mechanism breaks).
