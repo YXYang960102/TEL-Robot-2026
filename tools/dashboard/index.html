@@ -1876,7 +1876,9 @@
         turretState: p.length > 49 ? Number(p[49]) : NaN,
         // Slots 50-51 (2026-10-31): AS5600 AGC and MAGNITUDE (-1 = no read).
         magnetAgc: p.length > 50 ? Number(p[50]) : NaN,
-        magnetMagnitude: p.length > 51 ? Number(p[51]) : NaN
+        magnetMagnitude: p.length > 51 ? Number(p[51]) : NaN,
+        // Slot 52 (2026-10-31): RB holds the turret at 0 deg (autos / test).
+        turretHeldHome: p.length > 52 ? Number(p[52]) : NaN
       };
     }
 
@@ -1915,7 +1917,12 @@
       renderTurret(data);
       if (Number.isFinite(data.seenMask)) setSeenMask(data.seenMask, data.visionState);
       if (Number.isFinite(data.ringPercent)) renderRing(data.ringPercent, data.ringSectors);
-      if (Number.isFinite(data.turretState)) renderTurretGuard(data.turretState);
+      if (Number.isFinite(data.turretState)) {
+        renderTurretGuard(data.turretState);
+        if (data.turretHeldHome === 1 && data.operatorMode !== 2) {
+          el.boardTurretGuard.textContent += " · RB 停在 0°：選洞、換模式或按住 ←→ 恢復追蹤";
+        }
+      }
       if (Number.isFinite(data.magnetAgc)) renderMagnet(data.magnetAgc, data.magnetMagnitude, data.turretStatus);
       if (Number.isFinite(data.controlOwner)) {
         el.controlOwner.textContent = OWNER_NAMES[data.controlOwner] ?? `#${data.controlOwner}`;

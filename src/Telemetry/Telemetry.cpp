@@ -179,5 +179,9 @@ void Telemetry::update() {
     // (0-4095, higher = stronger); -1 = not read.
     Serial.print(TurretAngle::agc());
     Serial.print(",");
-    Serial.println(TurretAngle::magnitude());
+    Serial.print(TurretAngle::magnitude());
+    Serial.print(",");
+    // Slot 52 (2026-10-31): 1 = RB holds the turret at 0 deg in the autos /
+    // test (no camera follow until a hole, a mode change or the hand turn).
+    Serial.println(ManualControl::isTurretHeldHome() ? 1 : 0);
 }

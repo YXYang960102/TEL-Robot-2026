@@ -1327,6 +1327,34 @@ void testTurretHomeCommands() {
     wireless.armed = false; rcStep();
     wireless.turret_home = true; rcStep();
     assert(rec.turretReturns == 2 && saw("REJECTED_DISARMED"));
+
+    // RB in the autos / test (2026-10-31): back to 0 deg and held there --
+    // no camera follow -- until a hole key (even the same one), a mode
+    // change or the hand turn. Full manual ignores the hold.
+    reset();
+    hoststub::visionReady = true;
+    armWired();
+    send("M"); step();                                    // semi-auto
+    assert(rec.rotateMode == "vision");
+    send("THOME"); step();
+    assert(ManualControl::isTurretHeldHome() && rec.rotateMode == "disabled");
+    runWithHeartbeat(500);
+    assert(rec.rotateMode == "disabled");                 // still held
+    send("TGT,0"); step();                                // same hole again: follow
+    assert(!ManualControl::isTurretHeldHome() && rec.rotateMode == "vision");
+    send("THOME"); step();
+    send("MODE,3"); step();                               // mode change: follow
+    assert(!ManualControl::isTurretHeldHome() && rec.rotateMode == "vision");
+    send("THOME"); step();
+    assert(rec.rotateMode == "disabled");
+    send("ROT,1"); step();                                // hand turn takes it back
+    assert(!ManualControl::isTurretHeldHome() && rec.rotateMode == "manual");
+    send("ROT,0"); step();
+    runWithHeartbeat(TuningConstants::Auto::AIM_JOG_SETTLE_MS);
+    assert(rec.rotateMode == "vision");
+    send("THOME"); step();
+    send("X"); step();                                    // disarm clears it
+    assert(!ManualControl::isTurretHeldHome());
 }
 
 // Dashboard menus (2026-10-16): MODE,<n> sets the mode directly, and every

@@ -6257,3 +6257,46 @@ No hardware.
 **Next Test:** boot at about ±20°, Enable. If it still stops short, the
 real stall is ≥ 0.2: raise `RETURN_MIN_COMMAND`. If it rocks back and
 forth around 0, lower it.
+
+## 2026-10-31 — Claude Code: full-speed return; RB holds the turret at 0° in the autos / test
+
+**User Request:**
+- After RB in the auto modes the turret should stay at 0°: the camera
+  must not take it right back.
+- The return should run at full speed.
+- Release rule (Jeremy chose): a hole key (wired: even the same hole), a
+  mode change, or holding ← → (the hand turn).
+
+**Changed:**
+- `RETURN_kP` 0.03 → 0.05 and `RETURN_MAX_COMMAND` 0.4 → 1.0 (the
+  D-pad's speed). It slows down only inside 20° of 0; the minimum is still
+  0.2.
+- `ManualControl::requestTurretHome()`: wired `THOME` and the radio's CH9
+  edge both call it. It calls `Shooter::requestTurretReturn()` and sets
+  `turretHeldHome`.
+- `Auto::aimTurret`: the hand turn wins first, then the hold
+  (`disableRotate`, the turret stays at 0), then the camera follow.
+- The hold clears on:
+  - wired `TGT` (any value);
+  - a target change over the radio (CH3 is a level, so re-pressing the
+    same hole over the radio does not clear it — RB again or another hole
+    does);
+  - a mode change;
+  - the start of the hand turn;
+  - Enable / disarm.
+
+  Full manual ignores it.
+- TEL slot 52 = held. The Dashboard appends 「RB 停在 0°：選洞、換模式或按住
+  ←→ 恢復追蹤」 outside full manual.
+- While held the turret is not "locked", so the autos never fire.
+
+**Evidence:**
+- manual_control (3 builds) PASS, with new cases: hold / same TGT / mode /
+  hand turn / disarm.
+- Dashboard PASS. pio: production + 3 wired benches.
+- PC model with a stall threshold of 0.10 / 0.17 / 0.19, from
+  +20 … +60 / −150 / +38.5:
+  - every return finishes within ±1.05°;
+  - it takes 0.6–2.4 s, and 3.1 s from −150 at a 0.19 stall.
+- Limits still peak at +38.67 / −166.19.
+- No hardware.

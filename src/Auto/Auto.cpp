@@ -28,11 +28,13 @@ ShotDistanceFilter<TuningConstants::Auto::DISTANCE_MEDIAN_FRAMES> distanceFilter
 unsigned long lastFilterFrame = 0;
 
 // The turret in the autos and test: the operator's hand turn (and its
-// settle wait) wins; otherwise the camera follow with the aim offset, or
-// hold it with no camera.
+// settle wait) wins; then RB's hold at 0 deg; otherwise the camera follow
+// with the aim offset, or hold it with no camera.
 void aimTurret(bool visionHealthy) {
     if (ManualControl::isAimJogActive()) {
         Shooter::setRotateOpenLoop(ManualControl::getAimJogCommand());
+    } else if (ManualControl::isTurretHeldHome()) {
+        Shooter::disableRotate(); // RB: stay at 0 deg (the guard drove it there)
     } else if (visionHealthy) {
         Shooter::setRotateVisionFollow();
         Shooter::setRotateAimOffsetPx(ManualControl::getAimOffsetPx());

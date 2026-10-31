@@ -92,8 +92,10 @@ constexpr double RIGHT_COMMAND_SIGN = -1.0;
 // Dashboard): a separate P(IDF) on the angle, its own gains. PROVISIONAL.
 // Done within RETURN_TOLERANCE_DEG for RETURN_SETTLE_MS, or after
 // RETURN_TIMEOUT_MS (the position is known anyway; it just stops trying).
-constexpr double RETURN_kP = 0.03;          // command per degree
-constexpr double RETURN_MAX_COMMAND = 0.4;
+// Full speed (Jeremy 2026-10-31; was kP 0.03, max 0.4): 1.0 = the D-pad's
+// full-manual jog; slows down inside 1 / kP = 20 deg of 0.
+constexpr double RETURN_kP = 0.05;          // command per degree
+constexpr double RETURN_MAX_COMMAND = 1.0;
 // Outside the tolerance the command is at least this (2026-10-31, robot:
 // from +20 deg the return stopped at 5.3 deg, where 0.03 x 5.3 = 0.16 no
 // longer turned the turret). PROVISIONAL: raise it if the turret still

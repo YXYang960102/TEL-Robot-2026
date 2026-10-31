@@ -47,6 +47,7 @@ double ManualControl::aimOffsetPx = 0.0;
 double ManualControl::elevationOffsetUs = 0.0;
 int ManualControl::flywheelOffsetPct = 0;
 int ManualControl::rotateNudgePrev = 0;
+bool ManualControl::turretHeldHome = false;
 bool ManualControl::aimJogging = false;
 bool ManualControl::aimJogSettling = false;
 unsigned long ManualControl::aimJogReleasedMs = 0;
@@ -254,7 +255,7 @@ void ManualControl::processCommand(char* command) {
 
     if (isTurretHome) {
         refreshWiredWatchdog();
-        Shooter::requestTurretReturn();
+        requestTurretHome();
         return;
     }
     if (isTank) {
@@ -304,6 +305,7 @@ void ManualControl::processCommand(char* command) {
             // slider).
             flywheelOffsetPct = isAutoMode(operatorMode) ? static_cast<int>(n) : 0;
         } else if (isTarget) {
+            turretHeldHome = false; // a hole key, even the same one: follow again
             selectTarget(static_cast<uint8_t>(n));
         } else if (isAutoPath) {
             requestAutoPath(static_cast<uint8_t>(n));
@@ -439,7 +441,7 @@ void ManualControl::processWirelessFrame() {
         selectTarget(c.target);
         if (fireEdge) handleFire();
         if (autoEdge) requestAutoPath(c.auto_path);
-        if (homeEdge) Shooter::requestTurretReturn(); // RB (CH9): back to 0 deg
+        if (homeEdge) requestTurretHome(); // RB (CH9): back to 0 deg
     } else if (fireEdge || autoEdge || homeEdge) {
         sendEvent(owner == Owner::NONE ? RCMAP_EVENT_REJECTED_DISARMED
                                        : RCMAP_EVENT_REJECTED_NOT_OWNER);
@@ -521,6 +523,7 @@ void ManualControl::clearCommands() {
 void ManualControl::clearFineAdjust() {
     aimOffsetPx = 0.0;
     elevationOffsetUs = 0.0;
+    turretHeldHome = false; // a new hole, Enable, disarm
     aimJogging = false;
     aimJogSettling = false;
     // An arrow still held from before needs a release before it counts.
@@ -562,6 +565,7 @@ void ManualControl::updateFineAdjust() {
     // the camera keeps the hole 120 px left. Up / down: see below.
     const bool jogNow = rotateNow != 0 && rotateNudgePrev != NUDGE_NEEDS_RELEASE;
     if (jogNow) {
+        turretHeldHome = false; // the hand turn takes the turret back
         aimJogging = true;
         aimJogSettling = false;
     } else if (aimJogging) {
@@ -591,6 +595,17 @@ int ManualControl::getFlywheelOffsetPct() {
 
 double ManualControl::getAimOffsetPx() {
     return aimOffsetPx;
+}
+
+// RB (wired THOME or the radio's CH9): back to 0 deg (the turret guard),
+// then held there in the autos / test.
+void ManualControl::requestTurretHome() {
+    Shooter::requestTurretReturn();
+    turretHeldHome = true;
+}
+
+bool ManualControl::isTurretHeldHome() {
+    return turretHeldHome;
 }
 
 bool ManualControl::isAimJogActive() {
@@ -673,6 +688,7 @@ void ManualControl::setOperatorMode(OperatorMode mode) {
         return;
     }
     operatorMode = mode;
+    turretHeldHome = false;
     // Whoever had the turret/flywheel before the switch gives them up from
     // zero: leaving auto must not jump the flywheel back to an old slider
     // value, and entering it must not carry a manual jog.

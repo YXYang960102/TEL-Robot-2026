@@ -79,6 +79,11 @@ public:
     // the wait) instead of the camera follow.
     static bool isAimJogActive();
     static double getAimJogCommand();
+    // RB in the autos / test (2026-10-31): the turret goes back to 0 deg
+    // and stays there (no camera follow) until a hole is chosen (wired:
+    // also the same one again), the mode changes, or left / right is held
+    // (the hand turn). Full manual ignores it.
+    static bool isTurretHeldHome();
     // The autos' flywheel offset in percent (-20..20, LT / RT; 2026-10-18):
     // added to the shot table's value. Wired FLYO,<n> or CH4 in the autos;
     // 0 in full manual, after a mode change and on every Enable / disarm.
@@ -147,6 +152,8 @@ private:
     static double elevationOffsetUs;
     static int flywheelOffsetPct;
     static int rotateNudgePrev; // sign of the last ROT/nudge, for press edges
+    static bool turretHeldHome;
+    static void requestTurretHome();
     static bool aimJogging;          // left / right held in an auto / test
     static bool aimJogSettling;      // released, waiting before the latch
     static unsigned long aimJogReleasedMs;
