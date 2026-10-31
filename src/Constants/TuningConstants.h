@@ -95,6 +95,14 @@ constexpr double VISION_MAX_INTEGRAL_COMMAND = 0.12;
 // "Locked, OK to fire" for Auto: |tx| within this for READY_SETTLE_TIME_MS
 // (Jeremy, 2026-10-13: 5 px).
 constexpr double VISION_READY_TOLERANCE_PX = 5.0;
+// D on the camera's frame-to-frame tx rate (2026-11-01, Jeremy: the
+// turret swung past and back before settling; VisionFollowController).
+// Command per px/s: kP 0.01 / kd 0.0005 = 50 ms of look-ahead. Example:
+// 40 px off closing at 600 px/s: P -0.40, D +0.30 -> -0.10, it brakes
+// before center. PROVISIONAL: raise it if it still overshoots, lower it if
+// the turret creeps in slowly or jitters on a still target. Separate from
+// VISION_kD (kept 0, pinned to the A5 bench's gains).
+constexpr double VISION_FRAME_kD = 0.0005;
 
 }
 
@@ -176,6 +184,10 @@ constexpr uint16_t FULL_AUTO_EXCLUDED_HOLES = (1u << 1) | (1u << 4) | (1u << 7);
 // on where it stopped. The same box fires again only after it has been
 // dark for LIT_DARK_MS and lights up again.
 constexpr bool LIT_BONUS_PRIORITY = true;
+// After the aim hole changes (the cycle moving on, a lit box, a hole key)
+// the autos wait this long before they may fire (2026-11-01, Jeremy: the
+// first ball at a new hole went out before the turret had settled).
+constexpr unsigned long AIM_SWITCH_SETTLE_MS = 500;
 constexpr unsigned long LIT_DARK_MS = 1000;
 
 // After the target drops out of a frame, Auto keeps its last shot (flywheel

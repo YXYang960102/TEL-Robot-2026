@@ -312,7 +312,8 @@ void Shooter::updateRotate() {
             Vision::getTx() + rotateAimOffsetPx,
             seen || Vision::isPredicted(),
             Vision::getTargetId(),
-            millis());
+            millis(),
+            Vision::getFrameCount()); // frame-to-frame D (2026-11-01)
         rotateReady = seen && rotateVisionFollow.isReady();
         driveRotate(command);
         return;

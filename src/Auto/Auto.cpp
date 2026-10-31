@@ -35,6 +35,8 @@ uint8_t Auto::litHole = 0;
 uint8_t Auto::litShots = 0;
 uint8_t Auto::litServedMask = 0;
 unsigned long Auto::litLastSeenMs[4] = {0, 0, 0, 0};
+uint8_t Auto::lastAimTarget = 0;
+unsigned long Auto::aimChangedMs = 0;
 uint16_t Auto::rowSelectSeq = 0;
 OperatorMode Auto::rowMode = OperatorMode::FULL_MANUAL;
 
@@ -364,7 +366,15 @@ void Auto::update() {
     // whatever picked it.
     const bool holeAllowed = mode != OperatorMode::FULL_AUTO ||
         !excludedInFullAuto(OperatorTarget::holeForVisionId(Vision::getTargetId()));
-    const bool ready = Shooter::isReady() && shotAvailable && elevationArrived && holeAllowed;
+    // A new aim hole: let the turret settle first (AIM_SWITCH_SETTLE_MS).
+    const uint8_t aim = getAimTarget();
+    if (aim != lastAimTarget) {
+        lastAimTarget = aim;
+        aimChangedMs = now;
+    }
+    const bool settledOnHole = now - aimChangedMs >= TuningConstants::Auto::AIM_SWITCH_SETTLE_MS;
+    const bool ready = Shooter::isReady() && shotAvailable && elevationArrived && holeAllowed &&
+                       settledOnHole;
     bool fired = false;
 
     if (fireState == FireState::IDLE) {

@@ -90,6 +90,8 @@ private:
     static uint8_t litShots;
     static uint8_t litServedMask; // bit vision id 1-3: served, waiting to go dark
     static unsigned long litLastSeenMs[4];
+    static uint8_t lastAimTarget;
+    static unsigned long aimChangedMs;
     static OperatorMode rowMode;
 
     static FireState fireState;

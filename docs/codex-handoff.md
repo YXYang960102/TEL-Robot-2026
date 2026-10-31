@@ -6574,3 +6574,54 @@ PASS; pio production OK. No hardware.
 - shot_table, vision_link and Dashboard PASS; pio production + 3 wired
   benches.
 - No hardware.
+
+## 2026-11-01 — Claude Code: turret vision-follow gets a frame-to-frame D; the autos wait for the turret to settle on a new hole
+
+**User Request (hardware):**
+- With the snake order, the first ball at a new hole went out before the
+  turret had settled.
+- The turret swings back and forth once before locking. Add D (it was PI
+  only: `VISION_kD` 0).
+
+**Why not just set kD:** the loop runs every 10 ms but tx changes only per
+camera frame (~33 ms). A plain derivative is 0, 0, then (Δtx / 10 ms): a
+spike.
+
+**Changed:**
+- `VisionFollowController`:
+  - `update(..., frame)`; the tx rate is taken between frames,
+    (tx − previous frame's tx) / time between them, smoothed 50 / 50 and
+    held between frames;
+  - `D = −frameKd × rate` is added to the PI output (derivative on the
+    measurement), then clamped to ±`outputLimit`;
+  - it re-primes with the target (rate 0);
+  - frame 0 = no D, so the bench comparison and older callers are
+    unchanged.
+- `VisionFollowConfig::frameKd`. `TuningConstants::Rotate::VISION_FRAME_kD`
+  = 0.0005 (PROVISIONAL; `VISION_kD` stays 0, pinned to the bench).
+- Shooter passes `Vision::getFrameCount()`.
+- `ShooterConstants::Rotate::READY_SETTLE_TIME_MS` 100 → 250: a swing can
+  sit within 5 px for 100 ms at the turn of an overshoot.
+- `Auto`: `AIM_SWITCH_SETTLE_MS` 500. After the aim hole changes (cycle
+  step, lit box, hole key), no firing for 0.5 s.
+
+**Calculation:** kP 0.01 / kd 0.0005 is 50 ms of look-ahead. At 40 px
+closing at 600 px/s: P −0.40, D +0.30, total −0.10 (it brakes early).
+
+**Evidence:**
+- vision_follow_controller: new D cases — no rate within a frame, the
+  rate / D after a frame, held between frames, re-primed on a target
+  switch, no D without frame numbers.
+- manual_control (3 builds), rotate_bench, pidf, operator_target,
+  shot_table and Dashboard PASS. pio: production RAM 49.7 % plus benches.
+- Scratch closed-loop model (60 °/s, 60 ms camera latency, 0.16 stall):
+  - from 20°: overshoot 104 → 29 px, crossings 4 → 2, lock 3.7 → 1.3 s;
+  - from 5°: overshoot 62 → 37 px.
+  - At higher speed or latency the crude model limit-cycles with or
+    without D, so tune on hardware.
+- No hardware.
+
+**Next Test:** full auto, chassis still. Watch the first ball after each
+switch and the swing. If it still overshoots, raise `VISION_FRAME_kD`
+(0.0008–0.001); if it creeps in slowly or jitters on a still target,
+lower it.

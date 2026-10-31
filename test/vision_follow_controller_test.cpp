@@ -17,7 +17,8 @@ namespace {
 using namespace TuningConstants::Rotate;
 
 // Same composition as ShooterConstants::Rotate::VISION_FOLLOW (that header
-// needs Arduino; its READY_SETTLE_TIME_MS / MAX_CONTROL_GAP_MS are 100).
+// needs Arduino; its MAX_CONTROL_GAP_MS is 100 and READY_SETTLE_TIME_MS 250
+// since 2026-11-01 -- the bench comparison below keeps the bench's 100).
 const VisionFollowConfig CONFIG(
     PidfConfig(VISION_kP, VISION_kI, VISION_kD, VISION_kIZONE_PX, VISION_kFF),
     VISION_MAX_COMMAND,
@@ -146,6 +147,32 @@ int main() {
             assert(diff >= -1 && diff <= 1);  // rounding only
             t += 100;
         }
+    }
+
+    // Frame-to-frame D (2026-11-01): only with frame numbers; the rate is
+    // taken between camera frames, held between them, and brakes.
+    {
+        const VisionFollowConfig withD(
+            PidfConfig(VISION_kP, VISION_kI, VISION_kD, VISION_kIZONE_PX, VISION_kFF),
+            VISION_MAX_COMMAND, VISION_MAX_INTEGRAL_COMMAND, VISION_READY_TOLERANCE_PX,
+            100, 100, 0.0005);
+        VisionFollowController c(withD);
+        c.update(40.0, true, 1, 0, 1);                    // prime, frame 1
+        c.update(40.0, true, 1, 10, 1);                   // same frame: no rate
+        assert(c.getTxRate() == 0.0 && c.getDerivativeTerm() == 0.0);
+        const double cmd = c.update(20.0, true, 1, 40, 2); // frame 2: 20 px in 40 ms
+        // raw -500 px/s, smoothed 50/50 with 0 -> -250; D = +0.125 (brakes)
+        assert(near(c.getTxRate(), -250.0) && near(c.getDerivativeTerm(), 0.125));
+        assert(cmd > -0.20 && cmd < 0.0);                  // PI alone would be about -0.20
+        c.update(20.0, true, 1, 50, 2);                   // still frame 2: rate held
+        assert(near(c.getTxRate(), -250.0));
+        c.update(20.0, true, 2, 60, 3);                   // switched target: re-primed
+        assert(c.getTxRate() == 0.0 && c.getDerivativeTerm() == 0.0);
+        // Without frame numbers (frame 0): no D at all.
+        VisionFollowController plain(withD);
+        plain.update(40.0, true, 1, 0);
+        plain.update(20.0, true, 1, 40);
+        assert(plain.getDerivativeTerm() == 0.0);
     }
 
     printf("vision_follow_controller_test: all asserts passed\n");

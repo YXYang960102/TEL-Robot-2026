@@ -87,7 +87,10 @@ constexpr ServoMotorConfig MOTOR(
 // (Jeremy confirmed it is the D23 turret servo). If it is ever backwards,
 // flip Rotate::INVERTED; do not add a second inversion in the
 // vision-follow path.
-constexpr unsigned long READY_SETTLE_TIME_MS = 100;
+// 250 ms (2026-11-01; was 100): a turret swinging through center can sit
+// within 5 px for 100 ms at the turn of an overshoot, and the shot went out
+// before it settled.
+constexpr unsigned long READY_SETTLE_TIME_MS = 250;
 constexpr unsigned long MAX_CONTROL_GAP_MS = 100;
 
 constexpr VisionFollowConfig VISION_FOLLOW(
@@ -96,7 +99,8 @@ constexpr VisionFollowConfig VISION_FOLLOW(
     VISION_MAX_INTEGRAL_COMMAND,
     VISION_READY_TOLERANCE_PX,
     READY_SETTLE_TIME_MS,
-    MAX_CONTROL_GAP_MS);
+    MAX_CONTROL_GAP_MS,
+    VISION_FRAME_kD);
 
 }
 
