@@ -71,7 +71,9 @@ static_assert(HOME_WINDOW_DEG > 0.0 && HOME_WINDOW_DEG < 36.0,
 constexpr double LIMIT_RIGHT_DEG = 38.5;
 constexpr double LIMIT_LEFT_DEG = -166.0;
 constexpr double LIMIT_SLOW_ZONE_DEG = 10.0;
-constexpr double LIMIT_SLOW_MIN_COMMAND = 0.15;
+// 0.2 (was 0.15, 2026-10-31): the robot's turret (small pulley driving
+// the big one) does not move below about 0.16 -- see RETURN_MIN_COMMAND.
+constexpr double LIMIT_SLOW_MIN_COMMAND = 0.2;
 // The turret coasts after the command drops: the limits are checked
 // against where it would be LIMIT_STOP_LOOKAHEAD_S later at its present
 // speed (measured from the AS5600). PROVISIONAL: on a PC model of
@@ -92,6 +94,11 @@ constexpr double RIGHT_COMMAND_SIGN = -1.0;
 // RETURN_TIMEOUT_MS (the position is known anyway; it just stops trying).
 constexpr double RETURN_kP = 0.03;          // command per degree
 constexpr double RETURN_MAX_COMMAND = 0.4;
+// Outside the tolerance the command is at least this (2026-10-31, robot:
+// from +20 deg the return stopped at 5.3 deg, where 0.03 x 5.3 = 0.16 no
+// longer turned the turret). PROVISIONAL: raise it if the turret still
+// stops short, lower it if it overshoots back and forth around 0.
+constexpr double RETURN_MIN_COMMAND = 0.2;
 constexpr double RETURN_TOLERANCE_DEG = 1.0;
 constexpr unsigned long RETURN_SETTLE_MS = 200;
 constexpr unsigned long RETURN_TIMEOUT_MS = 5000;
@@ -110,6 +117,8 @@ constexpr double DIRECTION_CHECK_WRONG_DEG = 2.0;
 static_assert(LIMIT_LEFT_DEG < 0.0 && LIMIT_RIGHT_DEG > 0.0, "home must lie between the limits");
 static_assert(LIMIT_RIGHT_DEG - LIMIT_LEFT_DEG < 360.0, "limits less than a turn apart");
 static_assert(RIGHT_COMMAND_SIGN == 1.0 || RIGHT_COMMAND_SIGN == -1.0, "a sign");
+static_assert(RETURN_MIN_COMMAND > 0.0 && RETURN_MIN_COMMAND <= RETURN_MAX_COMMAND,
+              "the return's minimum command fits under its maximum");
 
 // AS5600 "magnet too weak" (ML: its gain is at maximum). Jeremy
 // 2026-10-31: the robot's magnet reads that way but the raw angle is

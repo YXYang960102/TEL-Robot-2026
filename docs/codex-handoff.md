@@ -6230,3 +6230,30 @@ window undetected.
 **Evidence:** Dashboard page test PASS; pio production OK; boot-window PC
 simulation (25 → locked at the edge, −45 → reads +28 → locked, −60 / −73 /
 −89 alias → accepted). No hardware.
+
+## 2026-10-31 — Claude Code: minimum command for the return to 0 (and near the limits)
+
+**Hardware result:** booted at about +20°; after Enable the return stopped
+at about 5.3°. There the P command 0.03 × 5.3 = 0.16 no longer turns the
+turret (a small pulley drives the big one).
+
+**Changed:**
+- `RETURN_MIN_COMMAND` 0.2: outside ±`RETURN_TOLERANCE_DEG` the return
+  command is at least 0.2 toward 0.
+- `LIMIT_SLOW_MIN_COMMAND` 0.15 → 0.2, so the slow zone does not stall
+  short of a limit either.
+
+**Calculation:** at +5.3: −0.16 → −0.2 → motor command +0.2 (`RIGHT_COMMAND_SIGN` −1).
+
+**Evidence:** PC model with a stall threshold (no motion below 0.10 /
+0.17 / 0.19) and a 0.12 s lag, from +20 / −20 / +25 / +5.3:
+- every case ends within ±0.83°;
+- at a 0.17 stall it takes 1.3–2.0 s; at 0.19, 3.2–4.2 s;
+- no direction fault.
+
+The limit simulation still peaks at +38.64 / −166.07. pio production OK.
+No hardware.
+
+**Next Test:** boot at about ±20°, Enable. If it still stops short, the
+real stall is ≥ 0.2: raise `RETURN_MIN_COMMAND`. If it rocks back and
+forth around 0, lower it.

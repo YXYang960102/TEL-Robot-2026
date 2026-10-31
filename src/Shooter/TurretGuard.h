@@ -137,8 +137,8 @@ private:
     // Where the turret would stop if the command were dropped now: the
     // present angle plus LIMIT_STOP_LOOKAHEAD_S of its present speed, only
     // in the commanded direction. Example: at +28 deg moving right at 60
-    // deg/s -> +37 (limit +38.5): a right command is cut to 1.5 / 10 =
-    // 0.15 of itself (no less than LIMIT_SLOW_MIN_COMMAND).
+    // deg/s -> +37 (limit +38.5): a full right command is cut to 1.5 / 10
+    // = 0.15, raised to LIMIT_SLOW_MIN_COMMAND (0.2).
     double stoppingAngle(double command) const {
         using namespace TurretAngleConstants;
         const double rightward = command * RIGHT_COMMAND_SIGN;
@@ -173,7 +173,12 @@ private:
         }
         const double dt = (in.nowMs - lastPidMs) / 1000.0;
         lastPidMs = in.nowMs;
-        const double towardRight = returnPid.calculate(0.0, in.angleDeg, dt);
+        double towardRight = returnPid.calculate(0.0, in.angleDeg, dt);
+        // Outside the tolerance, never less than what still turns the
+        // turret. Example: at +5.3 deg, 0.03 x -5.3 = -0.16 -> -0.2.
+        if (!within && fabs(towardRight) < RETURN_MIN_COMMAND) {
+            towardRight = in.angleDeg > 0.0 ? -RETURN_MIN_COMMAND : RETURN_MIN_COMMAND;
+        }
         return towardRight * RIGHT_COMMAND_SIGN;
     }
 
