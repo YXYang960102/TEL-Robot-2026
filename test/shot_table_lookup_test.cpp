@@ -4,6 +4,7 @@
 
 #include <initializer_list>
 
+#include "../src/Control/ShotDistanceFilter.h"
 #include "../src/Control/ShotTableLookup.h"
 
 namespace {
@@ -115,12 +116,19 @@ int main() {
             assert(fabs(r.flywheelCommand - (ShotTableLookup::flywheel(t.entries[0]) +
                                              ShotTableLookup::flywheel(t.entries[1])) / 2.0) < 1e-6);
         }
-        // Bonus holes: no data yet, no table.
-        for (int id : {1, 2, 3}) assert(tableForVisionId(id).entries == nullptr);
+        // Bonus holes (vision ids 1-3 = Q W E): their own, else W's (hole
+        // 11, the row center, 2026-10-31); W without points: none.
+        for (int id : {1, 2, 3}) {
+            const uint8_t hole = static_cast<uint8_t>(id + 9);
+            const ShotTableData::Point* expected =
+                ShotTableData::HOLE_COUNTS[hole] > 0 ? ShotTableData::HOLE_POINTS[hole]
+                                                     : ShotTableData::HOLE_POINTS[11];
+            assert(tableForVisionId(id).entries == expected);
+        }
     }
 
     // lookupTarget: the id's table plus that hole's elevation trim; no
-    // table for id 0, the bonus holes 1-3 or unknown ids.
+    // table for id 0, a bonus hole (1-3) without points of its own, or unknown ids.
     {
         using namespace TuningConstants::ShotTable;
         for (int id = 4; id <= 12; id++) {
@@ -133,8 +141,45 @@ int main() {
         }
         ShotTableLookup::Result r = {0.0, 0.0};
         assert(!ShotTableLookup::lookupTarget(0, 4.0, r));
-        assert(!ShotTableLookup::lookupTarget(2, 4.0, r));
+        // A bonus id has a table only through its own points or W's.
+        assert(ShotTableLookup::lookupTarget(2, 4.0, r) == (ShotTableData::HOLE_COUNTS[11] > 0));
         assert(!ShotTableLookup::lookupTarget(13, 4.0, r));
+    }
+
+    // ShotDistanceFilter (2026-10-27): median of 5 + latch, 5 cm / 300 ms.
+    {
+        ShotDistanceFilter<5> f(0.05, 300);
+        assert(f.latched() == 0.0);
+        f.addSample(4.00, 0);
+        assert(near(f.latched(), 4.00));                  // first frame latches at once
+        // Standing still with +-8 cm noise: the median stays within 5 cm,
+        // so the latched distance never moves.
+        const double noise[] = {4.08, 3.92, 4.06, 3.95, 4.03, 3.97, 4.07, 3.94};
+        unsigned long t = 0;
+        for (double d : noise) {
+            f.addSample(d, t += 33);
+            assert(near(f.latched(), 4.00));
+        }
+        // One wild frame (a depth spike) moves nothing.
+        f.addSample(5.50, t += 33);
+        assert(near(f.latched(), 4.00));
+        // A real move to 4.30 m: follows only once it has lasted 300 ms.
+        unsigned long movedAt = t + 33;
+        for (int i = 0; i < 20; i++) {
+            f.addSample(4.30, t += 33);
+            if (t - movedAt < 300 + 3 * 33) assert(f.latched() < 4.25 || t - movedAt >= 300);
+        }
+        assert(near(f.latched(), 4.30));
+        // reset: the next frame latches at once again.
+        f.reset();
+        assert(f.latched() == 0.0);
+        f.addSample(2.50, t += 33);
+        assert(near(f.latched(), 2.50));
+        // Median of an even count is the mean of the middle two.
+        ShotDistanceFilter<5> g(0.05, 300);
+        g.addSample(3.0, 0);
+        g.addSample(3.2, 1);
+        assert(near(g.median(), 3.1));
     }
 
     printf("shot_table_lookup_test: all asserts passed\n");

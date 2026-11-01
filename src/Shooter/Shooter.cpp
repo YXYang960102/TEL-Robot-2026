@@ -3,7 +3,10 @@
 #include "../Constants/BuildProfile.h"
 #include "../Control/ServoPositionJog.h"
 #include "../Control/VisionFollowController.h"
+#include "../Sensors/TurretAngle.h"
+#include "../Vision/OperatorTarget.h"
 #include "../Vision/Vision.h"
+#include "TurretGuard.h"
 
 using namespace ShooterConstants;
 
@@ -16,6 +19,14 @@ constexpr bool DRIVES_FLYWHEEL = BuildProfile::DRIVES_FLYWHEEL;
 ServoPositionJog anglePosition(Angle::POSITION_INITIAL_US);
 VisionFollowController rotateVisionFollow(Rotate::VISION_FOLLOW);
 uint32_t angleJogLastMs = 0;
+TurretGuard turretGuard;
+bool turretReturnDone = false; // back at 0 once since power-up
+// Turret search (TuningConstants::Rotate::SEARCH_*): per hole choice.
+uint8_t searchSelection = 0;
+unsigned long searchStartMs = 0;
+bool searchFound = false;
+int8_t lastSeenColumn = -1;
+int8_t searchDir = 0;
 
 int commandToPulseUs(double command, const ServoMotorConfig& config) {
     command = constrain(command, -1.0, 1.0);
@@ -129,10 +140,50 @@ void Shooter::setOutputsEnabled(bool enabled) {
     if (!DRIVES_AXES) {
         enabled = false; // drive-only bench: the shooter never enables
     }
+    if (TurretAngleConstants::GUARD_ENABLED && enabled && !outputsEnabled && !turretReturnDone) {
+        turretGuard.beginReturn(); // first Enable after power-up: back to 0 deg
+    }
     outputsEnabled = enabled;
     if (!outputsEnabled) {
+        turretGuard.onDisabled();
         stopAll();
     }
+}
+
+void Shooter::requestTurretReturn() {
+    if (TurretAngleConstants::GUARD_ENABLED) turretGuard.beginReturn();
+}
+
+int8_t Shooter::getSearchDirection() {
+    return searchDir;
+}
+
+uint8_t Shooter::getTurretState() {
+    return TurretAngleConstants::GUARD_ENABLED ? turretGuard.state() : TurretGuard::OFF;
+}
+
+// Every turret command while enabled goes through the guard: soft limits,
+// locked while the angle is unknown, the return to 0 deg (which replaces
+// the command), the direction check.
+void Shooter::driveRotate(double command) {
+    if (!TurretAngleConstants::GUARD_ENABLED) {
+        writeRotateCommand(command); // guard off: straight through, as before
+        return;
+    }
+    TurretGuard::Inputs in;
+    in.absolute = TurretAngle::isAbsolute();
+    in.healthy = TurretAngle::isHealthy();
+    in.angleDeg = TurretAngle::angleDegrees();
+    in.nowMs = millis();
+    const bool wasReturning = turretGuard.isReturning();
+    const double out = turretGuard.filter(command, in);
+    if (wasReturning && !turretGuard.isReturning() && turretGuard.allowsLock()) {
+        turretReturnDone = true;
+    }
+    if (!turretGuard.allowsLock()) {
+        rotateReady = false;
+    }
+    writeRotateCommand(out);
 }
 
 bool Shooter::areOutputsEnabled() {
@@ -245,9 +296,17 @@ void Shooter::updateAngle() {
 }
 
 void Shooter::updateRotate() {
+    if (turretGuard.isReturning()) {
+        // The guard drives the turret back to 0 deg; nothing else does, and
+        // the camera follow starts fresh afterwards.
+        rotateReady = false;
+        rotateVisionFollow.reset();
+        driveRotate(0.0);
+        return;
+    }
     if (rotateMode == RotateControlMode::MANUAL_OPEN_LOOP) {
         rotateReady = false;
-        writeRotateCommand(rotateManualCommand);
+        driveRotate(rotateManualCommand);
         return;
     }
     if (rotateMode == RotateControlMode::VISION_FOLLOW) {
@@ -256,17 +315,52 @@ void Shooter::updateRotate() {
         // Aim offset R: the loop drives tx + R to 0, i.e. holds the target
         // R px left of center, so the turret points R px right of it.
         // Example: R = +10, target at tx = -10 -> input 0 -> locked.
+        // Protocol v3: a PREDICTED position (the selected hole out of view)
+        // is followed too, so the turret turns toward it, but it is never
+        // a lock -- only the hole really in view can make the turret ready.
+        const bool seen = Vision::isValid();
+        const bool predicted = Vision::isPredicted();
+        // Search (2026-11-01): a chosen hole neither seen nor predicted ->
+        // turn toward it until it is, for at most SEARCH_MAX_MS per choice.
+        const unsigned long now = millis();
+        const uint8_t selection = Vision::getSelectedTarget();
+        if (selection != searchSelection) {
+            searchSelection = selection;
+            searchStartMs = now;
+            searchFound = false;
+        }
+        if (seen) {
+            lastSeenColumn = static_cast<int8_t>(
+                OperatorTarget::columnOf(OperatorTarget::holeForVisionId(Vision::getTargetId())));
+        }
+        if (seen || predicted) searchFound = true;
+        searchDir = 0;
+        if (selection != OperatorTarget::NONE && !searchFound &&
+            now - searchStartMs < Rotate::SEARCH_MAX_MS) {
+            searchDir = OperatorTarget::searchDirection(
+                OperatorTarget::holeForVisionId(selection),
+                OperatorTarget::holesFromVisionMask(Vision::getSeenMask()), lastSeenColumn);
+        }
+        if (searchDir != 0) {
+            rotateReady = false;
+            rotateVisionFollow.reset();
+            // Right = TurretAngleConstants::RIGHT_COMMAND_SIGN (a target
+            // right of center gives a negative follow command).
+            driveRotate(searchDir * TurretAngleConstants::RIGHT_COMMAND_SIGN * Rotate::SEARCH_COMMAND);
+            return;
+        }
         const double command = rotateVisionFollow.update(
             Vision::getTx() + rotateAimOffsetPx,
-            Vision::isValid(),
+            seen || predicted,
             Vision::getTargetId(),
-            millis());
-        rotateReady = rotateVisionFollow.isReady();
-        writeRotateCommand(command);
+            millis(),
+            Vision::getFrameCount()); // frame-to-frame D (2026-11-01)
+        rotateReady = seen && rotateVisionFollow.isReady();
+        driveRotate(command);
         return;
     }
     rotateReady = false;
-    writeRotateCommand(0.0);
+    driveRotate(0.0);
 }
 
 void Shooter::updateFlywheelReady() {

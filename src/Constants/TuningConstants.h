@@ -95,6 +95,48 @@ constexpr double VISION_MAX_INTEGRAL_COMMAND = 0.12;
 // "Locked, OK to fire" for Auto: |tx| within this for READY_SETTLE_TIME_MS
 // (Jeremy, 2026-10-13: 5 px).
 constexpr double VISION_READY_TOLERANCE_PX = 5.0;
+// D on the camera's frame-to-frame tx rate (2026-11-01, Jeremy: the
+// turret swung past and back before settling; VisionFollowController).
+// Command per px/s: kP 0.01 / kd 0.0005 = 50 ms of look-ahead. Example:
+// 40 px off closing at 600 px/s: P -0.40, D +0.30 -> -0.10, it brakes
+// before center. PROVISIONAL: raise it if it still overshoots, lower it if
+// the turret creeps in slowly or jitters on a still target. Separate from
+// VISION_kD (kept 0, pinned to the A5 bench's gains).
+// 0.0008 since 2026-11-01 (Jeremy, was 0.0005): last year's all_robot_017
+// aimed at xPred = x + vx * 0.08 s; with kP 0.01 that is the same as
+// kd = 0.01 * 0.08 = 0.0008 (80 ms of look-ahead instead of 50).
+constexpr double VISION_FRAME_kD = 0.0008;
+// Stall push (2026-11-01, Jeremy: semi auto sometimes waited 3-5 s to fire
+// with the turret a few px outside the 5 px lock; kI 0.03 instead made it
+// swing, so kI is back at 0.01). Outside VISION_READY_TOLERANCE_PX and
+// |tx rate| under VISION_STALL_RATE_PX_PER_S for VISION_STALL_DELAY_MS ->
+// at least VISION_STALL_COMMAND toward the target (VisionFollowController).
+// 0.17: just above the ~0.16 the turret needs, so it creeps in and stops
+// in the tolerance. 30 px/s: a still turret reads +-1-2 px of jitter per
+// frame (~15 fps), up to ~20 px/s after the 50 / 50 smoothing. PROVISIONAL:
+// still stuck -> 0.18-0.20; jumps past center -> 0.16 or a longer delay.
+// 0 = off.
+constexpr double VISION_STALL_COMMAND = 0.17;
+constexpr double VISION_STALL_RATE_PX_PER_S = 30.0;
+constexpr uint32_t VISION_STALL_DELAY_MS = 200;
+// Pulsed push + integral hold (2026-11-01, Jeremy: with the continuous
+// push the turret swung 2-4 times across center, and a turret kept locked
+// sometimes started swinging). The push lasts VISION_STALL_PULSE_MS, then
+// the PI alone and VISION_STALL_DELAY_MS still before the next pulse, so
+// each pulse is a small step instead of a run past center. Inside the 5 px
+// lock the I term stops growing. PROVISIONAL: a pulse moves nothing ->
+// 100-120 ms; each pulse still jumps past center -> 50-60 ms.
+constexpr uint32_t VISION_STALL_PULSE_MS = 80;
+constexpr bool VISION_HOLD_I_IN_TOLERANCE = true;
+// Turret search (2026-11-01, Jeremy: after choosing 7 then 1 the turret
+// sometimes didn't move -- 1 out of view and not predicted, so nothing to
+// follow). With a hole chosen that is neither seen nor predicted, the
+// turret turns at SEARCH_COMMAND toward it (OperatorTarget::
+// searchDirection) until it shows up, then the PID takes over; at most
+// SEARCH_MAX_MS per choice. 0.3: above the ~0.16 the turret needs to move,
+// slow enough for the camera to pick holes up on the way.
+constexpr double SEARCH_COMMAND = 0.3;
+constexpr unsigned long SEARCH_MAX_MS = 3000;
 
 }
 
@@ -149,6 +191,39 @@ namespace Auto {
 // 400 us/s, e.g. 2063 -> 2442 us in ~0.95 s. The D-pad jog in full manual
 // keeps its own Angle::POSITION_RATE_US_PER_SECOND.
 constexpr double ELEVATION_SLEW_US_PER_SECOND = 400.0;
+// The autos fire only once the elevation has reached the table's pulse to
+// within this (2026-10-31, Jeremy): the slew is slower than the flywheel's
+// 1.5 s spin-up wait -- e.g. hole 4 (500 us) -> hole 6 at 3.25 m (1913 us)
+// takes 3.5 s -- and the shot used to go out mid-move.
+constexpr double ELEVATION_READY_TOLERANCE_US = 10.0;
+
+// Full auto cycle (Jeremy 2026-10-31; full auto = the Orin's own pick):
+// the first hole fired at stays chosen (or the operator's hole); after
+// SHOTS_PER_HOLE balls Auto moves on in OperatorTarget::buildCycle order --
+// never two columns in one move (the turret turns sideways only): from 5
+// (bottom row out): 5, 8 9, 6, 3 2, then the bonus row Q W E (from a bonus
+// start: the bonus row only) -- skipping
+// holes with no shot table. After the last one it stops firing (stays
+// aimed there) until a hole is picked (wired: even the same one again) or
+// the mode changes. Counts trigger pulses sent to the tower, one ball each.
+constexpr bool ROW_CYCLE_ENABLED = true;
+constexpr uint8_t SHOTS_PER_HOLE = 3;
+// Holes full auto never fires at (bit n = Dashboard hole n). Jeremy
+// 2026-10-31: the bottom row 1 / 4 / 7 out for now. The cycle leaves them
+// out (from 5: 5, 8 9, 6, 3 2, Q W E); an excluded hole the
+// Orin picks is swapped for the nearest allowed one in its column (4 ->
+// 5). Semi-auto is not affected. 0 = none out.
+constexpr uint16_t FULL_AUTO_EXCLUDED_HOLES = (1u << 1) | (1u << 4) | (1u << 7);
+// A lit bonus hole (the Orin's red-ring detection, frame field 9) comes
+// first in full auto: SHOTS_PER_HOLE balls at it, then the cycle carries
+// on where it stopped. The same box fires again only after it has been
+// dark for LIT_DARK_MS and lights up again.
+constexpr bool LIT_BONUS_PRIORITY = true;
+// After the aim hole changes (the cycle moving on, a lit box, a hole key)
+// the autos wait this long before they may fire (2026-11-01, Jeremy: the
+// first ball at a new hole went out before the turret had settled).
+constexpr unsigned long AIM_SWITCH_SETTLE_MS = 500;
+constexpr unsigned long LIT_DARK_MS = 1000;
 
 // After the target drops out of a frame, Auto keeps its last shot (flywheel
 // and elevation) this long before falling back to the pre-spin (2026-10-18:
@@ -156,23 +231,41 @@ constexpr double ELEVATION_SLEW_US_PER_SECOND = 400.0;
 // target in the current frame.
 constexpr uint32_t TARGET_HOLD_MS = 500;
 
+// Shot distance steadying (2026-10-27, src/Control/ShotDistanceFilter.h):
+// the table is looked up at the median of the last DISTANCE_MEDIAN_FRAMES
+// depth frames, latched; it only follows a move of more than
+// DISTANCE_LATCH_BAND_M that lasts DISTANCE_LATCH_SETTLE_MS. 5 cm is at most
+// ~1.1% flywheel / ~9 us elevation on the steepest measured segment
+// (hole 5, 2.5 -> 5 m: -21.6 %/m, -175 us/m) -- less than the frame-to-
+// frame depth noise it replaces.
+constexpr uint8_t DISTANCE_MEDIAN_FRAMES = 5;
+constexpr double DISTANCE_LATCH_BAND_M = 0.05;
+constexpr unsigned long DISTANCE_LATCH_SETTLE_MS = 300;
+
 // Minimum time from one auto shot to the next (src/Auto/Auto.cpp). The
 // feed tower's own lockout (DribblerConstants::Tower::COOLDOWN_MS, 1000 ms)
 // also applies, so the real full-auto rate is whichever is longer.
 constexpr uint32_t COOLDOWN_MS = 300;
 
-// Operator fine-adjust in the auto modes (Jeremy, 2026-10-16): each arrow
-// press (wireless: each nudge from center) adds one step; a new target hole,
-// Enable and disarm clear both. PROVISIONAL step sizes -- tune on the field.
-//   left/right: the turret aims this many pixels right (+) / left (-) of
-//     the hole's center (vision-follow drives tx + offset to 0).
-//   up/down: added to the shot table's elevation pulse; only once the
-//     table is measured (ShotTable::ELEVATION_MEASURED), until then up/down
-//     stay the manual elevation jog.
-// 20 px (2026-10-18, was 5): 5 px x kP 0.01 = a ~25 us turret command,
-// inside the servo's deadband, so a press barely moved the turret.
-constexpr double AIM_OFFSET_STEP_PX = 20.0;
-constexpr double AIM_OFFSET_MAX_PX = 100.0;
+// Operator fine-adjust in the auto modes and test (Jeremy, 2026-10-16); a
+// new target hole, Enable and disarm clear both. PROVISIONAL -- tune on
+// the field.
+//   left/right (2026-10-30, Jeremy; was one 20 px step per press, max 100
+//     px, which the camera then pulled back from): held = the operator
+//     turns the turret by hand (the camera lets go, same jog as full
+//     manual); after release the turret stands still AIM_JOG_SETTLE_MS so
+//     the camera frames catch up, then where the hole is in the image
+//     becomes the aim offset: offset = -tx, so the camera holds the turret
+//     right there (vision-follow drives tx + offset to 0). Clamped to
+//     AIM_OFFSET_MAX_PX, below VisionConstants MAX_ABS_TX (400: frames
+//     further out are refused) so the hole stays usable. 300 px is about
+//     16 deg on the 1280 px, ~69 deg D435 image. No hole in view at the
+//     end of the wait: the old offset stays.
+//   up/down: one step per press, added to the shot table's elevation
+//     pulse; only once the table is measured (ShotTable::
+//     ELEVATION_MEASURED), until then up/down stay the manual elevation jog.
+constexpr unsigned long AIM_JOG_SETTLE_MS = 300;
+constexpr double AIM_OFFSET_MAX_PX = 300.0;
 constexpr double ELEVATION_OFFSET_STEP_US = 10.0;
 constexpr double ELEVATION_OFFSET_MAX_US = 200.0;
 
@@ -188,12 +281,14 @@ namespace ShotTable {
 //                     Dashboard "elevation pulse" readout (a positional
 //                     servo: a pulse is a position, no angle calibration).
 //
-// ONE TABLE PER DASHBOARD HOLE (key 1-9), generated from the Excel
-// tools/shot_table/shot_table.xlsx into ShotTableData.h (2026-10-18): edit
-// the Excel and run `python3 tools/shot_table/apply.py --upload`, never the
-// generated header. A hole with no points uses its row's center hole
-// (1/7 -> 4, 2/8 -> 5, 3/9 -> 6); with none there either, the autos never
-// fire at it. The bonus holes (vision ids 1-3) have no table.
+// ONE TABLE PER DASHBOARD HOLE (keys 1-9, bonus Q W E = holes 10-12 since
+// 2026-10-27), generated from the Excel tools/shot_table/shot_table.xlsx
+// into ShotTableData.h (2026-10-18): edit the Excel and run
+// `python3 tools/shot_table/apply.py --upload`, never the generated header.
+// A grid hole with no points uses its row's center hole (1/7 -> 4,
+// 2/8 -> 5, 3/9 -> 6); with none there either, the autos never fire at it.
+// A bonus hole with no points of its own is never fired at (no fallback:
+// it is smaller and higher than any grid hole).
 //
 // The key is the CAMERA's distance: read it off the Dashboard while locked
 // on the hole, never a tape measure (the camera's own bias is then
@@ -228,16 +323,22 @@ struct Table {
     int count;
 };
 
-// Orin vision id -> its hole's table (Dashboard key via OperatorTarget),
-// or that row's center hole when the hole has no points; {nullptr, 0} for
-// 0, the bonus holes 1-3, unknown ids and an empty row (Auto never fires).
+// Orin vision id -> its hole's table (Dashboard hole via OperatorTarget),
+// or, for a hole with no points, that row's center hole -- the bonus row
+// too since 2026-10-31 (Jeremy: Q / E borrow W, hole 11, like the other
+// rows); {nullptr, 0} for 0, unknown ids and an empty row center (Auto
+// never fires).
 inline Table tableForVisionId(int visionId) {
-    for (uint8_t hole = 1; hole <= 9; hole++) {
+    for (uint8_t hole = 1; hole <= OperatorTarget::LAST_HOLE; hole++) {
         if (OperatorTarget::visionIdForHole(hole) != visionId) continue;
         if (ShotTableData::HOLE_COUNTS[hole] > 0) {
             return {ShotTableData::HOLE_POINTS[hole], ShotTableData::HOLE_COUNTS[hole]};
         }
-        const uint8_t center = static_cast<uint8_t>(4 + (hole - 1) % 3); // same row, middle column
+        // Same row, middle column: 1 / 7 -> 4, 2 / 8 -> 5, 3 / 9 -> 6; the
+        // bonus row 10 / 12 -> 11 (11 itself: none).
+        const uint8_t center = hole >= OperatorTarget::FIRST_BONUS_HOLE
+            ? static_cast<uint8_t>(OperatorTarget::FIRST_BONUS_HOLE + 1)
+            : static_cast<uint8_t>(4 + (hole - 1) % 3);
         if (ShotTableData::HOLE_COUNTS[center] > 0) {
             return {ShotTableData::HOLE_POINTS[center], ShotTableData::HOLE_COUNTS[center]};
         }
@@ -262,9 +363,12 @@ static_assert(Rotate::VISION_MAX_COMMAND > 0.0 && Rotate::VISION_MAX_COMMAND <= 
 static_assert(Rotate::VISION_MAX_INTEGRAL_COMMAND >= 0.0 &&
               Rotate::VISION_MAX_INTEGRAL_COMMAND <= Rotate::VISION_MAX_COMMAND,
               "Vision-follow integral limit must fit inside the command limit");
+static_assert(Rotate::VISION_STALL_COMMAND >= 0.0 && Rotate::VISION_STALL_COMMAND <= 0.3 &&
+                  Rotate::VISION_STALL_RATE_PX_PER_S > 0.0,
+              "Turret stall push: a small creep, not a drive");
 static_assert(Rotate::VISION_kIZONE_PX >= 0.0 && Rotate::VISION_READY_TOLERANCE_PX > 0.0,
               "Vision-follow pixel windows must be non-negative");
-static_assert(Auto::AIM_OFFSET_STEP_PX > 0.0 && Auto::AIM_OFFSET_MAX_PX >= Auto::AIM_OFFSET_STEP_PX &&
+static_assert(Auto::AIM_OFFSET_MAX_PX > 0.0 && Auto::AIM_OFFSET_MAX_PX < 400.0 &&
               Auto::ELEVATION_OFFSET_STEP_US > 0.0 &&
               Auto::ELEVATION_OFFSET_MAX_US >= Auto::ELEVATION_OFFSET_STEP_US,
               "Fine-adjust steps must be positive and fit inside their limits");

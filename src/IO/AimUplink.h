@@ -10,4 +10,6 @@ class AimUplink {
 public:
     static void send();
     static void sendVision();
+    // Seen frame (Orin v3): detected holes + target / predicted state.
+    static void sendSeen();
 };

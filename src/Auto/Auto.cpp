@@ -3,10 +3,12 @@
 #include <Arduino.h>
 
 #include "../Constants/TuningConstants.h"
+#include "../Control/ShotDistanceFilter.h"
 #include "../Control/ShotTableLookup.h"
 #include "../Dribbler/Dribbler.h"
 #include "../IO/ManualControl.h"
 #include "../IO/OperatorMode.h"
+#include "../Vision/OperatorTarget.h"
 #include "../Shooter/Shooter.h"
 #include "../Vision/Vision.h"
 
@@ -18,11 +20,202 @@ double Auto::lastShotElevationUs = 0.0;
 unsigned long Auto::lastShotMs = 0;
 uint8_t Auto::lastShotSelection = 0;
 unsigned long Auto::lastElevationSlewMs = 0;
+int Auto::lastShotTargetId = 0;
+uint8_t Auto::readyBits = 0;
+bool Auto::rowActive = false;
+uint8_t Auto::rowStartHole = 0;
+uint8_t Auto::rowStep = 0;
+uint8_t Auto::rowShots = 0;
+bool Auto::rowDone = false;
+uint8_t Auto::cycleHoles[12] = {0};
+uint8_t Auto::cycleLength = 0;
+uint8_t Auto::lastCycleHole = 0;
+bool Auto::litActive = false;
+uint8_t Auto::litHole = 0;
+uint8_t Auto::litShots = 0;
+uint8_t Auto::litServedMask = 0;
+unsigned long Auto::litLastSeenMs[4] = {0, 0, 0, 0};
+uint8_t Auto::lastAimTarget = 0;
+unsigned long Auto::aimChangedMs = 0;
+uint16_t Auto::rowSelectSeq = 0;
+OperatorMode Auto::rowMode = OperatorMode::FULL_MANUAL;
+
+namespace {
+ShotDistanceFilter<TuningConstants::Auto::DISTANCE_MEDIAN_FRAMES> distanceFilter(
+    TuningConstants::Auto::DISTANCE_LATCH_BAND_M, TuningConstants::Auto::DISTANCE_LATCH_SETTLE_MS);
+unsigned long lastFilterFrame = 0;
+
+// The turret in the autos and test: the operator's hand turn (and its
+// settle wait) wins; then RB's hold at 0 deg; otherwise the camera follow
+// with the aim offset, or hold it with no camera.
+void aimTurret(bool visionHealthy) {
+    if (ManualControl::isAimJogActive()) {
+        Shooter::setRotateOpenLoop(ManualControl::getAimJogCommand());
+    } else if (ManualControl::isTurretHeldHome()) {
+        Shooter::disableRotate(); // RB: stay at 0 deg (the guard drove it there)
+    } else if (visionHealthy) {
+        Shooter::setRotateVisionFollow();
+        Shooter::setRotateAimOffsetPx(ManualControl::getAimOffsetPx());
+    } else {
+        Shooter::disableRotate();
+    }
+}
+uint8_t filterSelection = 0;
+int filterTargetId = 0;
+}  // namespace
+
+double Auto::getShotDistanceM() {
+    return distanceFilter.latched();
+}
+
+uint8_t Auto::getReadyBits() {
+    return readyBits;
+}
+
+namespace {
+// A hole Auto can fire at: its own shot table or its row center's.
+bool hasShotTable(uint8_t hole) {
+    return TuningConstants::ShotTable::tableForVisionId(OperatorTarget::visionIdForHole(hole)).entries != nullptr;
+}
+
+// A hole full auto never fires at (TuningConstants::Auto::FULL_AUTO_EXCLUDED_HOLES).
+bool excludedInFullAuto(uint8_t hole) {
+    return hole <= 15 && (TuningConstants::Auto::FULL_AUTO_EXCLUDED_HOLES & (1u << hole)) != 0;
+}
+}  // namespace
+
+uint8_t Auto::getAimTarget() {
+    if (litActive) return litHole;
+    if (rowActive) return rowDone ? lastCycleHole : cycleHoles[rowStep];
+    return ManualControl::getTarget();
+}
+
+uint8_t Auto::getRowShots() {
+    return litActive ? litShots : (rowActive ? rowShots : 0);
+}
+
+bool Auto::isRowDone() {
+    return rowDone;
+}
+
+uint8_t Auto::getLitPriorityHole() {
+    return litActive ? litHole : 0;
+}
+
+// Cycle bookkeeping, every loop (TuningConstants::Auto::ROW_CYCLE_ENABLED,
+// LIT_BONUS_PRIORITY). Starts over on a mode change, a hole choice (wired:
+// even the same hole) and every disarm (= full manual). In full auto with a
+// hole chosen the cycle starts at that hole; with the Orin's own pick it
+// starts at the first hole shot (countRowShot), which then stays chosen.
+// A lit bonus hole (Vision::getLitBonusId) takes over first.
+void Auto::updateRowCycle(OperatorMode mode) {
+    using namespace TuningConstants::Auto;
+    const uint16_t seq = ManualControl::getTargetSelectSeq();
+    if (mode != rowMode || seq != rowSelectSeq) {
+        rowMode = mode;
+        rowSelectSeq = seq;
+        rowActive = false;
+        rowDone = false;
+        rowStep = 0;
+        rowShots = 0;
+        litActive = false;
+        litServedMask = 0;
+    }
+    // A served lit box may fire again once it has been dark LIT_DARK_MS.
+    const unsigned long now = millis();
+    const uint8_t litId = Vision::getLitBonusId();
+    for (uint8_t id = 1; id <= 3; id++) {
+        if (litId == id) {
+            litLastSeenMs[id] = now;
+        } else if ((litServedMask & (1u << id)) && now - litLastSeenMs[id] > LIT_DARK_MS) {
+            litServedMask = static_cast<uint8_t>(litServedMask & ~(1u << id));
+        }
+    }
+    if (mode != OperatorMode::FULL_AUTO) {
+        rowActive = false;
+        rowDone = false;
+        litActive = false;
+        return;
+    }
+    if (LIT_BONUS_PRIORITY && !litActive && litId >= 1 && litId <= 3 &&
+        !(litServedMask & (1u << litId))) {
+        const uint8_t hole = OperatorTarget::holeForVisionId(litId);
+        if (hasShotTable(hole)) {
+            litActive = true;
+            litHole = hole;
+            litShots = 0;
+        }
+    }
+    if (ROW_CYCLE_ENABLED && !rowActive && !rowDone && ManualControl::getTarget() != OperatorTarget::NONE) {
+        startCycle(ManualControl::getTarget());
+    }
+    // The Orin's own pick on an excluded hole: never fired at; start the
+    // cycle at the nearest allowed hole of that column instead (4 -> 5).
+    if (ROW_CYCLE_ENABLED && !rowActive && !rowDone && Vision::isValid()) {
+        const uint8_t picked = OperatorTarget::holeForVisionId(Vision::getTargetId());
+        if (excludedInFullAuto(picked)) {
+            const uint8_t instead = OperatorTarget::nearestAllowedInColumn(picked, FULL_AUTO_EXCLUDED_HOLES);
+            if (instead != OperatorTarget::NONE) startCycle(instead);
+        }
+    }
+}
+
+void Auto::startCycle(uint8_t hole) {
+    rowActive = true;
+    rowStartHole = hole;
+    rowStep = 0;
+    rowShots = 0;
+    lastCycleHole = hole;
+    cycleLength = OperatorTarget::buildCycle(hole, TuningConstants::Auto::FULL_AUTO_EXCLUDED_HOLES, cycleHoles);
+    skipHolesWithoutTable();
+}
+
+// Past cycle positions full auto can't fire at (no shot table, or an
+// excluded hole); off the end = the cycle is done.
+void Auto::skipHolesWithoutTable() {
+    while (rowStep < cycleLength &&
+           (!hasShotTable(cycleHoles[rowStep]) || excludedInFullAuto(cycleHoles[rowStep]))) {
+        rowStep++;
+    }
+    if (rowStep >= cycleLength) {
+        rowDone = true;
+    } else {
+        lastCycleHole = cycleHoles[rowStep];
+    }
+}
+
+// One ball sent in full auto. A lit bonus hole first: SHOTS_PER_HOLE at
+// it, then back to the cycle as it was. Otherwise SHOTS_PER_HOLE at a
+// hole, then the next one in buildCycle order; after the last, done.
+// Example: the Orin picked vision id 8 (hole 5), the bottom row out:
+// 5, 8 9, 6, 3 2, Q W E -- 27 balls.
+void Auto::countRowShot() {
+    using namespace TuningConstants::Auto;
+    if (litActive) {
+        if (++litShots >= SHOTS_PER_HOLE) {
+            litActive = false;
+            litServedMask = static_cast<uint8_t>(litServedMask | (1u << OperatorTarget::visionIdForHole(litHole)));
+        }
+        return;
+    }
+    if (!ROW_CYCLE_ENABLED || rowDone) return;
+    if (!rowActive) {
+        const uint8_t hole = OperatorTarget::holeForVisionId(Vision::getTargetId());
+        if (hole == OperatorTarget::NONE) return;
+        startCycle(hole);
+    }
+    if (++rowShots < SHOTS_PER_HOLE) return;
+    rowShots = 0;
+    rowStep++;
+    skipHolesWithoutTable(); // stays aimed at lastCycleHole once done
+}
 
 void Auto::init() {
     fireState = FireState::IDLE;
     fireStateEnteredMs = millis();
     haveLastShot = false;
+    distanceFilter.reset();
+    readyBits = 0;
 }
 
 void Auto::enterFireState(FireState next) {
@@ -32,12 +225,15 @@ void Auto::enterFireState(FireState next) {
 
 void Auto::update() {
     const OperatorMode mode = ManualControl::getOperatorMode();
+    updateRowCycle(mode);
     // getOperatorMode() is FULL_MANUAL whenever disarmed (and always on the
     // wired-manual benches), so this also covers "nobody armed".
     if (mode == OperatorMode::FULL_MANUAL) {
         ManualControl::takeFireRequest(); // never let a stale F carry over
         enterFireState(FireState::IDLE);
         haveLastShot = false;
+        distanceFilter.reset();
+        readyBits = 0;
         return;
     }
 
@@ -51,28 +247,27 @@ void Auto::update() {
         ManualControl::takeFireRequest(); // never set in test; never carry one over
         enterFireState(FireState::IDLE);
         haveLastShot = false;
-        if (visionHealthy) {
-            Shooter::setRotateVisionFollow();
-            Shooter::setRotateAimOffsetPx(ManualControl::getAimOffsetPx());
-        } else {
-            Shooter::disableRotate();
-        }
+        distanceFilter.reset();
+        readyBits = 0;
+        aimTurret(visionHealthy);
         return;
     }
 
     const bool firePressed = ManualControl::takeFireRequest();
     if (!visionHealthy) {
-        // No camera: nothing to aim at. Hold the turret, spin down.
-        Shooter::disableRotate();
+        // No camera: nothing to aim at. Hold the turret (the operator may
+        // still turn it by hand), spin down.
+        aimTurret(false);
         Shooter::setFlywheelOpenLoop(0.0);
         enterFireState(FireState::IDLE);
         haveLastShot = false;
+        distanceFilter.reset();
+        readyBits = 0;
         if (firePressed) ManualControl::reportEvent(RCMAP_EVENT_FIRE_NOT_READY);
         return;
     }
 
-    Shooter::setRotateVisionFollow();
-    Shooter::setRotateAimOffsetPx(ManualControl::getAimOffsetPx());
+    aimTurret(true);
 
     // A target Auto may shoot at: a valid frame (with a hole selected, only
     // that hole's -- Vision drops every other id) that has a depth distance
@@ -80,32 +275,60 @@ void Auto::update() {
     // (the selected one, or the Orin's own pick with none selected), so the
     // table is that hole's row. valid=1 with distance 0 (the Orin's webcam
     // bench mode) or an id with no table can be aimed at but never fired at.
+    //
+    // The table is looked up at the STEADIED distance (2026-10-27,
+    // ShotDistanceFilter): each new depth frame of this target feeds it,
+    // and its latched value only moves for a real move, so standing still
+    // the flywheel command and the elevation target stay put and the
+    // shooter can count as ready. A new hole (selection, or the Orin's own
+    // pick changing) starts the filter over.
+    const unsigned long now = millis();
+    const uint8_t selection = Vision::getSelectedTarget();
+    const bool frameHasDepth = Vision::isValid() && Vision::getDistance() > 0.0;
+    if (selection != filterSelection ||
+        (Vision::isValid() && Vision::getTargetId() != filterTargetId)) {
+        distanceFilter.reset();
+        filterSelection = selection;
+        if (Vision::isValid()) filterTargetId = Vision::getTargetId();
+    }
+    const unsigned long frame = Vision::getFrameCount();
+    if (frameHasDepth && frame != lastFilterFrame) {
+        distanceFilter.addSample(Vision::getDistance() / 1000.0, now);
+    }
+    lastFilterFrame = frame;
     ShotTableLookup::Result shot = {0.0, 0.0};
-    const bool hasTarget = Vision::isValid() && Vision::getDistance() > 0.0 &&
-        ShotTableLookup::lookupTarget(Vision::getTargetId(), Vision::getDistance() / 1000.0, shot);
+    const bool hasTarget = frameHasDepth && distanceFilter.latched() > 0.0 &&
+        ShotTableLookup::lookupTarget(Vision::getTargetId(), distanceFilter.latched(), shot);
 
     // Target hold (2026-10-18): a single invalid / distance-0 / other-hole
     // frame used to drop the flywheel to the pre-spin for ~90 ms and back,
     // pulsing it and restarting its spin-up wait. The last target's shot
-    // is kept for TARGET_HOLD_MS (not across a new hole selection); firing
-    // still needs a target in the current frame (hasTarget below).
-    const unsigned long now = millis();
-    const uint8_t selection = Vision::getSelectedTarget();
+    // is kept for TARGET_HOLD_MS (not across a new hole selection). Firing
+    // needs the hole in the current frame (Vision::isValid(): the turret is
+    // locked on it) and a shot: this frame's, or the held one when only the
+    // depth dropped out for a moment (same hole).
     if (hasTarget) {
         haveLastShot = true;
         lastShotFlywheel = shot.flywheelCommand;
         lastShotElevationUs = shot.elevationPulseUs;
         lastShotMs = now;
         lastShotSelection = selection;
+        lastShotTargetId = Vision::getTargetId();
     }
     const bool holding = !hasTarget && haveLastShot && selection == lastShotSelection &&
         now - lastShotMs <= TuningConstants::Auto::TARGET_HOLD_MS;
-    if (!hasTarget && !holding) haveLastShot = false;
+    if (!hasTarget && !holding) {
+        haveLastShot = false;
+        distanceFilter.reset();
+    }
 
     // Flywheel from that table when there is (or was just) a target
     // (distance in mm -> m); otherwise the fixed SHOOT_COMMAND so it is
     // already spinning when a target appears.
     double flywheelCommand = TuningConstants::Flywheel::SHOOT_COMMAND;
+    // Elevation at its table pulse (2026-10-31): true with no measured
+    // table (the operator holds the elevation then).
+    bool elevationArrived = !TuningConstants::ShotTable::ELEVATION_MEASURED;
     if (hasTarget || holding) {
         // Plus the operator's LT / RT offset (percent), kept within 0..1.
         flywheelCommand = constrain(
@@ -123,6 +346,9 @@ void Auto::update() {
             const double maxStep = TuningConstants::Auto::ELEVATION_SLEW_US_PER_SECOND * elapsed / 1000.0;
             const double currentUs = Shooter::getAnglePulseUs();
             const double delta = targetUs - currentUs;
+            // Where it is now (before this loop's step): one loop late at
+            // most, never early.
+            elevationArrived = fabs(delta) <= TuningConstants::Auto::ELEVATION_READY_TOLERANCE_US;
             Shooter::setAnglePulseUs(delta > maxStep ? currentUs + maxStep
                                      : delta < -maxStep ? currentUs - maxStep : targetUs);
         }
@@ -131,9 +357,24 @@ void Auto::update() {
     Shooter::setFlywheelOpenLoop(flywheelCommand);
 
     // Turret locked on the target (|tx + aim offset| <= 5 px for 100 ms),
-    // flywheel commanded at shoot speed long enough to be spun up, and a
-    // target with a distance.
-    const bool ready = Shooter::isReady() && hasTarget;
+    // flywheel commanded at shoot speed long enough to be spun up, a shot
+    // for the hole in this frame (its own, or the held one), and the
+    // elevation at that shot's pulse.
+    const bool shotAvailable = Vision::isValid() &&
+        (hasTarget || (holding && Vision::getTargetId() == lastShotTargetId));
+    // Full auto never fires at an excluded hole (FULL_AUTO_EXCLUDED_HOLES),
+    // whatever picked it.
+    const bool holeAllowed = mode != OperatorMode::FULL_AUTO ||
+        !excludedInFullAuto(OperatorTarget::holeForVisionId(Vision::getTargetId()));
+    // A new aim hole: let the turret settle first (AIM_SWITCH_SETTLE_MS).
+    const uint8_t aim = getAimTarget();
+    if (aim != lastAimTarget) {
+        lastAimTarget = aim;
+        aimChangedMs = now;
+    }
+    const bool settledOnHole = now - aimChangedMs >= TuningConstants::Auto::AIM_SWITCH_SETTLE_MS;
+    const bool ready = Shooter::isReady() && shotAvailable && elevationArrived && holeAllowed &&
+                       settledOnHole;
     bool fired = false;
 
     if (fireState == FireState::IDLE) {
@@ -149,11 +390,12 @@ void Auto::update() {
     if (fireState == FireState::READY) {
         if (!ready) {
             enterFireState(FireState::SPINNING_UP); // lost lock or spun down
-        } else if (mode == OperatorMode::FULL_AUTO || firePressed) {
+        } else if ((mode == OperatorMode::FULL_AUTO && (!rowDone || litActive)) || firePressed) {
             if (Dribbler::requestFeed()) {
                 ManualControl::reportEvent(RCMAP_EVENT_FEED_TRIGGER_SENT);
                 enterFireState(FireState::COOLDOWN);
                 fired = true;
+                if (mode == OperatorMode::FULL_AUTO) countRowShot();
             } else if (firePressed) {
                 // Tower still in its own lockout. Full-auto just retries next
                 // loop without reporting every attempt.
@@ -162,6 +404,13 @@ void Auto::update() {
             }
         }
     }
+
+    // Why it can't fire yet, for the Dashboard (TEL slot 40).
+    readyBits = static_cast<uint8_t>((Shooter::isRotateReady() ? 1u : 0u) |
+                                     (Shooter::isFlywheelReady() ? 2u : 0u) |
+                                     (shotAvailable ? 4u : 0u) |
+                                     (fireState == FireState::READY ? 8u : 0u) |
+                                     (elevationArrived ? 16u : 0u));
 
     // Semi-auto F while not ready (still aiming / spinning up / cooling
     // down) is refused, not queued: the operator presses again.

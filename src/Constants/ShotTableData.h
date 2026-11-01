@@ -2,7 +2,7 @@
 // DO NOT EDIT BY HAND: change the Excel and run
 //   python3 tools/shot_table/apply.py --upload
 //
-// One table per Dashboard hole (key 1-9): camera distance (cm) -> Falcon
+// One table per Dashboard hole (keys 1-9; 10-12 = bonus Q W E): camera distance (cm) -> Falcon
 // command (per mille) and elevation pulse (us), ascending by distance.
 // A hole with no points uses its row's center hole (TuningConstants::
 // ShotTable::tableForVisionId). Integers keep it small in the Mega's RAM.
@@ -22,23 +22,46 @@ struct Point {
 // Hole 2: no points (uses hole 5).
 // Hole 3: no points (uses hole 6).
 constexpr Point HOLE_4[] = {
-    {250, 420, 2407},  // 2.50 m, 42.0%, 2407 us
-    {500, 430, 2183},  // 5.00 m, 43.0%, 2183 us
+    {272, 320, 500},  // 2.72 m, 32.0%, 500 us
+    {330, 320, 500},  // 3.30 m, 32.0%, 500 us
+    {365, 330, 500},  // 3.65 m, 33.0%, 500 us
+    {400, 340, 500},  // 4.00 m, 34.0%, 500 us
+    {448, 340, 500},  // 4.48 m, 34.0%, 500 us
+    {511, 350, 500},  // 5.11 m, 35.0%, 500 us
+    {554, 360, 500},  // 5.54 m, 36.0%, 500 us
+    {604, 370, 500},  // 6.04 m, 37.0%, 500 us
+    {646, 380, 500},  // 6.46 m, 38.0%, 500 us
+    {682, 350, 500},  // 6.82 m, 35.0%, 500 us
 };
 constexpr Point HOLE_5[] = {
-    {250, 1000, 2500},  // 2.50 m, 100.0%, 2500 us
-    {500, 460, 2063},  // 5.00 m, 46.0%, 2063 us
+    {292, 360, 900},  // 2.92 m, 36.0%, 900 us
+    {323, 360, 782},  // 3.23 m, 36.0%, 782 us
+    {355, 360, 655},  // 3.55 m, 36.0%, 655 us
+    {429, 360, 500},  // 4.29 m, 36.0%, 500 us
+    {519, 370, 500},  // 5.19 m, 37.0%, 500 us
+    {585, 380, 500},  // 5.85 m, 38.0%, 500 us
+    {647, 390, 500},  // 6.47 m, 39.0%, 500 us
+    {701, 400, 500},  // 7.01 m, 40.0%, 500 us
 };
 constexpr Point HOLE_6[] = {
-    {250, 1000, 1010},  // 2.50 m, 100.0%, 1010 us
-    {500, 800, 2442},  // 5.00 m, 80.0%, 2442 us
+    {325, 600, 1913},  // 3.25 m, 60.0%, 1913 us
+    {393, 600, 1378},  // 3.93 m, 60.0%, 1378 us
+    {472, 600, 973},  // 4.72 m, 60.0%, 973 us
+    {544, 600, 560},  // 5.44 m, 60.0%, 560 us
+    {632, 680, 500},  // 6.32 m, 68.0%, 500 us
+    {678, 680, 500},  // 6.78 m, 68.0%, 500 us
 };
 // Hole 7: no points (uses hole 4).
 // Hole 8: no points (uses hole 5).
 // Hole 9: no points (uses hole 6).
+// Hole 10 (bonus): no points (uses hole 11).
+constexpr Point HOLE_11[] = {
+    {455, 650, 1784},  // 4.55 m, 65.0%, 1784 us
+};
+// Hole 12 (bonus): no points (uses hole 11).
 
 // Index = Dashboard hole key (0 unused).
-constexpr const Point* HOLE_POINTS[10] = {
+constexpr const Point* HOLE_POINTS[13] = {
     nullptr,
     nullptr,
     nullptr,
@@ -49,7 +72,10 @@ constexpr const Point* HOLE_POINTS[10] = {
     nullptr,
     nullptr,
     nullptr,
+    nullptr,
+    HOLE_11,
+    nullptr,
 };
-constexpr uint8_t HOLE_COUNTS[10] = {0, 0, 0, 0, 2, 2, 2, 0, 0, 0};
+constexpr uint8_t HOLE_COUNTS[13] = {0, 0, 0, 0, 10, 8, 6, 0, 0, 0, 0, 1, 0};
 
 }  // namespace ShotTableData

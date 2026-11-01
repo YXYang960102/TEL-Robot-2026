@@ -10,7 +10,7 @@
 // rules:
 //   - Wired: line protocol on USB `Serial` from tools/dashboard/index.html
 //     (E/X/K, T,<l>,<r>, ROT,<d>, ANG,<d>, ANGT,<deg>, FLY,<0..1>, FLYO,<-20..20>,
-//     TGT,<0..9>, AUTO,<1..4>, MODE,<0..3>, F, M).
+//     TGT,<0..12>, AUTO,<1..4>, MODE,<0..3>, F, M).
 //   - Wireless: CRSF channels from the ELRS link via MechLink, decoded with
 //     RcControlMap table v2 (forward/turn, target hole, mode, fire, arm,
 //     nudge, auto path; CH9 = test mode).
@@ -66,12 +66,27 @@ public:
     // Lets Auto report what it did on the same "$EVENT" / status channel.
     static void reportEvent(rcmap_event event);
 
-    static uint8_t getTarget();               // 0 = none, 1..9
+    static uint8_t getTarget();               // 0 = none, 1..12
+    // Bumped on every hole choice: a change (wired or radio) and every
+    // wired TGT, even of the same hole -- Auto's row cycle starts over.
+    static uint16_t getTargetSelectSeq();
     static uint8_t getAutoPathThisEnable();   // 0 = none, 1..4
     static uint8_t getAutoPathsUsedMask();    // bit n = path n started since boot
     // Fine-adjust (TuningConstants::Auto): + = aim right / elevation up.
     static double getAimOffsetPx();
     static double getElevationOffsetUs();
+    // Autos and test (2026-10-30): left / right held = the operator turns
+    // the turret by hand, then it stands still AIM_JOG_SETTLE_MS before the
+    // camera takes over again with the new aim offset. While this is true
+    // Auto drives the turret open loop with getAimJogCommand() (0 during
+    // the wait) instead of the camera follow.
+    static bool isAimJogActive();
+    static double getAimJogCommand();
+    // RB in the autos / test (2026-10-31): the turret goes back to 0 deg
+    // and stays there (no camera follow) until a hole is chosen (wired:
+    // also the same one again), the mode changes, or left / right is held
+    // (the hand turn). Full manual ignores it.
+    static bool isTurretHeldHome();
     // The autos' flywheel offset in percent (-20..20, LT / RT; 2026-10-18):
     // added to the shot table's value. Wired FLYO,<n> or CH4 in the autos;
     // 0 in full manual, after a mode change and on every Enable / disarm.
@@ -123,6 +138,8 @@ private:
     static bool wirelessArmPrev;
     static bool wirelessFirePrev;
     static uint8_t wirelessAutoPrev;
+    static bool wirelessHomePrev;
+    static unsigned long lastVersionEventMs; // LINK_VERSION_MISMATCH rate limit
 
     static double tankLeftCommand;
     static double tankRightCommand;
@@ -138,6 +155,12 @@ private:
     static double elevationOffsetUs;
     static int flywheelOffsetPct;
     static int rotateNudgePrev; // sign of the last ROT/nudge, for press edges
+    static bool turretHeldHome;
+    static uint16_t targetSelectSeq;
+    static void requestTurretHome();
+    static bool aimJogging;          // left / right held in an auto / test
+    static bool aimJogSettling;      // released, waiting before the latch
+    static unsigned long aimJogReleasedMs;
     static int angleNudgePrev;
 
     static unsigned long eventSeq;

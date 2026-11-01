@@ -4,8 +4,8 @@
 #define RCMAP_MAX_VALID_US 2100
 #define RCMAP_SWITCH_ON_US 1750
 #define RCMAP_TARGET_BASE_US 1000
-#define RCMAP_TARGET_STEP_US 100
-#define RCMAP_TARGET_TOLERANCE_US 40
+#define RCMAP_TARGET_STEP_US 80 /* 13 levels, 1000..1960 (CH3 is full resolution) */
+#define RCMAP_TARGET_TOLERANCE_US 35
 #define RCMAP_LEVEL_BASE_US 1000
 #define RCMAP_LEVEL_STEP_US 200
 #define RCMAP_LEVEL_TOLERANCE_US 90 /* ELRS 6-pos sends 988/1193/1398/1602/1807 */
@@ -102,15 +102,29 @@ void rcmap_encode(const rcmap_command *c, int ch_us[16]) {
     ch_us[RCMAP_CH_NUDGE] = RCMAP_LEVEL_BASE_US + (int)nudge * RCMAP_LEVEL_STEP_US;
     const uint8_t path = c->auto_path <= RCMAP_AUTO_PATHS ? c->auto_path : RCMAP_AUTO_NONE;
     ch_us[RCMAP_CH_AUTO] = RCMAP_LEVEL_BASE_US + (int)path * RCMAP_LEVEL_STEP_US;
-    ch_us[RCMAP_CH_TEST] = rcmap_command_mode(c) == RCMAP_MODE_TEST ? 2000 : 1500;
+    {
+        const bool test = rcmap_command_mode(c) == RCMAP_MODE_TEST;
+        const int level = test ? (c->turret_home ? 5 : 4) : (c->turret_home ? 1 : 2);
+        ch_us[RCMAP_CH_TEST] = RCMAP_LEVEL_BASE_US + level * RCMAP_LEVEL_STEP_US;
+    }
+    ch_us[RCMAP_CH_VERSION] = RCMAP_LEVEL_BASE_US + (int)RCMAP_LINK_VERSION * RCMAP_LEVEL_STEP_US;
+}
+
+bool rcmap_link_version_ok(const int *ch_us, uint8_t count) {
+    uint8_t version;
+    return count >= RCMAP_CHANNEL_COUNT &&
+           us_to_level(ch_us[RCMAP_CH_VERSION], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
+                       RCMAP_LEVEL_TOLERANCE_US, 6u, &version) &&
+           version == RCMAP_LINK_VERSION;
 }
 
 bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     if (count < RCMAP_CHANNEL_COUNT) return false;
+    if (!rcmap_link_version_ok(ch_us, count)) return false;
     for (uint8_t i = 0; i < RCMAP_CHANNEL_COUNT; i++) {
         if (ch_us[i] < RCMAP_MIN_VALID_US || ch_us[i] > RCMAP_MAX_VALID_US) return false;
     }
-    uint8_t target, nudge, path;
+    uint8_t target, nudge, path, test_level;
     int mode_us;
     float flywheel;
     int8_t offset_pct;
@@ -120,7 +134,9 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
         !us_to_level(ch_us[RCMAP_CH_NUDGE], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
                      RCMAP_LEVEL_TOLERANCE_US, RCMAP_FIVE_LEVELS, &nudge) ||
         !us_to_level(ch_us[RCMAP_CH_AUTO], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
-                     RCMAP_LEVEL_TOLERANCE_US, RCMAP_FIVE_LEVELS, &path)) {
+                     RCMAP_LEVEL_TOLERANCE_US, RCMAP_FIVE_LEVELS, &path) ||
+        !us_to_level(ch_us[RCMAP_CH_TEST], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
+                     RCMAP_LEVEL_TOLERANCE_US, 6u, &test_level)) {
         return false;
     }
     out->forward = us_to_axis(ch_us[RCMAP_CH_FORWARD]);
@@ -135,8 +151,12 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     out->auto_path = path;
     /* Fail-safe like fire / arm: only a clear high counts, and only with
        CH4 in full manual (any other level is that mode, whatever CH9 says). */
-    out->test_mode = ch_us[RCMAP_CH_TEST] >= RCMAP_SWITCH_ON_US &&
+    /* CH9 (a level, like CH7 / CH8: between levels = corrupt frame): TEST
+       only with CH4 in full manual (any other level is that mode, whatever
+       CH9 says); turret home on levels 1 and 5. */
+    out->test_mode = (test_level == 4u || test_level == 5u) &&
                      rcmap_mode_from_us(mode_us) == RCMAP_MODE_FULL_MANUAL;
+    out->turret_home = test_level == 1u || test_level == 5u;
     return true;
 }
 
@@ -209,6 +229,9 @@ static const char *const event_names[RCMAP_EVENT_COUNT] = {
     "AUTO_PATH_STARTED",
     "AUTO_PATH_REJECTED",
     "MODE_TEST",
+    "LINK_VERSION_MISMATCH",
+    "TURRET_ZERO_SET",
+    "TURRET_ZERO_REJECTED",
 };
 
 const char *rcmap_event_name(uint16_t code) {
@@ -224,22 +247,47 @@ void rcmap_status_to_battery(const rcmap_status *s, uint16_t *voltage, uint16_t 
 }
 
 void rcmap_aim_to_status(const rcmap_aim *a, uint8_t *flags, uint32_t *seq, uint16_t *code) {
-    const uint16_t cm = a->distance_cm > 0x7FFFu ? 0x7FFFu : a->distance_cm;
+    const uint16_t cm = a->distance_cm > 0x3FFFu ? 0x3FFFu : a->distance_cm;
     const uint16_t pulse = a->elevation_pulse_us > 0x0FFFu ? 0x0FFFu : a->elevation_pulse_us;
     *code = (uint16_t)(RCMAP_AIM_FRAME_BIT | cm);
     *seq = (uint32_t)pulse | ((uint32_t)(a->selected_id & 0x0Fu) << 12) |
-           ((uint32_t)(a->target_id & 0x0Fu) << 16) | ((uint32_t)(a->valid ? 1u : 0u) << 20);
+           ((uint32_t)(a->target_id & 0x0Fu) << 16) | ((uint32_t)(a->valid ? 1u : 0u) << 20) |
+           ((uint32_t)(a->turret_state & 0x07u) << 21);
     *flags = (uint8_t)a->aim_offset_px;
 }
 
 bool rcmap_aim_from_status(const rcmap_status *s, rcmap_aim *out) {
     if (!rcmap_status_is_aim(s->event_code)) return false;
-    out->distance_cm = (uint16_t)(s->event_code & 0x7FFFu);
+    out->distance_cm = (uint16_t)(s->event_code & 0x3FFFu);
     out->elevation_pulse_us = (uint16_t)(s->event_seq & 0x0FFFu);
     out->selected_id = (uint8_t)((s->event_seq >> 12) & 0x0Fu);
     out->target_id = (uint8_t)((s->event_seq >> 16) & 0x0Fu);
     out->valid = ((s->event_seq >> 20) & 1u) != 0u;
+    out->turret_state = (uint8_t)((s->event_seq >> 21) & 0x07u);
     out->aim_offset_px = (int8_t)s->flags;
+    return true;
+}
+
+void rcmap_seen_to_status(const rcmap_seen *v, uint8_t *flags, uint32_t *seq, uint16_t *code) {
+    const uint8_t state = v->state > RCMAP_VISION_STATE_PREDICTED ? RCMAP_VISION_STATE_NONE : v->state;
+    const int deg10 = v->turret_deg10 > 2047 ? 2047 : (v->turret_deg10 < -2047 ? -2047 : v->turret_deg10);
+    const uint32_t ring = v->ring_percent < 0 ? 0u
+                        : (uint32_t)((v->ring_percent > 100 ? 100 : v->ring_percent) + 1) / 2u + 1u;
+    *code = (uint16_t)(RCMAP_SEEN_FRAME_BITS | ((uint16_t)state << 12) | (v->seen_mask & 0x0FFFu));
+    *seq = ((uint32_t)deg10 & 0x0FFFu) | ((uint32_t)(v->turret_status & 0x3Fu) << 12) | (ring << 18);
+    *flags = v->ring_percent < 0 ? 0u : v->ring_sectors;
+}
+
+bool rcmap_seen_from_status(const rcmap_status *s, rcmap_seen *out) {
+    if (!rcmap_status_is_seen(s->event_code)) return false;
+    out->seen_mask = (uint16_t)(s->event_code & 0x0FFFu);
+    out->state = (uint8_t)((s->event_code >> 12) & 0x03u);
+    const uint32_t deg = s->event_seq & 0x0FFFu;
+    out->turret_deg10 = (int16_t)(deg >= 0x0800u ? (int32_t)deg - 0x1000 : (int32_t)deg);
+    out->turret_status = (uint8_t)((s->event_seq >> 12) & 0x3Fu);
+    const uint32_t ring = (s->event_seq >> 18) & 0x3Fu;
+    out->ring_percent = (int8_t)(ring == 0u ? -1 : (ring > 51u ? 100 : (int)(ring - 1u) * 2));
+    out->ring_sectors = ring == 0u ? 0u : s->flags;
     return true;
 }
 

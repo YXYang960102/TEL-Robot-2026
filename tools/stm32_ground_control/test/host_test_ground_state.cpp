@@ -137,8 +137,13 @@ static void testTargetAndAutoPath() {
     send(st, "AUTO,4", 300);
     assert(onAir(st).auto_path == 4);
     lines.clear();
-    for (const char* bad : {"TGT,10", "TGT,-1", "TGT,a", "AUTO,0", "AUTO,5", "AUTO,"}) send(st, bad, 301);
+    for (const char* bad : {"TGT,13", "TGT,-1", "TGT,a", "AUTO,0", "AUTO,5", "AUTO,"}) send(st, bad, 301);
     assert(saw("$GROUND_EVENT,BAD_COMMAND") && onAir(st).target == 7 && onAir(st).auto_path == 4);
+    // The bonus holes (Q W E -> TGT,10..12, 2026-10-27) reach CH3.
+    send(st, "TGT,12", 302);
+    assert(onAir(st).target == 12);
+    send(st, "TGT,10", 303);
+    assert(onAir(st).target == 10);
 }
 
 static void testPcWatchdog() {
@@ -323,6 +328,7 @@ static void testAimFrames() {
     a.target_id = 10;
     a.valid = true;
     a.aim_offset_px = -15;
+    a.turret_state = 5; // 2026-10-31: the turret guard's state rides along
     rcmap_status af{};
     uint8_t flags;
     uint32_t seq;
@@ -336,7 +342,7 @@ static void testAimFrames() {
     assert(tr.flags() == st.flags);
     tr.tick(300, collect, nullptr);
     assert(saw("$WIRELESS,1,1,2,0,0,0,0,290,1"));   // status as before (mode semi)
-    assert(saw("$AIM,1,352,1620,10,10,1,-15"));
+    assert(saw("$AIM,1,352,1620,10,10,1,-15,5"));
     // The next status frame's event still reports normally.
     st.event_seq = 6;
     st.event_code = rcmap_status_code(RCMAP_EVENT_FEED_TRIGGER_SENT, RCMAP_MODE_SEMI_AUTO);
@@ -354,13 +360,13 @@ static void testAimFrames() {
     // No aim frame for > STALE_MS: fresh 0 and zeros.
     lines.clear();
     tr.tick(20 + RobotStatusTracker::STALE_MS + 300, collect, nullptr);
-    assert(saw("$AIM,0,0,0,0,0,0,0"));
+    assert(saw("$AIM,0,0,0,0,0,0,0,0"));
     // Never any aim frame (older robot firmware): $AIM,0,...
     RobotStatusTracker none;
     none.reset(0);
     lines.clear();
     none.tick(300, collect, nullptr);
-    assert(saw("$AIM,0,0,0,0,0,0,0"));
+    assert(saw("$AIM,0,0,0,0,0,0,0,0"));
 }
 
 static void testModeKey() {
@@ -461,6 +467,30 @@ static void testTestMode() {
     send(st, "MODE,3", 401);
     st.tick(401 + GroundCommandState::PC_TIMEOUT_MS + 1, collect, nullptr);
     assert(!onAir(st).test_mode);
+}
+
+// THOME (RB, 2026-10-31): CH9's home level for HOME_PULSE_MS, in normal
+// and in test mode; only while enabled; X ends it.
+static void testTurretHome() {
+    GroundCommandState st;
+    st.reset(0);
+    lines.clear();
+    send(st, "THOME", 1);
+    assert(saw("$GROUND_EVENT,REJECTED_NOT_ENABLED") && !onAir(st).turret_home);
+    send(st, "E", 2);
+    send(st, "THOME", 3);
+    rcmap_command d = onAir(st);
+    assert(d.turret_home && !d.test_mode);
+    st.tick(3 + GroundCommandState::HOME_PULSE_MS - 1, collect, nullptr);
+    assert(onAir(st).turret_home);
+    st.tick(3 + GroundCommandState::HOME_PULSE_MS, collect, nullptr);
+    assert(!onAir(st).turret_home);
+    send(st, "MODE,3", 300);
+    send(st, "THOME", 301);
+    d = onAir(st);
+    assert(d.turret_home && d.test_mode && rcmap_command_mode(&d) == RCMAP_MODE_TEST);
+    send(st, "X", 302);
+    assert(!onAir(st).turret_home);
 }
 
 static void testFlywheel() {
@@ -564,6 +594,30 @@ static void testVisionFrames() {
     assert(lastLineStarting("$VISION,") == "$VISION,0,0,0,0,0,0");
 }
 
+// Seen frames (Orin v3, 2026-10-27): detected holes + vision state.
+static void testSeenFrames() {
+    RobotStatusTracker tr;
+    tr.reset(0);
+    lines.clear();
+    tr.tick(250, collect, nullptr);
+    assert(lastLineStarting("$SEEN,") == "$SEEN,0,0,0,0,0,-1,0");  // none yet
+    tr.onStatus(status(RCMAP_STATUS_ARMED | RCMAP_STATUS_OWNER_WIRELESS, 3, RCMAP_EVENT_OUTPUTS_ENABLED),
+                260, collect, nullptr);
+    rcmap_seen sn{static_cast<uint16_t>((1u << 3) | (1u << 4) | (1u << 10)), RCMAP_VISION_STATE_PREDICTED,
+                  -503, 0x03, 62, 0x3C};
+    rcmap_status ss{};
+    rcmap_seen_to_status(&sn, &ss.flags, &ss.event_seq, &ss.event_code);
+    lines.clear();
+    tr.onStatus(ss, 300, collect, nullptr);
+    assert(lines.empty());                                        // no bogus event / aim
+    tr.tick(500, collect, nullptr);
+    assert(lastLineStarting("$SEEN,") == "$SEEN,1,1048,2,-503,3,62,60");
+    assert(lastLineStarting("$AIM,") == "$AIM,0,0,0,0,0,0,0,0");      // not read as an aim frame
+    lines.clear();
+    tr.tick(300 + RobotStatusTracker::STALE_MS + 250, collect, nullptr);
+    assert(lastLineStarting("$SEEN,") == "$SEEN,0,0,0,0,0,-1,0");
+}
+
 static void testArmEdge() {
     GroundCommandState st;
     st.reset(1000);
@@ -639,8 +693,10 @@ int main() {
     testModeKey();
     testFlywheel();
     testTestMode();
+    testTurretHome();
     testArmEdge();
     testVisionFrames();
+    testSeenFrames();
     testStatusInvalidate();
     testAimFrames();
     printf("ground control host tests: all asserts passed\n");

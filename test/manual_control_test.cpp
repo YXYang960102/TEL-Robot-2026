@@ -55,6 +55,9 @@ void reset() {
     hoststub::anglePulseUs = 1500;
     hoststub::visionTy = 0.0;
     hoststub::shooterReady = false;
+    hoststub::turretZeroOk = true;
+    hoststub::turretState = 4;
+    hoststub::litBonusId = 0;
     MechLink::signalLost = true;
     MechLink::frameCount = 0;
     wireless = rcmap_command{};
@@ -222,7 +225,7 @@ void testWiredScalingAndParsing() {
     assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, JOG * ROTATE_MANUAL_SCALE));
     assert(nearly(rec.angleCommand, -ANGLE_MANUAL_SCALE) && nearly(rec.flywheelCommand, 1.0));
     for (const char* bad : {"FLY,nan", "FLY,inf", "ROT,-1e999", "T,2", "T,1,1,1", "FLY,abc",
-                            "TGT,10", "TGT,-1", "TGT,", "TGT,5x", "AUTO,0", "AUTO,5", "AUTO,"}) {
+                            "TGT,13", "TGT,-1", "TGT,", "TGT,5x", "AUTO,0", "AUTO,5", "AUTO,"}) {
         Serial.output.clear();
         send(bad);
         ManualControl::update();
@@ -269,6 +272,13 @@ void testTargetSelection() {
     send("TGT,9");
     step();
     assert(saw("TARGET_SELECTED") && ManualControl::getTarget() == 9);
+    // The bonus holes (Q W E, 2026-10-27).
+    for (uint8_t hole = 10; hole <= 12; hole++) {
+        Serial.output.clear();
+        send("TGT," + std::to_string(hole));
+        step();
+        assert(saw("TARGET_SELECTED") && ManualControl::getTarget() == hole);
+    }
     send("TGT,0");
     step();
     assert(ManualControl::getTarget() == RCMAP_TARGET_NONE);
@@ -496,7 +506,7 @@ void testWirelessInvalidFramesTimeOut() {
     armWireless();
     for (int i = 0; i < 20; i++) {
         rcFrame();
-        MechLink::channels[RCMAP_CH_TARGET] = 1150; // between target levels
+        MechLink::channels[RCMAP_CH_TARGET] = 1120; // between target levels (1080 / 1160)
         step(20);
     }
     assert(saw("COMMAND_TIMEOUT") && !ManualControl::isArmed());
@@ -554,7 +564,7 @@ void testStatusUplink() {
     assert(rec.statusFlags & RCMAP_STATUS_PINS_CONFIRMED);
     assert(!(rec.statusFlags & RCMAP_STATUS_ARMED));
     armWireless();
-    runWireless(220); // status goes out every other 100 ms slot
+    runWireless(320); // status: slots 0 and 2 of 5 (100 ms each), so at most 300 ms apart
     assert(rec.statusFlags & RCMAP_STATUS_ARMED);
     assert(rec.statusFlags & RCMAP_STATUS_OWNER_WIRELESS);
     assert(rec.statusFlags & RCMAP_STATUS_RC_LINK_OK);
@@ -563,12 +573,12 @@ void testStatusUplink() {
     assert(rcmap_status_code_mode(rec.statusCode) == RCMAP_MODE_FULL_MANUAL);
     const unsigned long seq = rec.statusSeq;
     wireless.fire = true;
-    runWireless(220);
+    runWireless(320);
     assert(rcmap_status_code_event(rec.statusCode) == RCMAP_EVENT_FEED_TRIGGER_SENT &&
            rec.statusSeq == seq + 1);
     assert(rec.statusFlags & RCMAP_STATUS_FEED_BUSY);
     wireless.mode_us = RCMAP_MODE_SEMI_AUTO_US;
-    runWireless(220);
+    runWireless(320);
     assert(rcmap_status_code_mode(rec.statusCode) == RCMAP_MODE_SEMI_AUTO);
 }
 
@@ -586,7 +596,7 @@ rcmap_aim lastAim() {
 
 void testAimUplink() {
     reset();
-    // Status, aim, status, vision; one line per 100 ms.
+    // Status, aim, status, vision, seen (2026-10-27); one line per 100 ms.
     step(100);
     assert(rec.statusCount == 1 && rec.aimCount == 0 && rec.visionCount == 0);
     step(100);
@@ -595,8 +605,17 @@ void testAimUplink() {
     assert(rec.statusCount == 2 && rec.aimCount == 1 && rec.visionCount == 0);
     step(100);
     assert(rec.statusCount == 2 && rec.aimCount == 1 && rec.visionCount == 1);
-    for (int i = 0; i < 8; i++) step(100);
-    assert(rec.statusCount == 6 && rec.aimCount == 3 && rec.visionCount == 3);
+    step(100);
+    assert(rec.seenCount == 1 && rec.statusCount == 2);
+    for (int i = 0; i < 7; i++) step(100);
+    assert(rec.statusCount == 5 && rec.aimCount == 3 && rec.visionCount == 2 && rec.seenCount == 2);
+    {
+        rcmap_status st = {};
+        st.event_code = rec.seenCode;
+        rcmap_seen seen = {};
+        assert(rcmap_seen_from_status(&st, &seen) && seen.seen_mask == 0 &&
+               seen.state == RCMAP_VISION_STATE_NONE);
+    }
     // Nothing in view: no distance, not valid.
     rcmap_aim a = lastAim();
     assert(a.distance_cm == 0 && !a.valid && a.target_id == 0 && a.elevation_pulse_us == 1500);
@@ -609,16 +628,19 @@ void testAimUplink() {
     hoststub::anglePulseUs = 1620;
     armWired();
     send("M"); step();                    // semi auto: arrows are fine-adjust
-    send("ROT,1"); step(); send("ROT,0"); step();
-    runWithHeartbeat(350);
+    send("ROT,1"); step();
+    hoststub::visionTx = -80.0;           // let go with the hole 80 px left
+    send("ROT,0"); step();
+    runWithHeartbeat(550);                // an aim frame every 500 ms (5 slots)
     a = lastAim();
     // The elevation servo's pulse when the frame went out (Auto slews it
     // toward the table, so it may trail the current one by one aim period).
     assert(a.distance_cm == 352);
     assert(abs(static_cast<int>(a.elevation_pulse_us) - hoststub::anglePulseUs) <=
-           static_cast<int>(TuningConstants::Auto::ELEVATION_SLEW_US_PER_SECOND * 0.41) + 1);
+           static_cast<int>(TuningConstants::Auto::ELEVATION_SLEW_US_PER_SECOND * 0.51) + 1);
     assert(a.selected_id == 10 && a.target_id == 10 && a.valid);
-    assert(a.aim_offset_px == static_cast<int8_t>(TuningConstants::Auto::AIM_OFFSET_STEP_PX));
+    assert(a.aim_offset_px == 20);        // +80 px in 4 px units (2026-10-30)
+    hoststub::visionTx = 0.0;
     // The status frames in between are untouched by it.
     assert(rec.statusFlags & RCMAP_STATUS_ARMED);
     assert(!rcmap_status_is_aim(rec.statusCode));
@@ -637,7 +659,7 @@ rcmap_vision lastVision() {
 
 void testVisionUplink() {
     reset();
-    for (int i = 0; i < 4; i++) step(100);
+    for (int i = 0; i < 5; i++) step(100);   // one vision frame per 5 slots
     // Nothing in view: zeros, not valid.
     rcmap_vision v = lastVision();
     assert(!v.valid && v.tx_px == 0.0f && v.ty_px == 0.0f);
@@ -648,13 +670,13 @@ void testVisionUplink() {
     hoststub::visionTargetId = 10;
     hoststub::visionTx = -62.4;           // -> -62.5 (0.5 px steps)
     hoststub::visionTy = 20.5;
-    for (int i = 0; i < 4; i++) step(100);
+    for (int i = 0; i < 5; i++) step(100);   // one vision frame per 5 slots
     v = lastVision();
     assert(v.valid && v.target_id == 10);
     assert(v.tx_px == -62.5f && v.ty_px == 20.5f);
     // Lost target: tx / ty back to 0 (not a stale value).
     hoststub::visionValid = false;
-    for (int i = 0; i < 4; i++) step(100);
+    for (int i = 0; i < 5; i++) step(100);   // one vision frame per 5 slots
     v = lastVision();
     assert(!v.valid && v.tx_px == 0.0f);
     hoststub::visionTx = 0.0;
@@ -755,9 +777,20 @@ void testSemiAutoFiresOnlyWhenReady() {
     runArmed(200);
     assert(Dribbler::getTriggerCount() == 0);              // no late shot
 
-    // Locked and spun up: F fires exactly one ball.
+    // Locked and spun up, but the elevation still slewing to the table's
+    // pulse (400 us/s): refused (2026-10-31).
     hoststub::shooterReady = true;
     step();
+    if (fabs(hoststub::anglePulseUs - shot.elevationPulseUs) >
+        TuningConstants::Auto::ELEVATION_READY_TOLERANCE_US) {
+        Serial.output.clear();
+        send("F"); step();
+        assert(saw("FIRE_NOT_READY") && !triggerHigh());
+    }
+    runArmed(6000);
+    assert(fabs(hoststub::anglePulseUs - shot.elevationPulseUs) <=
+           TuningConstants::Auto::ELEVATION_READY_TOLERANCE_US);
+    // Locked, spun up, elevation there: F fires exactly one ball.
     Serial.output.clear();
     send("F"); step();
     assert(saw("FEED_TRIGGER_SENT") && triggerHigh());
@@ -779,6 +812,17 @@ void testFullAutoFiresByItself() {
     send("M"); send("M"); step();                         // full auto
     assert(ManualControl::getOperatorMode() == OperatorMode::FULL_AUTO);
     assert(shotsDuring(500) == 0);                         // not ready: holds fire
+    // Ready, but the elevation still slewing to the table's pulse
+    // (400 us/s): holds fire until it gets there (2026-10-31).
+    hoststub::shooterReady = true;
+    ShotTableLookup::Result shot = {0.0, 0.0};
+    assert(ShotTableLookup::lookupTarget(hoststub::visionTargetId, 4.0, shot));
+    while (fabs(hoststub::anglePulseUs - shot.elevationPulseUs) >
+           TuningConstants::Auto::ELEVATION_READY_TOLERANCE_US + 50.0) {
+        assert(shotsDuring(100) == 0);
+    }
+    hoststub::shooterReady = false;
+    runArmed(1000);                                       // there now
     hoststub::shooterReady = true;
     // Fires whenever ready, paced by the tower's 1000 ms lockout (longer
     // than Auto's own 300 ms cooldown): ~3 shots in 2.5 s.
@@ -792,6 +836,109 @@ void testFullAutoFiresByItself() {
     send("M"); step();
     assert(ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
     assert(shotsDuring(2500) == 0);
+}
+
+// Full auto cycle (2026-10-31): with the Orin's own pick, the first hole
+// shot starts the cycle and stays chosen; 3 balls each, OperatorTarget::
+// cycleHole order (that row right / wrapping, the row below, the row above,
+// the bonus row), then stop. A hole key (even the same one) or a mode
+// change starts over. A lit bonus hole comes first: 3 balls, then back.
+unsigned long runUntilShots(unsigned long count, unsigned long maxMs) {
+    for (unsigned long t = 0; t < maxMs && Dribbler::getTriggerCount() < count; t += 10) {
+        if (t % 50 == 0) send("K");
+        // The Orin follows the hole Auto aims at (main.cpp's MEGA_TARGET).
+        if (Auto::getAimTarget() != 0) hoststub::visionTargetId = OperatorTarget::visionIdForHole(Auto::getAimTarget());
+        step(10);
+    }
+    return Dribbler::getTriggerCount();
+}
+
+void testFullAutoRowCycle() {
+    reset();
+    hoststub::visionReady = true;
+    targetInView();
+    hoststub::visionTargetId = 8;                         // the Orin picked hole 5 (center)
+    armWired();
+    send("M"); send("M"); step();                         // full auto, no hole chosen
+    assert(Auto::getAimTarget() == 0);
+    runArmed(6000);                                       // elevation to the table first
+    hoststub::shooterReady = true;
+    assert(runUntilShots(1, 3000) == 1);
+    assert(Auto::getAimTarget() == 5 && Auto::getRowShots() == 1);   // pinned to it
+    // Never two columns in one move (2026-11-01), the bottom row out in full
+    // auto: 5, the right column 8 9, back to the middle 6, the left 3 2,
+    // then the bonus row Q W E from the left.
+    const uint8_t order[] = {5, 8, 9, 6, 3, 2, 10, 11, 12};
+    for (unsigned i = 0; i < sizeof order; i++) {
+        const unsigned long done = 3 * i;
+        if (i > 0) assert(runUntilShots(done, 10000) == done);
+        // (each hole with a table: own, or its row center's -- W's for Q / E)
+        assert(Auto::getAimTarget() == order[i] || Auto::isRowDone());
+    }
+    assert(runUntilShots(27, 12000) == 27);
+    assert(Auto::isRowDone() && Auto::getAimTarget() == 12);
+    assert(shotsDuring(3000) == 0);                       // all done: holds fire
+    // A hole key starts over from that hole.
+    send("TGT,8"); step();                                // right middle
+    assert(!Auto::isRowDone() && Auto::getAimTarget() == 8);
+    // (It may fire in that same loop: ready, elevation already there.)
+    const unsigned long before = Dribbler::getTriggerCount() - Auto::getRowShots();
+    assert(runUntilShots(before + 3, 8000) == before + 3);
+    assert(Auto::getAimTarget() == 9);                    // from the right edge: 8 9, 6 5, 2 3
+    // Semi-auto: no cycle, the operator's hole.
+    send("MODE,1"); step();
+    assert(Auto::getAimTarget() == 8 && !Auto::isRowDone() && Auto::getRowShots() == 0);
+
+    // The bottom row is out in full auto: the Orin picking 4 is swapped for
+    // 5 right away (nothing fired at 4); a chosen 4 starts past its row.
+    reset();
+    hoststub::visionReady = true;
+    targetInView();
+    hoststub::visionTargetId = 11;                        // the Orin picked hole 4
+    hoststub::shooterReady = true;
+    armWired();
+    send("M"); send("M"); step();                         // full auto
+    assert(Auto::getAimTarget() == 5);
+    hoststub::visionTargetId = 11;                        // still on 4 (not following yet)
+    assert(shotsDuring(8000) == 0);                       // never fired at an excluded hole
+    send("TGT,4"); step();
+    assert(Auto::getAimTarget() == 8);                    // 4 itself out: 8 9 next (right column)
+    send("MODE,1"); step();                               // semi-auto: 4 is the operator's
+    assert(Auto::getAimTarget() == 4);
+}
+
+void testFullAutoLitBonusFirst() {
+    reset();
+    hoststub::visionReady = true;
+    targetInView();
+    hoststub::visionTargetId = 8;                         // the Orin picked hole 5
+    armWired();
+    send("M"); send("M"); step();                         // full auto
+    runArmed(6000);
+    hoststub::shooterReady = true;
+    assert(runUntilShots(1, 3000) == 1 && Auto::getAimTarget() == 5);
+    hoststub::litBonusId = 2;                             // W lights up
+    step();
+    assert(Auto::getLitPriorityHole() == 11 && Auto::getAimTarget() == 11);
+    hoststub::shooterReady = false;
+    runArmed(6000);                                       // turret + elevation over there
+    hoststub::shooterReady = true;
+    const unsigned long before = Dribbler::getTriggerCount();
+    assert(runUntilShots(before + 3, 8000) == before + 3);
+    assert(Auto::getLitPriorityHole() == 0 && Auto::getAimTarget() == 5);  // back where it was
+    assert(Auto::getRowShots() == 1);                     // 1 of 3 already at 5
+    // Still lit: not again. Dark > LIT_DARK_MS, then lit again: again.
+    runArmed(500);
+    assert(Auto::getLitPriorityHole() == 0);
+    hoststub::litBonusId = 0;
+    runArmed(TuningConstants::Auto::LIT_DARK_MS + 100);
+    hoststub::litBonusId = 2;
+    step();
+    assert(Auto::getLitPriorityHole() == 11);
+    // Semi-auto ignores it.
+    send("MODE,1"); step();
+    assert(Auto::getLitPriorityHole() == 0 && Auto::getAimTarget() == 0);
+    hoststub::litBonusId = 0;
 }
 
 void testAutoWithoutCamera() {
@@ -818,6 +965,40 @@ void testShotTableDrivesFlywheel() {
     ShotTableLookup::Result expected = {0.0, 0.0};
     assert(ShotTableLookup::lookupTarget(hoststub::visionTargetId, 5.0, expected));
     assert(nearly(rec.flywheelCommand, expected.flywheelCommand));
+}
+
+// Standing still, the depth wanders a few cm frame to frame (2026-10-27):
+// the shot table is looked up at the steadied distance, so the flywheel
+// command and the elevation target stay put and the shooter can get ready.
+void testSteadyShotDistance() {
+    reset();
+    hoststub::visionReady = true;
+    hoststub::visionValid = true;
+    hoststub::visionDistanceMm = 4000.0;
+    armWired();
+    send("M"); step();                                   // semi-auto
+    const double fly = rec.flywheelCommand;
+    ShotTableLookup::Result expected = {0.0, 0.0};
+    assert(ShotTableLookup::lookupTarget(hoststub::visionTargetId, 4.0, expected));
+    assert(nearly(fly, expected.flywheelCommand));
+    const double jitter[] = {4040, 3960, 4030, 3950, 4045, 3970, 4020, 3940};
+    for (int rep = 0; rep < 10; rep++) {
+        for (double mm : jitter) {
+            hoststub::visionDistanceMm = mm;
+            send("K");
+            step(33);
+            assert(nearly(rec.flywheelCommand, fly));     // unchanged, every frame
+        }
+    }
+    assert(nearly(Auto::getShotDistanceM(), 4.0));
+    // A real move (4.0 -> 4.5 m) is followed after DISTANCE_LATCH_SETTLE_MS.
+    hoststub::visionDistanceMm = 4500.0;
+    for (int i = 0; i < 20; i++) { send("K"); step(33); }
+    assert(nearly(Auto::getShotDistanceM(), 4.5));
+    // Ready bits: the shot is there (bit 2), the stub shooter not ready.
+    assert((Auto::getReadyBits() & 4u) && !(Auto::getReadyBits() & 1u));
+    send("X"); step();
+    assert(Auto::getReadyBits() == 0 && Auto::getShotDistanceM() == 0.0);
 }
 
 void testElevationTargetCommands() {
@@ -882,7 +1063,7 @@ void testWirelessMode() {
     assert(saw("FIRE_NOT_READY") && Dribbler::getTriggerCount() == 0);
     hoststub::shooterReady = true;
     wireless.fire = false;
-    rcStep();
+    runWireless(6000);                                    // the elevation slews to the table first
     wireless.fire = true;
     rcStep();
     assert(Dribbler::getTriggerCount() == 1);
@@ -961,11 +1142,17 @@ void testTestModeWired() {
     send("ANG,0"); step();
     send("ANGT,120"); step();
     assert(!saw("REJECTED_AUTO_MODE"));
-    // Left / right: aim-offset steps for the camera follow, not a jog.
+    // Left / right (2026-10-30): held = turn by hand, then the camera
+    // holds the new place as the aim offset.
     send("ROT,1"); step();
-    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
-    assert(nearly(rec.aimOffsetPx, AIM_OFFSET_STEP_PX) && rec.rotateMode == "vision");
+    assert(rec.rotateMode == "manual" && fabs(rec.rotateCommand) > 0.5);
+    hoststub::visionTx = -60.0;
     send("ROT,0"); step();
+    assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, 0.0));
+    runWithHeartbeat(TuningConstants::Auto::AIM_JOG_SETTLE_MS);
+    assert(nearly(ManualControl::getAimOffsetPx(), 60.0));
+    assert(nearly(rec.aimOffsetPx, 60.0) && rec.rotateMode == "vision");
+    hoststub::visionTx = 0.0;
     // F fires the tower right away, locked or not (no FIRE_NOT_READY).
     hoststub::shooterReady = false;
     Serial.output.clear();
@@ -994,6 +1181,25 @@ void testTestModeWired() {
     send("MODE,3"); step();
     send("X"); step();
     assert(!ManualControl::isArmed() && ManualControl::getOperatorMode() == OperatorMode::FULL_MANUAL);
+}
+
+// A ground on another channel table (CH10): every frame rejected, no
+// Enable, and LINK_VERSION_MISMATCH at most once a second.
+void testWirelessLinkVersion() {
+    reset();
+    for (int i = 0; i < 60; i++) {           // 1.2 s of frames, arm low then high
+        wireless.armed = i >= 5;
+        rcFrame();
+        MechLink::channels[RCMAP_CH_VERSION] = 1500;   // an older ground
+        step(20);
+    }
+    assert(!ManualControl::isArmed());
+    size_t count = 0;
+    for (size_t at = 0; (at = Serial.output.find("$EVENT,LINK_VERSION_MISMATCH\n", at)) != std::string::npos; at++) count++;
+    assert(count >= 1 && count <= 2);
+    // The matching table enables as usual.
+    Serial.output.clear();
+    armWireless();
 }
 
 // Over the radio: CH4 full manual (+ Falcon) and CH9 high.
@@ -1057,7 +1263,7 @@ void testAutoNeedsDistance() {
     assert(shotsDuring(2500) == 0);
     assert(nearly(rec.flywheelCommand, TuningConstants::Flywheel::SHOOT_COMMAND));
     hoststub::visionDistanceMm = 4000.0;
-    assert(shotsDuring(2500) >= 2);
+    assert(shotsDuring(5000) >= 2);                       // after the elevation slew (2026-10-31)
     // Semi-auto F without a distance: refused.
     hoststub::visionDistanceMm = 0.0;
     send("M"); send("M"); step();                         // full auto -> manual -> semi
@@ -1071,17 +1277,17 @@ void testAutoNeedsDistance() {
 void testShotTableByHeight() {
     using namespace TuningConstants::ShotTable;
     // Orin vision id -> its Dashboard hole's generated table, or that row's
-    // center hole (keys 4 / 5 / 6) when the hole has no points; nothing for
-    // the bonus holes, 0 or unknown ids.
-    for (uint8_t hole = 1; hole <= 9; hole++) {
+    // center hole (keys 4 / 5 / 6; the bonus row's W = 11, 2026-10-31) when
+    // the hole has no points; nothing for 0 or unknown ids.
+    for (uint8_t hole = 1; hole <= 12; hole++) {
         const int id = OperatorTarget::visionIdForHole(hole);
-        const uint8_t center = static_cast<uint8_t>(4 + (hole - 1) % 3);
+        const uint8_t center = hole >= 10 ? 11 : static_cast<uint8_t>(4 + (hole - 1) % 3);
         const ShotTableData::Point* expected =
             ShotTableData::HOLE_COUNTS[hole] > 0 ? ShotTableData::HOLE_POINTS[hole]
                                                  : ShotTableData::HOLE_POINTS[center];
         assert(tableForVisionId(id).entries == expected);
     }
-    for (int id : {0, 1, 2, 3, 13, -1, 99}) assert(tableForVisionId(id).entries == nullptr);
+    for (int id : {0, 13, -1, 99}) assert(tableForVisionId(id).entries == nullptr);
 
     // Auto uses the frame's hole: the flywheel follows that hole's table.
     reset();
@@ -1100,10 +1306,10 @@ void testShotTableByHeight() {
     send("M"); step();                                    // full auto
     assert(shotsDuring(2500) == 0);
     assert(nearly(rec.flywheelCommand, TuningConstants::Flywheel::SHOOT_COMMAND));
-    hoststub::visionTargetId = 2;                         // a bonus hole: no table yet
+    hoststub::visionTargetId = 13;                        // an unknown id: no table
     assert(shotsDuring(2500) == 0);
-    hoststub::visionTargetId = 11;                        // bottom row: fired at
-    assert(shotsDuring(2500) >= 2);
+    hoststub::visionTargetId = 8;                         // middle row: fired at (the bottom row
+    assert(shotsDuring(4000) >= 2);                       // is out in full auto, 2026-10-31)
 }
 
 void testFineAdjustWired() {
@@ -1115,30 +1321,59 @@ void testFineAdjustWired() {
     send("ROT,1"); step();
     assert(nearly(ManualControl::getAimOffsetPx(), 0.0) && rec.rotateMode == "manual");
     send("ROT,0"); send("M"); step();                     // semi-auto
-    // One press = one step; holding (heartbeat resends) adds nothing.
+    hoststub::visionValid = true;
+    hoststub::visionTx = 0.0;
+    // 2026-10-30: held = the turret turns by hand (same jog as full
+    // manual), the camera lets go; heartbeat resends keep it going.
+    const double jog = (TuningConstants::Rotate::MANUAL_JOG_INVERTED ? -1.0 : 1.0) *
+                       ManualControlConstants::ROTATE_MANUAL_SCALE;
     send("ROT,1"); step();
+    assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, jog));
     send("ROT,1"); step();
-    send("ROT,1"); step();
-    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
-    assert(nearly(rec.aimOffsetPx, AIM_OFFSET_STEP_PX));  // Auto hands it to the turret
+    assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, jog));
+    assert(nearly(ManualControl::getAimOffsetPx(), 0.0));
+    // Released: stands still AIM_JOG_SETTLE_MS, then the hole's place in
+    // the image (tx = -120: 120 px left of center) becomes offset +120.
+    hoststub::visionTx = -120.0;
     send("ROT,0"); step();
+    assert(ManualControl::isAimJogActive() && rec.rotateMode == "manual" && nearly(rec.rotateCommand, 0.0));
+    runWithHeartbeat(AIM_JOG_SETTLE_MS - 20);
+    assert(ManualControl::isAimJogActive() && nearly(ManualControl::getAimOffsetPx(), 0.0));
+    runWithHeartbeat(20);
+    assert(!ManualControl::isAimJogActive());
+    assert(nearly(ManualControl::getAimOffsetPx(), 120.0));
+    assert(nearly(rec.aimOffsetPx, 120.0) && rec.rotateMode == "vision"); // Auto hands it to the turret
+    // The other way, straight from one side to the other, and clamped.
     send("ROT,1"); step();
-    assert(nearly(ManualControl::getAimOffsetPx(), 2 * AIM_OFFSET_STEP_PX));
-    send("ROT,-1"); step();                               // straight to the other side
-    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
-    // Clamped.
-    for (int i = 0; i < 100; i++) { send("ROT,0"); step(); send("ROT,1"); step(); }
-    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_MAX_PX));
-    // A new hole clears it, and a key still held then needs a release.
+    send("ROT,-1"); step();
+    assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, -jog));
+    hoststub::visionTx = 500.0;
+    send("ROT,0"); step(); runWithHeartbeat(AIM_JOG_SETTLE_MS);
+    assert(nearly(ManualControl::getAimOffsetPx(), -AIM_OFFSET_MAX_PX));
+    // No hole in view at the end of the wait: the old offset stays.
+    hoststub::visionValid = false;
+    send("ROT,1"); step(); send("ROT,0"); step(); runWithHeartbeat(AIM_JOG_SETTLE_MS);
+    assert(nearly(ManualControl::getAimOffsetPx(), -AIM_OFFSET_MAX_PX));
+    hoststub::visionValid = true;
+    hoststub::visionTx = -40.0;
+    send("ROT,1"); step(); send("ROT,0"); step(); runWithHeartbeat(AIM_JOG_SETTLE_MS);
+    assert(nearly(ManualControl::getAimOffsetPx(), 40.0));
+    // A new hole clears it (and stops a hand turn), and a key still held
+    // then needs a release.
+    send("ROT,1"); step();
     send("TGT,4"); step();
-    assert(nearly(ManualControl::getAimOffsetPx(), 0.0));
+    assert(nearly(ManualControl::getAimOffsetPx(), 0.0) && !ManualControl::isAimJogActive());
+    assert(rec.rotateMode == "vision");
     send("ROT,1"); step(); send("ROT,1"); step();
-    assert(nearly(ManualControl::getAimOffsetPx(), 0.0));
+    assert(rec.rotateMode == "vision");
     send("ROT,0"); step(); send("ROT,1"); step();
-    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
+    assert(rec.rotateMode == "manual");
+    send("ROT,0"); step(); runWithHeartbeat(AIM_JOG_SETTLE_MS);
+    assert(nearly(ManualControl::getAimOffsetPx(), 40.0));
     // The same hole again is not a change: kept.
     send("TGT,4"); step();
-    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
+    assert(nearly(ManualControl::getAimOffsetPx(), 40.0));
+    hoststub::visionTx = 0.0;
     // Up/down: Auto owns the elevation now (measured table), so each press
     // adds one elevation-offset step instead of jogging.
     static_assert(TuningConstants::ShotTable::ELEVATION_MEASURED,
@@ -1159,19 +1394,93 @@ void testFineAdjustWireless() {
     armWireless();
     wireless.mode_us = RCMAP_MODE_SEMI_AUTO_US;
     rcStep();
+    hoststub::visionValid = true;
     wireless.nudge = RCMAP_NUDGE_RIGHT;
     runWireless(200);                                     // held: every frame repeats it
-    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
-    wireless.nudge = RCMAP_NUDGE_CENTER; rcStep();
-    wireless.nudge = RCMAP_NUDGE_RIGHT; rcStep();
-    assert(nearly(ManualControl::getAimOffsetPx(), 2 * AIM_OFFSET_STEP_PX));
+    assert(rec.rotateMode == "manual" && fabs(rec.rotateCommand) > 0.5);
+    hoststub::visionTx = 90.0;
+    wireless.nudge = RCMAP_NUDGE_CENTER;
+    runWireless(AIM_JOG_SETTLE_MS + 20);
+    assert(nearly(ManualControl::getAimOffsetPx(), -90.0) && rec.rotateMode == "vision");
     wireless.nudge = RCMAP_NUDGE_LEFT; rcStep();
-    assert(nearly(ManualControl::getAimOffsetPx(), AIM_OFFSET_STEP_PX));
+    assert(rec.rotateMode == "manual");
+    hoststub::visionTx = 30.0;
+    wireless.nudge = RCMAP_NUDGE_CENTER;
+    runWireless(AIM_JOG_SETTLE_MS + 20);
+    assert(nearly(ManualControl::getAimOffsetPx(), -30.0));
+    hoststub::visionTx = 0.0;
     // Switching hole on CH3 clears it.
     wireless.nudge = RCMAP_NUDGE_CENTER;
     wireless.target = 2;
     rcStep();
     assert(nearly(ManualControl::getAimOffsetPx(), 0.0) && ManualControl::getTarget() == 2);
+}
+
+// Turret home point and return (2026-10-31): TZERO only while disarmed,
+// THOME only for the wired owner; the guard's state rides the aim frame.
+void testTurretHomeCommands() {
+    reset();
+    send("TZERO"); step();
+    assert(saw("TURRET_ZERO_SET"));
+    Serial.output.clear();
+    hoststub::turretZeroOk = false;                       // no healthy AS5600 reading
+    send("TZERO"); step();
+    assert(saw("TURRET_ZERO_REJECTED") && !saw("TURRET_ZERO_SET"));
+    hoststub::turretZeroOk = true;
+    send("THOME"); step();
+    assert(saw("REJECTED_DISARMED") && rec.turretReturns == 0);
+    armWired();
+    send("TZERO"); step();                                // armed: refused
+    assert(saw("TURRET_ZERO_REJECTED"));
+    send("THOME"); step();
+    assert(rec.turretReturns == 1);
+    hoststub::turretState = 5;                            // AT_RIGHT
+    runWithHeartbeat(550);
+    assert(lastAim().turret_state == 5);
+
+    // RB over the radio (CH9 home level, 2026-10-31): one return per rising
+    // edge, only for the wireless owner.
+    reset();
+    armWireless();
+    wireless.turret_home = true; rcStep(); rcStep(); rcStep();
+    assert(rec.turretReturns == 1);
+    wireless.turret_home = false; rcStep();
+    wireless.turret_home = true; rcStep();
+    assert(rec.turretReturns == 2);
+    wireless.turret_home = false; rcStep();
+    send("X"); step();                                    // disarmed: refused
+    Serial.output.clear();
+    wireless.armed = false; rcStep();
+    wireless.turret_home = true; rcStep();
+    assert(rec.turretReturns == 2 && saw("REJECTED_DISARMED"));
+
+    // RB in the autos / test (2026-10-31): back to 0 deg and held there --
+    // no camera follow -- until a hole key (even the same one), a mode
+    // change or the hand turn. Full manual ignores the hold.
+    reset();
+    hoststub::visionReady = true;
+    armWired();
+    send("M"); step();                                    // semi-auto
+    assert(rec.rotateMode == "vision");
+    send("THOME"); step();
+    assert(ManualControl::isTurretHeldHome() && rec.rotateMode == "disabled");
+    runWithHeartbeat(500);
+    assert(rec.rotateMode == "disabled");                 // still held
+    send("TGT,0"); step();                                // same hole again: follow
+    assert(!ManualControl::isTurretHeldHome() && rec.rotateMode == "vision");
+    send("THOME"); step();
+    send("MODE,3"); step();                               // mode change: follow
+    assert(!ManualControl::isTurretHeldHome() && rec.rotateMode == "vision");
+    send("THOME"); step();
+    assert(rec.rotateMode == "disabled");
+    send("ROT,1"); step();                                // hand turn takes it back
+    assert(!ManualControl::isTurretHeldHome() && rec.rotateMode == "manual");
+    send("ROT,0"); step();
+    runWithHeartbeat(TuningConstants::Auto::AIM_JOG_SETTLE_MS);
+    assert(rec.rotateMode == "vision");
+    send("THOME"); step();
+    send("X"); step();                                    // disarm clears it
+    assert(!ManualControl::isTurretHeldHome());
 }
 
 // Dashboard menus (2026-10-16): MODE,<n> sets the mode directly, and every
@@ -1270,8 +1579,11 @@ int main() {
     testModeKeyWired();
     testSemiAutoFiresOnlyWhenReady();
     testFullAutoFiresByItself();
+    testFullAutoRowCycle();
+    testFullAutoLitBonusFirst();
     testAutoWithoutCamera();
     testShotTableDrivesFlywheel();
+    testSteadyShotDistance();
     testWirelessMode();
     testWirelessFlywheel();
     testElevationTargetCommands();
@@ -1279,8 +1591,10 @@ int main() {
     testShotTableByHeight();
     testFineAdjustWired();
     testFineAdjustWireless();
+    testTurretHomeCommands();
     testTestModeWired();
     testTestModeWireless();
+    testWirelessLinkVersion();
     testModeCommandAndTargetReset();
     testAimUplink();
     testVisionUplink();

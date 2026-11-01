@@ -5558,3 +5558,1330 @@ this was implemented directly.
    - Enable, drive and fire should all work.
 2. Wireless with the motors running: the elevation readback should no longer jump, and no bogus "robot status says…" lines should appear.
 3. If 「丟棄」 climbs about 50/s, the two images don't match: recheck the bridge sha.
+
+## 2026-10-27 — Claude Code: bonus holes selectable (Q W E), shot table holes 10–12, big target board
+
+**User Request:** a teammate (蔡昇諺) raised three issues:
+1. If the selected hole is out of the camera view, the turret should turn toward it, not sit still.
+2. The Dashboard hole grid should be much larger, show the elevation and flywheel values beside it, and mark the holes that are detected.
+3. The bonus holes must be selectable (a key) so they can be tested, including their distance.
+
+Jeremy's decisions:
+- Bonus holes on keys **Q / W / E** (left / middle / right).
+- Bonus holes **go into the shot table**.
+- Search uses **prediction from the visible holes**.
+- **Claude does the Orin side, but later.** This round touches no Orin code.
+
+**Discussion Result.** The Orin (YOLO_Detect_single) already numbers a 4×3 grid:
+- row 0 = bonus holes 1, 2, 3 (`RED_TARGET_IDS`);
+- rows 1–3 = the 3×3 grid, ids 4–12;
+- `fit_affine` can place unseen ids from the visible holes.
+
+Today it rejects `MEGA_TARGET` ids 1–3 (`select()` requires 4..12). It reports only the selected hole, and sends `0,0,0,0,0` when that hole is absent.
+
+So this round covers everything that doesn't need the Orin:
+- full bonus-hole plumbing;
+- the shot table;
+- the board UI.
+
+The "seen" mark covers only the hole in the current valid frame.
+
+**Changed:**
+- `src/Vision/OperatorTarget.h`: Dashboard holes 10/11/12 → vision ids 1/2/3. Adds `FIRST_BONUS_HOLE` and `LAST_HOLE`, with static_asserts.
+- `src/IO/RcControlMap.{h,c}`: `RCMAP_TARGET_MAX` 12. CH3 is now `1000 + 80·k` (k 0..12, max 1960) with tolerance ±35, instead of `1000 + 100·k` for 0..9.
+- `src/Constants/TuningConstants.h`: `tableForVisionId` covers holes 1–12. A bonus hole uses only its own points; there is no row-center fallback.
+- `tools/shot_table/apply.py`:
+  - 洞口 accepts 1–12; `HOLES = range(1, 13)`; bonus names.
+  - The header now has `HOLE_POINTS[13]` / `HOLE_COUNTS[13]`, and `parse_header` reads multi-digit holes.
+  - The export validation and help sheet are updated.
+  - `shot_table.xlsx` is edited in place by text: data validation 1–12, and two help-sheet lines. The data is unchanged.
+- `src/Constants/ShotTableData.h`: regenerated with 13 slots. The data is unchanged.
+- Dashboard `tools/dashboard/index.html`:
+  - New top panel **Target / 目標洞**: a large bonus row (Q W E) over the 3×3 grid, the selected hole in blue, and the camera's current valid hole in green.
+  - Beside the grid: large elevation pulse, actual Falcon pulse (with the command % or the table offset), and camera distance.
+  - The old small grid is removed from Manual Control.
+  - Q/W/E send `TGT,10..12`.
+  - `holeForVisionId` maps 1..3 → 10..12, so S records bonus points as holes 10–12.
+  - `targetForKey` is self-contained, with no object lookup, so it can't hit prototype keys.
+- Comments and READMEs: `ManualControl`, `GroundCommandState.h`, the ground README, the shot_table README.
+- Tests adapted, none added:
+  - `rc_control_map_test` (new CH3 levels, ±35 / halfway rejection, 12 → 1960, 13 → none);
+  - `operator_target_test`;
+  - `manual_control_test` (TGT,10..12 accepted, TGT,13 bad, between-level 1120);
+  - ground test;
+  - `shot_table_lookup_test` / `manual_control_test` comments;
+  - `dashboard_control_test`;
+  - `dashboard_page_test` (Q W E, the seen mark, board readouts, bonus S record, `$AIM` seen).
+
+**Calculation:**
+- CH3 for hole k = 1000 + 80k, e.g. hole 12 → 1960.
+- Halfway values (e.g. 1120 between 1080 and 1160) are rejected as corrupt.
+- Bonus hole 11 → vision id 2 → `tableForVisionId(2)` = `HOLE_11` when it has points.
+
+**Impact:**
+- **Flash the Mega and the ground STM32 together** (CH3 encoding). With mismatched images, most target levels fall between levels and the frames are rejected, which disarms the robot rather than picking a wrong hole.
+- The robot bridge `.bin` is unchanged (sha `5f05e944…`): no reflash.
+- The Orin is unchanged. Until its update, selecting a bonus hole gives no target: the Orin ignores id 1–3 and keeps its previous hole, and the Mega drops those frames because the id doesn't match.
+- A saved Dashboard layout puts the new panel at the bottom; 「重設布局」 moves it to the top.
+
+**Evidence:**
+- Host suite, 15 groups, all PASS.
+- `pio` builds `megaatmega2560` (RAM 40.8%, flash 12.6% with sample bonus data), `mega_wired_manual_test`, `mega_elrs_link_test`, and the ground.
+- A bonus import on a scratch workbook (holes 10 and 11) generated `HOLE_10`/`HOLE_11`. The Mega built with them. Lookups returned id 2 → 2350 µs / 58%, id 1 → 2340 µs, and id 3 → none.
+- The Dashboard board was checked in the in-app browser.
+- Not run on hardware.
+
+**Next (Orin, Claude later, per Jeremy):**
+1. Accept `MEGA_TARGET` ids 1–3, and confirm the bonus depth ring gives a distance for the small holes.
+2. When the selected hole is not detected but the grid is identified (geometry fit on ≥ 2 holes), predict its image position with `fit_affine` and send it as an aim-only frame. Proposed protocol v3: valid = 2 means "predicted". The Mega turret follows it, but it never counts as lock or fire.
+3. Report every detected id (a 12-bit mask). Then the Mega needs TEL / uplink changes for the board's multi-hole "seen".
+
+## 2026-10-27 — Claude Code: phase A (cb052d6) + phase B (Orin v3) — version guard, turning 60%, steadied shot distance, turret AS5600 read-only, board colors, predicted turret search, detected holes
+
+**User Request (Jeremy):**
+- Turn the chassis slower; forward / back unchanged.
+- The autos never fire because the elevation keeps changing with small
+  distance changes at the same spot. Fix the method, not the tolerance.
+- AS5600 turret angle, to measure the limits this weekend.
+- Show the depth ring on screen, for testing.
+- Board colors: detected green, selected blue, bonus red, undetected grey.
+- Plus the three earlier asks (Orin side included) and the CH10 version
+  guard.
+
+Jeremy's choices: turning at 60%; AS5600 read-only first; all the Orin
+work now; add the version guard.
+
+**Correction to the 3ed0402 entry.** It said a Mega / ground on different
+CH3 tables would mostly reject frames. That is wrong:
+- Old levels `1000 + 100k` decoded with 80 µs steps read 3→4, 4→5, 5→6,
+  7→9, 8→10, 9→11 (and 2, 6 are rejected).
+- So a mismatched pair selects the WRONG hole.
+- The CH10 guard below closes that.
+
+**Phase A (cb052d6):**
+- **CH10 link version.**
+  - The ground encodes `1000 + 200·RCMAP_LINK_VERSION` (v1 → 1200; ELRS
+    6-position delivers 1193).
+  - `rcmap_decode` rejects any frame whose CH10 isn't that level. An older
+    ground sends 1500, which ELRS snaps to 1398 or 1602: rejected.
+  - The Mega logs `LINK_VERSION_MISMATCH` at most once a second; the
+    Dashboard explains it.
+- **Turning 60%.** Dashboard `TURN_SPEED_SCALE = 0.6`, applied to the turn
+  axis before the tank mix. Example: full right stick gives `T,0.6,-0.6`
+  (was `T,1,-1`); full forward is still `T,1,1`.
+- **Steadied shot distance.**
+  - Cause:
+    - Shooter counts the flywheel spun up only after its command stays
+      within 2% for 1.5 s.
+    - On hole 5 between 2.5 and 5 m the table runs at −21.6 %/m, so
+      ±10 cm of depth noise moves the command ±2.2% and restarts the wait
+      forever.
+    - The elevation hunts by ±17 µs at the same time.
+  - Fix, `src/Control/ShotDistanceFilter.h` (no tolerance widened):
+    - the median of the last 5 depth frames;
+    - a latched shot distance that follows only when the median stays
+      more than 5 cm away for 300 ms;
+    - reset on a new hole / target id / lost target.
+  - 5 cm is worth at most ~1.1% flywheel / ~9 µs elevation.
+  - Also: a held shot (same hole, < 500 ms) counts when only the depth
+    drops out.
+  - Constants: `Auto::DISTANCE_MEDIAN_FRAMES` / `DISTANCE_LATCH_BAND_M` /
+    `DISTANCE_LATCH_SETTLE_MS`.
+- **TEL 40–41.** Ready bits (1 turret locked, 2 flywheel spun up, 4 a shot
+  for this hole, 8 READY) and the steadied shot distance in cm. The
+  Dashboard board shows them.
+- **Turret AS5600 (read only), `src/Sensors/TurretAngle`.**
+  - I2C D20/D21 at address 0x36, 100 kHz, read every 10 ms.
+  - `Wire.setWireTimeout(2000 µs, reset)`, so a missing sensor can't hang
+    the loop.
+  - Multi-turn: `delta = raw − lastRaw` folded into −2048..2047, then
+    `counts += delta`.
+  - `deg = counts / 56.11` (4096 · 180/36.5 / 360).
+  - `ZERO_RAW = −1` means the boot position is center; measure the real
+    value and set it. `INVERTED` sets the sign so right reads +. Both are
+    in `TurretAngleConstants.h`.
+  - Status bits: READ_OK, MAGNET, TOO_WEAK, TOO_STRONG, LOST (no good read
+    for > 100 ms; turns untrusted until reboot), NEVER_READ.
+  - TEL 42–44: raw, status, degrees×10.
+  - Nothing is limited or driven from it yet.
+- **Board colors.** Grey not detected / green detected / blue selected
+  (with a green dot when also detected) / bonus always red-framed.
+
+**Phase B (this commit; Orin YOLO_Detect_single 10ac7a8e, protocol v3 —
+see its `docs/operator-selection-v3.md`):**
+- **Vision.**
+  - `PROTOCOL_VERSION = 3`, 6-field frames.
+  - `valid` is 0 / 1 / 2: 2 is predicted, accepted only for the selected
+    hole; tx up to ±4000, clamped to ±400.
+  - `isPredicted()`, `getSeenMask()`.
+  - The prediction budget is `PREDICTED_FOLLOW_MAX_MS = 3000` from the
+    first prediction. Only a real sighting or a new selection restarts it;
+    "nothing" frames in between don't.
+  - A malformed line, now including a v2 frame, drops the target, as
+    before.
+- **Shooter.** Vision-follow also follows a predicted tx; `rotateReady`
+  needs `Vision::isValid()`. So a prediction is never a lock and never a
+  shot (Auto already needs `isValid()` and a distance).
+- **Uplink.**
+  - Aim distance is now 14 bits (max 16383 cm).
+  - Code bits 15–14 = 11 is the new seen frame: mask (ids 1–12, bits
+    0–11), state (bits 12–13: 0 none, 1 seen, 2 predicted).
+  - Slots are now status, aim, status, vision, seen (aim / vision every
+    500 ms, was 400).
+- **Ground.** Emits `$SEEN,<fresh>,<mask>,<state>`.
+- **Dashboard.**
+  - `$SEEN` (radio) and TEL 45–46 (USB) light every detected hole.
+  - State 2 shows "推算位置…轉過去中（不會發射）".
+
+**Boards:**
+- Mega + ground STM32 + Orin must be deployed together:
+  - CH10, CH3, the seen frame and v3 all have to match.
+  - Each mismatch now refuses instead of misreading:
+    - ground ↔ Mega: `LINK_VERSION_MISMATCH`, no Enable;
+    - Orin ↔ Mega: v2 / v3 refuse each other's lifecycle, as in the v2
+      upgrade.
+- The robot bridge `.bin` is unchanged (5f05e944…): no reflash.
+
+**Evidence:**
+- Host suite, 15 groups, all PASS. New / adapted cases include:
+  - the CH10 guard;
+  - the steady-distance regression (±4.5 cm jitter, flywheel command
+    constant on every frame);
+  - the filter;
+  - the v3 Vision link (bonus, seen-without-depth, predicted clamp,
+    budget with on / off frames, stale clears);
+  - the seen frame codec;
+  - ground `$SEEN`;
+  - Dashboard ready / turret / seen / turning.
+- A scratch simulation: AS5600 unwrap is exact for a ±100° sweep at
+  30 / 120 / 300 °/s with three zero offsets.
+- pio: all 9 Mega envs (production RAM 44.6%, flash 14.7%) and the ground.
+- Orin: 62/62.
+- **Nothing flashed or run on hardware.**
+
+**Next Test (weekend):**
+1. Flash the Mega + ground, deploy the Orin.
+2. Dashboard wired: 「丟棄」 ~0, no `LINK_VERSION_MISMATCH`.
+3. AS5600, outputs disabled:
+   - status OK, magnet OK;
+   - turn the turret by hand: the degrees track (+ to the right, else flip
+     `INVERTED`);
+   - record raw at center (→ `ZERO_RAW`) and the degrees at both
+     mechanical limits;
+   - then the soft-limit step.
+4. Semi-auto at a fixed spot: 「射擊距離（穩定後）」 holds; the ready bits
+   reach 可發射; firing works.
+5. Turn away from the chosen hole: the board shows 推算位置 and the turret
+   turns back toward it within 3 s; it never fires until the hole is seen.
+6. Q W E on the bonus holes: lock and distance; check the ring with `d` on
+   the Orin.
+
+## 2026-10-28 — Claude Code: depth-ring view on the Dashboard, turret AS5600 angle over the radio too
+
+**User Request:** show the depth sampling ring in the Dashboard (Jeremy
+picked the 8-sector schematic over a video stream: works wired and
+wireless); the AS5600 angle visible both wired and wireless; push Orin v3
+(done: YOLO_Detect_single `10ac7a8e` on origin/main), keep the Mega dev
+unpushed.
+
+**Discussion Result:** the Orin's image can't go through the Mega serial /
+ELRS, so the Orin sends numbers: the target ring's usable share and which
+of 8 sectors have depth. The turret angle and the ring ride in the seen
+frame's spare `seq` / `flags` (no new slot, no bridge change).
+
+**Changed:**
+- Orin frame (v3, still `PROTOCOL_VERSION 3`): `tx,ty,dist,id,valid,mask`
+  may be followed by `ring_pct,ring_sectors` (8 fields). The Mega takes 6
+  or 8 (`Vision::parse`); 7 fields, pct outside −1..100 or sectors > 255
+  are refused like any malformed frame.
+- `Vision`: `getRingPercent()` (−1 = none) / `getRingSectors()`; kept only
+  with `isValid()` (a real sighting of the selected hole), cleared by
+  `invalidateTarget()`.
+- Seen uplink frame (`rcmap_seen`): `seq` bits 0–11 turret degrees ×10
+  (12-bit two's complement, clamped ±204.7°), 12–17 AS5600 status, 18–23
+  ring (0 none, else `(pct + 1) / 2 + 1`, 2% steps); `flags` = ring
+  sectors (0 when none). Before this `seq` / `flags` were 0.
+- Ground `$SEEN,<fresh>,<mask>,<state>,<deg×10>,<as5600Status>,<ringPct>,
+  <ringSectors>` (stale: `…,0,0,-1,0`).
+- TEL slots 47–48: ring pct, ring sectors.
+- Dashboard: Target panel gains 「深度取樣圈」 — 8 sectors (green has depth,
+  red none, grey no data) around the hole box, 「有效 N%」 and which sides
+  have no depth, plus 「低於 20%：這圈量不到距離」 (DEPTH_MIN_VALID_FRACTION).
+  The turret readout also comes from `$SEEN` (「無線 · OK」; no raw value
+  over the radio; 「無線：沒有回傳」 when stale). An older ground (4-field
+  `$SEEN`) only lights the board.
+
+**Calculation:**
+- Sector k of 8: angle = atan2(y, x) in box-normalized coordinates (image
+  y down, so increasing = clockwise on screen); k = floor((angle + 22.5°)
+  mod 360° / 45°): 0 right, 1 lower-right, 2 below, 3 lower-left, 4 left,
+  5 upper-left, 6 above, 7 upper-right. Sector has depth when ≥ 50 %
+  (`DEPTH_RING_SECTOR_GOOD_FRACTION`) of its ring pixels are usable (finite,
+  200–8000 mm, same rule as the distance). Pixels outside the image don't
+  count; an empty sector has no depth.
+- pct = round(100 × usable / all ring pixels).
+- Example: ring 62 %, sectors 0b11100011 → TEL `…,62,227`; radio seq bits
+  18–23 = (62 + 1) / 2 + 1 = 32 → back to (32 − 1) × 2 = 62; Dashboard
+  「有效 62%」「下、左下、左側沒有深度」.
+- Turret −50.3° → deg×10 −503 → 12-bit 0xE09 → back −503.
+
+**Impact:** Mega + ground must be flashed together (as already needed for
+dev). Bridge `.bin` rebuilt: sha256 still 5f05e944… (no reflash). An Orin
+on `10ac7a8e` (6 fields) still works with this Mega; this Orin (8 fields)
+needs this Mega (`d48b10d` refuses 8 fields — it was never pushed).
+Wireless angle / ring update every 500 ms (seen slot, 1 of 5).
+
+**Evidence:** host suite 18 groups PASS (adapted: rc_control_map seen
+codec, vision_link 8-field cases, ground `$SEEN`, Dashboard page ring +
+wireless turret). pio: 9 Mega envs (production RAM 44.6 %, flash 15.0 %)
++ ground. Orin 65/65 (ring coverage full / none / half / frame-edge).
+`ring_coverage` 0.4–1.9 ms per frame on the Mac (80–200 px boxes, 1280×720).
+**Nothing flashed or run on hardware.**
+
+**Next Test:** with the target in view, the Dashboard ring matches the
+Orin's `d` overlay (same sides red); move so the ring slides off the board
+edge → that side turns red and the share drops; wireless: angle and ring
+update about twice a second.
+
+## 2026-10-30 — Claude Code: turret hand-turn then latch in the autos / test; shot table from the 10-28 shot log
+
+**User Request:** in semi-auto / test, turning the turret by hand to the
+wanted angle got pulled back by the camera (Jeremy chose: hold = turn by
+hand, release = lock there). Put the 10-28 measured points
+(`shot_log_20261028_1758.csv`, taken on main) into dev, replacing the old
+2.50 / 5.00 m rows.
+
+**Context found:** at the time the ground and the Orin were already on
+v3 / CH10 while the Mega still ran main (b92078a). Ground CH3 = 1000 +
+80·k but that Mega decodes 100 µs steps (±40): holes 1 / 0 come through
+right, 4→3, 5→4, 6→5, 9→7, Q→8, W→9; 2, 3, 7, 8 sit on the ±40 edge (RC
+frames rejected on and off with ELRS jitter); E is out of range. So that
+combination follows the wrong hole. And the old step design itself
+capped the offset at ±100 px (5 × 20 px), beyond which the camera wins.
+
+**Changed:**
+- `ManualControl::updateFineAdjust` (autos + test): left / right held =
+  `isAimJogActive()`, Auto drives the turret open loop with
+  `getAimJogCommand()` (same sign / scale as the full-manual jog). On
+  release: `AIM_JOG_SETTLE_MS` (300) standing still (command 0) so the
+  camera catches up, then `aimOffsetPx = clamp(−tx, ±AIM_OFFSET_MAX_PX)`
+  if `Vision::isValid()`, else the old offset stays. The release-first rule
+  after a clear (new hole / Enable / disarm) is kept; a new hole also stops
+  a hand turn.
+- `Auto::aimTurret()`: hand turn > camera follow + offset > hold.
+- `AIM_OFFSET_MAX_PX` 100 → 300 (static_assert < Vision MAX_ABS_TX 400,
+  frames beyond that are refused); `AIM_OFFSET_STEP_PX` removed.
+- Radio aim frame offset in 4 px units (`AimUplink`, Dashboard `$AIM` × 4;
+  ground passes the int8 through unchanged — no ground reflash).
+- Dashboard help text.
+- Shot table: rows 2–27 = the 26 logged points (hole 4: 11, 2.85–7.32 m;
+  hole 5: 12, 3.10–7.49 m; hole 6: 3, 3.87–4.70 m), the old 6 rows gone.
+  Written through apply.py's own import (backup + re-read check), rows
+  shifted up over the old ones; `ShotTableData.h` regenerated by apply.py.
+
+**Calculation:** follow drives tx + offset → 0, so holding the current
+place is offset = −tx. Example: released with the hole at tx = −120 (120
+px left of center) → offset +120 → the camera keeps it there. 300 px ≈ 16°
+(1280 px ≈ 69° on the D435). Radio: +80 px → 20.
+
+**Impact:** Mega only (ground, bridge, Orin unchanged). Hole 4 has 608 µs
+at 4.10 m between 500 µs neighbours; hole 5 604 µs at 3.10 / 3.55 m — as
+logged, worth a re-check.
+
+**Evidence:** host suite 18 groups PASS (fine-adjust tests rewritten for
+hold / settle / latch / clamp / no-target / new-hole / wireless / test
+mode, aim frame units, Dashboard `$AIM`). pio: production RAM 46.2 %,
+flash 15.1 %, plus 3 wired benches. **No hardware.**
+
+**Next Test:** flash the Mega; semi-auto / test, hold ← → to move off the
+hole, release: turret stops, after ~0.3 s stays there (Dashboard 微調 水平
+shows the offset); a new hole clears it.
+
+## 2026-10-31 — Claude Code: turret absolute angle from EEPROM, soft limits, return to 0 (AS5600 only)
+
+**User Request:** remember the turret's absolute position. On power-up,
+bring it back to the home point. Keep it inside the limits Jeremy measured
+from home: right −36.0 / left +136.0 read with `INVERTED` false, i.e.
+**+36 / −136** with right = +. The turret turns further, but the mechanism
+breaks there, so there is no end stop to home against. AS5600 only.
+
+**Discussion Result:**
+- The AS5600 on the motor shaft repeats every 73° of turret (belt
+  180:36.5), and the travel is 172°. So the position is remembered in
+  EEPROM.
+- Homing against the right end stop was proposed first and dropped:
+  pushing past +36 breaks things.
+
+**Added:**
+- `src/Sensors/TurretStore.h` (pure):
+  - 12-byte records: magic, seq, counts, raw, CRC-8 (poly 0x07);
+  - 32 round-robin slots at EEPROM 0–383;
+  - `findNewest`, where the highest valid seq wins and a torn record fails
+    its CRC.
+- `src/Shooter/TurretGuard.h` (pure; uses `PidfController`). Every turret
+  command goes through `filter()`:
+  - locked (0) when the angle is not absolute (`UNKNOWN`), the AS5600 is
+    unhealthy (`SENSOR`), or after a direction fault (`DIRECTION`, until
+    reboot);
+  - `RETURNING`: a P loop to 0° replaces the command (`RETURN_kP` 0.03 per
+    degree, max 0.4, ±1° for 200 ms, 5 s timeout) on the first Enable after
+    power-up, and on wired `THOME` (RB);
+  - soft limits with a 10° slow zone (min 0.15), checked at the stopping
+    angle = angle + speed × `LIMIT_STOP_LOOKAHEAD_S` (0.15 s);
+  - direction check: a command of 0.2 or more held one way that moves the
+    turret 2° the other way (150 ms grace after a reversal, 300 ms windows)
+    locks the turret;
+  - state codes 0–6 on TEL slot 49 and in aim-frame seq bits 21–23.
+- `TurretAngle`:
+  - `init` finds the newest record;
+  - the first read restores `counts = saved + fold(raw − saved raw)`. It
+    is absolute only if within the limits ±`RESTORE_MARGIN_DEG` (10°);
+  - saves when the turret has moved 10°, or has stood still for 500 ms
+    after a change of 0.2° or more. One EEPROM byte per loop, only when
+    `eeprom_is_ready()`, so it never blocks;
+  - `setZeroHere()` (needs a healthy read) sets 0 and saves at once;
+  - LOST clears absolute;
+  - status bit `ABSOLUTE` 0x40.
+- Wired commands:
+  - `TZERO`: disarmed only; events `TURRET_ZERO_SET` / `TURRET_ZERO_REJECTED`;
+  - `THOME`: wired owner only.
+- Dashboard:
+  - turret guard state line;
+  - 「設為歸位點」 button (USB and disabled only, with a confirm);
+  - RB sends `THOME` when wired;
+  - help text fixed to LB 發射 / RB 轉台回 0° (it had LB and RB swapped
+    since 10-18).
+- Ground: a 9th field in `$AIM`, `turretState`.
+
+**Changed:**
+- `INVERTED` is true.
+- `ZERO_RAW` is removed.
+- `Shooter::updateRotate` → `driveRotate()` through the guard. The first
+  Enable starts the return; a disarm restarts an unfinished return.
+
+**Calculation:**
+- 56.11 counts per degree.
+- Restore example: saved +20.0° (counts −1122 with INVERTED), raw 1500;
+  boot raw 1781 → fold +281 → −841 → +14.99°.
+- Limit example: at +31° a full right command → room 5 / 10 → 0.5; at +36
+  → 0.
+- Return example: at +36 → error −36 × 0.03 → −1.08 → clamped −0.4 →
+  motor command +0.4 (`RIGHT_COMMAND_SIGN` −1).
+
+**Impact:** flash the Mega and the ground (the `$AIM` field and the event
+names). The bridge `.bin` was rebuilt and is unchanged (5f05e944…). The
+Orin is unaffected.
+
+**Evidence:**
+- Host suite: 18 groups PASS. Adapted: manual_control (TZERO / THOME, aim
+  turret_state), rc_control_map (aim bits 21–23), ground `$AIM`, Dashboard
+  page (guard text, zero button gating, events, RB over the ground).
+- pio: all 9 Mega envs, production RAM 48.7 %, flash 16.6 %; ground OK.
+- Scratch PC simulation (not committed; plant 120 °/s, 0.12 s lag):
+  - store round trip, a slot wrap and a torn record;
+  - the restore example;
+  - limit maths;
+  - return from +36 in 1.2 s and from −120 in 2.9 s, ending within 0.4°;
+  - full right held stops at +36.17° (+44.7° without the lookahead);
+  - a fast reversal gives no false fault;
+  - with the sign wrong it locks after 200 ms and 7.8° of wrong travel.
+- **Nothing on hardware.** `RIGHT_COMMAND_SIGN` is derived from the
+  vision-follow direction, not measured.
+
+**Next Test** (outputs live, hand near the Disable):
+1. Flash the Mega and the ground.
+2. USB, disabled: turn the turret to home by hand and press 設為歸位點.
+   The angle reads 0.0 and the state shows 正常.
+3. Turn it by hand to about +20 and back while disabled; the angle
+   follows. Power-cycle; it comes back with the same angle.
+4. Enable in full manual, at home: jog right slowly. The angle should
+   increase, it stops at +36 (到右限位), and only left works there. A wrong
+   sign shows 方向錯誤 and locks.
+5. Same on the left at −136.
+6. Leave it at about +30, power-cycle, Enable: it returns to 0.
+7. Then tune `LIMIT_STOP_LOOKAHEAD_S` and the return gains from how it
+   coasts.
+
+## 2026-10-31 — Claude Code: AS5600 "magnet too weak" is a warning, not a lock
+
+**User Request:** on the robot the AS5600 reports 磁鐵太遠 (ML set) while
+raw is smooth. The guard therefore locked the turret, and 設為歸位點 was
+refused. Jeremy chose: warn only.
+
+**Changed:**
+- `TurretAngleConstants::WEAK_MAGNET_LOCKS = false`. `isHealthy()` and
+  `setZeroHere()` ignore TOO_WEAK unless it is set.
+- These still lock: no magnet (MD 0), a failed read, TOO_STRONG, LOST.
+- Dashboard: checks no-magnet before too-weak, and shows the text
+  「磁鐵太遠（讀值可用，只警告）」 with the angle.
+- The LOST text now says a reboot restores the position from EEPROM.
+
+**Also reported (not changed):**
+- Right after the c0d2197 flash, before the Dashboard was connected, the
+  turret turned right by itself; it was stopped with the E-stop.
+- While disarmed this firmware writes 1500 µs every loop, and the guard
+  runs only when enabled. So the suspects are:
+  (a) no PWM on D23 during the flash / reset, read as a command by the
+  controller — a pull-down of about 10 kΩ, and E-stop while flashing;
+  (b) 1500 µs is not this controller's stop — measure it disarmed and
+  powered.
+- Tests for both were given to Jeremy.
+
+**Evidence:** Dashboard page and control tests PASS (new too-weak cases);
+manual_control PASS; pio: production + 3 wired benches (RAM 48.7 %).
+No hardware.
+
+**Next Test:** set the home point with the weak magnet; check that the
+angle tracks a hand turn. Fix the magnet gap later, then set
+`WEAK_MAGNET_LOCKS` true.
+
+## 2026-10-31 — Claude Code: Dashboard hides an untrusted turret angle; AS5600 AGC / magnitude for the magnet gap
+
+**User Request:**
+- On the robot the AS5600 now reads 沒偵測到磁鐵. The Dashboard still showed an angle, which misleads.
+- How can the magnet distance be judged?
+
+**Found:** with MD = 0 `isHealthy()` is false, so the forced save after
+TZERO never went out. After a reboot there is no record → 位置未知
+(locked). That is the intended behaviour. The magnet needs fixing:
+diametric magnet, 0.5–3 mm, centered.
+
+**Changed / Added:**
+- Dashboard (e76939a): the angle shows only when the reading is trusted
+  (READ_OK, MAGNET, not LOST / NEVER_READ); otherwise `--`. Raw is still
+  shown.
+- AS5600 strength: `TurretAngle::agc()` / `magnitude()`. One 3-byte read
+  from 0x1A every 100 ms (`AGC_READ_PERIOD_MS`); −1 = no read.
+- TEL slots 50–51 carry them.
+- Dashboard line: 「磁場 AGC n（10 秒內 min–max，越大越弱）· 強度 m（min–max）」
+  plus a too-weak / too-strong / no-magnet hint. Over one turn of the
+  travel, a small AGC spread means the magnet is centered.
+
+**Calculation:**
+- AGC is 0–255 in 5 V mode and 0–128 in 3.3 V mode; higher = weaker field.
+- MAGNITUDE is 12 bits; higher = stronger.
+- When ML (too weak) is set, AGC sits at its maximum.
+
+**Evidence:** Dashboard page tests PASS (no-magnet / LOST → `--`, the AGC
+line with its 10 s window). pio: production + 3 wired benches (RAM 48.8 %).
+No hardware.
+
+**Next Test** (flash with the turret motor unpowered):
+1. Adjust the magnet until the status stays OK over the whole travel and
+   AGC sits mid-range with a small spread.
+2. Then 設為歸位點, unplug and replug USB: the same angle and 正常.
+3. Then set `WEAK_MAGNET_LOCKS` true.
+
+**Also learned 10-31:**
+- The turret ran on its own after flashing only while its motor was
+  powered: no PWM during the upload. Flash with the turret motor
+  unpowered; a 10 kΩ pull-down on D23 is suggested.
+- The belt skipped teeth while the turret was turned by hand, which
+  shifted 0 by 6.2°. Re-set the home point after any skip.
+
+## 2026-10-31 — Claude Code: turret guard switched off until the magnet reads
+
+**User Request:** turn the AS5600 function off for now. On the robot the
+magnet reads AGC 128 (the 3.3 V-mode maximum) and magnitude ~150, i.e.
+no magnet. The guard therefore kept the turret locked as 位置未知, so the
+turret could not be driven at all.
+
+**Changed:**
+- `TurretAngleConstants::GUARD_ENABLED = false`.
+- `Shooter::driveRotate` writes the command straight through (the
+  behaviour before c0d2197). No return-to-0 on Enable; `THOME` is ignored.
+- `getTurretState()` = 7 (new `TurretGuard::OFF`). The Dashboard shows
+  「轉台保護關閉：沒有軟限位，手動操作注意 +36° / −136°」.
+- Kept: the AS5600 reading, AGC / magnitude, raw / angle display, TZERO
+  and EEPROM saving. They are display-only while the guard is off.
+- Also e59931b: no raw value on the Dashboard without a magnet or after a
+  failed read.
+
+**Impact:** Mega only. **No soft limits**: the operator must keep the
+turret inside +36 / −136 by eye.
+
+**Evidence:** Dashboard page / control, manual_control and rc_control_map
+PASS; pio production + 3 wired benches (RAM 48.8 %). No hardware.
+
+**Next Test:** flash the Mega with the turret motor unpowered. The state
+line shows 轉台保護關閉; after Enable + Y the D-pad jogs the turret.
+Re-enable later: fix the magnet → 設為歸位點 → `GUARD_ENABLED` true →
+confirm `RIGHT_COMMAND_SIGN`.
+
+## 2026-10-31 — Claude Code: turret home by hand (boot window ±20°) + RB over the radio (CH9, link version 4)
+
+**User Request:**
+- EEPROM alone can't work: after a match the turret is moved during
+  repairs, so the saved position goes stale.
+- New procedure:
+  - before power-up the turret is turned by hand to within about ±20° of
+    home;
+  - at boot the absolute angle is read and the turret returns to 0;
+  - during Enable, a button (RB) brings it back to 0 from anywhere.
+- RB must work wired and wireless.
+
+**Changed:**
+- `TurretAngle`:
+  - the EEPROM holds only the home point's raw, written once by
+    設為歸位點. `TurretStore::MAGIC` is 0xA8, so old 0xA7 position records
+    are ignored.
+  - At boot: `counts = fold(raw − home raw)`. Absolute only if |angle| ≤
+    `HOME_WINDOW_DEG` (20); else status bit `OUTSIDE_HOME` (0x80), angle
+    unknown → locked.
+  - No more saving while the turret moves.
+- CH9 has six levels: k = 2 normal, 1 normal + home, 4 TEST, 5 TEST +
+  home; 0 / 3 read as normal; between levels = corrupt frame.
+  `rcmap_command::turret_home`.
+- `RCMAP_LINK_VERSION` 1 → **4** (CH10 1800 / ELRS 1807). Versions 2 and 3
+  are skipped: a pre-10-27 ground's 1500 arrives snapped to 1398 / 1602.
+- Mega: a rising `turret_home` (wireless owner) → `Shooter::requestTurretReturn()`.
+- Ground: `THOME` → CH9 home level for `HOME_PULSE_MS` 200.
+- Dashboard: RB always sends `THOME` (USB or ground). Unknown-state text:
+  沒有歸位點 / 開機時不在歸位點 ±20° 內 (USB, bit 0x80), or a combined
+  text over the radio.
+
+**Calculation:**
+- Example: home raw 3918, boot raw 522 → fold −3396 → +700 counts →
+  −700 / 56.11 = −12.48° → accepted. The first Enable turns it 12.5°
+  right.
+- PC check of the decode (home 3918):
+  - at 0 / ±12.5 / ±19.5 the reading is the angle itself → accepted;
+  - at 25 / −30 / 35 / −45 (−45 reads +28) → locked;
+  - **at −60 / −73 / −89 / −146 the readings alias to +13 / 0 / −16 / 0 →
+    wrongly accepted.** One magnet turn is 73° of turret; the procedure
+    must bring it back to the mark.
+
+**Impact:**
+- Flash the Mega **and** the ground together: CH9 / CH10 changed, and
+  mismatched pairs refuse with `LINK_VERSION_MISMATCH`.
+- Bridge `.bin` rebuilt and unchanged (5f05e944…). Orin unaffected.
+- `GUARD_ENABLED` stays false: no limits, no lock, no return yet. RB /
+  CH9 is plumbed but does nothing until the guard is on.
+- The home point must be set again: old records are ignored.
+
+**Evidence:**
+- Host suite all PASS: codec (CH9 levels, home in normal / TEST, ELRS
+  1193, version 4 vs 1500 / 1398 / 1602 / 1193 / 1200), manual_control
+  (wireless home edge, disarmed refusal), ground (THOME pulse, test mode,
+  X), Dashboard (RB → THOME, unknown texts).
+- pio: 9 Mega envs (RAM 48.7 %) + ground. Boot-window PC simulation as
+  above.
+- No hardware.
+
+**Next Test:**
+1. Fix the magnet. Flash the Mega + ground with the turret motor
+   unpowered.
+2. Set the home point.
+3. Power-cycle with the turret at about ±15°: the angle is right.
+4. At about 30°: 開機時不在歸位點 (locked).
+5. Then set `GUARD_ENABLED` true and test the return and RB (wired and
+   radio) slowly.
+
+## 2026-10-31 — Claude Code: turret soft limits +38.5 / −166°
+
+**User Request:** Jeremy measured with the refitted magnet (home raw 1414):
++38.5° → raw 3350, −166° → raw 2528. "These are the soft limits wanted."
+
+**Changed:**
+- `LIMIT_RIGHT_DEG` 36 → 38.5 and `LIMIT_LEFT_DEG` −136 → −166.
+- Dashboard limit texts (state 4 / 5 / 6 / 7) and their page test; guard
+  comments.
+
+**Calculation:**
+- +38.5: 1414 − 38.5 × 56.11 = −746 → 3350 (exact).
+- −166: 1414 + 166 × 56.11 = 10728 → mod 4096 → 2536 vs 2528 measured
+  (8 counts = 0.14°).
+- So the belt ratio and the multi-turn count hold over 2.3 magnet turns.
+
+**Evidence:** Dashboard tests PASS. PC model (120 °/s, 0.12 s lag): full
+right held peaks at +38.64°, full left at −166.07°. pio production OK.
+`GUARD_ENABLED` is still false. No hardware.
+
+## 2026-10-31 — Claude Code: turret guard ON (`GUARD_ENABLED` true)
+
+**User Request:** with the magnet refitted (magnitude ~1030), Jeremy set the
+home point. The boot-window test passed: about +15° read back right after
+a power cycle, and about 30° was refused. Turn the guard on.
+
+**Changed:** `TurretAngleConstants::GUARD_ENABLED = true`. The soft limits
+are +38.5 / −166, the first Enable after power-up returns to 0, and
+RB / `THOME` (wired and radio CH9) returns to 0. The turret locks while the
+angle is unknown, the sensor is bad, or a direction fault is seen.
+
+**Evidence:** pio: production + 3 wired benches (RAM 48.7 %, flash 16.8 %).
+PC guard simulation re-run with the current constants: return from +36 in
+1.2 s and from −120 in 2.9 s; full right held peaks at +38.64; a wrong
+command sign locks after 200 ms / 7.8°. **Not on hardware.**
+`RIGHT_COMMAND_SIGN` (−1) is still unconfirmed.
+
+**Next Test** (hand on the E-stop; flash with the turret motor unpowered):
+1. Boot near home → Enable: it returns to 0.
+2. Full manual, after Y: slow D-pad right → the angle rises and it stops
+   at +38.5 (到右限位). A wrong sign shows 方向錯誤 and locks.
+3. Left to −166.
+4. RB from about 60° → back to 0, wired and over the radio.
+
+## 2026-10-31 — Claude Code: boot window ±25° (was ±20°)
+
+**User Request:** hand-turning back to within ±20° is too tight; use ±25°.
+
+**Changed:** `HOME_WINDOW_DEG` 20 → 25; Dashboard texts 「±25° 內」.
+
+**Trade-off:** with window W, a forgotten turret is caught between W and
+73 − W: 25–48° now (was 20–53°). Beyond about 48° it aliases into the
+window undetected.
+
+**Evidence:** Dashboard page test PASS; pio production OK; boot-window PC
+simulation (25 → locked at the edge, −45 → reads +28 → locked, −60 / −73 /
+−89 alias → accepted). No hardware.
+
+## 2026-10-31 — Claude Code: minimum command for the return to 0 (and near the limits)
+
+**Hardware result:** booted at about +20°; after Enable the return stopped
+at about 5.3°. There the P command 0.03 × 5.3 = 0.16 no longer turns the
+turret (a small pulley drives the big one).
+
+**Changed:**
+- `RETURN_MIN_COMMAND` 0.2: outside ±`RETURN_TOLERANCE_DEG` the return
+  command is at least 0.2 toward 0.
+- `LIMIT_SLOW_MIN_COMMAND` 0.15 → 0.2, so the slow zone does not stall
+  short of a limit either.
+
+**Calculation:** at +5.3: −0.16 → −0.2 → motor command +0.2 (`RIGHT_COMMAND_SIGN` −1).
+
+**Evidence:** PC model with a stall threshold (no motion below 0.10 /
+0.17 / 0.19) and a 0.12 s lag, from +20 / −20 / +25 / +5.3:
+- every case ends within ±0.83°;
+- at a 0.17 stall it takes 1.3–2.0 s; at 0.19, 3.2–4.2 s;
+- no direction fault.
+
+The limit simulation still peaks at +38.64 / −166.07. pio production OK.
+No hardware.
+
+**Next Test:** boot at about ±20°, Enable. If it still stops short, the
+real stall is ≥ 0.2: raise `RETURN_MIN_COMMAND`. If it rocks back and
+forth around 0, lower it.
+
+## 2026-10-31 — Claude Code: full-speed return; RB holds the turret at 0° in the autos / test
+
+**User Request:**
+- After RB in the auto modes the turret should stay at 0°: the camera
+  must not take it right back.
+- The return should run at full speed.
+- Release rule (Jeremy chose): a hole key (wired: even the same hole), a
+  mode change, or holding ← → (the hand turn).
+
+**Changed:**
+- `RETURN_kP` 0.03 → 0.05 and `RETURN_MAX_COMMAND` 0.4 → 1.0 (the
+  D-pad's speed). It slows down only inside 20° of 0; the minimum is still
+  0.2.
+- `ManualControl::requestTurretHome()`: wired `THOME` and the radio's CH9
+  edge both call it. It calls `Shooter::requestTurretReturn()` and sets
+  `turretHeldHome`.
+- `Auto::aimTurret`: the hand turn wins first, then the hold
+  (`disableRotate`, the turret stays at 0), then the camera follow.
+- The hold clears on:
+  - wired `TGT` (any value);
+  - a target change over the radio (CH3 is a level, so re-pressing the
+    same hole over the radio does not clear it — RB again or another hole
+    does);
+  - a mode change;
+  - the start of the hand turn;
+  - Enable / disarm.
+
+  Full manual ignores it.
+- TEL slot 52 = held. The Dashboard appends 「RB 停在 0°：選洞、換模式或按住
+  ←→ 恢復追蹤」 outside full manual.
+- While held the turret is not "locked", so the autos never fire.
+
+**Evidence:**
+- manual_control (3 builds) PASS, with new cases: hold / same TGT / mode /
+  hand turn / disarm.
+- Dashboard PASS. pio: production + 3 wired benches.
+- PC model with a stall threshold of 0.10 / 0.17 / 0.19, from
+  +20 … +60 / −150 / +38.5:
+  - every return finishes within ±1.05°;
+  - it takes 0.6–2.4 s, and 3.1 s from −150 at a 0.19 stall.
+- Limits still peak at +38.67 / −166.19.
+- No hardware.
+
+## 2026-10-31 — Claude Code: shot table replaced with the 10-31 log
+
+**User Request:** import `shot_log_20261031_1804.csv`. Jeremy chose to
+replace the 10-28 points rather than merge them.
+
+**Why replace:** the 10-31 flywheel values are well below the 10-28 ones
+at the same distance; the Falcon µs / % mapping is unchanged, so the
+conditions changed. Examples:
+- hole 4 at about 5.1 m: 42 % → 35 %;
+- hole 5 at about 5.2 m: 49 % → 37 %;
+- hole 5 at 3.55 m: 604 µs / 46 % → 655 µs / 36 %.
+
+Merged, the interpolation would zig-zag.
+
+**Changed:**
+- `shot_table.xlsx` rows 2–25 = the 24 new points: hole 4 has 10,
+  2.72–6.82 m; hole 5 has 8, 2.92–7.01 m; hole 6 has 6, 3.25–6.78 m.
+- Old rows 26–27 removed from the sheet XML.
+- Done by a one-off script using apply.py's helpers (backup, strict
+  re-read check). `ShotTableData.h` regenerated by apply.py.
+
+**Flags for Jeremy:**
+- hole 4 at 6.82 m is 35 %, below 6.46 m's 38 % (against the trend);
+- hole 6 at 5.44 m had 1 distance sample;
+- 3–4 samples at hole 5 3.55 m and hole 6 3.25 / 3.93 m.
+
+**Evidence:** shot_table_lookup and manual_control PASS; pio production
+(RAM 48.6 %). No hardware.
+
+## 2026-10-31 — Claude Code: the autos fire only once the elevation is at the table's pulse
+
+**User Request:** the autos may fire while the elevation is still
+slewing; add that condition (Jeremy approved "A") before the wireless
+full-auto test.
+
+**Found:**
+- `ELEVATION_SLEW_US_PER_SECOND` is 400, and readiness checked only the
+  turret lock, the flywheel spin-up (1.5 s time proxy) and the shot.
+- Example: hole 4 (500 µs) → hole 6 at 3.25 m (1913 µs) takes 3.5 s, so
+  the shot could leave mid-move.
+
+**Changed:**
+- `Auto`: `elevationArrived = |table pulse + offset − current pulse| ≤
+  ELEVATION_READY_TOLERANCE_US` (10 µs). It is checked before this loop's
+  slew step, so it can be one loop late but never early, and it is true
+  when `ELEVATION_MEASURED` is false.
+- `ready = Shooter::isReady() && shotAvailable && elevationArrived`.
+- Ready bits: 16 = elevation arrived (TEL slot 40).
+- Dashboard 發射條件 adds 「仰角到位 ✓ / ✗」.
+
+**Tests adapted:**
+- semi-auto F is refused while slewing, then fires;
+- full auto holds fire until the pulse arrives;
+- the wireless semi F and the distance / bottom-row windows wait out the
+  slew.
+
+**Evidence:** manual_control (3 builds), Dashboard, shot_table_lookup
+PASS; pio production + 3 wired benches. No hardware.
+
+**Noted, not changed:**
+- Vision-follow lock is |tx| ≤ 5 px. At 5 px the PIDF gives 0.05 + I ≤
+  0.12, below the turret's ~0.16 stall, so it may hover outside 5 px and
+  never lock. Watch tx on the wired Dashboard.
+- Fire conditions are visible only wired (TEL slot 40).
+
+## 2026-10-31 — Claude Code: bonus holes borrow like the other rows (Q / E → W)
+
+**User Request:** the bonus holes should borrow parameters like the other
+holes. Jeremy chose to borrow only W, like the other rows: no fallback to
+hole 6.
+
+**Changed:**
+- `ShotTable::tableForVisionId`: a hole without points uses its row
+  center, and the bonus row's center is W (hole 11): 10 / 12 → 11. With no
+  points at the center as well, no table (Auto never fires there).
+- `apply.py`: `FALLBACK` adds 10 / 12 → 11; header comments and console
+  notes follow.
+- `shot_table.xlsx` rebuilt with `--export` (same 24 points, checked) so
+  its 說明 sheet states the new rule.
+- Tests: manual_control loops holes 1–12 with the rule; shot_table_lookup
+  checks the bonus ids against it.
+
+**Evidence:**
+- tests PASS; pio production OK;
+- scratch check with a fake W table (2 points): vision ids 1 / 2 / 3 all
+  resolve to W's table;
+- the regenerated header is unchanged apart from its comments.
+
+**Impact:** no bonus data exists yet, so nothing fires at the bonus row
+until W (hole 11) is measured. Measure W first; Q / E then borrow it.
+
+**Same day, later:** Jeremy ran `apply.py --import --upload` with
+`shot_log_20261031_2204.csv`, which holds the same 24 points plus W (hole
+11): 4.55 m, 65 %, 1784 µs. That import was re-run on this branch: the
+data is identical to his uncommitted file and the header matches apart
+from comments. With one point, W's table gives that point at every
+distance, and Q / E borrow it.
+
+Tests that assumed "a bonus hole has no table" now use an unknown id (13),
+or follow whether W has points.
+
+## 2026-10-31 — Claude Code: full auto row cycle (3 balls per hole, then the next hole of the row); selected bonus hole filled red
+
+**User Request:**
+- In full auto, after 3 balls move on to the other holes of the same row.
+- Jeremy chose: start from the hole being shot, go right and wrap, and
+  stop firing once the row is done.
+- Full auto is the AI's own pick.
+- On the Dashboard a locked bonus hole is filled red.
+
+**Changed / Added:**
+- `TuningConstants::Auto::ROW_CYCLE_ENABLED` = true and `SHOTS_PER_HOLE` = 3.
+- `OperatorTarget::holeForVisionId()` (the inverse) and `rowNeighbor(hole,
+  step)` (same height, step columns to the right, wrapping; the bonus row
+  10 11 12), with static_asserts.
+- `Auto` (full auto only):
+  - `updateRowCycle()` runs every loop. It starts over on a mode change, on
+    any hole choice (`ManualControl::getTargetSelectSeq()`: wired `TGT`,
+    even the same hole, and any target change) and on disarm.
+  - A chosen hole starts the cycle there. With the AI pick, the first ball
+    pins the hole it was fired at (`countRowShot()` reads
+    `Vision::getTargetId()`).
+  - After 3 balls the cycle moves to `rowNeighbor(start, step + 1)`; after
+    the third hole `rowDone` holds full-auto fire (it stays aimed at the
+    last hole).
+  - `getAimTarget()` = the cycle's hole, else the operator's;
+    `getRowShots()`, `isRowDone()`.
+- `main.cpp` hands `Auto::getAimTarget()` to Vision (MEGA_TARGET; one loop
+  behind Auto).
+- TEL slots 53–55: aim hole, balls at it, row done.
+- Dashboard:
+  - blue = the aim hole (TEL 53, or the radio's aim-frame selected id);
+  - target text: 「→ 正在打 7 · 右下 · 這洞已打 2/3」 and 「這排打完：選洞或換模式繼續」;
+  - a selected bonus hole is filled `--red`; the legend is updated.
+
+**Calculation:** the AI picks vision id 11 (hole 4) → 3 balls → 7 → 3 →
+1 → 3 → done (9 balls). From 8: 8 → 2 → 5. From W: 11 → 12 → 10.
+
+**Not covered:**
+- Balls are counted as tower trigger pulses, not hits.
+- Over the radio, re-pressing the same hole does not restart the cycle
+  (CH3 is a level); another hole or a mode change does.
+- Row done is shown only wired; the radio shows the aim hole.
+
+**Evidence:** manual_control (3 builds, new testFullAutoRowCycle: AI pick
+pins 4 → 7 → 1 → done, holds fire, TGT,8 restarts → 2, semi has no
+cycle), operator_target, shot_table, rcmap, vision_link, ground and
+Dashboard (row text) all PASS; pio production RAM 48.8 %, flash 17.1 %.
+No hardware.
+
+## 2026-10-31 — Claude Code: full auto cycle covers every row, then the bonus row; a lit bonus hole comes first
+
+**User Request:**
+- Hardware test: after 2-5-8 the cycle did not move on to 1-4-7 / 3-6-9.
+- Jeremy chose: next the row below, then the row above (258 → 147 → 369;
+  from the bottom it goes up, from the top it goes down), then the bonus
+  row, then stop.
+- And: a lit bonus box comes first, 3 balls, in full auto only.
+
+**Changed:**
+- `OperatorTarget`: `rowNeighbor` is replaced by `cycleHole(start, index)`
+  and `cycleLength(start)`:
+  - a grid start gives 12 holes: start row from the start column, right /
+    wrapping, then the adjacent rows, then the bonus row;
+  - a bonus start gives the bonus row only;
+  - helpers `rowOf`, `columnOf`, `holeAt`, `cycleRow`;
+  - C++11 static_asserts for the 5 / 4 / 3 / 11 examples.
+- `Auto`:
+  - the cycle index walks `cycleHole`;
+  - `skipHolesWithoutTable()` passes holes with no shot table, so it never
+    waits forever;
+  - `rowDone` = the whole cycle, aimed at `lastCycleHole`.
+- Lit bonus priority (`LIT_BONUS_PRIORITY`, `LIT_DARK_MS` 1000):
+  - Vision field 9 `lit_id` gives `Vision::getLitBonusId()`. It is kept
+    for any frame (even one for another hole) and cleared on a link
+    timeout.
+  - In full auto, a lit box with a table and not served takes the aim
+    target for 3 balls, then the cycle resumes unchanged.
+  - Served boxes re-arm after being dark for 1 s. A mode change or a hole
+    choice clears the served mask.
+  - It also fires after the cycle is done.
+- Vision accepts 6, 8 or 9 fields; `lit_id` must be 0–3.
+- TEL 56 = lit hole seen; 57 = lit hole being served.
+- Dashboard: a yellow inset frame on the lit bonus cell; texts
+  「加分框亮了：優先打」 and 「全部打完：選洞或換模式重新開始」; legend.
+
+**Calculation:** the Orin picks vision id 11 (hole 4): 4 7 1, 5 8 2,
+6 9 3, W E Q, 36 balls. If W lights up after the first ball at 5:
+W ×3, then back to 5 with 1 / 3 already done.
+
+**Impact:** deploy with YOLO_Detect_single 00004371 (field 9). An older
+Orin's 8 fields still work, without lit priority. Mega only on the
+TEL side; the ground is unchanged.
+
+**Evidence:**
+- manual_control (3 builds): full cycle order with done / hold / TGT
+  restart / semi; lit priority: serve, resume, no repeat while lit,
+  re-arm after dark, semi ignores.
+- vision_link: field 9, kept for another hole's frame, 8 fields = none,
+  range check.
+- operator_target, shot_table, rcmap, ground, pidf, follow and Dashboard
+  PASS.
+- pio production RAM 49.0 %, flash 17.3 %.
+- No hardware.
+
+## 2026-10-31 — Claude Code: full auto cycle is a snake (one hole per move)
+
+**Hardware report:**
+- Order seen: 5 8 2 then 1 4 7. After the third ball at 7 it stopped and
+  the turret did not move at all.
+- In the previous order the next hole was far across the board (1 / 3).
+  Most likely the Orin neither saw nor could predict it, so it sent no
+  target and the turret held. Not confirmed: no wired readout yet.
+
+**User Request:** after a row, start the next row at the adjacent hole:
+after 5 8 2 → 1 (or 3); after 1 4 7 → 9 (above 7).
+
+**Changed:**
+- `OperatorTarget::cycleColumn()` / `firstRowEndColumn()`.
+- Row 0: from the middle 1 2 0 (5 8 2); from an edge straight across.
+- Each later row starts in the column where the previous one ended (right
+  above / below) and sweeps to the other edge.
+- Row order is unchanged (below first, then above, then the bonus row).
+- Examples:
+  - from 5: 5 8 2, 1 4 7, 9 6 3, Q W E;
+  - from 4: 4 7 1, 2 5 8, 9 6 3, Q W E;
+  - from 3: 3 6 9, 8 5 2, 1 4 7, E W Q;
+  - from 7: 7 4 1, 2 5 8, 9 6 3.
+
+  All are C++11 static_asserts.
+- Test expectations updated: the order from 4, the last hole 12, the
+  TGT,8 restart → 5.
+
+**Not added:** a per-hole timeout. It was offered; Jeremy chose the snake.
+A hole the Orin cannot see or predict still stalls the cycle.
+
+**Evidence:** manual_control (3 builds), operator_target and Dashboard
+PASS; pio production OK. No hardware.
+
+## 2026-10-31 — Claude Code: full auto leaves out the bottom row (1 4 7) for now
+
+**User Request:** don't put 1 / 4 / 7 among full auto's targets for now.
+
+**Changed:**
+- `TuningConstants::Auto::FULL_AUTO_EXCLUDED_HOLES` = holes 1 | 4 | 7
+  (bit n = hole n; 0 = none out).
+- `OperatorTarget::buildCycle(start, excluded, out[12])` replaces the
+  constexpr `cycleHole`. It is the same snake, but a row whose holes are
+  all excluded is dropped and the snake carries on from the row before,
+  so moves stay one hole:
+  - from 5: 5 8 2, 3 6 9, E W Q;
+  - from 9: 9 6 3, 2 5 8, E W Q.
+- `nearestAllowedInColumn()`: an excluded pick is swapped for the nearest
+  allowed hole in its column, above first (4 → 5, 1 → 2, 7 → 8).
+- `Auto`:
+  - `startCycle()` builds the list;
+  - the skip passes excluded holes as well as holes with no table;
+  - an Orin pick on an excluded hole starts the cycle at the swapped hole
+    at once;
+  - fire guard: full auto never fires when the frame's hole is excluded.
+  - Semi-auto is untouched.
+
+**Evidence:**
+- operator_target: snake orders from 5 / 4 / 3 / 7 / W, with the bottom
+  row out from 5 / 9 / 4, and the swaps.
+- manual_control (3 builds):
+  - the full cycle 5 8 2 3 6 9 E W Q → done after 27 balls;
+  - a pick on 4 aims at 5 at once and never fires at 4;
+  - TGT,4 starts at 2;
+  - semi keeps 4.
+- shot_table, vision_link and Dashboard PASS; pio production + 3 wired
+  benches.
+- No hardware.
+
+## 2026-11-01 — Claude Code: turret vision-follow gets a frame-to-frame D; the autos wait for the turret to settle on a new hole
+
+**User Request (hardware):**
+- With the snake order, the first ball at a new hole went out before the
+  turret had settled.
+- The turret swings back and forth once before locking. Add D (it was PI
+  only: `VISION_kD` 0).
+
+**Why not just set kD:** the loop runs every 10 ms but tx changes only per
+camera frame (~33 ms). A plain derivative is 0, 0, then (Δtx / 10 ms): a
+spike.
+
+**Changed:**
+- `VisionFollowController`:
+  - `update(..., frame)`; the tx rate is taken between frames,
+    (tx − previous frame's tx) / time between them, smoothed 50 / 50 and
+    held between frames;
+  - `D = −frameKd × rate` is added to the PI output (derivative on the
+    measurement), then clamped to ±`outputLimit`;
+  - it re-primes with the target (rate 0);
+  - frame 0 = no D, so the bench comparison and older callers are
+    unchanged.
+- `VisionFollowConfig::frameKd`. `TuningConstants::Rotate::VISION_FRAME_kD`
+  = 0.0005 (PROVISIONAL; `VISION_kD` stays 0, pinned to the bench).
+- Shooter passes `Vision::getFrameCount()`.
+- `ShooterConstants::Rotate::READY_SETTLE_TIME_MS` 100 → 250: a swing can
+  sit within 5 px for 100 ms at the turn of an overshoot.
+- `Auto`: `AIM_SWITCH_SETTLE_MS` 500. After the aim hole changes (cycle
+  step, lit box, hole key), no firing for 0.5 s.
+
+**Calculation:** kP 0.01 / kd 0.0005 is 50 ms of look-ahead. At 40 px
+closing at 600 px/s: P −0.40, D +0.30, total −0.10 (it brakes early).
+
+**Evidence:**
+- vision_follow_controller: new D cases — no rate within a frame, the
+  rate / D after a frame, held between frames, re-primed on a target
+  switch, no D without frame numbers.
+- manual_control (3 builds), rotate_bench, pidf, operator_target,
+  shot_table and Dashboard PASS. pio: production RAM 49.7 % plus benches.
+- Scratch closed-loop model (60 °/s, 60 ms camera latency, 0.16 stall):
+  - from 20°: overshoot 104 → 29 px, crossings 4 → 2, lock 3.7 → 1.3 s;
+  - from 5°: overshoot 62 → 37 px.
+  - At higher speed or latency the crude model limit-cycles with or
+    without D, so tune on hardware.
+- No hardware.
+
+**Next Test:** full auto, chassis still. Watch the first ball after each
+switch and the swing. If it still overshoots, raise `VISION_FRAME_kD`
+(0.0008–0.001); if it creeps in slowly or jitters on a still target,
+lower it.
+
+## 2026-11-01 — Claude Code: full auto order never jumps two columns
+
+**Hardware report:** starting on the center hole, the order went 5 → 8
+(right) → 2 (left). That last move crosses two columns, the turret cannot
+see 2 from 8, and it stalls. Jeremy asked for a snake.
+
+**Changed:** `OperatorTarget::buildCycle()` is now column-wise. The turret
+turns sideways only, so a column change costs turret travel and a row
+change only elevation.
+- From an edge column: that column, the middle, the far one.
+- From the middle: the start hole, the right column, the rest of the
+  middle, then the left. It never goes right → left in one move.
+- Within a column, the holes nearest the entry height come first (lower
+  on a tie). Then the bonus row from the column the grid ended in.
+- Excluded holes are left out (an excluded start stays first; Auto skips
+  it).
+
+Examples (bottom row out):
+- from 5: 5, 8 9, 6, 3 2, Q W E;
+- from 2: 2 3, 6 5, 8 9, E W Q;
+- from 9: 9 8, 5 6, 3 2, Q W E.
+
+All rows, from 5: 5, 8 7 9, 6 4, 1 2 3, Q W E.
+
+**Evidence:**
+- operator_target: the orders above, plus an exhaustive check (starts
+  1–9, no mask and the bottom row out) that no move changes more than one
+  column, the bonus row included.
+- manual_control (3 builds): the full cycle; TGT,8 → 9 next; TGT,4 →
+  skips 4 → 8.
+- Dashboard PASS. pio: production + 3 wired benches.
+- No hardware.
+
+## 2026-11-01 — Claude Code: turret searches toward a chosen hole that is out of view
+
+**User Request:** in semi-auto, after locking 7 then choosing 1, the turret
+sometimes didn't move: 1 was out of view and the Orin had no prediction,
+so there was nothing to follow. Turn toward the target first until it
+shows up, then hand over to the PID.
+
+**Changed / Added:**
+- `OperatorTarget::searchDirection(targetHole, seenHoles, lastColumn)`:
+  - −1 left / +1 right / 0;
+  - it compares the target's column with the columns of the holes in view;
+  - with none in view, it uses the column of the last locked hole.
+
+  `OperatorTarget::holesFromVisionMask()` converts the Orin's mask.
+- `Shooter::updateRotate` (vision follow):
+  - per selection change, while the chosen hole is neither seen nor
+    predicted and has not been found yet, for at most
+    `Rotate::SEARCH_MAX_MS` (3000), it drives `searchDir ×
+    RIGHT_COMMAND_SIGN × SEARCH_COMMAND` (0.3) through the turret guard;
+  - the lock is cleared and the follow controller reset;
+  - once seen or predicted, the PID takes over and no search runs until
+    the next selection.
+- TEL 58 = search direction. The Dashboard shows
+  「選的洞不在畫面上：轉台往左／右找洞中」.
+- It applies wherever vision-follow runs: semi, full auto (cycle steps)
+  and test.
+
+**Why 0.3:** above the ~0.16 the turret needs to move, and slow enough for
+the camera to pick holes up on the way.
+
+**Evidence:** operator_target (directions: 7 8 9 seen → 1 is left; left
+column seen → 8 is right; in between → 0; from the last column; Q;
+mask conversion), Dashboard (TEL 58 text), manual_control (3 builds) and
+vision_follow PASS. pio production RAM 49.7 %, flash 18.3 %. The Shooter
+search itself is not host-tested (Shooter is stubbed in host tests).
+No hardware.
+
+**Next Test:** semi-auto, lock 7, choose 1. The turret should turn left
+at a steady speed until 1 appears, then lock.
+- Too fast to detect → lower `SEARCH_COMMAND`.
+- Stalls → raise it.
+- Wrong way → report it (then `searchDirection` or the sign is wrong).
+
+## 2026-11-01 — Claude Code: turret vision-follow I three times faster (kI 0.03)
+
+**User Request:** in semi-auto the turret looked on target but the
+Dashboard said not ready for 3–5 s before it fired. Make the turret's
+integral faster first (the ready-tolerance stays 5 px; the left-right
+miss at 4.3–7 m is parked).
+
+**Discussion Result:** the turret needs ~0.16 to move. Stopped just outside
+the 5 px lock, e.g. 6 px off, P gives 0.01 × 6 = 0.06 and I must make up
+0.10. At kI 0.01 that is 0.10 / (0.01 × 6) = 1.7 s per side, and one
+overshoot doubles it, which matches 3–5 s. Not yet confirmed on the
+robot which ready bit was the one missing (turret / flywheel / elevation).
+
+**Changed:**
+- `TuningConstants::Rotate::VISION_kI` 0.01 → 0.03 (3× the A5 bench). The
+  comment explains why and how to back it off.
+- The I cap stays at 0.12: within ~4 px, P 0.04 + I 0.12 = 0.16, so the
+  turret still can't creep through center once locked.
+
+**Calculation:** 6 px off → P −0.06; I grows 0.03 × 6 = 0.18 /s → total
+reaches 0.16 after 0.10 / 0.18 = 0.56 s (was 1.7 s).
+
+**Tests adapted:** `vision_follow_controller_test` pins kI to 3× the bench;
+the frame-by-frame bench comparison uses the bench's own kI. A new block
+checks that the 6 px case passes 0.16 between 0.5 and 0.7 s.
+
+**Evidence:** vision_follow_controller, pidf_controller and manual_control
+(pin table confirmed) PASS. pio: all 9 environments SUCCESS (production
+RAM 49.7 %, flash 18.3 %). No hardware.
+
+**Next Test:** semi-auto, lock a hole at ~4–5 m, watch the Dashboard
+「發射條件」 line.
+- 轉台鎖定 should come within ~1 s of the turret looking on target.
+- If the turret now swings back and forth around center → lower to 0.02.
+- If the wait is still long but 轉台鎖定 is ✓ → it's 仰角到位 or 飛輪轉穩
+  (slew 400 µs/s, SPIN_UP_MS 1500), the next items to look at.
+
+## 2026-11-01 — Claude Code: kI back to 0.01, turret stall push instead
+
+**User Request:** with kI 0.03 (previous entry) the turret swung even more.
+Jeremy chose: kI back to 0.01, plus a push when the turret is stuck just
+outside the lock.
+
+**Discussion Result:** a faster I also winds up while the turret is on
+either side of center (10 px for 0.3 s at kI 0.03 ≈ 0.09 of the 0.12 cap),
+and that carries it through center → swing. The slow lock only needs help
+when the turret has actually stopped outside the 5 px tolerance.
+
+**Changed:**
+- `VISION_kI` back to 0.01. The vision-follow test pins it to the bench again.
+
+**Added:**
+- `VisionFollowController` stall push. When the target is outside
+  `readyTolerancePx`, `|txRate| < stallRatePxPerS`, and that has lasted
+  for `stallDelayMs`, and the command toward the target is under
+  `stallCommand`, the command becomes ±`stallCommand` toward the target.
+  - Never inside the tolerance.
+  - Needs frame numbers (txRate from the frame-to-frame D).
+  - Off with 0.
+  - `isStallPushing()`.
+- `TuningConstants::Rotate`: `VISION_STALL_COMMAND` 0.17,
+  `VISION_STALL_RATE_PX_PER_S` 30, `VISION_STALL_DELAY_MS` 200, plus a
+  static_assert (≤ 0.3).
+- These are passed through `ShooterConstants::Rotate::VISION_FOLLOW`.
+
+**Calculation:**
+- Stopped 6 px off: P −0.06 + I. After 200 ms still → −0.17 (turret
+  needs ~0.16), so it creeps in.
+- At ≤ 5 px the push ends and PI (< 0.16 within ~4 px) holds it.
+- Then the 250 ms lock applies.
+- Expected lock ≈ 0.5–0.7 s instead of 1.7 s per side.
+- 30 px/s threshold: a still turret shows ±1–2 px of jitter per frame
+  at ~15 fps, ≤ ~20 px/s after the 50/50 smoothing.
+
+**Impact:**
+- Every mode that runs vision-follow (semi, full auto, test) is affected.
+- Manual, search, return-to-0 and the guard are unchanged.
+- No TEL slot was added for the push.
+
+**Evidence:**
+- vision_follow_controller PASS. The new block covers:
+  - push after 200 ms still at 6 px;
+  - none in tolerance (4 px);
+  - none while moving, then a push the other way after the rate decays;
+  - none once P + I pass 0.17;
+  - none without frame numbers;
+  - none with the production config without a push.
+- vision_rotate_bench_state and manual_control PASS.
+- pio: 9/9 SUCCESS, production RAM 50.1 %, flash 18.3 %.
+- No hardware.
+
+**Next Test:** semi-auto at 4–5 m, lock a hole.
+- 轉台鎖定 should come within ~1 s, with no swing.
+- Still parks outside the lock → `VISION_STALL_COMMAND` 0.18–0.20.
+- Steps past center → 0.16 or `VISION_STALL_DELAY_MS` 300.
+
+## 2026-11-01 — Claude Code: turret stall push pulsed, I held inside the lock
+
+**User Request:** after the Orin went to 19 fps (and the Mega got the stall
+push, 5fa731c), the turret swings across center 2–4 times before it
+stops. It can also start swinging when a hole is kept selected. Jeremy
+chose both fixes.
+
+**Discussion Result:**
+1. The continuous push (0.17 until a frame shows ≤ 5 px) ended about
+   70–100 ms after the turret reached the tolerance (camera, Orin ~52 ms,
+   link, loop). By then the turret, now on lower kinetic friction, had
+   coasted out the other side. It then waited 200 ms and pushed back:
+   a limit cycle.
+2. Inside the lock, I kept growing (4 px → 0.04 /s). After ~3 s,
+   P 0.04 + I 0.12 reached the ~0.16 the turret needs, so it lurched
+   out and the push took over.
+
+The higher fps doesn't change P / I per second and is not the cause.
+
+**Changed / Added:**
+- The stall push is a pulse: `VISION_STALL_PULSE_MS` 80. It then goes back
+  to PI alone, and another `VISION_STALL_DELAY_MS` (200) still is needed
+  before the next pulse. It also ends at once when the turret moves
+  (rate ≥ 30 px/s) or enters the tolerance. 0 = the old continuous push.
+- `PidfController::setIntegralHold(bool)`: when held, the accumulator and
+  term keep their values; they are still cleared outside kIZone. Default
+  false, so the bench and the PidfController tests are unchanged.
+- `VisionFollowController` holds I while `|tx| ≤ readyTolerancePx` when
+  `VISION_HOLD_I_IN_TOLERANCE` (true).
+- Config: two new defaulted params (`stallPulse`, `holdIntegralInTolerance`)
+  passed via `ShooterConstants::Rotate::VISION_FOLLOW`.
+
+**Calculation:** stuck at 6 px:
+- 200 ms still → −0.17 for 80 ms (a small step) → PI alone.
+- If still outside after 200 ms → another pulse.
+- Once in ≤ 5 px: P (≤ 0.05) + the held I (small, since each 200 + 80 ms
+  cycle adds only ~0.017) stays under 0.16, so it holds.
+- After 250 ms in tolerance it is ready.
+
+**Evidence:**
+- vision_follow_controller PASS. The rewritten stall block covers:
+  - the exact pulse timing (210–280 push, 290–480 PI, 490 next);
+  - 5 s at 4 px with no push and I unchanged;
+  - I grows again at 7 px;
+  - no push while moving, then a + pulse;
+  - pulse 0 = continuous;
+  - no frames → none;
+  - production without a push → none.
+- pidf_controller, vision_rotate_bench_state and manual_control PASS.
+- pio 9/9 SUCCESS, production RAM 50.3 %, flash 18.5 %.
+- No hardware.
+
+**Next Test:** semi-auto at 4–5 m, select a hole and keep it selected for
+10+ s.
+- Expected: no swing across center, and lock within ~1 s.
+- A pulse doesn't move it → `VISION_STALL_PULSE_MS` 100–120.
+- Each pulse jumps past center → 50–60 ms.
+
+## 2026-11-01 — Jeremy (committed by Claude Code): VISION_FRAME_kD 0.0005 → 0.0008
+
+**User Request:** apply last year's turret prediction (all_robot_017
+`updatePrediction`: low-pass x, vx from consecutive Jetson frames,
+`xPred = xFilt + vx × 0.08`, PID on xPred) to the current turret.
+
+**Discussion Result:** kP × (x + vx·Td) = kP·x + (kP·Td)·vx, so last year's
+prediction is a D term with kd = kP·Td = 0.01 × 0.08 = 0.0008. The current
+frame-to-frame D already does this, at 0.0005 (50 ms). Jeremy set it to
+0.0008 (80 ms). Unlike last year, the lock check still uses the measured
+tx, not the prediction.
+
+**Changed:** `TuningConstants::Rotate::VISION_FRAME_kD` 0.0008 (Jeremy's
+edit), with a comment.
+
+**Calculation:** still-turret jitter ±1 px at ~24 fps ≈ ±24 px/s raw;
+0.0008 × 24 ≈ ±0.02, far under the ~0.16 the turret needs.
+
+**Evidence:** vision_follow_controller PASS; pio production SUCCESS (RAM
+50.3 %). No hardware.
+
+**Next Test:**
+- Fewer overshoots → keep it.
+- Jitter on a still target, or the turret creeps in slowly → back to
+  0.0005.

@@ -37,6 +37,10 @@ void PidfController::setIntegralOutputLimits(double minimum, double maximum) {
         integralOutputMaximum);
 }
 
+void PidfController::setIntegralHold(bool hold) {
+    integralHold = hold;
+}
+
 void PidfController::reset(double measurement) {
     integralAccumulator = 0.0;
     previousMeasurement = measurement;
@@ -71,6 +75,8 @@ double PidfController::calculate(
     if (!integralEnabled) {
         integralAccumulator = 0.0;
         integralTerm = 0.0;
+    } else if (integralHold) {
+        // Held (setIntegralHold): accumulator and term stay as they are.
     } else {
         double candidateAccumulator = integralAccumulator + error * dtSeconds;
         double minimumAccumulator = integralOutputMinimum / config.kI;

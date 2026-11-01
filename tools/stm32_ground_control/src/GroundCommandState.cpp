@@ -54,6 +54,7 @@ void GroundCommandState::release(uint32_t nowMs) {
     cmd.turn = 0.0f;
     cmd.fire = false;
     cmd.auto_path = RCMAP_AUTO_NONE;
+    cmd.turret_home = false;
     rotate = 0;
     angle = 0;
     updateNudge();
@@ -175,8 +176,9 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
     // auto level; dropped in full manual and on every mode change.
     const bool isFlywheelOffset = strncmp(line, "FLYO,", 5) == 0;
     const bool isSingle = line[1] == '\0' && (line[0] == 'F' || line[0] == 'M');
+    const bool isTurretHome = strcmp(line, "THOME") == 0;
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isNoChannel && !isTarget &&
-        !isAutoPath && !isModeSet && !isFlywheelOffset && !isSingle) {
+        !isAutoPath && !isModeSet && !isFlywheelOffset && !isSingle && !isTurretHome) {
         emitLine(emit, ctx, "$GROUND_EVENT,UNKNOWN_COMMAND");
         return;
     }
@@ -274,6 +276,14 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
     if (isNoChannel) {
         return;
     }
+    if (isTurretHome) {
+        // One RB press = one pulse; the robot acts on the rising edge.
+        if (!cmd.turret_home) {
+            cmd.turret_home = true;
+            homeStartMs = nowMs;
+        }
+        return;
+    }
     if (line[0] == 'F') {
         if (!cmd.fire) {
             cmd.fire = true;
@@ -308,6 +318,9 @@ void GroundCommandState::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
     if (cmd.auto_path != RCMAP_AUTO_NONE && nowMs - autoStartMs >= AUTO_PULSE_MS) {
         cmd.auto_path = RCMAP_AUTO_NONE;
     }
+    if (cmd.turret_home && nowMs - homeStartMs >= HOME_PULSE_MS) {
+        cmd.turret_home = false;
+    }
     raiseArmIfReady(nowMs);
     if (enabled && nowMs - lastPcMs > PC_TIMEOUT_MS) {
         release(nowMs);
@@ -328,10 +341,20 @@ void RobotStatusTracker::reset(uint32_t nowMs) {
     haveVision = false;
     lastVision = rcmap_vision{};
     lastVisionMs = nowMs;
+    haveSeen = false;
+    lastSeen = rcmap_seen{};
+    lastSeenMs = nowMs;
     lastReportMs = nowMs;
 }
 
 void RobotStatusTracker::onStatus(const rcmap_status& s, uint32_t nowMs, GroundEmitFn emit, void* ctx) {
+    rcmap_seen seen;
+    if (rcmap_seen_from_status(&s, &seen)) {
+        lastSeen = seen;
+        haveSeen = true;
+        lastSeenMs = nowMs;
+        return;
+    }
     rcmap_vision vision;
     if (rcmap_vision_from_status(&s, &vision)) {
         lastVision = vision;
@@ -393,14 +416,15 @@ void RobotStatusTracker::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
 
     const bool aimFresh = haveAim && nowMs - lastAimMs <= STALE_MS;
     const rcmap_aim a = aimFresh ? lastAim : rcmap_aim{};
-    snprintf(text, sizeof(text), "$AIM,%d,%u,%u,%u,%u,%d,%d",
+    snprintf(text, sizeof(text), "$AIM,%d,%u,%u,%u,%u,%d,%d,%u",
              aimFresh ? 1 : 0,
              static_cast<unsigned>(a.distance_cm),
              static_cast<unsigned>(a.elevation_pulse_us),
              static_cast<unsigned>(a.selected_id),
              static_cast<unsigned>(a.target_id),
              a.valid ? 1 : 0,
-             static_cast<int>(a.aim_offset_px));
+             static_cast<int>(a.aim_offset_px),
+             static_cast<unsigned>(a.turret_state));
     emitLine(emit, ctx, text);
 
     // tx / ty in half pixels (no float printf on this board): the page
@@ -414,5 +438,19 @@ void RobotStatusTracker::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
              static_cast<int>(lroundf(v.ty_px * 2.0f)),
              v.valid ? 1 : 0,
              static_cast<unsigned>(v.target_id));
+    emitLine(emit, ctx, text);
+
+    const bool seenFresh = haveSeen && nowMs - lastSeenMs <= STALE_MS;
+    rcmap_seen sn{};
+    sn.ring_percent = -1;
+    if (seenFresh) sn = lastSeen;
+    snprintf(text, sizeof(text), "$SEEN,%d,%u,%u,%d,%u,%d,%u",
+             seenFresh ? 1 : 0,
+             static_cast<unsigned>(sn.seen_mask),
+             static_cast<unsigned>(sn.state),
+             static_cast<int>(sn.turret_deg10),
+             static_cast<unsigned>(sn.turret_status),
+             static_cast<int>(sn.ring_percent),
+             static_cast<unsigned>(sn.ring_sectors));
     emitLine(emit, ctx, text);
 }

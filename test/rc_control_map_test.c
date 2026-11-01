@@ -25,10 +25,11 @@ static void test_round_trip(void) {
     int ch[16];
     rcmap_encode(&c, ch);
     assert(ch[RCMAP_CH_FORWARD] == 2000 && ch[RCMAP_CH_TURN] == 1250);
-    assert(ch[RCMAP_CH_TARGET] == 1700 && ch[RCMAP_CH_MODE] == 1750);
+    assert(ch[RCMAP_CH_TARGET] == 1560 && ch[RCMAP_CH_MODE] == 1750); /* 1000 + 80*7 */
     assert(ch[RCMAP_CH_FIRE] == 2000 && ch[RCMAP_CH_ARM] == 2000);
     assert(ch[RCMAP_CH_NUDGE] == 1600 && ch[RCMAP_CH_AUTO] == 1600);
-    assert(ch[8] == 1500 && ch[9] == 1500 && ch[15] == 1500);
+    /* CH9 level 2 = normal; CH10 = link version 4 (2026-10-31). */
+    assert(ch[8] == 1400 && ch[RCMAP_CH_VERSION] == 1800 && ch[15] == 1500);
     rcmap_command d;
     assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
     assert(near(d.forward, 1.0f) && near(d.turn, -0.5f));
@@ -44,7 +45,7 @@ static void test_round_trip(void) {
 
     /* Out-of-range fields: axes clamp, NaN is neutral, bad levels send none. */
     c = base();
-    c.forward = 5.0f; c.turn = NAN; c.target = 12; c.nudge = 9; c.auto_path = 7;
+    c.forward = 5.0f; c.turn = NAN; c.target = 13; c.nudge = 9; c.auto_path = 7;
     rcmap_encode(&c, ch);
     assert(ch[RCMAP_CH_FORWARD] == 2000 && ch[RCMAP_CH_TURN] == 1500);
     assert(ch[RCMAP_CH_TARGET] == 1000 && ch[RCMAP_CH_NUDGE] == 1000 && ch[RCMAP_CH_AUTO] == 1000);
@@ -63,17 +64,17 @@ static void test_elrs_hybrid_values(void) {
     const int six[6] = {988, 1193, 1398, 1602, 1807, 2012};
     rcmap_command d;
     for (uint8_t k = 0; k < 5; k++) {
-        int ch[16] = {1500, 1500, 1501, 2000, 988, 2012, six[k], six[4 - k], 1500, 1500};
+        int ch[16] = {1500, 1500, 1401, 2000, 988, 2012, six[k], six[4 - k], six[2], six[4]};
         assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
         assert(d.nudge == k && d.auto_path == 4 - k && d.armed && !d.fire);
-        assert(d.target == RCMAP_TARGET_NONE + 5); /* 1501 -> hole 5 */
+        assert(d.target == RCMAP_TARGET_NONE + 5); /* 1401 -> hole 5 (1000 + 80*5) */
     }
-    int ch[16] = {1500, 1500, 1000, 2000, 2012, 988, 988, 988, 1500, 1500};
+    int ch[16] = {1500, 1500, 1000, 2000, 2012, 988, 988, 988, 1398, 1807};
     assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.fire && !d.armed);
 }
 
 static void test_invalid_frames(void) {
-    int ok[16] = {1500, 1500, 1000, 2000, 1000, 1000, 1000, 1000, 1500, 1500};
+    int ok[16] = {1500, 1500, 1000, 2000, 1000, 1000, 1000, 1000, 1400, 1800};
     rcmap_command d = base();
     assert(rcmap_decode(ok, RCMAP_CHANNEL_COUNT, &d));
     int ch[16];
@@ -85,7 +86,7 @@ static void test_invalid_frames(void) {
         assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
     }
     /* Level channels between levels are corrupt, not rounded. */
-    memcpy(ch, ok, sizeof ch); ch[RCMAP_CH_TARGET] = 1150;  /* between holes 1 and 2 */
+    memcpy(ch, ok, sizeof ch); ch[RCMAP_CH_TARGET] = 1120;  /* between holes 1 and 2 (1080 / 1160) */
     assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
     memcpy(ch, ok, sizeof ch); ch[RCMAP_CH_NUDGE] = 1100;   /* between center and up */
     assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
@@ -341,7 +342,14 @@ static void test_aim_frames(void) {
     assert(rcmap_aim_from_status(&got, &back));
     assert(back.distance_cm == 352 && back.elevation_pulse_us == 1620);
     assert(back.selected_id == 10 && back.target_id == 10 && back.valid);
-    assert(back.aim_offset_px == -15);
+    assert(back.aim_offset_px == -15 && back.turret_state == 0);
+    /* 2026-10-31: the turret guard's state in seq bits 21-23. */
+    a.turret_state = 6;
+    rcmap_aim_to_status(&a, &flags, &seq, &code);
+    assert(((seq >> 21) & 7u) == 6u && (seq & 0x1FFFFFu) == (got.event_seq & 0x1FFFFFu));
+    st.flags = flags; st.event_seq = seq; st.event_code = code;
+    assert(rcmap_aim_from_status(&st, &back) && back.turret_state == 6 && back.valid);
+    a.turret_state = 0;
 
     /* Clamps and masks. */
     a.distance_cm = 60000;
@@ -350,13 +358,15 @@ static void test_aim_frames(void) {
     a.target_id = 0;
     a.valid = false;
     a.aim_offset_px = 127;
+    a.turret_state = 0xFF;  /* masked to 3 bits */
     rcmap_aim_to_status(&a, &flags, &seq, &code);
     st.flags = flags;
     st.event_seq = seq;
     st.event_code = code;
     assert(rcmap_aim_from_status(&st, &back));
-    assert(back.distance_cm == 0x7FFFu && back.elevation_pulse_us == 0x0FFFu);
+    assert(back.distance_cm == 0x3FFFu && back.elevation_pulse_us == 0x0FFFu); /* 14 bits since 2026-10-27 */
     assert(!back.valid && back.selected_id == 0 && back.target_id == 0 && back.aim_offset_px == 127);
+    assert(back.turret_state == 7 && seq <= 0xFFFFFFu);
 
     /* A status frame is not an aim frame. */
     st.event_code = rcmap_status_code(RCMAP_EVENT_OUTPUTS_ENABLED, RCMAP_MODE_FULL_MANUAL);
@@ -373,7 +383,7 @@ static void test_test_mode(void) {
     assert(rcmap_command_mode(&c) == RCMAP_MODE_TEST);
     int ch[16];
     rcmap_encode(&c, ch);
-    assert(ch[RCMAP_CH_TEST] == 2000);
+    assert(ch[RCMAP_CH_TEST] == 1800);  /* level 4 (2026-10-31; was 2000) */
     assert(ch[RCMAP_CH_MODE] == RCMAP_FLYWHEEL_BASE_US + 138); /* 46% = 138 us */
     rcmap_command d;
     assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
@@ -383,12 +393,16 @@ static void test_test_mode(void) {
     ch[RCMAP_CH_MODE] = RCMAP_MODE_FULL_MANUAL_US;
     assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && rcmap_command_mode(&d) == RCMAP_MODE_TEST);
     assert(near(d.flywheel, 0.0f));
-    /* An older ground's 1500, or anything below the switch threshold: no. */
-    for (int us = 988; us <= 1602; us += 307) {
-        ch[RCMAP_CH_TEST] = us;
+    /* Levels 0-3 (ELRS 988 / 1193 / 1398 / 1602): not TEST. */
+    for (int k = 0; k < 4; k++) {
+        const int six[4] = {988, 1193, 1398, 1602};
+        ch[RCMAP_CH_TEST] = six[k];
         assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && !d.test_mode);
         assert(rcmap_command_mode(&d) == RCMAP_MODE_FULL_MANUAL);
     }
+    /* Between levels: the whole frame is corrupt (like CH7 / CH8). */
+    ch[RCMAP_CH_TEST] = 1500;
+    assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
     /* CH4 at an auto level wins over a lagging CH9 high. */
     ch[RCMAP_CH_TEST] = 2012;
     ch[RCMAP_CH_MODE] = RCMAP_MODE_SEMI_AUTO_US;
@@ -397,7 +411,23 @@ static void test_test_mode(void) {
     /* Encode never sends the flag with an auto level. */
     c.mode_us = RCMAP_MODE_FULL_AUTO_US;
     rcmap_encode(&c, ch);
-    assert(ch[RCMAP_CH_TEST] == 1500 && rcmap_command_mode(&c) == RCMAP_MODE_FULL_AUTO);
+    assert(ch[RCMAP_CH_TEST] == 1400 && rcmap_command_mode(&c) == RCMAP_MODE_FULL_AUTO);
+    /* Turret home (RB, 2026-10-31): level 1 normal, 5 in TEST. */
+    c.turret_home = true;
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_TEST] == 1200 && rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    assert(d.turret_home && !d.test_mode && rcmap_command_mode(&d) == RCMAP_MODE_FULL_AUTO);
+    c.mode_us = RCMAP_MODE_FULL_MANUAL_US;
+    c.test_mode = true;
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_TEST] == 2000 && rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    assert(d.turret_home && d.test_mode && rcmap_command_mode(&d) == RCMAP_MODE_TEST);
+    ch[RCMAP_CH_TEST] = 1193;                                  /* ELRS level 1 */
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.turret_home && !d.test_mode);
+    c.turret_home = false;
+    rcmap_encode(&c, ch);
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && !d.turret_home && d.test_mode);
+    c.test_mode = false;
     /* Status: mode + 1 = 4 would be the vision marker, so TEST goes as
      * full manual in the code + the TEST flag. */
     const uint16_t code = rcmap_status_code(RCMAP_EVENT_MODE_TEST, RCMAP_MODE_TEST);
@@ -448,6 +478,111 @@ static void test_line_check(void) {
     assert(rcmap_line_seal(buf, 21, 24) == 24);
 }
 
+/* CH3 (2026-10-27): 13 levels 80 us apart, 10..12 = the bonus holes. */
+static void test_target_levels(void) {
+    rcmap_command c, d;
+    int ch[16];
+    memset(&c, 0, sizeof c);
+    c.target = 12;
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_TARGET] == 1960);
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.target == 12);
+    /* +-35 us still that level, +-36 between levels: frame rejected. */
+    for (uint8_t k = 0; k <= RCMAP_TARGET_MAX; k++) {
+        const int level = 1000 + 80 * k;
+        for (int e = -35; e <= 35; e += 35) {
+            if (level + e < 900 || level + e > 2100) continue;
+            ch[RCMAP_CH_TARGET] = level + e;
+            assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.target == k);
+        }
+        if (k < RCMAP_TARGET_MAX) {
+            ch[RCMAP_CH_TARGET] = level + 40; /* halfway: neither */
+            assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+        }
+    }
+    ch[RCMAP_CH_TARGET] = 2040; /* past hole 12 */
+    assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    /* Out of range targets are sent as none. */
+    c.target = 13;
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_TARGET] == 1000);
+}
+
+/* CH10 link version (2026-10-27): a frame from another channel table is
+ * rejected outright, never read with this table's levels. */
+static void test_link_version(void) {
+    rcmap_command c, d;
+    int ch[16];
+    memset(&c, 0, sizeof c);
+    c.target = 5;
+    rcmap_encode(&c, ch);
+    assert(ch[RCMAP_CH_VERSION] == 1000 + 200 * RCMAP_LINK_VERSION);
+    assert(rcmap_link_version_ok(ch, RCMAP_CHANNEL_COUNT) && rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    /* What ELRS's 6-position AUX actually delivers for level 4. */
+    ch[RCMAP_CH_VERSION] = 1807;
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.target == 5);
+    /* A pre-10-27 ground's 1500 arrives snapped to 1398 or 1602 (hence no
+     * versions 2 / 3); version 1 (1193 / 1200), any other level, or no
+     * CH10 at all, is rejected too. */
+    const int others[] = {1500, 1398, 1602, 988, 1193, 1200, 2012, 1300};
+    for (unsigned i = 0; i < sizeof others / sizeof others[0]; i++) {
+        ch[RCMAP_CH_VERSION] = others[i];
+        assert(!rcmap_link_version_ok(ch, RCMAP_CHANNEL_COUNT));
+        assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
+    }
+    assert(!rcmap_link_version_ok(ch, RCMAP_CHANNEL_COUNT - 1));
+    assert(strcmp(rcmap_event_name(RCMAP_EVENT_LINK_VERSION_MISMATCH), "LINK_VERSION_MISMATCH") == 0);
+}
+
+/* Seen frames (2026-10-27, Orin v3): detected holes + vision state. */
+static void test_seen_frames(void) {
+    rcmap_seen v = {0x0FFF, RCMAP_VISION_STATE_PREDICTED, 0, 0, -1, 0}, back;
+    uint8_t flags; uint32_t seq; uint16_t code;
+    rcmap_seen_to_status(&v, &flags, &seq, &code);
+    assert(code == 0xEFFF && seq == 0 && flags == 0);
+    assert(rcmap_status_is_seen(code) && !rcmap_status_is_aim(code) && !rcmap_status_is_vision(code));
+    rcmap_status st = {0, code, 0, 0};
+    assert(rcmap_seen_from_status(&st, &back) && back.seen_mask == 0x0FFF &&
+           back.state == RCMAP_VISION_STATE_PREDICTED);
+    /* Bits beyond the 12 ids are dropped; a bad state is sent as none. */
+    v.seen_mask = 0xF123; v.state = 7;
+    rcmap_seen_to_status(&v, &flags, &seq, &code);
+    st.event_code = code;
+    assert(rcmap_seen_from_status(&st, &back) && back.seen_mask == 0x0123 &&
+           back.state == RCMAP_VISION_STATE_NONE);
+    /* 2026-10-28: turret degrees x 10 (12-bit signed), AS5600 status, the
+       depth ring's share (2 % steps) and sectors ride in seq / flags. */
+    rcmap_seen t = {0x0010, RCMAP_VISION_STATE_SEEN, -503, 0x23, 62, 0x3C};
+    rcmap_seen_to_status(&t, &flags, &seq, &code);
+    assert(flags == 0x3C && (seq & 0x0FFFu) == (uint32_t)(0x1000 - 503) &&
+           ((seq >> 12) & 0x3Fu) == 0x23 && (seq >> 18) == 32u);
+    rcmap_status ts = {flags, code, seq, 0};
+    assert(rcmap_seen_from_status(&ts, &back) && back.seen_mask == 0x0010 &&
+           back.turret_deg10 == -503 && back.turret_status == 0x23 &&
+           back.ring_percent == 62 && back.ring_sectors == 0x3C);
+    t.turret_deg10 = 3000; t.ring_percent = 100;   /* clamped / largest */
+    rcmap_seen_to_status(&t, &flags, &seq, &code);
+    ts.flags = flags; ts.event_seq = seq; ts.event_code = code;
+    assert(rcmap_seen_from_status(&ts, &back) && back.turret_deg10 == 2047 &&
+           back.ring_percent == 100 && back.ring_sectors == 0x3C);
+    t.turret_deg10 = -2047; t.ring_percent = 0;   /* 0 % is not "none" */
+    rcmap_seen_to_status(&t, &flags, &seq, &code);
+    ts.flags = flags; ts.event_seq = seq; ts.event_code = code;
+    assert(rcmap_seen_from_status(&ts, &back) && back.turret_deg10 == -2047 &&
+           back.ring_percent == 0);
+    t.ring_percent = -1;                           /* none: no sectors */
+    rcmap_seen_to_status(&t, &flags, &seq, &code);
+    ts.flags = flags; ts.event_seq = seq; ts.event_code = code;
+    assert(flags == 0 && rcmap_seen_from_status(&ts, &back) && back.ring_percent == -1 &&
+           back.ring_sectors == 0);
+    /* The largest aim frame is still an aim frame, not a seen one. */
+    rcmap_aim a = {60000, 4095, 15, 15, true, -1, 7};
+    rcmap_aim_to_status(&a, &flags, &seq, &code);
+    assert(rcmap_status_is_aim(code) && !rcmap_status_is_seen(code));
+    st.event_code = code;
+    assert(!rcmap_seen_from_status(&st, &back));
+}
+
 int main(void) {
     test_round_trip();
     test_elrs_hybrid_values();
@@ -459,6 +594,9 @@ int main(void) {
     test_operator_mode();
     test_test_mode();
     test_line_check();
+    test_target_levels();
+    test_link_version();
+    test_seen_frames();
     printf("rc_control_map host tests: all asserts passed\n");
     return 0;
 }

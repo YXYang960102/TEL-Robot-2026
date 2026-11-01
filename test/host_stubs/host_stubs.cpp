@@ -7,6 +7,7 @@
 
 #include "../../src/Chassis/Chassis.h"
 #include "../../src/IO/MechLink.h"
+#include "../../src/Sensors/TurretAngle.h"
 #include "../../src/Shooter/Shooter.h"
 #include "../../src/Vision/Vision.h"
 
@@ -25,6 +26,9 @@ double visionTx = 0.0;
 double visionTy = 0.0;
 int anglePulseUs = 1500;
 int flywheelPulseUs = 1490;
+bool turretZeroOk = true;
+uint8_t turretState = 4; // TurretGuard::READY
+uint8_t litBonusId = 0;
 bool shooterReady = false;
 }
 
@@ -83,10 +87,25 @@ bool Shooter::setAnglePulseUs(double pulseUs) {
 void Shooter::setFlywheelOpenLoop(double command) { rec.flywheelCommand = command; }
 
 bool Shooter::isReady() { return hoststub::shooterReady; }
+bool Shooter::isRotateReady() { return hoststub::shooterReady; }
+bool Shooter::isFlywheelReady() { return hoststub::shooterReady; }
 
 bool Vision::isConnected() { return hoststub::visionReady; }
 bool Vision::isVisionReady() { return hoststub::visionReady; }
 bool Vision::isValid() { return hoststub::visionValid; }
+bool Vision::isPredicted() { return false; }
+uint16_t Vision::getSeenMask() { return 0; }
+int8_t Vision::getRingPercent() { return -1; }
+uint8_t Vision::getLitBonusId() { return hoststub::litBonusId; }
+uint8_t Vision::getRingSectors() { return 0; }
+// AimUplink's seen frame carries the turret angle (2026-10-28).
+double TurretAngle::angleDegrees() { return 0.0; }
+uint8_t TurretAngle::status() { return TurretAngle::NEVER_READ; }
+bool TurretAngle::setZeroHere() { return hoststub::turretZeroOk; }
+void Shooter::requestTurretReturn() { rec.turretReturns++; }
+uint8_t Shooter::getTurretState() { return hoststub::turretState; }
+// Every call is a new frame (the stub's fields stand for the latest one).
+unsigned long Vision::getFrameCount() { static unsigned long frames = 0; return ++frames; }
 double Vision::getDistance() { return hoststub::visionDistanceMm; }
 double Vision::getTx() { return hoststub::visionTx; }
 double Vision::getTy() { return hoststub::visionTy; }
@@ -101,7 +120,12 @@ bool MechLink::signalLost = true;
 int MechLink::modeChannel = RCMAP_MODE_FULL_MANUAL_US;
 
 void MechLink::sendStatus(uint8_t flags, unsigned long eventSeq, uint16_t eventCode) {
-    if (eventCode & 0x8000u) { // aim frame (RcControlMap.h): recorded apart from status
+    if ((eventCode & 0xC000u) == 0xC000u) { // seen frame (Orin v3): apart too
+        rec.seenCount++;
+        rec.seenCode = eventCode;
+        return;
+    }
+    if ((eventCode & 0xC000u) == 0x8000u) { // aim frame (RcControlMap.h): recorded apart from status
         rec.aimCount++;
         rec.aimFlags = flags;
         rec.aimSeq = eventSeq;

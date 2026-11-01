@@ -14,6 +14,13 @@ double Vision::distance = 0;
 int Vision::targetId = 0;
 bool Vision::valid = false;
 unsigned long Vision::lastPacketMs = 0;
+unsigned long Vision::frameCount = 0;
+bool Vision::predicted = false;
+unsigned long Vision::predictedSinceMs = 0;
+uint16_t Vision::seenMask = 0;
+int8_t Vision::ringPercent = -1;
+uint8_t Vision::litBonusId = 0;
+uint8_t Vision::ringSectors = 0;
 bool Vision::hasPacket = false;
 bool Vision::sentReady = false;
 unsigned long Vision::lastHeartbeatMs = 0;
@@ -55,6 +62,8 @@ void Vision::update() {
 
     if (hasPacket && millis() - lastPacketMs > Transport::PACKET_TIMEOUT_MS) {
         invalidateTarget();
+        seenMask = 0;
+        litBonusId = 0;
     }
 
     if (orinState != OrinState::UNKNOWN &&
@@ -104,10 +113,35 @@ void Vision::setSelectedTarget(uint8_t visionId) {
     }
     selectedTargetId = visionId;
     selectionDirty = true;
+    predictedSinceMs = 0; // a new choice gets its own prediction budget
     // The frame in hand is for the old choice (or the Orin's own pick):
     // never aim at it after a switch. The Orin's next frame for the new
     // hole arrives within a camera cycle or two.
     invalidateTarget();
+}
+
+bool Vision::isPredicted() {
+    return predicted;
+}
+
+uint16_t Vision::getSeenMask() {
+    return seenMask;
+}
+
+uint8_t Vision::getLitBonusId() {
+    return isConnected() ? litBonusId : 0;
+}
+
+int8_t Vision::getRingPercent() {
+    return isValid() ? ringPercent : static_cast<int8_t>(-1);
+}
+
+uint8_t Vision::getRingSectors() {
+    return isValid() ? ringSectors : 0;
+}
+
+unsigned long Vision::getFrameCount() {
+    return frameCount;
 }
 
 uint8_t Vision::getSelectedTarget() {
@@ -171,13 +205,17 @@ bool Vision::parse(const String& input) {
             commaCount++;
         }
     }
-    if (commaCount != 4) return false;
+    // v3: tx,ty,distance,target_id,valid,seen_mask -- optionally followed
+    // (2026-10-28) by ring_pct,ring_sectors, the depth ring's coverage, and
+    // (2026-10-31) lit_id, the lit bonus hole the Orin sees (vision id
+    // 1-3, 0 = none)
+    if (commaCount != 5 && commaCount != 7 && commaCount != 8) return false;
 
-    String fields[5];
+    String fields[9];
     int fieldCount = 0;
     int start = 0;
 
-    while (fieldCount < 5 && start <= static_cast<int>(s.length())) {
+    while (fieldCount < 9 && start <= static_cast<int>(s.length())) {
         int idx = s.indexOf(',', start);
 
         if (idx < 0) {
@@ -189,7 +227,7 @@ bool Vision::parse(const String& input) {
         start = idx + 1;
     }
 
-    if (fieldCount != 5) return false;
+    if (fieldCount != commaCount + 1) return false;
 
     char* end = nullptr;
     const double nextTx = strtod(fields[0].c_str(), &end);
@@ -205,11 +243,31 @@ bool Vision::parse(const String& input) {
     if (end == fields[3].c_str() || *end != '\0') return false;
 
     const long validValue = strtol(fields[4].c_str(), &end, 10);
-    if (end == fields[4].c_str() || *end != '\0' || (validValue != 0 && validValue != 1)) {
+    if (end == fields[4].c_str() || *end != '\0' || validValue < 0 || validValue > 2) {
         return false;
     }
 
-    if (abs(nextTx) > Validation::MAX_ABS_TX ||
+    const long mask = strtol(fields[5].c_str(), &end, 10);
+    if (end == fields[5].c_str() || *end != '\0' || mask < 0 || mask > Validation::MAX_SEEN_MASK) {
+        return false;
+    }
+
+    long nextRingPct = -1;
+    long nextRingSectors = 0;
+    long nextLitId = 0;
+    if (fieldCount == 9) {
+        nextLitId = strtol(fields[8].c_str(), &end, 10);
+        if (end == fields[8].c_str() || *end != '\0' || nextLitId < 0 || nextLitId > 3) return false;
+    }
+    if (fieldCount >= 8) {
+        nextRingPct = strtol(fields[6].c_str(), &end, 10);
+        if (end == fields[6].c_str() || *end != '\0' || nextRingPct < -1 || nextRingPct > 100) return false;
+        nextRingSectors = strtol(fields[7].c_str(), &end, 10);
+        if (end == fields[7].c_str() || *end != '\0' || nextRingSectors < 0 || nextRingSectors > 0xFF) return false;
+    }
+
+    const double maxAbsTx = validValue == 2 ? Validation::MAX_ABS_PREDICTED_TX : Validation::MAX_ABS_TX;
+    if (abs(nextTx) > maxAbsTx ||
         abs(nextTy) > Validation::MAX_ABS_TY ||
         nextDistance < 0 ||
         nextDistance > Validation::MAX_DISTANCE_MM ||
@@ -223,7 +281,15 @@ bool Vision::parse(const String& input) {
         nextTy,
         nextDistance,
         static_cast<int>(nextTargetId),
-        validValue == 1);
+        static_cast<int>(validValue),
+        static_cast<uint16_t>(mask));
+    // The ring is about the frame's own target: only kept for a real
+    // sighting of the hole the Mega aims at (isValid()).
+    ringPercent = valid ? static_cast<int8_t>(nextRingPct) : static_cast<int8_t>(-1);
+    ringSectors = valid && nextRingPct >= 0 ? static_cast<uint8_t>(nextRingSectors) : 0;
+    // Whatever hole the frame is about (even one not selected): Auto's lit
+    // bonus priority must hear of a lit box while aiming elsewhere.
+    litBonusId = static_cast<uint8_t>(nextLitId);
     return true;
 }
 
@@ -233,12 +299,37 @@ void Vision::storeTarget(
     double nextTy,
     double nextDistance,
     int nextTargetId,
-    bool nextValid) {
-    lastPacketMs = millis();
+    int validCode,
+    uint16_t nextSeenMask) {
+    const unsigned long now = millis();
+    lastPacketMs = now;
     hasPacket = true;
+    frameCount++;
+    seenMask = nextSeenMask;
     // A frame for a hole other than the selected one is "no target" (the
     // link itself is still alive: isConnected() stays true).
-    valid = nextValid && OperatorTarget::frameMatchesSelection(selectedTargetId, nextTargetId);
+    valid = validCode == 1 && OperatorTarget::frameMatchesSelection(selectedTargetId, nextTargetId);
+
+    // v3 prediction: only for the hole the operator chose, and for at most
+    // PREDICTED_FOLLOW_MAX_MS from the first prediction. Only a real
+    // sighting or a new selection restarts that budget -- "nothing" frames
+    // in between don't, so an on / off stream can't turn the turret forever.
+    const bool nextPredicted = validCode == 2 && selectedTargetId != OperatorTarget::NONE &&
+                               nextTargetId == selectedTargetId;
+    predicted = false;
+    if (valid) {
+        predictedSinceMs = 0;
+    } else if (nextPredicted) {
+        if (predictedSinceMs == 0) predictedSinceMs = now == 0 ? 1 : now;
+        if (now - predictedSinceMs <= Transport::PREDICTED_FOLLOW_MAX_MS) {
+            predicted = true;
+            tx = constrain(nextTx, -Validation::MAX_ABS_TX, Validation::MAX_ABS_TX);
+            ty = nextTy;
+            distance = 0.0;
+            targetId = nextTargetId;
+            return;
+        }
+    }
 
     if (valid) {
         tx = constrain(
@@ -255,6 +346,9 @@ void Vision::storeTarget(
 
 void Vision::invalidateTarget() {
     valid = false;
+    predicted = false;
+    ringPercent = -1;
+    ringSectors = 0;
     tx = 0;
     ty = 0;
     distance = 0;

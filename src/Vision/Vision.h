@@ -18,6 +18,26 @@ public:
     static double getDistance();
     static int getTargetId();
     static bool isValid();
+    // Protocol v3: the selected hole is out of view and this is where the
+    // Orin predicts it (getTx() / getTy() are that position, clamped);
+    // aim only -- never counts as isValid(), never a distance. False again
+    // after PREDICTED_FOLLOW_MAX_MS of predictions without the real hole.
+    static bool isPredicted();
+    // The Orin's reliably detected hole ids in the last frame (bit id - 1).
+    static uint16_t getSeenMask();
+    // The target's depth sampling ring (2026-10-28, Dashboard only): the
+    // share of its pixels with usable depth, 0-100 (-1 = not reported or
+    // no valid target), and which of its 8 sectors have depth (bit k =
+    // sector k, k = 0 right, then clockwise on screen: 2 below, 4 left,
+    // 6 above).
+    static int8_t getRingPercent();
+    // The lit bonus hole the Orin sees (vision id 1-3; 0 = none, or an
+    // Orin without frame field 9), from the latest frame whatever its hole.
+    static uint8_t getLitBonusId();
+    static uint8_t getRingSectors();
+    // Bumped once per target frame from the Orin (valid or not), so a
+    // consumer can take each frame exactly once (Auto's distance filter).
+    static unsigned long getFrameCount();
 
     // The operator's chosen hole, in the Orin's numbering (0 = none, the
     // Orin picks; 4..12 = OperatorTarget::visionIdForHole()). Sent to the
@@ -41,7 +61,8 @@ private:
         double ty,
         double distance,
         int targetId,
-        bool valid);
+        int validCode,
+        uint16_t seenMask);
     static void invalidateTarget();
     static void sendHeartbeat();
     static void sendSelection();
@@ -53,6 +74,13 @@ private:
     static int targetId;
     static bool valid;
     static unsigned long lastPacketMs;
+    static unsigned long frameCount;
+    static bool predicted;
+    static unsigned long predictedSinceMs;
+    static uint16_t seenMask;
+    static int8_t ringPercent;
+    static uint8_t litBonusId;
+    static uint8_t ringSectors;
     static bool hasPacket;
     static bool sentReady;
     static unsigned long lastHeartbeatMs;

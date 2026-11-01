@@ -21,8 +21,10 @@
  *
  *   CH1  forward/back    1000..2000 us = -1..+1 (continuous)
  *   CH2  turn            1000..2000 us = -1..+1 (continuous; +1 = right)
- *   CH3  target hole     1000 + 100*k, k = 0..9 (0 = none, 1..9 = the
- *                        3x3 holes: 1 left-bottom .. 9 right-top)
+ *   CH3  target hole     1000 + 80*k, k = 0..12 (0 = none, 1..9 = the
+ *                        3x3 holes: 1 left-bottom .. 9 right-top,
+ *                        10..12 = the bonus holes left / middle / right,
+ *                        keys Q W E; 2026-10-27, was 100*k for 0..9)
  *   CH4  operator mode + Falcon (2026-10-17):
  *          2000                FULL_MANUAL, flywheel 0
  *          1750                SEMI_AUTO
@@ -44,15 +46,28 @@
  *                        left / right (elevation up/down, turret left/right)
  *   CH8  auto path       1000 + 200*k, k = 0..4: none / 1 / 2 / 3 / 4
  *                        (keys Q W E R = left 1, left 2, right 1, right 2)
- *   CH9  test mode       1500 = off, 2000 = TEST (2026-10-26): the
- *                        operator mode is TEST only while CH9 is high AND
- *                        CH4 carries full manual (with its flywheel), so
- *                        test mode reuses full manual's CH4 Falcon
- *                        encoding. Any other CH4 level wins over CH9 (a
- *                        round-robin channel lags CH4 by tens of ms; a mode
- *                        change never waits for it). A ground still on the
- *                        older image sends 1500 here: never TEST.
- *   CH10                 unused (sent as 1500)
+ *   CH9  test + home     1000 + 200*k (2026-10-31, link version 4; was
+ *                        1500 off / 2000 TEST): k = 2 normal, 1 normal +
+ *                        turret home, 4 TEST, 5 TEST + turret home (0 / 3
+ *                        read as normal). TEST counts only while CH4
+ *                        carries full manual (with its flywheel), so test
+ *                        mode reuses full manual's CH4 Falcon encoding;
+ *                        any other CH4 level wins over CH9 (a round-robin
+ *                        channel lags CH4 by tens of ms). Turret home =
+ *                        RB: the ground holds it 200 ms per press, the
+ *                        robot acts on its rising edge (back to 0 deg).
+ *   CH10 link version    1000 + 200*v (2026-10-27: v = RCMAP_LINK_VERSION,
+ *                        1 -> 1200; ELRS's 6-position AUX sends 1193;
+ *                        2026-10-31: 4 -> 1800 / 1807, versions 2 and 3
+ *                        skipped -- a pre-10-27 ground's 1500 arrives
+ *                        snapped to 1398 or 1602, i.e. their levels). The
+ *                        robot rejects every frame whose CH10 isn't this
+ *                        version's level: a ground on another channel
+ *                        table (an older one sends 1500 here) can then
+ *                        never enable or steer the robot, instead of
+ *                        having its levels read as the wrong hole / mode.
+ *                        Bump the version whenever a channel's meaning or
+ *                        levels change.
  *
  * The level channels decode to the nearest level within a tolerance and a
  * frame with any channel between levels is rejected as corrupt, not
@@ -76,10 +91,16 @@ extern "C" {
 #define RCMAP_CH_NUDGE 6u
 #define RCMAP_CH_AUTO 7u
 #define RCMAP_CH_TEST 8u
+#define RCMAP_CH_VERSION 9u
+/* 1 = table v2 + CH3 80 us steps (bonus holes) + CH9 test (2026-10-27).
+ * 4 = CH9 six levels with the turret-home request (2026-10-31; 2 and 3
+ * would collide with an old ground's 1500 on CH10). 0..5 only (CH10 is a
+ * 6-position AUX channel). */
+#define RCMAP_LINK_VERSION 4u
 #define RCMAP_CHANNEL_COUNT 10u
 
 #define RCMAP_TARGET_NONE 0u
-#define RCMAP_TARGET_MAX 9u
+#define RCMAP_TARGET_MAX 12u /* 10..12 = bonus holes (OperatorTarget.h) */
 
 #define RCMAP_NUDGE_CENTER 0u
 #define RCMAP_NUDGE_UP 1u
@@ -145,6 +166,7 @@ typedef struct {
     bool armed;        /* CH6 high = enable requested */
     uint8_t nudge;     /* RCMAP_NUDGE_* */
     uint8_t auto_path; /* 0 = none, 1..4 */
+    bool turret_home;  /* CH9 (2026-10-31): RB, turret back to 0 deg */
 } rcmap_command;
 
 /* The operator mode a command carries: CH4's level, or TEST when CH4 is
@@ -159,11 +181,13 @@ static inline uint8_t rcmap_command_mode(const rcmap_command *c) {
 void rcmap_encode(const rcmap_command *c, int ch_us[16]);
 
 /* Decodes the first RCMAP_CHANNEL_COUNT entries of ch_us. Returns false
- * (out untouched) if any channel is outside 900..2100 us or a level channel
- * isn't near one of its levels -- the caller should treat that frame as
- * invalid, not guess. Fire and arm are fail-safe: only >= 1750 us counts
- * as pressed / enable requested. */
+ * (out untouched) if any channel is outside 900..2100 us, a level channel
+ * isn't near one of its levels, or CH10 isn't RCMAP_LINK_VERSION -- the
+ * caller should treat that frame as invalid, not guess. Fire and arm are
+ * fail-safe: only >= 1750 us counts as pressed / enable requested. */
 bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out);
+/* CH10 carries this table's version (else the sender is on another one). */
+bool rcmap_link_version_ok(const int *ch_us, uint8_t count);
 
 /* ---- Mega <-> robot bridge text lines (2026-10-27) ------------------- */
 
@@ -234,6 +258,10 @@ typedef enum {
     RCMAP_EVENT_AUTO_PATH_REJECTED,
     RCMAP_EVENT_MODE_TEST,      /* 2026-10-26: a ground older than this drops
                                    such a status as corrupt -- reflash both */
+    RCMAP_EVENT_LINK_VERSION_MISMATCH, /* 2026-10-27: RC frames from a ground
+                                          on another channel table (CH10) */
+    RCMAP_EVENT_TURRET_ZERO_SET,       /* 2026-10-31: home point set (TZERO) */
+    RCMAP_EVENT_TURRET_ZERO_REJECTED,  /* armed, or no healthy AS5600 reading */
     RCMAP_EVENT_COUNT
 } rcmap_event;
 
@@ -290,11 +318,15 @@ bool rcmap_status_from_battery(uint16_t voltage, uint16_t current, uint32_t capa
  * <seq>,<code>" line and Battery frame -- the robot bridge forwards it
  * unchanged (its field ranges: flags <= 255, seq <= 0xFFFFFF, code <=
  * 65535), so the bridge firmware needed no change.
- *   code  bit 15 = 1 (aim frame; a status code is at most 0x3FFF),
- *         bits 0-14 = camera distance in cm (0 = none, max 32767)
+ *   code  bits 15-14 = 10 (aim frame; a status code is at most 0x3FFF),
+ *         bits 0-13 = camera distance in cm (0 = none, max 16383; 15
+ *         bits until 2026-10-27, when bits 15-14 = 11 became the seen
+ *         frame below)
  *   seq   bits 0-11 elevation pulse us, 12-15 vision id sent to the Orin,
- *         16-19 vision id of the frame in hand, 20 valid
- *   flags aim offset px as int8 (+ = right) */
+ *         16-19 vision id of the frame in hand, 20 valid, 21-23 turret
+ *         guard state (2026-10-31, TurretGuard::State 0-7; 0 before)
+ *   flags aim offset as int8 (+ = right), in px until 2026-10-30, in
+ *         4 px units since (the offset reaches 300 px; ground unchanged) */
 #define RCMAP_AIM_FRAME_BIT 0x8000u
 typedef struct {
     uint16_t distance_cm;
@@ -303,13 +335,45 @@ typedef struct {
     uint8_t target_id;
     bool valid;
     int8_t aim_offset_px;
+    uint8_t turret_state; /* 0-7 */
 } rcmap_aim;
 
-static inline bool rcmap_status_is_aim(uint16_t code) { return (code & RCMAP_AIM_FRAME_BIT) != 0u; }
+static inline bool rcmap_status_is_aim(uint16_t code) { return (code & 0xC000u) == RCMAP_AIM_FRAME_BIT; }
 /* Out-of-range values are clamped (distance, pulse) or masked (ids). */
 void rcmap_aim_to_status(const rcmap_aim *a, uint8_t *flags, uint32_t *seq, uint16_t *code);
 /* False if s is not an aim frame. */
 bool rcmap_aim_from_status(const rcmap_status *s, rcmap_aim *out);
+
+/* Seen frames (2026-10-27, Orin protocol v3): which holes the camera
+ * detects, for the Dashboard's board. The Mega's slots go status, aim,
+ * status, vision, seen (each 100 ms).
+ *   code  bits 15-14 = 11, bits 0-11 = the Orin's detected hole ids (bit
+ *         id - 1, ids 1-12), bits 12-13 = vision state: 0 nothing, 1 the
+ *         target in view, 2 a predicted (out-of-view) position
+ *   seq   (2026-10-28; 0 before) bits 0-11 turret AS5600 degrees x 10,
+ *         12-bit two's complement (+-204.7 deg), bits 12-17 its status
+ *         bits (TurretAngle.h), bits 18-23 the depth ring's usable share:
+ *         0 = none, else percent / 2 + 1 (2 % steps)
+ *   flags (2026-10-28) the depth ring's sectors with depth (bit k =
+ *         sector k: 0 right, clockwise on screen)
+ * A ground older than this reads it as an aim frame: reflash both. */
+#define RCMAP_SEEN_FRAME_BITS 0xC000u
+#define RCMAP_VISION_STATE_NONE 0u
+#define RCMAP_VISION_STATE_SEEN 1u
+#define RCMAP_VISION_STATE_PREDICTED 2u
+typedef struct {
+    uint16_t seen_mask;  /* bit id - 1 */
+    uint8_t state;       /* RCMAP_VISION_STATE_* */
+    int16_t turret_deg10;   /* AS5600 turret degrees x 10, +-2047 */
+    uint8_t turret_status;  /* TurretAngle status bits, 6 bits */
+    int8_t ring_percent;    /* 0-100, -1 = none (even percents only) */
+    uint8_t ring_sectors;   /* bit k = sector k has depth */
+} rcmap_seen;
+
+static inline bool rcmap_status_is_seen(uint16_t code) { return (code & 0xC000u) == RCMAP_SEEN_FRAME_BITS; }
+void rcmap_seen_to_status(const rcmap_seen *v, uint8_t *flags, uint32_t *seq, uint16_t *code);
+/* False if s is not a seen frame. */
+bool rcmap_seen_from_status(const rcmap_status *s, rcmap_seen *out);
 
 /* Vision frames (2026-10-17): tx / ty for the wireless Dashboard, in the
  * same ST line / Battery frame. The Mega's 100 ms slots go status, aim,

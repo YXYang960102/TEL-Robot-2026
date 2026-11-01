@@ -9,6 +9,7 @@
 #include "Dribbler/Dribbler.h"
 #include "Chassis/Chassis.h"
 #include "Telemetry/Telemetry.h"
+#include "Sensors/TurretAngle.h"
 #include "Constants/ChassisConstants.h"
 #include "Constants/DribblerConstants.h"
 #include "Constants/ShooterConstants.h"
@@ -62,12 +63,14 @@ void setup() {
     Chassis::init();
     Telemetry::init();
     Auto::init();
+    TurretAngle::init(); // AS5600 on I2C D20/D21: read only for now
 }
 
 void loop() {
 
     MechLink::update();
     Vision::update();
+    TurretAngle::update();
 
     // ManualControl handles both operator sources (wired USB Dashboard and
     // the wireless ELRS channels MechLink just read) and applies its own
@@ -77,7 +80,9 @@ void loop() {
 
     // The operator's hole (keys 1-9 / CH3) -> the Orin's numbering. Before
     // Auto, so a switch drops the old hole's frame in this same loop.
-    Vision::setSelectedTarget(OperatorTarget::visionIdForHole(ManualControl::getTarget()));
+    // Auto's aim target: the operator's hole, or in full auto the row
+    // cycle's current one (2026-10-31; one loop behind Auto, harmless).
+    Vision::setSelectedTarget(OperatorTarget::visionIdForHole(Auto::getAimTarget()));
 
     // Rotate mode arbitration and the auto-fire sequence both live in
     // Auto::update() now (moved out of here 2026-10-06) so "what mode is

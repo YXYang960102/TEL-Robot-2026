@@ -5,8 +5,11 @@
 #include "../Chassis/Chassis.h"
 #include "../Dribbler/Dribbler.h"
 #include "../IO/MechLink.h"
+#include "../Sensors/TurretAngle.h"
+#include "../Auto/Auto.h"
 #include "../IO/ManualControl.h"
 #include "../Shooter/Shooter.h"
+#include "../Vision/OperatorTarget.h"
 #include "../Vision/Vision.h"
 
 unsigned long Telemetry::lastSendMs = 0;
@@ -136,5 +139,69 @@ void Telemetry::update() {
     Serial.print(",");
     // Slot 39 (appended 2026-10-27): lines from the bridge dropped since boot
     // (bad "*HH" check, malformed, oversize). Should stay at or near 0.
-    Serial.println(MechLink::rejectedLines);
+    Serial.print(MechLink::rejectedLines);
+    Serial.print(",");
+    // Slots 40-41 (2026-10-27): why the autos can't fire yet (Auto::
+    // getReadyBits: 1 turret locked, 2 flywheel spun up, 4 a shot for the
+    // hole in this frame, 8 READY, 16 elevation at the table pulse --
+    // 2026-10-31) and the steadied shot distance, cm.
+    Serial.print(Auto::getReadyBits());
+    Serial.print(",");
+    Serial.print(static_cast<long>(Auto::getShotDistanceM() * 100.0 + 0.5));
+    Serial.print(",");
+    // Slots 42-44: the turret AS5600 (read only): raw 0-4095, status bits
+    // (TurretAngle.h), turret degrees x10 from straight ahead.
+    Serial.print(TurretAngle::raw());
+    Serial.print(",");
+    Serial.print(TurretAngle::status());
+    Serial.print(",");
+    Serial.print(static_cast<long>(lround(TurretAngle::angleDegrees() * 10.0)));
+    Serial.print(",");
+    // Slots 45-46 (Orin v3): the detected hole ids (bit id - 1) and the
+    // vision state: 0 nothing, 1 the target in view, 2 predicted position.
+    Serial.print(Vision::getSeenMask());
+    Serial.print(",");
+    Serial.print(Vision::isValid() ? 1 : (Vision::isPredicted() ? 2 : 0));
+    Serial.print(",");
+    // Slots 47-48 (2026-10-28): the target's depth sampling ring -- usable
+    // share 0-100 (-1 none) and its 8 sectors with depth (bit k = sector
+    // k, 0 right, clockwise on screen).
+    Serial.print(Vision::getRingPercent());
+    Serial.print(",");
+    Serial.print(Vision::getRingSectors());
+    Serial.print(",");
+    // Slot 49 (2026-10-31): the turret guard's state (TurretGuard::State:
+    // 0 angle unknown, 1 sensor, 2 direction fault -- all three locked --,
+    // 3 returning to 0, 4 ready, 5 / 6 at the right / left limit, 7 guard
+    // switched off).
+    Serial.print(Shooter::getTurretState());
+    Serial.print(",");
+    // Slots 50-51 (2026-10-31): AS5600 magnet strength for setting the
+    // magnet gap -- AGC (0-255 / 0-128, higher = weaker) and MAGNITUDE
+    // (0-4095, higher = stronger); -1 = not read.
+    Serial.print(TurretAngle::agc());
+    Serial.print(",");
+    Serial.print(TurretAngle::magnitude());
+    Serial.print(",");
+    // Slot 52 (2026-10-31): 1 = RB holds the turret at 0 deg in the autos /
+    // test (no camera follow until a hole, a mode change or the hand turn).
+    Serial.print(ManualControl::isTurretHeldHome() ? 1 : 0);
+    Serial.print(",");
+    // Slots 53-55 (2026-10-31): the hole Auto aims at (Dashboard numbering;
+    // the row cycle's in full auto), balls at it in this cycle, row done.
+    Serial.print(Auto::getAimTarget());
+    Serial.print(",");
+    Serial.print(Auto::getRowShots());
+    Serial.print(",");
+    Serial.print(Auto::isRowDone() ? 1 : 0);
+    Serial.print(",");
+    // Slots 56-57 (2026-10-31): the lit bonus hole the Orin sees (Dashboard
+    // 10-12, 0 none) and the one full auto is serving first (0 none).
+    Serial.print(OperatorTarget::holeForVisionId(Vision::getLitBonusId()));
+    Serial.print(",");
+    Serial.print(Auto::getLitPriorityHole());
+    Serial.print(",");
+    // Slot 58 (2026-11-01): turret searching for a chosen hole out of
+    // view: -1 left, +1 right, 0 no.
+    Serial.println(Shooter::getSearchDirection());
 }

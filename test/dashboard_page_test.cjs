@@ -166,9 +166,16 @@ async function emergencyStopViaEnter() {
     await windowHandlers.keydown(key(k, { repeat: true }));
   }
   assert.deepEqual([...writes], ['TGT,1', 'TGT,5', 'TGT,9', 'TGT,0']);   // 0 = back to the AI's pick
-  // M, the arrows and the old letter keys are gone from the keyboard.
+  // Q W E: the bonus holes 10 / 11 / 12 (2026-10-27); repeats send nothing.
   writes.length = 0;
-  for (const k of ['m', 'ArrowUp', 'ArrowLeft', 'q', 'w', 'e', 'r', 's', 'a', 'd', 'f', 'l']) {
+  for (const k of ['q', 'w', 'e']) {
+    await windowHandlers.keydown(key(k));
+    await windowHandlers.keydown(key(k, { repeat: true }));
+  }
+  assert.deepEqual([...writes], ['TGT,10', 'TGT,11', 'TGT,12']);
+  // M, the arrows and the other old letter keys are gone from the keyboard.
+  writes.length = 0;
+  for (const k of ['m', 'ArrowUp', 'ArrowLeft', 'r', 's', 'a', 'd', 'f', 'l']) {
     await windowHandlers.keydown(key(k));
   }
   assert.equal(writes.length, 0);
@@ -492,7 +499,7 @@ async function emergencyStopViaEnter() {
   assert.equal(elements.distance.textContent, '3.52 m');
   assert.match(elements.distanceRaw.textContent, /^3520 mm/);
   assert.equal(elements.anglePulse.textContent, '1620 us');
-  assert.equal(elements.aimState.textContent, '視覺 #10 已看到 ✓ 3.52 m · 微調 水平 -15 px');
+  assert.equal(elements.aimState.textContent, '視覺 #10 已看到 ✓ 3.52 m · 微調 水平 -60 px');  // 4 px units since 2026-10-30
   line('$AIM,1,0,1620,10,0,0,0');
   assert.equal(elements.distance.textContent, '--');
   assert.equal(elements.aimState.textContent, '視覺 #10 看不到 · 微調 水平 0 px');
@@ -520,11 +527,11 @@ async function emergencyStopViaEnter() {
     assert.doesNotMatch(html, new RegExp(`id="${gone}"`), gone);
   }
 
-  // RB (turret home) only explains that the AS5600 isn't there yet.
+  // RB (turret back to 0 deg, 2026-10-31): THOME, also to the ground
+  // station (CH9).
   writes.length = 0;
   await press(XB.RB);
-  assert.equal(writes.length, 0);
-  assert.match(run('log.textContent'), /AS5600 尚未安裝/);
+  assert.deepEqual(writes, ['THOME']);
 
   // Stale status: warn only, keep driving (the robot's own RC-loss
   // failsafe is what stops it).
@@ -768,13 +775,15 @@ async function emergencyStopViaEnter() {
   assert.equal(writes.length, 0);
   pads = [xbox()];
   await poll();
-  // Right stick X = turn: right = T,1,-1 (left wheel forward; flipped after the 2026-10-17 robot test); deadzone-rescaled analog.
+  // Right stick X = turn: right = left wheel forward (flipped after the
+  // 2026-10-17 robot test); deadzone-rescaled analog, then x TURN_SPEED_SCALE
+  // 0.6 (2026-10-27: turning slower, forward / back untouched).
   pads = [xbox([0, 0, 1, 0])];
   await poll();
-  assert.equal(last(), 'T,1,-1');
+  assert.equal(last(), 'T,0.6,-0.6');
   pads = [xbox([0, 0, 0.575, 0])];            // half way past the deadzone
   await poll();
-  assert.equal(last(), 'T,0.5,-0.5');
+  assert.equal(last(), 'T,0.3,-0.3');
   pads = [xbox([0, -1, 0, 0])];               // left stick up = forward
   await poll();
   assert.equal(last(), 'T,1,1');
@@ -806,7 +815,7 @@ async function emergencyStopViaEnter() {
   // Unplugged while driving and jogging: everything drops to zero.
   pads = [xbox([0, 0, -1, 0], [XB.LEFT])];
   await poll();
-  assert.ok(writes.includes('T,-1,1') && writes.includes('ROT,-1'));
+  assert.ok(writes.includes('T,-0.6,0.6') && writes.includes('ROT,-1'));
   pads = [];
   await poll();
   assert.ok(writes.slice(-2).includes('T,0,0') && writes.slice(-2).includes('ROT,0'));
@@ -839,7 +848,7 @@ async function emergencyStopViaEnter() {
   pads = [pad11([])]; await poll();
   assert.equal(run('matchStarted'), true);
   pads = [pad11([undefined, undefined, 1])]; await poll(); // right stick right
-  assert.equal(last(), 'T,1,-1');
+  assert.equal(last(), 'T,0.6,-0.6');
   pads = [pad11([0, -1, 0])]; await poll();             // left stick up
   assert.equal(last(), 'T,1,1');
   pads = [pad11([])]; await poll();
@@ -916,6 +925,9 @@ async function emergencyStopViaEnter() {
   assert.equal(run('holeForVisionId(8)'), 5);
   assert.equal(run('holeForVisionId(6)'), 9);
   assert.equal(run('holeForVisionId(0)'), 0);
+  assert.equal(run('holeForVisionId(1)'), 10);          // bonus left / middle / right
+  assert.equal(run('holeForVisionId(3)'), 12);
+  assert.equal(run('holeForVisionId(13)'), 0);
 
   // Wired TEL with every slot: hole 5 = vision id 8, Falcon 1730 us = 46%.
   const telShot = ({ distance = 2500, targetId = 8, valid = 1, selected = 8, falcon = 1730, angle = 2063, mode = 3 } = {}) =>
@@ -969,7 +981,7 @@ async function emergencyStopViaEnter() {
   clock.t += 100; line(telShot({ falcon: 1800, selected: 0, targetId: 8, distance: 3000 }));
   await windowHandlers.keydown(key('s'));
   assert.equal(shots(), 1);
-  assert.match(elements.log.textContent, /先按 1–9 選洞口/);
+  assert.match(elements.log.textContent, /先按 1–9 或 Q W E 選洞口/);
   // Still moving (2.5 m -> 3 m inside the window): refused.
   for (const mm of [2500, 2600, 2700, 2800, 2900]) { clock.t += 100; line(telShot({ falcon: 1800, distance: mm })); }
   await windowHandlers.keydown(key('s'));
@@ -1019,6 +1031,35 @@ async function emergencyStopViaEnter() {
   assert.equal(shots(), 1);
   await windowHandlers.keydown(key('Enter'));
 
+  // Target board: the hole in the camera's valid frame is marked "seen",
+  // its readouts mirror the Manual Control ones; a bonus hole records as
+  // hole 10-12.
+  clock.t += 3000;
+  await arm();
+  await start();
+  run('setOperatorMode(3)');
+  elements.flywheelSlider.value = '55';
+  await elements.flywheelSlider.handlers.input();
+  for (const mm of [3500, 3510, 3505]) {
+    clock.t += 100; line(telShot({ distance: mm, targetId: 2, selected: 2, falcon: 1775, angle: 2300 }));
+  }
+  assert.equal(run('seenHole'), 11);
+  assert.equal(elements.boardElevation.textContent, '2300 us');
+  assert.equal(elements.boardFlywheel.textContent, '1775 us (55.0%)');
+  assert.equal(elements.boardFlywheelCmd.textContent, '指令 55%');
+  assert.equal(elements.boardDistance.textContent, '3.50 m');      // the latest frame (3505 mm)
+  run('shotRecords = []');
+  await windowHandlers.keydown(key('s'));
+  assert.equal(run('shotRecords[0].hole'), 11);
+  clock.t += 100; line(telShot({ valid: 0, targetId: 0, selected: 2, falcon: 1775 }));
+  assert.equal(run('seenHole'), 0);
+  // Over the radio the same, from $AIM.
+  line('$AIM,1,280,2100,10,10,1,0');
+  assert.equal(run('seenHole'), 1);
+  line('$AIM,0,0,0,0,0,0,0');
+  assert.equal(run('seenHole'), 0);
+  run('shotRecords = []');
+
   // TEL slot 39 (2026-10-27): Mega <-> bridge lines dropped since boot.
   // (Each TEL line is also echoed into the log, hence the counts.)
   const telDrop = (n) => telShot({ falcon: 1490 }) + `,${n}`;
@@ -1036,6 +1077,137 @@ async function emergencyStopViaEnter() {
   assert.match(elements.log.textContent, /UART_DROP \+5（共 12 行/);
   assert.match(elements.rfLinkState.textContent, /丟棄 12 行/);
   await windowHandlers.keydown(key('Enter'));
+
+  // TEL slots 40-44 (2026-10-27): fire conditions and the turret AS5600.
+  const telFull = (ready, shotCm, raw, status, deg10, mode = 1) =>
+    telShot({ mode }) + `,0,${ready},${shotCm},${raw},${status},${deg10}`;
+  run('setOperatorMode(1)');
+  clock.t += 100; line(telFull(5, 305, 1234, 3, -125));
+  assert.match(elements.boardReady.textContent, /轉台鎖定 ✓ · 飛輪轉穩 ✗ · 有射擊值 ✓ · 仰角到位 ✗ · 等待中 · 射擊距離（穩定後）3\.05 m/);
+  clock.t += 100; line(telFull(5 | 16, 305, 1234, 3, -125));     // bit 16: elevation there (2026-10-31)
+  assert.match(elements.boardReady.textContent, /有射擊值 ✓ · 仰角到位 ✓ · 等待中/);
+  assert.equal(elements.boardTurret.textContent, '-12.5°');
+  assert.equal(elements.boardTurretRaw.textContent, 'raw 1234 · OK');
+  clock.t += 100; line(telFull(15, 305, 1234, 0x01, 0));
+  assert.match(elements.boardReady.textContent, /可發射/);
+  assert.match(elements.boardTurretRaw.textContent, /沒偵測到磁鐵/);
+  assert.equal(elements.boardTurret.textContent, '--');            // no magnet: no angle
+  clock.t += 100; line(telFull(0, 0, 0, 0x20, 0));
+  assert.equal(elements.boardTurret.textContent, '--');
+  assert.match(elements.boardTurretRaw.textContent, /沒讀到感測器/);
+  clock.t += 100; line(telFull(0, 0, 4000, 0x13, 853, 2));
+  assert.match(elements.boardReady.textContent, /只在半自動／全自動/);
+  assert.match(elements.boardTurretRaw.textContent, /圈數不可信/);
+  assert.equal(elements.boardTurret.textContent, '--');            // turns lost: no angle
+  // AS5600 magnet strength (TEL 50-51): AGC, MAGNITUDE and their 10 s span.
+  const telMagnet = (status, agc, mag) =>
+    telFull(0, 0, 159, status, 0) + `,0,0,-1,0,4,${agc},${mag}`;
+  clock.t += 100; line(telMagnet(0x07, 255, 900));
+  assert.equal(elements.boardTurretMagnet.textContent,
+    '磁場 AGC 255（10 秒內 255–255，越大越弱）· 強度 900（900–900）· 太弱：磁鐵再靠近');
+  clock.t += 100; line(telMagnet(0x03, 140, 1800));
+  assert.equal(elements.boardTurretMagnet.textContent,
+    '磁場 AGC 140（10 秒內 140–255，越大越弱）· 強度 1800（900–1800）');
+  clock.t += 11000; line(telMagnet(0x03, 150, 1700));             // older samples drop out
+  assert.match(elements.boardTurretMagnet.textContent, /10 秒內 150–150/);
+  clock.t += 100; line(telMagnet(0x03, -1, -1));
+  assert.equal(elements.boardTurretMagnet.textContent, '磁場：讀不到 AGC');
+  // Full auto row cycle (TEL 53-55, 2026-10-31): the robot's aim hole, balls
+  // at it, row done.
+  const telRow = (aim, shotsAtHole, done) =>
+    telFull(0, 0, 159, 3, 0, 0) + `,0,0,-1,0,4,128,1000,0,${aim},${shotsAtHole},${done}`;
+  clock.t += 100; line(telRow(7, 2, 0));
+  assert.equal(run('aimHole'), 7);
+  assert.match(elements.targetHole.textContent, /→ 正在打 7 · 右下 · 這洞已打 2\/3$/);
+  clock.t += 100; line(telRow(1, 3, 1));
+  assert.match(elements.targetHole.textContent, /正在打 1 · 左下 · 這洞已打 3\/3 · 全部打完/);
+  // A lit bonus hole served first (TEL 56-57).
+  clock.t += 100; line(telRow(11, 1, 0) + ',11,11');
+  assert.equal(run('litHoleShown'), 11);
+  assert.match(elements.targetHole.textContent, /正在打 11 · 加分中 · 這洞已打 1\/3 · 加分框亮了：優先打/);
+  // Turret search (TEL 58, 2026-11-01).
+  clock.t += 100; line(telRow(7, 0, 0) + ',0,0,-1');
+  assert.equal(elements.targetBoardState.textContent, '選的洞不在畫面上：轉台往左找洞中');
+  clock.t += 100; line(telRow(0, 0, 0));                         // AI pick, nothing pinned
+  assert.equal(run('aimHole'), 0);
+  assert.doesNotMatch(elements.targetHole.textContent, /正在打|全部打完|加分框亮了/);
+  // "Too weak" with the magnet seen: a warning, the angle still shows (2026-10-31).
+  clock.t += 100; line(telFull(0, 0, 159, 0x07, 0));
+  assert.equal(elements.boardTurret.textContent, '0.0°');
+  assert.equal(elements.boardTurretRaw.textContent, 'raw 159 · 磁鐵太遠（讀值可用，只警告）');
+  clock.t += 100; line(telFull(0, 0, 159, 0x05, 0));            // too weak, no magnet seen
+  assert.equal(elements.boardTurretRaw.textContent, 'raw -- · 沒偵測到磁鐵');  // no raw either
+  assert.equal(elements.boardTurret.textContent, '--');            // no magnet: no angle
+  // A ground on another channel table: the event, plus what to do.
+  event('LINK_VERSION_MISMATCH');
+  assert.match(elements.log.textContent, /通道表版本不一致/);
+  // Board colors: several detected holes (v3 mask), selected wins blue.
+  run('seenMaskHoles = (1 << 4) | (1 << 5) | (1 << 11); renderSeen()');
+  run('targetHole = 5; renderTargetAndAuto()');
+  assert.equal(run('seenMaskHoles'), (1 << 4) | (1 << 5) | (1 << 11));
+
+  // Orin v3 detected holes: $SEEN (radio) and TEL slots 45-46 (USB).
+  line('$SEEN,1,' + ((1 << 3) | (1 << 4) | (1 << 1)) + ',1');   // Orin ids 4, 5, 2
+  assert.equal(run('seenMaskHoles'), (1 << 3) | (1 << 6) | (1 << 11)); // holes 3, 6, 11
+  line('$SEEN,1,0,2');
+  assert.match(elements.targetBoardState.textContent, /推算位置/);
+  line('$SEEN,0,4095,1');                                         // stale: nothing lit
+  assert.equal(run('seenMaskHoles'), 0);
+  clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',' + (1 << 7) + ',1');  // Orin id 8 = hole 5
+  assert.equal(run('seenMaskHoles'), 1 << 5);
+  // 2026-10-28: the depth ring (TEL 47-48) ...
+  clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',' + (1 << 7) + ',1,62,' + 0b11100011);
+  assert.deepEqual({ ...run('ringShown') }, { percent: 62, sectors: 0b11100011 });
+  assert.equal(elements.ringValue.textContent, '有效 62%');
+  assert.equal(elements.ringDetail.textContent, '下、左下、左側沒有深度');
+  clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',0,0,-1,0');
+  assert.equal(elements.ringValue.textContent, '--');
+  // ... and over the radio, with the turret angle (no raw value there).
+  line('$SEEN,1,16,1,-503,3,12,1');
+  assert.equal(elements.boardTurret.textContent, '-50.3°');
+  assert.equal(elements.boardTurretRaw.textContent, '無線 · OK');
+  assert.match(elements.ringDetail.textContent, /右下、下、左下、左、左上、上、右上側沒有深度 · 低於 20%/);
+  line('$SEEN,1,16,1,0,32,100,255');
+  assert.match(elements.boardTurretRaw.textContent, /無線 · 沒讀到感測器/);
+  assert.equal(elements.ringDetail.textContent, '整圈都有深度');
+  line('$SEEN,0,0,0,0,0,-1,0');
+  assert.equal(elements.boardTurret.textContent, '--');
+  assert.equal(elements.boardTurretRaw.textContent, '無線：沒有回傳');
+  assert.equal(elements.ringValue.textContent, '--');
+  line('$SEEN,1,16,1');                                           // older ground: board only
+  assert.equal(elements.boardTurretRaw.textContent, '無線：沒有回傳');
+  // 2026-10-31: the turret guard -- TEL 49 and the 9th $AIM field.
+  clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',0,0,-1,0,5');
+  assert.equal(elements.boardTurretGuard.textContent, '到右限位 +38.5°（只能往左）');
+  clock.t += 100; line(telFull(0, 0, 159, 0x83, 0) + ',0,0,-1,0,0');   // booted outside the window
+  assert.match(elements.boardTurretGuard.textContent, /^開機時不在歸位點 ±25° 內/);
+  clock.t += 100; line(telFull(0, 0, 159, 0x03, 0) + ',0,0,-1,0,0');   // no home point saved
+  assert.match(elements.boardTurretGuard.textContent, /^沒有歸位點/);
+  line('$SEEN,1,16,1,0,3,-1,0');                                     // radio: no 0x80 bit
+  line('$AIM,1,352,1620,10,10,1,-15,0');
+  assert.match(elements.boardTurretGuard.textContent, /^位置未知：轉台鎖住/);
+  line('$AIM,0,0,0,0,0,0,0,0');
+  assert.equal(elements.boardTurretGuard.textContent, '--');
+  // 「設為歸位點」: only on the Mega's USB and disabled.
+  writes.length = 0;
+  await run('setTurretZero()');                                     // the ground is the link now
+  assert.equal(writes.length, 0);
+  assert.match(run('log.textContent'), /只能用 USB 有線連 Mega/);
+  clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',0,0,-1,0,4');     // the Mega's USB again
+  assert.equal(elements.boardTurretGuard.textContent, '正常 · 限位 −166°～+38.5°');
+  clock.t += 100; line(telFull(0, 0, 0, 3, 0) + ',0,0,-1,0,7');     // guard switched off
+  assert.match(elements.boardTurretGuard.textContent, /^轉台保護關閉/);
+  run('controlArmed = true');
+  await run('setTurretZero()');
+  assert.equal(writes.length, 0);
+  assert.match(run('log.textContent'), /要先 Disable/);
+  run('controlArmed = false');
+  await run('setTurretZero()');
+  assert.equal(last(), 'TZERO');
+  event('TURRET_ZERO_SET');
+  assert.match(run('log.textContent'), /已設定歸位點/);
+  event('TURRET_ZERO_REJECTED');
+  assert.match(run('log.textContent'), /設定歸位點被拒絕/);
 
   console.log('dashboard page control behavior tests passed');
 })().catch((e) => { console.error(e); process.exitCode = 1; });

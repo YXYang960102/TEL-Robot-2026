@@ -7,7 +7,7 @@
 
 // Ground-station side of wireless control: turns the PC Dashboard's line
 // protocol (the same one the Mega speaks over USB: E, X, K, T,<l>,<r>,
-// ROT,<d>, ANG,<d>, TGT,<0..9>, AUTO,<1..4>, MODE,<0..3>, FLY,<0..1>, F, M;
+// ROT,<d>, ANG,<d>, TGT,<0..12>, AUTO,<1..4>, MODE,<0..3>, FLY,<0..1>, F, M;
 // ANGT is accepted but has no radio channel) into the RC channel state
 // (rcmap_command, table v2) that goes out over ELRS, and turns the robot's
 // status coming back (rcmap_status in Battery frames) into lines for the PC.
@@ -24,6 +24,8 @@
 //   FLYO,<n>    -> the autos' flywheel offset -20..20 %, on CH4 with the
 //                  auto level (same resets; dropped in full manual)
 //   AUTO,<n>    -> auto path (CH8) for AUTO_PULSE_MS, then none
+//   THOME       -> turret back to 0 deg (RB, 2026-10-31): CH9's home
+//                  level for HOME_PULSE_MS, then off
 //
 // No Arduino here, so it runs unchanged in the host test.
 using GroundEmitFn = void (*)(void* ctx, const char* line);
@@ -52,6 +54,7 @@ public:
     // sure it is seen (CH5 is in every packet; CH8 is round-robin).
     static constexpr uint32_t FIRE_PULSE_MS = 100;
     static constexpr uint32_t AUTO_PULSE_MS = 200;
+    static constexpr uint32_t HOME_PULSE_MS = 200;
 
     void reset(uint32_t nowMs);
     void rxByte(char c, uint32_t nowMs, GroundEmitFn emit, void* ctx);
@@ -85,6 +88,7 @@ private:
     int8_t angle = 0;
     uint32_t fireStartMs = 0;
     uint32_t autoStartMs = 0;
+    uint32_t homeStartMs = 0;
     char line[MAX_LINE_LENGTH]{};
     size_t length = 0;
     bool discarding = false;
@@ -115,11 +119,19 @@ public:
     // none, 1 wired, 2 wireless, and mode is 0 full auto, 1 semi auto,
     // 2 full manual, 3 test, -1 not reported.
     // Then "$AIM,<fresh>,<distanceCm>,<elevationPulseUs>,<selectedId>,
-    // <targetId>,<valid>,<aimOffsetPx>" from the latest aim frame (fresh 0
-    // and zeros when none came within STALE_MS).
+    // <targetId>,<valid>,<aimOffset>,<turretState>" from the latest aim
+    // frame (fresh 0 and zeros when none came within STALE_MS). aimOffset
+    // in 4 px units (2026-10-30); turretState = TurretGuard::State
+    // (2026-10-31).
     // Then "$VISION,<fresh>,<flywheelUs>,<tx*2>,<ty*2>,<valid>,<targetId>"
     // from the latest vision frame (tx / ty in half pixels; the Falcon's
     // actual PWM pulse), same rule.
+    // Then "$SEEN,<fresh>,<mask>,<state>" from the latest seen frame (Orin
+    // v3, 2026-10-27): detected hole ids as bit id - 1, and 0 nothing / 1
+    // target in view / 2 predicted position; same rule. 2026-10-28: then
+    // ",<turretDeg*10>,<as5600Status>,<ringPct>,<ringSectors>" -- the
+    // turret AS5600 angle and status bits, the depth ring's usable share
+    // (-1 = none) and its sectors with depth (bit k, 0 right, clockwise).
     void tick(uint32_t nowMs, GroundEmitFn emit, void* ctx);
 
     bool fresh(uint32_t nowMs) const;
@@ -140,5 +152,8 @@ private:
     rcmap_vision lastVision{};
     bool haveVision = false;
     uint32_t lastVisionMs = 0;
+    rcmap_seen lastSeen{};
+    bool haveSeen = false;
+    uint32_t lastSeenMs = 0;
     uint32_t lastReportMs = 0;
 };
