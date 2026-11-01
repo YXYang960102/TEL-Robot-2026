@@ -116,6 +116,15 @@ constexpr double VISION_FRAME_kD = 0.0005;
 constexpr double VISION_STALL_COMMAND = 0.17;
 constexpr double VISION_STALL_RATE_PX_PER_S = 30.0;
 constexpr uint32_t VISION_STALL_DELAY_MS = 200;
+// Pulsed push + integral hold (2026-11-01, Jeremy: with the continuous
+// push the turret swung 2-4 times across center, and a turret kept locked
+// sometimes started swinging). The push lasts VISION_STALL_PULSE_MS, then
+// the PI alone and VISION_STALL_DELAY_MS still before the next pulse, so
+// each pulse is a small step instead of a run past center. Inside the 5 px
+// lock the I term stops growing. PROVISIONAL: a pulse moves nothing ->
+// 100-120 ms; each pulse still jumps past center -> 50-60 ms.
+constexpr uint32_t VISION_STALL_PULSE_MS = 80;
+constexpr bool VISION_HOLD_I_IN_TOLERANCE = true;
 // Turret search (2026-11-01, Jeremy: after choosing 7 then 1 the turret
 // sometimes didn't move -- 1 out of view and not predicted, so nothing to
 // follow). With a hole chosen that is neither seen nor predicted, the

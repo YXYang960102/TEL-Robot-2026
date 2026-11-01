@@ -176,45 +176,69 @@ int main() {
     }
 
     // Stall push (2026-11-01): outside the 5 px tolerance and still for
-    // 200 ms -> at least 0.17 toward the target; never inside the tolerance;
-    // off without frame numbers or with stallCommand 0.
+    // 200 ms -> 0.17 toward the target for an 80 ms pulse, then PI alone and
+    // another 200 ms still before the next; never inside the tolerance,
+    // where the I term is held; off without frame numbers or with 0.
     {
         const VisionFollowConfig withPush(
             PidfConfig(VISION_kP, VISION_kI, VISION_kD, VISION_kIZONE_PX, VISION_kFF),
             VISION_MAX_COMMAND, VISION_MAX_INTEGRAL_COMMAND, VISION_READY_TOLERANCE_PX,
             100, 100, VISION_FRAME_kD,
-            VISION_STALL_COMMAND, VISION_STALL_RATE_PX_PER_S, VISION_STALL_DELAY_MS);
+            VISION_STALL_COMMAND, VISION_STALL_RATE_PX_PER_S, VISION_STALL_DELAY_MS,
+            VISION_STALL_PULSE_MS, VISION_HOLD_I_IN_TOLERANCE);
+        assert(VISION_STALL_DELAY_MS == 200 && VISION_STALL_PULSE_MS == 80);
         VisionFollowController c(withPush);
         unsigned long frame = 1;
         double cmd = c.update(6.0, true, 1, 0, frame);           // prime
-        unsigned long t = 0;
-        // Still at 6 px (a new frame every 60 ms, same tx): PI alone
-        // (~-0.06..-0.07) until 200 ms, then -0.17.
-        for (t = 10; t < 200; t += 10) {
+        // Still at 6 px (a new frame every 60 ms, same tx). Still from 10 ms:
+        // no push to 200, pulse 210-280, PI alone 290-480, next pulse 490.
+        for (unsigned long t = 10; t <= 490; t += 10) {
             if (t % 60 == 0) ++frame;
             cmd = c.update(6.0, true, 1, t, frame);
-            assert(!c.isStallPushing() && cmd > -0.10 && cmd < 0.0);
+            const bool pulse = (t >= 210 && t <= 280) || t == 490;
+            assert(c.isStallPushing() == pulse);
+            if (pulse) assert(near(cmd, -VISION_STALL_COMMAND));
+            else assert(cmd > -0.10 && cmd < 0.0);
         }
-        for (; t <= 260; t += 10) {
+        // In tolerance (4 px): no push, and the I term is held -- 5 s at
+        // 4 px and P + I stays where it came in, under the turret's 0.16.
+        unsigned long t = 500;
+        ++frame; cmd = c.update(4.0, true, 1, t, frame);
+        const double heldI = c.getIntegralTerm();
+        for (int i = 0; i < 500; ++i) {
+            t += 10;
             if (t % 60 == 0) ++frame;
-            cmd = c.update(6.0, true, 1, t, frame);
+            cmd = c.update(4.0, true, 1, t, frame);
+            assert(!c.isStallPushing() && fabs(cmd) < 0.16);
         }
-        assert(c.isStallPushing() && near(cmd, -VISION_STALL_COMMAND));
-        // Target on the other side: pushes the other way (after its own 200 ms).
-        // In tolerance (4 px): no push, PI alone, under the turret's 0.16.
-        ++frame; t += 60;
-        cmd = c.update(4.0, true, 1, t, frame);
-        assert(!c.isStallPushing() && fabs(cmd) < 0.16);
-        // Moving (a frame 12 px apart -> rate well over 30 px/s): no push.
-        ++frame; t += 60; c.update(-8.0, true, 1, t, frame);
-        ++frame; t += 60; c.update(-8.0, true, 1, t, frame);
+        assert(near(c.getIntegralTerm(), heldI));
+        // Out of the tolerance again: I grows again.
+        t += 10; ++frame; c.update(7.0, true, 1, t, frame);
+        t += 10; c.update(7.0, true, 1, t, frame);
+        assert(c.getIntegralTerm() < heldI);
+        // Moving (a frame 15 px apart -> rate well over 30 px/s): no push.
+        t += 60; ++frame; c.update(-8.0, true, 1, t, frame);
         assert(!c.isStallPushing());
-        // The rate decays (-100, -50, -25, -12 px/s), then 200 ms still -> push.
-        for (int i = 0; i < 8; ++i) { ++frame; t += 60; cmd = c.update(-8.0, true, 1, t, frame); }
-        assert(c.isStallPushing() && near(cmd, VISION_STALL_COMMAND));  // toward +
-        // Once P + I pass 0.17 by themselves (~1.5 s more), no push is needed.
-        for (int i = 0; i < 30; ++i) { ++frame; t += 60; cmd = c.update(-8.0, true, 1, t, frame); }
-        assert(!c.isStallPushing() && cmd > VISION_STALL_COMMAND);
+        // The rate decays, then 200 ms still -> a pulse toward + (some frame).
+        bool pushedPlus = false;
+        for (int i = 0; i < 80; ++i) {
+            t += 10;
+            if (i % 6 == 0) ++frame;
+            cmd = c.update(-8.0, true, 1, t, frame);
+            if (c.isStallPushing()) { pushedPlus = true; assert(near(cmd, VISION_STALL_COMMAND)); }
+        }
+        assert(pushedPlus);
+
+        // Pulse 0 = the continuous push: still pushing long after the delay.
+        const VisionFollowConfig continuous(
+            PidfConfig(VISION_kP, VISION_kI, VISION_kD, VISION_kIZONE_PX, VISION_kFF),
+            VISION_MAX_COMMAND, VISION_MAX_INTEGRAL_COMMAND, VISION_READY_TOLERANCE_PX,
+            100, 100, VISION_FRAME_kD,
+            VISION_STALL_COMMAND, VISION_STALL_RATE_PX_PER_S, VISION_STALL_DELAY_MS, 0);
+        VisionFollowController cont(continuous);
+        cont.update(6.0, true, 1, 0, 1);
+        for (unsigned long u = 10; u <= 600; u += 10) cont.update(6.0, true, 1, u, 1 + u / 60);
+        assert(cont.isStallPushing());
 
         // No frame numbers: no rate, no push.
         VisionFollowController plain(withPush);

@@ -6797,3 +6797,61 @@ when the turret has actually stopped outside the 5 px tolerance.
 - 轉台鎖定 should come within ~1 s, with no swing.
 - Still parks outside the lock → `VISION_STALL_COMMAND` 0.18–0.20.
 - Steps past center → 0.16 or `VISION_STALL_DELAY_MS` 300.
+
+## 2026-11-01 — Claude Code: turret stall push pulsed, I held inside the lock
+
+**User Request:** after the Orin went to 19 fps (and the Mega got the stall
+push, 5fa731c), the turret swings across center 2–4 times before it
+stops. It can also start swinging when a hole is kept selected. Jeremy
+chose both fixes.
+
+**Discussion Result:**
+1. The continuous push (0.17 until a frame shows ≤ 5 px) ended about
+   70–100 ms after the turret reached the tolerance (camera, Orin ~52 ms,
+   link, loop). By then the turret, now on lower kinetic friction, had
+   coasted out the other side. It then waited 200 ms and pushed back:
+   a limit cycle.
+2. Inside the lock, I kept growing (4 px → 0.04 /s). After ~3 s,
+   P 0.04 + I 0.12 reached the ~0.16 the turret needs, so it lurched
+   out and the push took over.
+
+The higher fps doesn't change P / I per second and is not the cause.
+
+**Changed / Added:**
+- The stall push is a pulse: `VISION_STALL_PULSE_MS` 80. It then goes back
+  to PI alone, and another `VISION_STALL_DELAY_MS` (200) still is needed
+  before the next pulse. It also ends at once when the turret moves
+  (rate ≥ 30 px/s) or enters the tolerance. 0 = the old continuous push.
+- `PidfController::setIntegralHold(bool)`: when held, the accumulator and
+  term keep their values; they are still cleared outside kIZone. Default
+  false, so the bench and the PidfController tests are unchanged.
+- `VisionFollowController` holds I while `|tx| ≤ readyTolerancePx` when
+  `VISION_HOLD_I_IN_TOLERANCE` (true).
+- Config: two new defaulted params (`stallPulse`, `holdIntegralInTolerance`)
+  passed via `ShooterConstants::Rotate::VISION_FOLLOW`.
+
+**Calculation:** stuck at 6 px:
+- 200 ms still → −0.17 for 80 ms (a small step) → PI alone.
+- If still outside after 200 ms → another pulse.
+- Once in ≤ 5 px: P (≤ 0.05) + the held I (small, since each 200 + 80 ms
+  cycle adds only ~0.017) stays under 0.16, so it holds.
+- After 250 ms in tolerance it is ready.
+
+**Evidence:**
+- vision_follow_controller PASS. The rewritten stall block covers:
+  - the exact pulse timing (210–280 push, 290–480 PI, 490 next);
+  - 5 s at 4 px with no push and I unchanged;
+  - I grows again at 7 px;
+  - no push while moving, then a + pulse;
+  - pulse 0 = continuous;
+  - no frames → none;
+  - production without a push → none.
+- pidf_controller, vision_rotate_bench_state and manual_control PASS.
+- pio 9/9 SUCCESS, production RAM 50.3 %, flash 18.5 %.
+- No hardware.
+
+**Next Test:** semi-auto at 4–5 m, select a hole and keep it selected for
+10+ s.
+- Expected: no swing across center, and lock within ~1 s.
+- A pulse doesn't move it → `VISION_STALL_PULSE_MS` 100–120.
+- Each pulse jumps past center → 50–60 ms.

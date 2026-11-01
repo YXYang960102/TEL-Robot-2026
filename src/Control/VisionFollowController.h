@@ -37,6 +37,17 @@
 // raised to stallCommand. Never inside the tolerance, so it can't push the
 // turret through center once locked. Needs frame numbers; off with
 // stallCommand 0.
+// Pulsed (2026-11-01, Jeremy: with a continuous push the turret swung 2-4
+// times across center): the push lasts stallPulseMs, then the PI alone
+// again and another stallDelayMs still before the next one. A continuous
+// push only ended when a frame showed the turret inside the tolerance,
+// ~70-100 ms after it got there (camera + Orin + link), by when it had
+// coasted out the other side. 0 = continuous.
+//
+// Integral hold (same day: kept selected, a locked turret started to
+// swing): inside the ready tolerance the I term keeps its value instead of
+// growing. At 4 px it grew 0.04 /s and after ~3 s P + I reached the ~0.16
+// the turret needs, so it lurched out of the lock.
 //
 // Pure logic, no Arduino, so it is host-tested directly.
 struct VisionFollowConfig {
@@ -50,7 +61,9 @@ struct VisionFollowConfig {
         double frameDerivative = 0.0,
         double stallPushCommand = 0.0,
         double stallRate = 0.0,
-        unsigned long stallDelay = 0)
+        unsigned long stallDelay = 0,
+        unsigned long stallPulse = 0,
+        bool holdIntegralInTolerance = false)
         : pidf(pidfConfig),
           outputLimit(maximumOutput),
           integralLimit(maximumIntegral),
@@ -60,7 +73,9 @@ struct VisionFollowConfig {
           frameKd(frameDerivative),
           stallCommand(stallPushCommand),
           stallRatePxPerS(stallRate),
-          stallDelayMs(stallDelay) {}
+          stallDelayMs(stallDelay),
+          stallPulseMs(stallPulse),
+          integralHoldInTolerance(holdIntegralInTolerance) {}
 
     PidfConfig pidf;
     double outputLimit;
@@ -72,6 +87,8 @@ struct VisionFollowConfig {
     double stallCommand;            // 0 = no stall push
     double stallRatePxPerS;         // "not moving": |tx rate| below this
     unsigned long stallDelayMs;     // ... for this long
+    unsigned long stallPulseMs;     // push length; 0 = until in tolerance
+    bool integralHoldInTolerance;   // I stops growing inside the tolerance
 };
 
 class VisionFollowController {
@@ -92,6 +109,7 @@ public:
         txRate = 0.0;
         derivativeTerm = 0.0;
         stalled = false;
+        stallPulsing = false;
         stallPushing = false;
     }
 
@@ -121,23 +139,35 @@ public:
         // Example: tx 40 px closing at 600 px/s (rate -600), kd 0.0005:
         // PI -0.40, D -0.0005 * -600 = +0.30 -> -0.10, braking before 0.
         derivativeTerm = -config.frameKd * txRate;
+        pidf.setIntegralHold(config.integralHoldInTolerance &&
+                             fabs(tx) <= config.readyTolerancePx);
         output = pidf.calculate(0.0, tx, dtSeconds) + derivativeTerm;
         if (output > config.outputLimit) output = config.outputLimit;
         if (output < -config.outputLimit) output = -config.outputLimit;
 
         // Stall push. Example: tx 6 px, still for 200 ms, PI -0.07 ->
-        // -0.17; at tx 5 px (in tolerance) it stops and PI alone holds.
+        // -0.17 for 80 ms, then PI alone; still 6 px after another 200 ms
+        // -> the next pulse. Inside the tolerance, or moving: none.
         const double toward = tx > 0.0 ? -1.0 : 1.0;
         const bool stillOutside = config.stallCommand > 0.0 && haveFrame &&
             fabs(tx) > config.readyTolerancePx && fabs(txRate) < config.stallRatePxPerS;
         if (!stillOutside) {
             stalled = false;
+            stallPulsing = false;
         } else if (!stalled) {
             stalled = true;
             stallStartMs = nowMs;
         }
-        stallPushing = stalled && nowMs - stallStartMs >= config.stallDelayMs &&
-            output * toward < config.stallCommand;
+        if (stallPulsing && config.stallPulseMs > 0 &&
+            nowMs - stallPulseStartMs >= config.stallPulseMs) {
+            stallPulsing = false;
+            stallStartMs = nowMs;   // still again for stallDelayMs first
+        }
+        if (stalled && !stallPulsing && nowMs - stallStartMs >= config.stallDelayMs) {
+            stallPulsing = true;
+            stallPulseStartMs = nowMs;
+        }
+        stallPushing = stallPulsing && output * toward < config.stallCommand;
         if (stallPushing) output = toward * config.stallCommand;
 
         if (fabs(tx) <= config.readyTolerancePx) {
@@ -180,6 +210,8 @@ private:
     double derivativeTerm = 0.0;
     bool stalled = false;           // outside tolerance and not moving
     unsigned long stallStartMs = 0;
+    bool stallPulsing = false;      // in a push pulse
+    unsigned long stallPulseStartMs = 0;
     bool stallPushing = false;
 
     // A new camera frame: update the tx rate from the previous frame.
