@@ -5,6 +5,8 @@
 #include <assert.h>
 #include <stdio.h>
 
+#include <initializer_list>
+
 #include "../src/Vision/OperatorTarget.h"
 
 using OperatorTarget::frameMatchesSelection;
@@ -19,27 +21,40 @@ static bool cycleIs(uint8_t start, uint16_t excluded, const uint8_t* expected, u
 }
 
 int main() {
-    // Full auto's snake (2026-10-31): one hole per move.
+    // Full auto's order (2026-11-01): never two columns in one move.
     {
         const uint16_t none = 0;
         const uint16_t bottom = (1u << 1) | (1u << 4) | (1u << 7);
-        const uint8_t from5[] = {5, 8, 2, 1, 4, 7, 9, 6, 3, 10, 11, 12};
+        const uint8_t from5[] = {5, 8, 7, 9, 6, 4, 1, 2, 3, 10, 11, 12};
         assert(cycleIs(5, none, from5, 12));
-        const uint8_t from4[] = {4, 7, 1, 2, 5, 8, 9, 6, 3, 10, 11, 12};
+        const uint8_t from4[] = {4, 7, 8, 9, 6, 5, 2, 1, 3, 10, 11, 12};
         assert(cycleIs(4, none, from4, 12));
-        const uint8_t from3[] = {3, 6, 9, 8, 5, 2, 1, 4, 7, 12, 11, 10};
+        const uint8_t from3[] = {3, 2, 1, 4, 5, 6, 9, 8, 7, 12, 11, 10};
         assert(cycleIs(3, none, from3, 12));
-        const uint8_t from7[] = {7, 4, 1, 2, 5, 8, 9, 6, 3, 10, 11, 12};
+        const uint8_t from7[] = {7, 8, 9, 6, 5, 4, 1, 2, 3, 10, 11, 12};
         assert(cycleIs(7, none, from7, 12));
         const uint8_t fromW[] = {11, 12, 10};
         assert(cycleIs(11, none, fromW, 3));
-        // The bottom row out: dropped, the snake carries on from above.
-        const uint8_t from5b[] = {5, 8, 2, 3, 6, 9, 12, 11, 10};
+        // The bottom row out: left out.
+        const uint8_t from5b[] = {5, 8, 9, 6, 3, 2, 10, 11, 12};
         assert(cycleIs(5, bottom, from5b, 9));
-        const uint8_t from9b[] = {9, 6, 3, 2, 5, 8, 12, 11, 10};
+        const uint8_t from9b[] = {9, 8, 5, 6, 3, 2, 10, 11, 12};
         assert(cycleIs(9, bottom, from9b, 9));
-        const uint8_t from4b[] = {4, 7, 1, 2, 5, 8, 9, 6, 3, 10, 11, 12}; // its own row kept (Auto skips it)
-        assert(cycleIs(4, bottom, from4b, 12));
+        const uint8_t from2b[] = {2, 3, 6, 5, 8, 9, 12, 11, 10};
+        assert(cycleIs(2, bottom, from2b, 9));
+        const uint8_t from4b[] = {4, 8, 9, 6, 5, 2, 3, 10, 11, 12}; // an excluded start stays first (Auto skips it)
+        assert(cycleIs(4, bottom, from4b, 10));
+        // Never two columns in one move, any start, either mask.
+        for (uint8_t start = 1; start <= 9; start++) {
+            for (uint16_t mask : {none, bottom}) {
+                uint8_t cyc[OperatorTarget::MAX_CYCLE];
+                const uint8_t n = OperatorTarget::buildCycle(start, mask, cyc);
+                for (uint8_t i = 1; i < n; i++) {
+                    const int dc = OperatorTarget::columnOf(cyc[i]) - OperatorTarget::columnOf(cyc[i - 1]);
+                    assert(dc >= -1 && dc <= 1);
+                }
+            }
+        }
         uint8_t out[OperatorTarget::MAX_CYCLE];
         assert(OperatorTarget::buildCycle(0, none, out) == 0 && OperatorTarget::buildCycle(13, none, out) == 0);
         // An excluded pick -> the nearest allowed hole in its column.

@@ -865,10 +865,10 @@ void testFullAutoRowCycle() {
     hoststub::shooterReady = true;
     assert(runUntilShots(1, 3000) == 1);
     assert(Auto::getAimTarget() == 5 && Auto::getRowShots() == 1);   // pinned to it
-    // A snake, one hole per move, with the bottom row out in full auto
-    // (FULL_AUTO_EXCLUDED_HOLES, 2026-10-31): 5 8 2, then 3 6 9 (from
-    // right above 2), then the bonus row E W Q (from above 9).
-    const uint8_t order[] = {5, 8, 2, 3, 6, 9, 12, 11, 10};
+    // Never two columns in one move (2026-11-01), the bottom row out in full
+    // auto: 5, the right column 8 9, back to the middle 6, the left 3 2,
+    // then the bonus row Q W E from the left.
+    const uint8_t order[] = {5, 8, 9, 6, 3, 2, 10, 11, 12};
     for (unsigned i = 0; i < sizeof order; i++) {
         const unsigned long done = 3 * i;
         if (i > 0) assert(runUntilShots(done, 10000) == done);
@@ -876,7 +876,7 @@ void testFullAutoRowCycle() {
         assert(Auto::getAimTarget() == order[i] || Auto::isRowDone());
     }
     assert(runUntilShots(27, 12000) == 27);
-    assert(Auto::isRowDone() && Auto::getAimTarget() == 10);
+    assert(Auto::isRowDone() && Auto::getAimTarget() == 12);
     assert(shotsDuring(3000) == 0);                       // all done: holds fire
     // A hole key starts over from that hole.
     send("TGT,8"); step();                                // right middle
@@ -884,7 +884,7 @@ void testFullAutoRowCycle() {
     // (It may fire in that same loop: ready, elevation already there.)
     const unsigned long before = Dribbler::getTriggerCount() - Auto::getRowShots();
     assert(runUntilShots(before + 3, 8000) == before + 3);
-    assert(Auto::getAimTarget() == 5);                    // from the right edge: 8 -> 5 -> 2
+    assert(Auto::getAimTarget() == 9);                    // from the right edge: 8 9, 6 5, 2 3
     // Semi-auto: no cycle, the operator's hole.
     send("MODE,1"); step();
     assert(Auto::getAimTarget() == 8 && !Auto::isRowDone() && Auto::getRowShots() == 0);
@@ -902,7 +902,7 @@ void testFullAutoRowCycle() {
     hoststub::visionTargetId = 11;                        // still on 4 (not following yet)
     assert(shotsDuring(8000) == 0);                       // never fired at an excluded hole
     send("TGT,4"); step();
-    assert(Auto::getAimTarget() == 2);                    // 4 7 1 out: 2 5 8 next
+    assert(Auto::getAimTarget() == 8);                    // 4 itself out: 8 9 next (right column)
     send("MODE,1"); step();                               // semi-auto: 4 is the operator's
     assert(Auto::getAimTarget() == 4);
 }

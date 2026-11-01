@@ -6625,3 +6625,36 @@ closing at 600 px/s: P −0.40, D +0.30, total −0.10 (it brakes early).
 switch and the swing. If it still overshoots, raise `VISION_FRAME_kD`
 (0.0008–0.001); if it creeps in slowly or jitters on a still target,
 lower it.
+
+## 2026-11-01 — Claude Code: full auto order never jumps two columns
+
+**Hardware report:** starting on the center hole, the order went 5 → 8
+(right) → 2 (left). That last move crosses two columns, the turret cannot
+see 2 from 8, and it stalls. Jeremy asked for a snake.
+
+**Changed:** `OperatorTarget::buildCycle()` is now column-wise. The turret
+turns sideways only, so a column change costs turret travel and a row
+change only elevation.
+- From an edge column: that column, the middle, the far one.
+- From the middle: the start hole, the right column, the rest of the
+  middle, then the left. It never goes right → left in one move.
+- Within a column, the holes nearest the entry height come first (lower
+  on a tie). Then the bonus row from the column the grid ended in.
+- Excluded holes are left out (an excluded start stays first; Auto skips
+  it).
+
+Examples (bottom row out):
+- from 5: 5, 8 9, 6, 3 2, Q W E;
+- from 2: 2 3, 6 5, 8 9, E W Q;
+- from 9: 9 8, 5 6, 3 2, Q W E.
+
+All rows, from 5: 5, 8 7 9, 6 4, 1 2 3, Q W E.
+
+**Evidence:**
+- operator_target: the orders above, plus an exhaustive check (starts
+  1–9, no mask and the bottom row out) that no move changes more than one
+  column, the bonus row included.
+- manual_control (3 builds): the full cycle; TGT,8 → 9 next; TGT,4 →
+  skips 4 → 8.
+- Dashboard PASS. pio: production + 3 wired benches.
+- No hardware.

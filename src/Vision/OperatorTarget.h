@@ -58,14 +58,18 @@ constexpr uint8_t holeForVisionId(long visionId, uint8_t hole = 1) {
          : holeForVisionId(visionId, static_cast<uint8_t>(hole + 1));
 }
 
-// Full auto's shooting order (Auto's cycle, 2026-10-31, Jeremy): a snake,
-// so each move is one hole. The first row from the first hole: from the
-// middle column right then the far left (5 8 2), from an edge column
-// straight across (1 4 7, 9 6 3). Each next row starts in the column the
-// previous one ended in -- the hole right above / below -- and sweeps
-// across: rows in order start, the adjacent row below first, the other,
-// then the bonus row. From 5: 5 8 2, 1 4 7, 9 6 3, Q W E (12 holes).
-// Starting on a bonus hole: the bonus row only (3 holes).
+// Full auto's shooting order (Auto's cycle; Jeremy 2026-10-31 / 11-01).
+// The turret only turns sideways, so the order never jumps two columns:
+// a column is a move of the turret, a row only of the elevation. Columns
+// from the first hole's: from an edge column straight across (left, middle,
+// right or the reverse); from the middle column the first hole, then the
+// right column, back to the rest of the middle, then the left -- never
+// right -> left in one go. Inside a column, the holes nearest the height
+// it came in at first (lower on a tie). Then the bonus row from the column
+// the grid ended in. Excluded holes (bit n = hole n) are left out.
+// Bottom row out, from 5: 5, 8 9, 6, 3 2, Q W E. From 2: 2 3, 6 5, 8 9,
+// E W Q. All rows, from 5: 5, 8 7 9, 6 4, 1 2 3, Q W E.
+// Starting on a bonus hole: the bonus row only (from W: W E Q).
 // Grid key k: column (k-1)/3 (0 left), row (k-1)%3 (0 bottom); row 3 = bonus.
 constexpr uint8_t rowOf(uint8_t hole) {
     return hole >= FIRST_BONUS_HOLE ? 3 : static_cast<uint8_t>((hole - 1) % 3);
@@ -78,54 +82,57 @@ constexpr uint8_t holeAt(uint8_t row, uint8_t column) {
     return row == 3 ? static_cast<uint8_t>(FIRST_BONUS_HOLE + column)
                     : static_cast<uint8_t>(1 + row + 3 * column);
 }
-// The i-th row visited from a grid start row: start, adjacent below
-// first, then the rest; i = 3 is the bonus row.
-constexpr uint8_t cycleRow(uint8_t startRow, uint8_t i) {
-    return i == 3 ? 3
-         : i == 0 ? startRow
-         : startRow == 1 ? (i == 1 ? 0 : 2)
-         : startRow == 0 ? i
-                         : static_cast<uint8_t>(2 - i);
-}
 
 constexpr uint8_t MAX_CYCLE = 12;
 
-// The cycle from `start` into out[] (returns its length). Rows whose three
-// holes are all in excludedHoles (bit n = hole n, e.g. full auto's
-// TuningConstants::Auto::FULL_AUTO_EXCLUDED_HOLES) are dropped and the
-// snake carries on from the row before, so moves stay one hole: with the
-// bottom row out, from 5: 5 8 2, 3 6 9, E W Q. Single excluded holes in a
-// kept row stay listed (Auto skips them like holes without a table).
+// The cycle from `start` into out[] (returns its length).
 inline uint8_t buildCycle(uint8_t start, uint16_t excludedHoles, uint8_t out[MAX_CYCLE]) {
     if (start < 1 || start > LAST_HOLE) return 0;
-    const uint8_t startRow = rowOf(start);
-    uint8_t rows[4];
-    uint8_t rowCount = 0;
-    const uint8_t candidates = startRow == 3 ? 1 : 4;
-    for (uint8_t i = 0; i < candidates; i++) {
-        const uint8_t row = startRow == 3 ? 3 : cycleRow(startRow, i);
-        bool anyAllowed = i == 0; // the start row always
-        for (uint8_t c = 0; c < 3; c++) {
-            if (!(excludedHoles & (1u << holeAt(row, c)))) anyAllowed = true;
-        }
-        if (anyAllowed) rows[rowCount++] = row;
-    }
     uint8_t count = 0;
-    const uint8_t c0 = columnOf(start);
-    // Row 0: middle -> 1 2 0, left -> 0 1 2, right -> 2 1 0.
-    for (uint8_t j = 0; j < 3; j++) {
-        const uint8_t col = c0 == 1 ? static_cast<uint8_t>((1 + j) % 3)
-                          : c0 == 0 ? j : static_cast<uint8_t>(2 - j);
-        out[count++] = holeAt(rows[0], col);
-    }
-    uint8_t endColumn = c0 == 0 ? 2 : 0;
-    // Later rows: from the column the previous one ended in, across.
-    for (uint8_t k = 1; k < rowCount; k++) {
+    // A bonus row from column c0: middle -> 1 2 0, left -> 0 1 2, right -> 2 1 0.
+    auto bonusRow = [&](uint8_t c0) {
         for (uint8_t j = 0; j < 3; j++) {
-            out[count++] = holeAt(rows[k], endColumn == 0 ? j : static_cast<uint8_t>(2 - j));
+            const uint8_t col = c0 == 1 ? static_cast<uint8_t>((1 + j) % 3)
+                              : c0 == 0 ? j : static_cast<uint8_t>(2 - j);
+            const uint8_t hole = holeAt(3, col);
+            if (hole == start || !(excludedHoles & (1u << hole))) out[count++] = hole;
         }
-        endColumn = static_cast<uint8_t>(2 - endColumn);
+    };
+    if (rowOf(start) == 3) {
+        bonusRow(columnOf(start));
+        return count;
     }
+    out[count++] = start;
+    uint8_t row = rowOf(start);
+    // The grid holes of one column not yet listed, nearest `row` first.
+    auto column = [&](uint8_t col) {
+        const uint8_t entry = row;
+        for (uint8_t d = 0; d <= 2; d++) {
+            for (int8_t sign = -1; sign <= 1; sign += 2) {
+                if (d == 0 && sign > 0) continue;
+                const int r = entry + sign * d;
+                if (r < 0 || r > 2) continue;
+                const uint8_t hole = holeAt(static_cast<uint8_t>(r), col);
+                if (excludedHoles & (1u << hole)) continue;
+                bool listed = false;
+                for (uint8_t i = 0; i < count; i++) listed = listed || out[i] == hole;
+                if (listed) continue;
+                out[count++] = hole;
+                row = static_cast<uint8_t>(r);
+            }
+        }
+    };
+    const uint8_t c0 = columnOf(start);
+    if (c0 == 1) {
+        column(2);
+        column(1);
+        column(0);
+    } else {
+        column(c0);
+        column(1);
+        column(static_cast<uint8_t>(2 - c0));
+    }
+    bonusRow(columnOf(out[count - 1]));
     return count;
 }
 
