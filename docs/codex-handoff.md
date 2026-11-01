@@ -6855,3 +6855,29 @@ The higher fps doesn't change P / I per second and is not the cause.
 - Expected: no swing across center, and lock within ~1 s.
 - A pulse doesn't move it → `VISION_STALL_PULSE_MS` 100–120.
 - Each pulse jumps past center → 50–60 ms.
+
+## 2026-11-01 — Jeremy (committed by Claude Code): VISION_FRAME_kD 0.0005 → 0.0008
+
+**User Request:** apply last year's turret prediction (all_robot_017
+`updatePrediction`: low-pass x, vx from consecutive Jetson frames,
+`xPred = xFilt + vx × 0.08`, PID on xPred) to the current turret.
+
+**Discussion Result:** kP × (x + vx·Td) = kP·x + (kP·Td)·vx, so last year's
+prediction is a D term with kd = kP·Td = 0.01 × 0.08 = 0.0008. The current
+frame-to-frame D already does this, at 0.0005 (50 ms). Jeremy set it to
+0.0008 (80 ms). Unlike last year, the lock check still uses the measured
+tx, not the prediction.
+
+**Changed:** `TuningConstants::Rotate::VISION_FRAME_kD` 0.0008 (Jeremy's
+edit), with a comment.
+
+**Calculation:** still-turret jitter ±1 px at ~24 fps ≈ ±24 px/s raw;
+0.0008 × 24 ≈ ±0.02, far under the ~0.16 the turret needs.
+
+**Evidence:** vision_follow_controller PASS; pio production SUCCESS (RAM
+50.3 %). No hardware.
+
+**Next Test:**
+- Fewer overshoots → keep it.
+- Jitter on a still target, or the turret creeps in slowly → back to
+  0.0005.

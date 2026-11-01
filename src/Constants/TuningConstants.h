@@ -102,7 +102,10 @@ constexpr double VISION_READY_TOLERANCE_PX = 5.0;
 // before center. PROVISIONAL: raise it if it still overshoots, lower it if
 // the turret creeps in slowly or jitters on a still target. Separate from
 // VISION_kD (kept 0, pinned to the A5 bench's gains).
-constexpr double VISION_FRAME_kD = 0.0005;
+// 0.0008 since 2026-11-01 (Jeremy, was 0.0005): last year's all_robot_017
+// aimed at xPred = x + vx * 0.08 s; with kP 0.01 that is the same as
+// kd = 0.01 * 0.08 = 0.0008 (80 ms of look-ahead instead of 50).
+constexpr double VISION_FRAME_kD = 0.0008;
 // Stall push (2026-11-01, Jeremy: semi auto sometimes waited 3-5 s to fire
 // with the turret a few px outside the 5 px lock; kI 0.03 instead made it
 // swing, so kI is back at 0.01). Outside VISION_READY_TOLERANCE_PX and
