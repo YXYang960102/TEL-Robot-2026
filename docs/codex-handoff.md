@@ -6738,3 +6738,62 @@ RAM 49.7 %, flash 18.3 %). No hardware.
 - If the turret now swings back and forth around center → lower to 0.02.
 - If the wait is still long but 轉台鎖定 is ✓ → it's 仰角到位 or 飛輪轉穩
   (slew 400 µs/s, SPIN_UP_MS 1500), the next items to look at.
+
+## 2026-11-01 — Claude Code: kI back to 0.01, turret stall push instead
+
+**User Request:** with kI 0.03 (previous entry) the turret swung even more.
+Jeremy chose: kI back to 0.01, plus a push when the turret is stuck just
+outside the lock.
+
+**Discussion Result:** a faster I also winds up while the turret is on
+either side of center (10 px for 0.3 s at kI 0.03 ≈ 0.09 of the 0.12 cap),
+and that carries it through center → swing. The slow lock only needs help
+when the turret has actually stopped outside the 5 px tolerance.
+
+**Changed:**
+- `VISION_kI` back to 0.01. The vision-follow test pins it to the bench again.
+
+**Added:**
+- `VisionFollowController` stall push. When the target is outside
+  `readyTolerancePx`, `|txRate| < stallRatePxPerS`, and that has lasted
+  for `stallDelayMs`, and the command toward the target is under
+  `stallCommand`, the command becomes ±`stallCommand` toward the target.
+  - Never inside the tolerance.
+  - Needs frame numbers (txRate from the frame-to-frame D).
+  - Off with 0.
+  - `isStallPushing()`.
+- `TuningConstants::Rotate`: `VISION_STALL_COMMAND` 0.17,
+  `VISION_STALL_RATE_PX_PER_S` 30, `VISION_STALL_DELAY_MS` 200, plus a
+  static_assert (≤ 0.3).
+- These are passed through `ShooterConstants::Rotate::VISION_FOLLOW`.
+
+**Calculation:**
+- Stopped 6 px off: P −0.06 + I. After 200 ms still → −0.17 (turret
+  needs ~0.16), so it creeps in.
+- At ≤ 5 px the push ends and PI (< 0.16 within ~4 px) holds it.
+- Then the 250 ms lock applies.
+- Expected lock ≈ 0.5–0.7 s instead of 1.7 s per side.
+- 30 px/s threshold: a still turret shows ±1–2 px of jitter per frame
+  at ~15 fps, ≤ ~20 px/s after the 50/50 smoothing.
+
+**Impact:**
+- Every mode that runs vision-follow (semi, full auto, test) is affected.
+- Manual, search, return-to-0 and the guard are unchanged.
+- No TEL slot was added for the push.
+
+**Evidence:**
+- vision_follow_controller PASS. The new block covers:
+  - push after 200 ms still at 6 px;
+  - none in tolerance (4 px);
+  - none while moving, then a push the other way after the rate decays;
+  - none once P + I pass 0.17;
+  - none without frame numbers;
+  - none with the production config without a push.
+- vision_rotate_bench_state and manual_control PASS.
+- pio: 9/9 SUCCESS, production RAM 50.1 %, flash 18.3 %.
+- No hardware.
+
+**Next Test:** semi-auto at 4–5 m, lock a hole.
+- 轉台鎖定 should come within ~1 s, with no swing.
+- Still parks outside the lock → `VISION_STALL_COMMAND` 0.18–0.20.
+- Steps past center → 0.16 or `VISION_STALL_DELAY_MS` 300.

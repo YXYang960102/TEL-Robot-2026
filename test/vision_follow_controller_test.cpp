@@ -41,7 +41,7 @@ int main() {
     {
         namespace B = VisionRotateBenchConstants;
         assert(near(VISION_kP, B::kP / 500.0));
-        assert(near(VISION_kI, 3.0 * B::kI / 500.0));  // 3x since 2026-11-01
+        assert(near(VISION_kI, B::kI / 500.0));
         assert(near(VISION_kD, B::kD / 500.0));
         assert(near(VISION_kIZONE_PX, B::kIZone));
         assert(near(VISION_MAX_COMMAND, B::PIDF_OUTPUT_LIMIT_US / 500.0));
@@ -131,15 +131,9 @@ int main() {
     }
 
     // Side by side with the bench state machine Jeremy tuned: same tx
-    // sequence at the bench's ~10 fps, production pulse == bench pulse,
-    // with the bench's own kI (production's is 3x since 2026-11-01).
+    // sequence at the bench's ~10 fps, production pulse == bench pulse.
     {
-        namespace B = VisionRotateBenchConstants;
-        const VisionFollowConfig benchGains(
-            PidfConfig(VISION_kP, B::kI / 500.0, VISION_kD, VISION_kIZONE_PX, VISION_kFF),
-            VISION_MAX_COMMAND, VISION_MAX_INTEGRAL_COMMAND, VISION_READY_TOLERANCE_PX,
-            100, 100);
-        VisionFollowController prod(benchGains);
+        VisionFollowController prod(CONFIG);
         VisionRotateBenchState bench;
         bench.command("E", 0);
         const int txs[] = {180, 150, 110, 80, 60, 40, 25, 18, 12, 8, 6, 5, 4, 3, 3, 2, 2, 1,
@@ -153,17 +147,6 @@ int main() {
             assert(diff >= -1 && diff <= 1);  // rounding only
             t += 100;
         }
-    }
-
-    // Faster I (2026-11-01): stopped 6 px off, P -0.06 alone is under the
-    // ~0.16 the turret needs; P + I passes it after ~0.6 s (was ~1.7 s).
-    {
-        VisionFollowController c(CONFIG);
-        unsigned long t = 0;
-        c.update(6.0, true, 1, t);
-        double cmd = 0.0;
-        while (fabs(cmd) < 0.16) { t += 10; cmd = c.update(6.0, true, 1, t); }
-        assert(t >= 500 && t <= 700);
     }
 
     // Frame-to-frame D (2026-11-01): only with frame numbers; the rate is
@@ -190,6 +173,59 @@ int main() {
         plain.update(40.0, true, 1, 0);
         plain.update(20.0, true, 1, 40);
         assert(plain.getDerivativeTerm() == 0.0);
+    }
+
+    // Stall push (2026-11-01): outside the 5 px tolerance and still for
+    // 200 ms -> at least 0.17 toward the target; never inside the tolerance;
+    // off without frame numbers or with stallCommand 0.
+    {
+        const VisionFollowConfig withPush(
+            PidfConfig(VISION_kP, VISION_kI, VISION_kD, VISION_kIZONE_PX, VISION_kFF),
+            VISION_MAX_COMMAND, VISION_MAX_INTEGRAL_COMMAND, VISION_READY_TOLERANCE_PX,
+            100, 100, VISION_FRAME_kD,
+            VISION_STALL_COMMAND, VISION_STALL_RATE_PX_PER_S, VISION_STALL_DELAY_MS);
+        VisionFollowController c(withPush);
+        unsigned long frame = 1;
+        double cmd = c.update(6.0, true, 1, 0, frame);           // prime
+        unsigned long t = 0;
+        // Still at 6 px (a new frame every 60 ms, same tx): PI alone
+        // (~-0.06..-0.07) until 200 ms, then -0.17.
+        for (t = 10; t < 200; t += 10) {
+            if (t % 60 == 0) ++frame;
+            cmd = c.update(6.0, true, 1, t, frame);
+            assert(!c.isStallPushing() && cmd > -0.10 && cmd < 0.0);
+        }
+        for (; t <= 260; t += 10) {
+            if (t % 60 == 0) ++frame;
+            cmd = c.update(6.0, true, 1, t, frame);
+        }
+        assert(c.isStallPushing() && near(cmd, -VISION_STALL_COMMAND));
+        // Target on the other side: pushes the other way (after its own 200 ms).
+        // In tolerance (4 px): no push, PI alone, under the turret's 0.16.
+        ++frame; t += 60;
+        cmd = c.update(4.0, true, 1, t, frame);
+        assert(!c.isStallPushing() && fabs(cmd) < 0.16);
+        // Moving (a frame 12 px apart -> rate well over 30 px/s): no push.
+        ++frame; t += 60; c.update(-8.0, true, 1, t, frame);
+        ++frame; t += 60; c.update(-8.0, true, 1, t, frame);
+        assert(!c.isStallPushing());
+        // The rate decays (-100, -50, -25, -12 px/s), then 200 ms still -> push.
+        for (int i = 0; i < 8; ++i) { ++frame; t += 60; cmd = c.update(-8.0, true, 1, t, frame); }
+        assert(c.isStallPushing() && near(cmd, VISION_STALL_COMMAND));  // toward +
+        // Once P + I pass 0.17 by themselves (~1.5 s more), no push is needed.
+        for (int i = 0; i < 30; ++i) { ++frame; t += 60; cmd = c.update(-8.0, true, 1, t, frame); }
+        assert(!c.isStallPushing() && cmd > VISION_STALL_COMMAND);
+
+        // No frame numbers: no rate, no push.
+        VisionFollowController plain(withPush);
+        plain.update(6.0, true, 1, 0);
+        for (unsigned long u = 10; u <= 1000; u += 10) cmd = plain.update(6.0, true, 1, u);
+        assert(!plain.isStallPushing());
+        // The production gains without a push stay as they were.
+        VisionFollowController off(CONFIG);
+        off.update(6.0, true, 1, 0, 1);
+        for (unsigned long u = 10; u <= 1000; u += 10) off.update(6.0, true, 1, u, 1 + u / 60);
+        assert(!off.isStallPushing());
     }
 
     printf("vision_follow_controller_test: all asserts passed\n");

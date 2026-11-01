@@ -27,6 +27,17 @@
 // measurement: no kick when the target switches). Off (frameKd 0) unless
 // the caller passes frame numbers.
 //
+// Stall push (2026-11-01, Jeremy: in semi auto the turret stopped a few px
+// outside the 5 px lock and took 3-5 s to fire). The turret doesn't move
+// below a command of ~0.16; stopped 6 px off, P gives 0.06 and the slow I
+// takes ~1.7 s to make up the rest (a 3x faster I made the turret swing).
+// So when the target is outside the ready tolerance, the turret has not
+// moved for stallDelayMs (|frame-to-frame tx rate| < stallRatePxPerS) and
+// the command is under stallCommand toward the target, the command is
+// raised to stallCommand. Never inside the tolerance, so it can't push the
+// turret through center once locked. Needs frame numbers; off with
+// stallCommand 0.
+//
 // Pure logic, no Arduino, so it is host-tested directly.
 struct VisionFollowConfig {
     constexpr VisionFollowConfig(
@@ -36,14 +47,20 @@ struct VisionFollowConfig {
         double readyTolerance,
         unsigned long readySettle,
         unsigned long maximumGap,
-        double frameDerivative = 0.0)
+        double frameDerivative = 0.0,
+        double stallPushCommand = 0.0,
+        double stallRate = 0.0,
+        unsigned long stallDelay = 0)
         : pidf(pidfConfig),
           outputLimit(maximumOutput),
           integralLimit(maximumIntegral),
           readyTolerancePx(readyTolerance),
           readySettleMs(readySettle),
           maxGapMs(maximumGap),
-          frameKd(frameDerivative) {}
+          frameKd(frameDerivative),
+          stallCommand(stallPushCommand),
+          stallRatePxPerS(stallRate),
+          stallDelayMs(stallDelay) {}
 
     PidfConfig pidf;
     double outputLimit;
@@ -52,6 +69,9 @@ struct VisionFollowConfig {
     unsigned long readySettleMs;
     unsigned long maxGapMs;
     double frameKd;   // command per (px/s), frame-to-frame rate of tx
+    double stallCommand;            // 0 = no stall push
+    double stallRatePxPerS;         // "not moving": |tx rate| below this
+    unsigned long stallDelayMs;     // ... for this long
 };
 
 class VisionFollowController {
@@ -71,6 +91,8 @@ public:
         haveFrame = false;
         txRate = 0.0;
         derivativeTerm = 0.0;
+        stalled = false;
+        stallPushing = false;
     }
 
     // Call every control tick. Returns the command to apply (0 when there
@@ -103,6 +125,21 @@ public:
         if (output > config.outputLimit) output = config.outputLimit;
         if (output < -config.outputLimit) output = -config.outputLimit;
 
+        // Stall push. Example: tx 6 px, still for 200 ms, PI -0.07 ->
+        // -0.17; at tx 5 px (in tolerance) it stops and PI alone holds.
+        const double toward = tx > 0.0 ? -1.0 : 1.0;
+        const bool stillOutside = config.stallCommand > 0.0 && haveFrame &&
+            fabs(tx) > config.readyTolerancePx && fabs(txRate) < config.stallRatePxPerS;
+        if (!stillOutside) {
+            stalled = false;
+        } else if (!stalled) {
+            stalled = true;
+            stallStartMs = nowMs;
+        }
+        stallPushing = stalled && nowMs - stallStartMs >= config.stallDelayMs &&
+            output * toward < config.stallCommand;
+        if (stallPushing) output = toward * config.stallCommand;
+
         if (fabs(tx) <= config.readyTolerancePx) {
             if (!inToleranceSince) {
                 inToleranceSince = true;
@@ -123,6 +160,7 @@ public:
     bool isSaturated() const { return pidf.isSaturated(); }
     double getDerivativeTerm() const { return derivativeTerm; }
     double getTxRate() const { return txRate; }
+    bool isStallPushing() const { return stallPushing; }
 
 private:
     VisionFollowConfig config;
@@ -140,6 +178,9 @@ private:
     unsigned long lastFrameMs = 0;
     double txRate = 0.0;           // px/s, smoothed, held between frames
     double derivativeTerm = 0.0;
+    bool stalled = false;           // outside tolerance and not moving
+    unsigned long stallStartMs = 0;
+    bool stallPushing = false;
 
     // A new camera frame: update the tx rate from the previous frame.
     void noteFrame(double tx, unsigned long nowMs, unsigned long frame) {

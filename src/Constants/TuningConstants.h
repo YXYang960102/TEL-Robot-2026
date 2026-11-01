@@ -84,16 +84,9 @@ constexpr bool MANUAL_JOG_INVERTED = true;
 // Example: tx = 40 px -> -0.40 command -> 1300 us (tx > 0 drives below
 // 1500 us: the direction validated on the bench with this same servo and
 // mounting). test/vision_follow_controller_test.cpp pins these to the
-// bench constants, so the two can't drift apart silently -- except kI:
-// 0.03 since 2026-11-01 (3x the bench; Jeremy: in semi auto the turret
-// stopped a few px outside the 5 px lock and took 3-5 s to fire). The
-// turret needs ~0.16 to move; stopped 6 px off, P gives 0.06 and I has to
-// make up 0.10: at 0.01 that took 0.10 / (0.01 * 6) = 1.7 s per side, at
-// 0.03 it takes 0.6 s. The I cap (0.12) is unchanged, so within ~4 px
-// (P 0.04 + 0.12 = 0.16) the turret still can't creep and the lock holds.
-// Lower it back toward 0.01 if the turret now swings around center.
+// bench constants, so the two can't drift apart silently.
 constexpr double VISION_kP = 0.01;
-constexpr double VISION_kI = 0.03;
+constexpr double VISION_kI = 0.01;
 constexpr double VISION_kD = 0.0;
 constexpr double VISION_kIZONE_PX = 20.0;
 constexpr double VISION_kFF = 0.0;
@@ -110,6 +103,19 @@ constexpr double VISION_READY_TOLERANCE_PX = 5.0;
 // the turret creeps in slowly or jitters on a still target. Separate from
 // VISION_kD (kept 0, pinned to the A5 bench's gains).
 constexpr double VISION_FRAME_kD = 0.0005;
+// Stall push (2026-11-01, Jeremy: semi auto sometimes waited 3-5 s to fire
+// with the turret a few px outside the 5 px lock; kI 0.03 instead made it
+// swing, so kI is back at 0.01). Outside VISION_READY_TOLERANCE_PX and
+// |tx rate| under VISION_STALL_RATE_PX_PER_S for VISION_STALL_DELAY_MS ->
+// at least VISION_STALL_COMMAND toward the target (VisionFollowController).
+// 0.17: just above the ~0.16 the turret needs, so it creeps in and stops
+// in the tolerance. 30 px/s: a still turret reads +-1-2 px of jitter per
+// frame (~15 fps), up to ~20 px/s after the 50 / 50 smoothing. PROVISIONAL:
+// still stuck -> 0.18-0.20; jumps past center -> 0.16 or a longer delay.
+// 0 = off.
+constexpr double VISION_STALL_COMMAND = 0.17;
+constexpr double VISION_STALL_RATE_PX_PER_S = 30.0;
+constexpr uint32_t VISION_STALL_DELAY_MS = 200;
 // Turret search (2026-11-01, Jeremy: after choosing 7 then 1 the turret
 // sometimes didn't move -- 1 out of view and not predicted, so nothing to
 // follow). With a hole chosen that is neither seen nor predicted, the
@@ -345,6 +351,9 @@ static_assert(Rotate::VISION_MAX_COMMAND > 0.0 && Rotate::VISION_MAX_COMMAND <= 
 static_assert(Rotate::VISION_MAX_INTEGRAL_COMMAND >= 0.0 &&
               Rotate::VISION_MAX_INTEGRAL_COMMAND <= Rotate::VISION_MAX_COMMAND,
               "Vision-follow integral limit must fit inside the command limit");
+static_assert(Rotate::VISION_STALL_COMMAND >= 0.0 && Rotate::VISION_STALL_COMMAND <= 0.3 &&
+                  Rotate::VISION_STALL_RATE_PX_PER_S > 0.0,
+              "Turret stall push: a small creep, not a drive");
 static_assert(Rotate::VISION_kIZONE_PX >= 0.0 && Rotate::VISION_READY_TOLERANCE_PX > 0.0,
               "Vision-follow pixel windows must be non-negative");
 static_assert(Auto::AIM_OFFSET_MAX_PX > 0.0 && Auto::AIM_OFFSET_MAX_PX < 400.0 &&
