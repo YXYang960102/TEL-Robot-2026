@@ -199,5 +199,9 @@ void Telemetry::update() {
     // 10-12, 0 none) and the one full auto is serving first (0 none).
     Serial.print(OperatorTarget::holeForVisionId(Vision::getLitBonusId()));
     Serial.print(",");
-    Serial.println(Auto::getLitPriorityHole());
+    Serial.print(Auto::getLitPriorityHole());
+    Serial.print(",");
+    // Slot 58 (2026-11-01): turret searching for a chosen hole out of
+    // view: -1 left, +1 right, 0 no.
+    Serial.println(Shooter::getSearchDirection());
 }

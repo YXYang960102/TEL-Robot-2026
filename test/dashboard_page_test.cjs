@@ -1125,6 +1125,9 @@ async function emergencyStopViaEnter() {
   clock.t += 100; line(telRow(11, 1, 0) + ',11,11');
   assert.equal(run('litHoleShown'), 11);
   assert.match(elements.targetHole.textContent, /正在打 11 · 加分中 · 這洞已打 1\/3 · 加分框亮了：優先打/);
+  // Turret search (TEL 58, 2026-11-01).
+  clock.t += 100; line(telRow(7, 0, 0) + ',0,0,-1');
+  assert.equal(elements.targetBoardState.textContent, '選的洞不在畫面上：轉台往左找洞中');
   clock.t += 100; line(telRow(0, 0, 0));                         // AI pick, nothing pinned
   assert.equal(run('aimHole'), 0);
   assert.doesNotMatch(elements.targetHole.textContent, /正在打|全部打完|加分框亮了/);

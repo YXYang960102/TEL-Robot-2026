@@ -1921,7 +1921,10 @@
         rowDone: p.length > 55 ? Number(p[55]) : NaN,
         // Slots 56-57 (2026-10-31): lit bonus hole seen / served first.
         litHole: p.length > 56 ? Number(p[56]) : NaN,
-        litPriority: p.length > 57 ? Number(p[57]) : NaN
+        litPriority: p.length > 57 ? Number(p[57]) : NaN,
+        // Slot 58 (2026-11-01): turret searching for the chosen hole out of
+        // view (-1 left, +1 right, 0 no).
+        searchDir: p.length > 58 ? Number(p[58]) : NaN
       };
     }
 
@@ -2015,6 +2018,11 @@
           Number.isFinite(data.elevationOffsetUs)) {
         el.aimState.textContent = aimStateText(data);
         el.targetBoardState.textContent = el.aimState.textContent;
+      }
+      // Turret search (TEL 58, 2026-11-01) wins over the aim text.
+      if (data.searchDir === -1 || data.searchDir === 1) {
+        el.targetBoardState.textContent =
+          `選的洞不在畫面上：轉台往${data.searchDir < 0 ? "左" : "右"}找洞中`;
       }
       setSeenHole(data.valid && Number.isInteger(data.targetId) ? holeForVisionId(data.targetId) : 0);
       if (Number.isFinite(data.falconPulseUs) && Number.isFinite(data.falconRatioPct)) {

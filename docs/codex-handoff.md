@@ -6658,3 +6658,46 @@ All rows, from 5: 5, 8 7 9, 6 4, 1 2 3, Q W E.
   skips 4 → 8.
 - Dashboard PASS. pio: production + 3 wired benches.
 - No hardware.
+
+## 2026-11-01 — Claude Code: turret searches toward a chosen hole that is out of view
+
+**User Request:** in semi-auto, after locking 7 then choosing 1, the turret
+sometimes didn't move: 1 was out of view and the Orin had no prediction,
+so there was nothing to follow. Turn toward the target first until it
+shows up, then hand over to the PID.
+
+**Changed / Added:**
+- `OperatorTarget::searchDirection(targetHole, seenHoles, lastColumn)`:
+  - −1 left / +1 right / 0;
+  - it compares the target's column with the columns of the holes in view;
+  - with none in view, it uses the column of the last locked hole.
+
+  `OperatorTarget::holesFromVisionMask()` converts the Orin's mask.
+- `Shooter::updateRotate` (vision follow):
+  - per selection change, while the chosen hole is neither seen nor
+    predicted and has not been found yet, for at most
+    `Rotate::SEARCH_MAX_MS` (3000), it drives `searchDir ×
+    RIGHT_COMMAND_SIGN × SEARCH_COMMAND` (0.3) through the turret guard;
+  - the lock is cleared and the follow controller reset;
+  - once seen or predicted, the PID takes over and no search runs until
+    the next selection.
+- TEL 58 = search direction. The Dashboard shows
+  「選的洞不在畫面上：轉台往左／右找洞中」.
+- It applies wherever vision-follow runs: semi, full auto (cycle steps)
+  and test.
+
+**Why 0.3:** above the ~0.16 the turret needs to move, and slow enough for
+the camera to pick holes up on the way.
+
+**Evidence:** operator_target (directions: 7 8 9 seen → 1 is left; left
+column seen → 8 is right; in between → 0; from the last column; Q;
+mask conversion), Dashboard (TEL 58 text), manual_control (3 builds) and
+vision_follow PASS. pio production RAM 49.7 %, flash 18.3 %. The Shooter
+search itself is not host-tested (Shooter is stubbed in host tests).
+No hardware.
+
+**Next Test:** semi-auto, lock 7, choose 1. The turret should turn left
+at a steady speed until 1 appears, then lock.
+- Too fast to detect → lower `SEARCH_COMMAND`.
+- Stalls → raise it.
+- Wrong way → report it (then `searchDirection` or the sign is wrong).

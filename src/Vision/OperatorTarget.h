@@ -157,4 +157,37 @@ static_assert(holeForVisionId(10) == 1 && holeForVisionId(8) == 5 && holeForVisi
               holeForVisionId(0) == NONE && holeForVisionId(13) == NONE,
               "inverse of visionIdForHole");
 
+// The Orin's detected-hole mask (bit vision id - 1) as Dashboard holes
+// (bit n = hole n).
+inline uint16_t holesFromVisionMask(uint16_t visionMask) {
+    uint16_t holes = 0;
+    for (uint8_t id = 1; id <= 12; id++) {
+        if (visionMask & (1u << (id - 1))) holes = static_cast<uint16_t>(holes | (1u << holeForVisionId(id)));
+    }
+    return holes;
+}
+
+// Which way the turret should turn to bring a hole that is out of view into
+// it (2026-11-01, Jeremy): -1 left, +1 right, 0 = don't know. The holes
+// the camera does see say where it points: a target column left of all of
+// them -> left. With none seen, the column of the hole last locked on
+// (lastColumn, -1 = none). Example: the camera sees 7 8 9 (right column),
+// the target is 1 (left column) -> -1.
+inline int8_t searchDirection(uint8_t targetHole, uint16_t seenHoles, int8_t lastColumn) {
+    if (targetHole < 1 || targetHole > LAST_HOLE) return 0;
+    const int8_t target = static_cast<int8_t>(columnOf(targetHole));
+    int8_t lowest = 3, highest = -1;
+    for (uint8_t hole = 1; hole <= LAST_HOLE; hole++) {
+        if (!(seenHoles & (1u << hole))) continue;
+        const int8_t col = static_cast<int8_t>(columnOf(hole));
+        if (col < lowest) lowest = col;
+        if (col > highest) highest = col;
+    }
+    if (highest >= 0) {
+        return target < lowest ? -1 : target > highest ? 1 : 0;
+    }
+    if (lastColumn < 0) return 0;
+    return target < lastColumn ? -1 : target > lastColumn ? 1 : 0;
+}
+
 }  // namespace OperatorTarget

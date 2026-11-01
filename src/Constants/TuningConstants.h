@@ -103,6 +103,15 @@ constexpr double VISION_READY_TOLERANCE_PX = 5.0;
 // the turret creeps in slowly or jitters on a still target. Separate from
 // VISION_kD (kept 0, pinned to the A5 bench's gains).
 constexpr double VISION_FRAME_kD = 0.0005;
+// Turret search (2026-11-01, Jeremy: after choosing 7 then 1 the turret
+// sometimes didn't move -- 1 out of view and not predicted, so nothing to
+// follow). With a hole chosen that is neither seen nor predicted, the
+// turret turns at SEARCH_COMMAND toward it (OperatorTarget::
+// searchDirection) until it shows up, then the PID takes over; at most
+// SEARCH_MAX_MS per choice. 0.3: above the ~0.16 the turret needs to move,
+// slow enough for the camera to pick holes up on the way.
+constexpr double SEARCH_COMMAND = 0.3;
+constexpr unsigned long SEARCH_MAX_MS = 3000;
 
 }
 

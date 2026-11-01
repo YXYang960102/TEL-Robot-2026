@@ -4,6 +4,7 @@
 #include "../Control/ServoPositionJog.h"
 #include "../Control/VisionFollowController.h"
 #include "../Sensors/TurretAngle.h"
+#include "../Vision/OperatorTarget.h"
 #include "../Vision/Vision.h"
 #include "TurretGuard.h"
 
@@ -20,6 +21,12 @@ VisionFollowController rotateVisionFollow(Rotate::VISION_FOLLOW);
 uint32_t angleJogLastMs = 0;
 TurretGuard turretGuard;
 bool turretReturnDone = false; // back at 0 once since power-up
+// Turret search (TuningConstants::Rotate::SEARCH_*): per hole choice.
+uint8_t searchSelection = 0;
+unsigned long searchStartMs = 0;
+bool searchFound = false;
+int8_t lastSeenColumn = -1;
+int8_t searchDir = 0;
 
 int commandToPulseUs(double command, const ServoMotorConfig& config) {
     command = constrain(command, -1.0, 1.0);
@@ -145,6 +152,10 @@ void Shooter::setOutputsEnabled(bool enabled) {
 
 void Shooter::requestTurretReturn() {
     if (TurretAngleConstants::GUARD_ENABLED) turretGuard.beginReturn();
+}
+
+int8_t Shooter::getSearchDirection() {
+    return searchDir;
 }
 
 uint8_t Shooter::getTurretState() {
@@ -308,9 +319,39 @@ void Shooter::updateRotate() {
         // is followed too, so the turret turns toward it, but it is never
         // a lock -- only the hole really in view can make the turret ready.
         const bool seen = Vision::isValid();
+        const bool predicted = Vision::isPredicted();
+        // Search (2026-11-01): a chosen hole neither seen nor predicted ->
+        // turn toward it until it is, for at most SEARCH_MAX_MS per choice.
+        const unsigned long now = millis();
+        const uint8_t selection = Vision::getSelectedTarget();
+        if (selection != searchSelection) {
+            searchSelection = selection;
+            searchStartMs = now;
+            searchFound = false;
+        }
+        if (seen) {
+            lastSeenColumn = static_cast<int8_t>(
+                OperatorTarget::columnOf(OperatorTarget::holeForVisionId(Vision::getTargetId())));
+        }
+        if (seen || predicted) searchFound = true;
+        searchDir = 0;
+        if (selection != OperatorTarget::NONE && !searchFound &&
+            now - searchStartMs < Rotate::SEARCH_MAX_MS) {
+            searchDir = OperatorTarget::searchDirection(
+                OperatorTarget::holeForVisionId(selection),
+                OperatorTarget::holesFromVisionMask(Vision::getSeenMask()), lastSeenColumn);
+        }
+        if (searchDir != 0) {
+            rotateReady = false;
+            rotateVisionFollow.reset();
+            // Right = TurretAngleConstants::RIGHT_COMMAND_SIGN (a target
+            // right of center gives a negative follow command).
+            driveRotate(searchDir * TurretAngleConstants::RIGHT_COMMAND_SIGN * Rotate::SEARCH_COMMAND);
+            return;
+        }
         const double command = rotateVisionFollow.update(
             Vision::getTx() + rotateAimOffsetPx,
-            seen || Vision::isPredicted(),
+            seen || predicted,
             Vision::getTargetId(),
             millis(),
             Vision::getFrameCount()); // frame-to-frame D (2026-11-01)

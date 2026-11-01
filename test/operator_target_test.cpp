@@ -57,6 +57,21 @@ int main() {
         }
         uint8_t out[OperatorTarget::MAX_CYCLE];
         assert(OperatorTarget::buildCycle(0, none, out) == 0 && OperatorTarget::buildCycle(13, none, out) == 0);
+        // Turret search direction (2026-11-01): from the holes in view, else
+        // the last locked column.
+        using OperatorTarget::searchDirection;
+        const uint16_t rightColumn = (1u << 7) | (1u << 8) | (1u << 9);
+        assert(searchDirection(1, rightColumn, -1) == -1);           // 7 8 9 seen, want 1: left
+        assert(searchDirection(2, (1u << 5), -1) == -1);
+        assert(searchDirection(8, (1u << 2) | (1u << 3), -1) == 1);  // left column seen, want 8: right
+        assert(searchDirection(5, (1u << 2) | (1u << 8), -1) == 0);  // between them: in view
+        assert(searchDirection(1, 0, 2) == -1 && searchDirection(9, 0, 0) == 1);
+        assert(searchDirection(5, 0, 1) == 0 && searchDirection(5, 0, -1) == 0);
+        assert(searchDirection(10, rightColumn, -1) == -1);          // Q is the left column too
+        assert(searchDirection(0, rightColumn, 2) == 0);
+        // The Orin's mask (bit vision id - 1) -> Dashboard holes.
+        assert(OperatorTarget::holesFromVisionMask((1u << (12 - 1)) | (1u << (2 - 1))) ==
+               ((1u << 7) | (1u << 11)));
         // An excluded pick -> the nearest allowed hole in its column.
         assert(OperatorTarget::nearestAllowedInColumn(4, bottom) == 5);
         assert(OperatorTarget::nearestAllowedInColumn(1, bottom) == 2);

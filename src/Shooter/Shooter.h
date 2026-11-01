@@ -74,6 +74,9 @@ public:
     // turret back to 0 deg; this asks for that again (wired RB).
     static void requestTurretReturn();
     static uint8_t getTurretState(); // TurretGuard::State
+    // Turret search toward a chosen hole out of view: -1 left, +1 right,
+    // 0 not searching (TuningConstants::Rotate::SEARCH_*).
+    static int8_t getSearchDirection();
 
     // Telemetry
     static int getAnglePulseUs();
