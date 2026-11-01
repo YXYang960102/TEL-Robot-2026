@@ -6701,3 +6701,40 @@ at a steady speed until 1 appears, then lock.
 - Too fast to detect → lower `SEARCH_COMMAND`.
 - Stalls → raise it.
 - Wrong way → report it (then `searchDirection` or the sign is wrong).
+
+## 2026-11-01 — Claude Code: turret vision-follow I three times faster (kI 0.03)
+
+**User Request:** in semi-auto the turret looked on target but the
+Dashboard said not ready for 3–5 s before it fired. Make the turret's
+integral faster first (the ready-tolerance stays 5 px; the left-right
+miss at 4.3–7 m is parked).
+
+**Discussion Result:** the turret needs ~0.16 to move. Stopped just outside
+the 5 px lock, e.g. 6 px off, P gives 0.01 × 6 = 0.06 and I must make up
+0.10. At kI 0.01 that is 0.10 / (0.01 × 6) = 1.7 s per side, and one
+overshoot doubles it, which matches 3–5 s. Not yet confirmed on the
+robot which ready bit was the one missing (turret / flywheel / elevation).
+
+**Changed:**
+- `TuningConstants::Rotate::VISION_kI` 0.01 → 0.03 (3× the A5 bench). The
+  comment explains why and how to back it off.
+- The I cap stays at 0.12: within ~4 px, P 0.04 + I 0.12 = 0.16, so the
+  turret still can't creep through center once locked.
+
+**Calculation:** 6 px off → P −0.06; I grows 0.03 × 6 = 0.18 /s → total
+reaches 0.16 after 0.10 / 0.18 = 0.56 s (was 1.7 s).
+
+**Tests adapted:** `vision_follow_controller_test` pins kI to 3× the bench;
+the frame-by-frame bench comparison uses the bench's own kI. A new block
+checks that the 6 px case passes 0.16 between 0.5 and 0.7 s.
+
+**Evidence:** vision_follow_controller, pidf_controller and manual_control
+(pin table confirmed) PASS. pio: all 9 environments SUCCESS (production
+RAM 49.7 %, flash 18.3 %). No hardware.
+
+**Next Test:** semi-auto, lock a hole at ~4–5 m, watch the Dashboard
+「發射條件」 line.
+- 轉台鎖定 should come within ~1 s of the turret looking on target.
+- If the turret now swings back and forth around center → lower to 0.02.
+- If the wait is still long but 轉台鎖定 is ✓ → it's 仰角到位 or 飛輪轉穩
+  (slew 400 µs/s, SPIN_UP_MS 1500), the next items to look at.

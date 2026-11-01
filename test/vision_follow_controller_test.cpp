@@ -41,7 +41,7 @@ int main() {
     {
         namespace B = VisionRotateBenchConstants;
         assert(near(VISION_kP, B::kP / 500.0));
-        assert(near(VISION_kI, B::kI / 500.0));
+        assert(near(VISION_kI, 3.0 * B::kI / 500.0));  // 3x since 2026-11-01
         assert(near(VISION_kD, B::kD / 500.0));
         assert(near(VISION_kIZONE_PX, B::kIZone));
         assert(near(VISION_MAX_COMMAND, B::PIDF_OUTPUT_LIMIT_US / 500.0));
@@ -131,9 +131,15 @@ int main() {
     }
 
     // Side by side with the bench state machine Jeremy tuned: same tx
-    // sequence at the bench's ~10 fps, production pulse == bench pulse.
+    // sequence at the bench's ~10 fps, production pulse == bench pulse,
+    // with the bench's own kI (production's is 3x since 2026-11-01).
     {
-        VisionFollowController prod(CONFIG);
+        namespace B = VisionRotateBenchConstants;
+        const VisionFollowConfig benchGains(
+            PidfConfig(VISION_kP, B::kI / 500.0, VISION_kD, VISION_kIZONE_PX, VISION_kFF),
+            VISION_MAX_COMMAND, VISION_MAX_INTEGRAL_COMMAND, VISION_READY_TOLERANCE_PX,
+            100, 100);
+        VisionFollowController prod(benchGains);
         VisionRotateBenchState bench;
         bench.command("E", 0);
         const int txs[] = {180, 150, 110, 80, 60, 40, 25, 18, 12, 8, 6, 5, 4, 3, 3, 2, 2, 1,
@@ -147,6 +153,17 @@ int main() {
             assert(diff >= -1 && diff <= 1);  // rounding only
             t += 100;
         }
+    }
+
+    // Faster I (2026-11-01): stopped 6 px off, P -0.06 alone is under the
+    // ~0.16 the turret needs; P + I passes it after ~0.6 s (was ~1.7 s).
+    {
+        VisionFollowController c(CONFIG);
+        unsigned long t = 0;
+        c.update(6.0, true, 1, t);
+        double cmd = 0.0;
+        while (fabs(cmd) < 0.16) { t += 10; cmd = c.update(6.0, true, 1, t); }
+        assert(t >= 500 && t <= 700);
     }
 
     // Frame-to-frame D (2026-11-01): only with frame numbers; the rate is

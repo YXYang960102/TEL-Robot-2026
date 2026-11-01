@@ -84,9 +84,16 @@ constexpr bool MANUAL_JOG_INVERTED = true;
 // Example: tx = 40 px -> -0.40 command -> 1300 us (tx > 0 drives below
 // 1500 us: the direction validated on the bench with this same servo and
 // mounting). test/vision_follow_controller_test.cpp pins these to the
-// bench constants, so the two can't drift apart silently.
+// bench constants, so the two can't drift apart silently -- except kI:
+// 0.03 since 2026-11-01 (3x the bench; Jeremy: in semi auto the turret
+// stopped a few px outside the 5 px lock and took 3-5 s to fire). The
+// turret needs ~0.16 to move; stopped 6 px off, P gives 0.06 and I has to
+// make up 0.10: at 0.01 that took 0.10 / (0.01 * 6) = 1.7 s per side, at
+// 0.03 it takes 0.6 s. The I cap (0.12) is unchanged, so within ~4 px
+// (P 0.04 + 0.12 = 0.16) the turret still can't creep and the lock holds.
+// Lower it back toward 0.01 if the turret now swings around center.
 constexpr double VISION_kP = 0.01;
-constexpr double VISION_kI = 0.01;
+constexpr double VISION_kI = 0.03;
 constexpr double VISION_kD = 0.0;
 constexpr double VISION_kIZONE_PX = 20.0;
 constexpr double VISION_kFF = 0.0;
