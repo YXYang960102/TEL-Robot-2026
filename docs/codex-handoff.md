@@ -6881,3 +6881,22 @@ edit), with a comment.
 - Fewer overshoots → keep it.
 - Jitter on a still target, or the turret creeps in slowly → back to
   0.0005.
+
+## 2026-11-02 — Claude Code: hardware feedback 11-01 and open items (no code)
+
+**Hardware (Jeremy):**
+- The stall-push pulse plus the I hold (152a39b) is "better" on the robot.
+- frame kD 0.0008 (b77bb4c) is not yet reported.
+- The Orin moved to 23–25 fps (YOLO main 7524bb36, capture in its own process). The turret gains are unchanged; no new swing so far.
+
+**Open / parked:**
+- **Left-right miss at 4.3–7.0 m when the turret has stopped** (parked by Jeremy). The pixel numbers say it is not resolution:
+  - 1 px is 0.4 cm at 4.3 m and 0.66 cm at 7 m (1280 px, ~0.054°/px);
+  - tx is in 1280 px (YOLO boxes are mapped back from 640);
+  - a still target jitters ±1 px.
+  - Suspected cause: camera-to-shooter alignment. Plan: measure the hand-jog aim offset at 4.3 / 5.5 / 7.0 m and fit `px = (θ + atan(b / d)) / 0.054°`, then add a fixed or distance-based aim bias, or a per-hole column in the shot table.
+- **Teammates' idea: a ±3 px lock** (`VISION_READY_TOLERANCE_PX` 5 → 3).
+  - It costs no fps. At 7 m the spread goes from ±3.3 to ±2.0 cm.
+  - Risk: inside 3 px, P 0.03 + I cap 0.12 < 0.16, so the lock relies on stall pulses and may hop across the band.
+  - Not decided.
+- dev → main merge is still outstanding (main b92078a).
