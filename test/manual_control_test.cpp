@@ -165,7 +165,7 @@ void testWiredRefusedWhileDisarmed() {
         assert(saw("REJECTED_DISARMED"));
     }
     runWithHeartbeat(2000);
-    // Disabled: D15 held HIGH, D22 LOW (and no trigger was counted).
+    // Disabled: A15 held HIGH, D22 LOW (and no trigger was counted).
     assert(!ManualControl::isArmed() && towerDisabled() && !triggerHigh());
     assert(nearly(rec.chassisLeft, 0.0) && nearly(rec.flywheelCommand, 0.0));
     assert(Dribbler::getTriggerCount() == 0);
@@ -364,13 +364,13 @@ void testDisarmCutsPulse() {
     assert(triggerHigh());
     send("X");
     step();
-    // Disabled: the pulse is cut (D22 LOW), D15 held HIGH from now on, and
+    // Disabled: the pulse is cut (D22 LOW), A15 held HIGH from now on, and
     // no new trigger is accepted.
     assert(!triggerHigh() && towerDisabled() && !Dribbler::isEnabled());
     const unsigned long count = Dribbler::getTriggerCount();
     runWithHeartbeat(300);
     assert(!triggerHigh() && towerDisabled() && Dribbler::getTriggerCount() == count);
-    // Enable again: D15 LOW, D22 idle LOW.
+    // Enable again: A15 LOW, D22 idle LOW.
     armWired();
     assert(!triggerHigh() && !towerDisabled() && Dribbler::isEnabled());
 }

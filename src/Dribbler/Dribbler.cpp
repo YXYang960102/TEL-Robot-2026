@@ -16,9 +16,9 @@ bool Dribbler::readyCounted = false;
 unsigned long Dribbler::readyHighSinceMs = 0;
 
 void Dribbler::init() {
-    // Boot = disabled: D15 HIGH, D22 LOW (DribblerConstants.h). Preload the
+    // Boot = disabled: A15 HIGH, D22 LOW (DribblerConstants.h). Preload the
     // levels before switching the pins to output. (Before this runs the
-    // pins float; D15's pull-up and D22's pull-down cover that.)
+    // pins float; A15's pull-up and D22's pull-down cover that.)
     enabled = false;
     writeDisable(true);
     writeTrigger(false);
@@ -32,7 +32,7 @@ void Dribbler::init() {
     pulseActive = false;
     everTriggered = false;
     triggerCount = 0;
-    // No ball until the tower's first D14 pulse.
+    // No ball until the tower's first A14 pulse.
     ballReady = false;
     loadedCount = 0;
     readyHigh = false;
@@ -98,7 +98,7 @@ bool Dribbler::requestFeed() {
     pulseActive = true;
     everTriggered = true;
     triggerCount++;
-    ballReady = false; // this ball is on its way; wait for the next D14 pulse
+    ballReady = false; // this ball is on its way; wait for the next A14 pulse
     writeTrigger(true);
     return true;
 }

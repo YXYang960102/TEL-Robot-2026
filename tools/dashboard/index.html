@@ -812,7 +812,7 @@
           <div class="metric"><div class="label">ty / 垂直偏差（視覺）</div><div class="value" id="controlTy">--</div></div>
           <div class="metric"><div class="label">wireless link / 無線狀態</div><div class="value" id="wirelessState">--</div><div class="subvalue" id="rfLinkState">ground station only / 僅接地面站時</div></div>
           <div class="metric"><div class="label">control owner / 控制權</div><div class="value" id="controlOwner">--</div></div>
-          <div class="metric"><div class="label">feed tower / 送球塔</div><div class="value" id="towerState">--</div><div class="subvalue">已裝＝D14 有球脈衝、已發射＝D22 發射次數（按 Y 歸零）；只是塔的 nano 回報，不是球的感測器</div></div>
+          <div class="metric"><div class="label">feed tower / 送球塔</div><div class="value" id="towerState">--</div><div class="subvalue">已裝＝A14 有球脈衝、已發射＝D22 發射次數（按 Y 歸零）；只是塔的 nano 回報，不是球的感測器</div></div>
           <div class="metric"><div class="label">auto path / 本次啟用的自動路徑</div><div class="value" id="autoPath">未啟動 / not started</div><div class="subvalue" id="autoPathsUsed">--</div></div>
           <div class="metric"><div class="label">left / right pulse / 左右輪脈衝</div><div class="value" id="chassisPulses">--</div></div>
           <div class="metric"><div class="label">gamepad / 手把</div><div class="value" id="gamepadState">none / 未連接</div><div class="subvalue" id="gamepadInputs">按手把任一鍵讓瀏覽器偵測</div></div>
@@ -1955,12 +1955,12 @@
         // Slot 58 (2026-11-01): turret searching for the chosen hole out of
         // view (-1 left, +1 right, 0 no).
         searchDir: p.length > 58 ? Number(p[58]) : NaN,
-        // Slots 59-60 (2026-11-07): a D14 ball-ready pulse since the last
+        // Slots 59-60 (2026-11-07): a A14 ball-ready pulse since the last
         // shot (1 = a ball is ready) and whether firing waits for it
         // (READY_REQUIRED, every mode).
         towerReady: p.length > 59 ? Number(p[59]) : NaN,
         towerRequired: p.length > 60 ? Number(p[60]) : NaN,
-        // Slot 61 (2026-11-07): D14 ball-ready pulses since boot.
+        // Slot 61 (2026-11-07): A14 ball-ready pulses since boot.
         loadedCount: p.length > 61 ? Number(p[61]) : NaN
       };
     }
@@ -2083,7 +2083,7 @@
     // waits for, so a test shows which one never comes.
     function renderReady(data) {
       if (!Number.isFinite(data.readyBits)) return;
-      // The tower's ball latch (D14), shown in every mode so the wiring can
+      // The tower's ball latch (A14), shown in every mode so the wiring can
       // be checked.
       const towerText = Number.isFinite(data.towerReady)
         ? `送球塔 ${data.towerReady === 1 ? "有球" : "沒球"}` +
@@ -2103,7 +2103,7 @@
     }
 
     // Feed tower readout: lockout, balls loaded / shots sent since the last
-    // Y, the ball latch and the D15 disable line.
+    // Y, the ball latch and the A15 disable line.
     function renderTower() {
       if (tower.busy === null) return;
       const parts = [tower.busy ? "冷卻中" : "可觸發"];
@@ -2120,7 +2120,7 @@
       if (Number.isFinite(tower.ballReady)) {
         parts.push((tower.ballReady === 1 ? "有球" : "沒球") + (tower.required === 1 ? "" : "（未啟用等球）"));
       }
-      if (tower.enabled !== null) parts.push(`D15 ${tower.enabled ? "啟用 LOW" : "停用 HIGH"}`);
+      if (tower.enabled !== null) parts.push(`A15 ${tower.enabled ? "啟用 LOW" : "停用 HIGH"}`);
       el.towerState.textContent = parts.join(" · ");
     }
 
