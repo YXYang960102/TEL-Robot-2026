@@ -61,11 +61,14 @@ void Dribbler::pollReady() {
         readyHigh = true;
         readyHighSinceMs = now;
     }
-    // One count per pulse, once it has lasted READY_MIN_HIGH_MS.
+    // One count per pulse, once it has lasted READY_MIN_HIGH_MS -- and only
+    // for a new ball: the Nano repeats the pulse on every Enable while the
+    // same ball still sits there (the latch survives a disable), which must
+    // not count it twice (Jeremy, 2026-11-07).
     if (!readyCounted && now - readyHighSinceMs >= Tower::READY_MIN_HIGH_MS) {
         readyCounted = true;
+        if (!ballReady) loadedCount++;
         ballReady = true;
-        loadedCount++;
     }
 }
 

@@ -1087,9 +1087,11 @@
       if (!controlArmed || matchStarted) return;
       matchStarted = true;
       matchEndsAt = performance.now() + MATCH_MS;
-      // Ball counts start over with each match.
+      // Ball counts start over with each match. The ball already waiting at
+      // the shooting position (the tower preloads before Y) counts as the
+      // match's first loaded ball.
       if (Number.isFinite(tower.loaded) && Number.isFinite(tower.fired)) {
-        ballsBase = { loaded: tower.loaded, fired: tower.fired };
+        ballsBase = { loaded: tower.loaded - (tower.ballReady === 1 ? 1 : 0), fired: tower.fired };
         renderTower();
       }
       // A stick held while pressing Y must not drive: center it once.

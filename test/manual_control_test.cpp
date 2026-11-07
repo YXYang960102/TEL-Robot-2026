@@ -607,7 +607,8 @@ rcmap_aim lastAim() {
 
 void testAimUplink() {
     reset();
-    // Status, aim, status, vision, seen (2026-10-27); one line per 100 ms.
+    // Status, aim, status, vision, seen (2026-10-27), balls (2026-11-07);
+    // one line per 100 ms.
     step(100);
     assert(rec.statusCount == 1 && rec.aimCount == 0 && rec.visionCount == 0);
     step(100);
@@ -618,8 +619,11 @@ void testAimUplink() {
     assert(rec.statusCount == 2 && rec.aimCount == 1 && rec.visionCount == 1);
     step(100);
     assert(rec.seenCount == 1 && rec.statusCount == 2);
-    for (int i = 0; i < 7; i++) step(100);
-    assert(rec.statusCount == 5 && rec.aimCount == 3 && rec.visionCount == 2 && rec.seenCount == 2);
+    step(100);
+    assert(rec.ballsCount == 1 && rec.statusCount == 2 && rec.visionCount == 1);
+    for (int i = 0; i < 6; i++) step(100);
+    assert(rec.statusCount == 4 && rec.aimCount == 2 && rec.visionCount == 2 && rec.seenCount == 2 &&
+           rec.ballsCount == 2);
     {
         rcmap_status st = {};
         st.event_code = rec.seenCode;
@@ -642,13 +646,15 @@ void testAimUplink() {
     send("ROT,1"); step();
     hoststub::visionTx = -80.0;           // let go with the hole 80 px left
     send("ROT,0"); step();
-    runWithHeartbeat(550);                // an aim frame every 500 ms (5 slots)
+    // An aim frame every 600 ms (6 slots since 2026-11-07): run two periods,
+    // so the last frame went out after the 0.3 s lock-in of the offset.
+    runWithHeartbeat(1250);
     a = lastAim();
     // The elevation servo's pulse when the frame went out (Auto slews it
     // toward the table, so it may trail the current one by one aim period).
     assert(a.distance_cm == 352);
     assert(abs(static_cast<int>(a.elevation_pulse_us) - hoststub::anglePulseUs) <=
-           static_cast<int>(TuningConstants::Auto::ELEVATION_SLEW_US_PER_SECOND * 0.51) + 1);
+           static_cast<int>(TuningConstants::Auto::ELEVATION_SLEW_US_PER_SECOND * 0.61) + 1);
     assert(a.selected_id == 10 && a.target_id == 10 && a.valid);
     assert(a.aim_offset_px == 20);        // +80 px in 4 px units (2026-10-30)
     hoststub::visionTx = 0.0;
@@ -670,7 +676,7 @@ rcmap_vision lastVision() {
 
 void testVisionUplink() {
     reset();
-    for (int i = 0; i < 5; i++) step(100);   // one vision frame per 5 slots
+    for (int i = 0; i < 6; i++) step(100);   // one vision frame per 6 slots
     // Nothing in view: zeros, not valid.
     rcmap_vision v = lastVision();
     assert(!v.valid && v.tx_px == 0.0f && v.ty_px == 0.0f);
@@ -681,13 +687,13 @@ void testVisionUplink() {
     hoststub::visionTargetId = 10;
     hoststub::visionTx = -62.4;           // -> -62.5 (0.5 px steps)
     hoststub::visionTy = 20.5;
-    for (int i = 0; i < 5; i++) step(100);   // one vision frame per 5 slots
+    for (int i = 0; i < 6; i++) step(100);   // one vision frame per 6 slots
     v = lastVision();
     assert(v.valid && v.target_id == 10);
     assert(v.tx_px == -62.5f && v.ty_px == 20.5f);
     // Lost target: tx / ty back to 0 (not a stale value).
     hoststub::visionValid = false;
-    for (int i = 0; i < 5; i++) step(100);   // one vision frame per 5 slots
+    for (int i = 0; i < 6; i++) step(100);   // one vision frame per 6 slots
     v = lastVision();
     assert(!v.valid && v.tx_px == 0.0f);
     hoststub::visionTx = 0.0;
