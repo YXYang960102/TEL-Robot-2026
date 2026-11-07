@@ -32,6 +32,12 @@ public:
     static bool isBusy();
     static unsigned long getTriggerCount();
 
+    // Tower's "ball ready" line (Tower::READY_PIN) is HIGH. towerAllowsShot()
+    // is what full auto waits for: always true while Tower::READY_REQUIRED
+    // is false.
+    static bool isTowerReady();
+    static bool towerAllowsShot();
+
 private:
     static void writeLine(bool active);
 

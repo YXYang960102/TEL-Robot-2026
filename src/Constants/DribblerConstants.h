@@ -33,6 +33,16 @@ constexpr unsigned long PULSE_MS = 100;
 // queued. PROVISIONAL starting value: the tower's real cycle time hasn't
 // been measured -- tune on the robot.
 constexpr unsigned long COOLDOWN_MS = 1000;
+
+// "Ball ready" line from the tower (Jeremy, 2026-11-07): A1 (= digital 55
+// on the Mega), held HIGH while the tower has a ball ready to shoot, LOW
+// otherwise. Wire a 10k pull-down from A1 to GND and share the tower's
+// ground, so a loose wire reads LOW = not ready. Only full auto waits for
+// it; semi auto, full manual and test fire regardless.
+constexpr uint8_t READY_PIN = 55; // A1
+// false = the line is only shown on the Dashboard (TEL slot 59), full auto
+// fires as before. Set true once the Dashboard shows the right level.
+constexpr bool READY_REQUIRED = false;
 }
 
 static_assert(Tower::COOLDOWN_MS >= Tower::PULSE_MS,

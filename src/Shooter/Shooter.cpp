@@ -52,7 +52,10 @@ double Shooter::rotateAimOffsetPx = 0.0;
 double Shooter::angleManualCommand = 0.0;
 double Shooter::rotateManualCommand = 0.0;
 double Shooter::flywheelOpenLoopCommand = 0.0;
-int Shooter::anglePulseUs = Angle::MOTOR.neutralUs;
+// Positional: the boot target (POSITION_INITIAL_US), so the Dashboard and
+// Auto's slew start from the pulse the first Enable will send.
+int Shooter::anglePulseUs = Angle::POSITION_SERVO ? static_cast<int>(Angle::POSITION_INITIAL_US + 0.5)
+                                                  : Angle::MOTOR.neutralUs;
 int Shooter::rotatePulseUs = Rotate::MOTOR.neutralUs;
 int Shooter::flywheelPulseUs = Flywheel::MOTOR.neutralUs;
 unsigned long Shooter::flywheelSpinStartMs = 0;

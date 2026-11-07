@@ -796,7 +796,7 @@
           <div class="metric"><div class="label">target hole / 目標洞（1–9）</div><div class="value" id="targetHole">none / 未選</div>
             <div class="subvalue" id="aimState">--</div></div>
           <div class="metric"><div class="label">Falcon PWM / 飛輪 PWM</div><div class="value" id="falconPwm">--</div><div class="subvalue">command ratio, not RPM / 指令佔比，非轉速</div></div>
-          <div class="metric"><div class="label">elevation pulse / 仰角脈寬</div><div class="value" id="anglePulse">--</div><div class="subvalue">500–2500 us, no limit switch / 無限位，量機構兩端</div></div>
+          <div class="metric"><div class="label">elevation pulse / 仰角脈寬</div><div class="value" id="anglePulse">--</div><div class="subvalue">765–2500 us, no limit switch / 無限位，量機構兩端</div></div>
           <div class="metric"><div class="label">wireless link / 無線狀態</div><div class="value" id="wirelessState">--</div><div class="subvalue" id="rfLinkState">ground station only / 僅接地面站時</div></div>
           <div class="metric"><div class="label">control owner / 控制權</div><div class="value" id="controlOwner">--</div></div>
           <div class="metric"><div class="label">feed tower / 送球塔</div><div class="value" id="towerState">--</div><div class="subvalue">trigger pulses sent, no ball sensor / 已送觸發次數，無球感測</div></div>
@@ -1338,7 +1338,7 @@
 
     // S: the point, or null (and the reason in the log). Same ranges as
     // tools/shot_table/apply.py: hole 1-9, 0.5-15 m in whole cm, elevation
-    // 500-2500 us, flywheel 0-100% with at most one decimal.
+    // 765-2500 us, flywheel 0-100% with at most one decimal.
     function recordShot() {
       const now = performance.now();
       const refuse = (why) => { appendControlLog(`S 沒有記錄 / not recorded：${why}`); return null; };
@@ -1362,7 +1362,7 @@
       }
       if (now - shotElevationAt > SHOT_READING_FRESH_MS) return refuse("收不到仰角脈寬");
       const elevationUs = Math.round(shotElevationUs);
-      if (elevationUs < 500 || elevationUs > 2500) return refuse(`仰角 ${elevationUs} us 不在 500–2500 內`);
+      if (elevationUs < 765 || elevationUs > 2500) return refuse(`仰角 ${elevationUs} us 不在 765–2500 內`);
       const falconFresh = now - shotFalconAt <= SHOT_READING_FRESH_MS;
       const actualPct = falconFresh ? Math.abs(shotFalconUs - 1500) / 5 : NaN;
       let flywheelPct;
@@ -1893,7 +1893,9 @@
         // since boot (bad "*HH" check / malformed). Should stay near 0.
         rcRejectedLines: p.length > 39 ? Number(p[39]) : NaN,
         // Slots 40-41 (2026-10-27): why the autos can't fire yet (bits: 1
-        // turret locked, 2 flywheel spun up, 4 shot for this hole, 8 READY)
+        // turret locked, 2 flywheel spun up, 4 shot for this hole, 8 READY,
+        // 16 elevation at the table pulse, 32 tower ready / not required /
+        // not full auto)
         // and the steadied shot distance (cm, 0 = none).
         readyBits: p.length > 40 ? Number(p[40]) : NaN,
         shotDistanceCm: p.length > 41 ? Number(p[41]) : NaN,
@@ -1924,7 +1926,11 @@
         litPriority: p.length > 57 ? Number(p[57]) : NaN,
         // Slot 58 (2026-11-01): turret searching for the chosen hole out of
         // view (-1 left, +1 right, 0 no).
-        searchDir: p.length > 58 ? Number(p[58]) : NaN
+        searchDir: p.length > 58 ? Number(p[58]) : NaN,
+        // Slots 59-60 (2026-11-07): the tower's ball-ready line A1 (1 HIGH)
+        // and whether full auto waits for it (READY_REQUIRED).
+        towerReady: p.length > 59 ? Number(p[59]) : NaN,
+        towerRequired: p.length > 60 ? Number(p[60]) : NaN
       };
     }
 
@@ -2046,8 +2052,13 @@
     // waits for, so a test shows which one never comes.
     function renderReady(data) {
       if (!Number.isFinite(data.readyBits)) return;
+      // The tower's A1 line, shown in every mode so the wiring can be checked.
+      const tower = Number.isFinite(data.towerReady)
+        ? `送球塔 A1 ${data.towerReady === 1 ? "HIGH（有球）" : "LOW（沒球）"}` +
+          (data.towerRequired === 1 ? "" : "（未啟用）")
+        : "";
       if (operatorMode !== 0 && operatorMode !== 1) {
-        el.boardReady.textContent = "發射條件：只在半自動／全自動時判斷";
+        el.boardReady.textContent = "發射條件：只在半自動／全自動時判斷" + (tower ? ` · ${tower}` : "");
         return;
       }
       const b = data.readyBits;
@@ -2055,7 +2066,8 @@
       const shot = data.shotDistanceCm > 0 ? `${(data.shotDistanceCm / 100).toFixed(2)} m` : "--";
       // Bit 16 (2026-10-31): the elevation has reached the table's pulse.
       el.boardReady.textContent = `發射條件：轉台鎖定 ${mark(1)} · 飛輪轉穩 ${mark(2)} · 有射擊值 ${mark(4)}` +
-        ` · 仰角到位 ${mark(16)} · ${b & 8 ? "可發射" : "等待中"} · 射擊距離（穩定後）${shot}`;
+        ` · 仰角到位 ${mark(16)}` + (data.towerRequired === 1 && operatorMode === 0 ? ` · 塔 ready ${mark(32)}` : "") +
+        ` · ${b & 8 ? "可發射" : "等待中"} · 射擊距離（穩定後）${shot}` + (tower ? ` · ${tower}` : "");
     }
 
     // Turret AS5600 (TEL slots 42-44, src/Sensors/TurretAngle.h status bits).

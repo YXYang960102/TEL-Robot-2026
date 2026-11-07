@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 
+#include "../Constants/ShooterConstants.h"
 #include "../Constants/TuningConstants.h"
 #include "../Control/ShotDistanceFilter.h"
 #include "../Control/ShotTableLookup.h"
@@ -340,7 +341,12 @@ void Auto::update() {
         if (TuningConstants::ShotTable::ELEVATION_MEASURED) {
             // Toward the target at ELEVATION_SLEW_US_PER_SECOND, not a jump
             // (current limiting, 2026-10-18).
-            const double targetUs = lastShotElevationUs + ManualControl::getElevationOffsetUs();
+            // Kept inside the servo's range (2026-11-07: MIN 765 us; the
+            // table still holds 500 us points). Unclamped, the servo would
+            // stop at 765 and "elevation arrived" (10 us) never come.
+            const double targetUs = constrain(lastShotElevationUs + ManualControl::getElevationOffsetUs(),
+                                              static_cast<double>(ShooterConstants::Angle::MIN_PULSE_US),
+                                              static_cast<double>(ShooterConstants::Angle::MAX_PULSE_US));
             unsigned long elapsed = now - lastElevationSlewMs;
             if (elapsed > 100) elapsed = 100;
             const double maxStep = TuningConstants::Auto::ELEVATION_SLEW_US_PER_SECOND * elapsed / 1000.0;
@@ -373,8 +379,11 @@ void Auto::update() {
         aimChangedMs = now;
     }
     const bool settledOnHole = now - aimChangedMs >= TuningConstants::Auto::AIM_SWITCH_SETTLE_MS;
+    // The tower's ball-ready line (A1), once Tower::READY_REQUIRED is on.
+    // Full auto only (Jeremy, 2026-11-07): semi auto fires without it.
+    const bool towerReady = mode != OperatorMode::FULL_AUTO || Dribbler::towerAllowsShot();
     const bool ready = Shooter::isReady() && shotAvailable && elevationArrived && holeAllowed &&
-                       settledOnHole;
+                       settledOnHole && towerReady;
     bool fired = false;
 
     if (fireState == FireState::IDLE) {
@@ -410,7 +419,8 @@ void Auto::update() {
                                      (Shooter::isFlywheelReady() ? 2u : 0u) |
                                      (shotAvailable ? 4u : 0u) |
                                      (fireState == FireState::READY ? 8u : 0u) |
-                                     (elevationArrived ? 16u : 0u));
+                                     (elevationArrived ? 16u : 0u) |
+                                     (towerReady ? 32u : 0u));
 
     // Semi-auto F while not ready (still aiming / spinning up / cooling
     // down) is refused, not queued: the operator presses again.

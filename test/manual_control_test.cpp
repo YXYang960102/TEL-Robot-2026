@@ -14,6 +14,7 @@
 //   -DTEL_HOST_TEST_PIN_TABLE_CONFIRMED=true   -> full armed-path suite
 //   -DTEL_HOST_TEST_PIN_TABLE_CONFIRMED=false  -> pin-table gate only
 //   (without it, like the firmware since 2026-10-16: armed suite)
+#include <algorithm>
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -128,6 +129,13 @@ bool saw(const std::string& event) {
 }
 
 [[maybe_unused]] bool nearly(double a, double b) { return fabs(a - b) < 1e-6; }
+
+// Where Auto drives the elevation for a table point: its pulse kept inside
+// the servo's range (2026-11-07: MIN 765 us; the table's 500 us points).
+[[maybe_unused]] double tableUs(const ShotTableLookup::Result& shot) {
+    return std::min(std::max(shot.elevationPulseUs, static_cast<double>(ShooterConstants::Angle::MIN_PULSE_US)),
+                    static_cast<double>(ShooterConstants::Angle::MAX_PULSE_US));
+}
 
 // The operator's turret jog direction (TuningConstants::Rotate::
 // MANUAL_JOG_INVERTED, flipped after the 2026-10-17 robot test): ROT +1 /
@@ -781,14 +789,14 @@ void testSemiAutoFiresOnlyWhenReady() {
     // pulse (400 us/s): refused (2026-10-31).
     hoststub::shooterReady = true;
     step();
-    if (fabs(hoststub::anglePulseUs - shot.elevationPulseUs) >
+    if (fabs(hoststub::anglePulseUs - tableUs(shot)) >
         TuningConstants::Auto::ELEVATION_READY_TOLERANCE_US) {
         Serial.output.clear();
         send("F"); step();
         assert(saw("FIRE_NOT_READY") && !triggerHigh());
     }
     runArmed(6000);
-    assert(fabs(hoststub::anglePulseUs - shot.elevationPulseUs) <=
+    assert(fabs(hoststub::anglePulseUs - tableUs(shot)) <=
            TuningConstants::Auto::ELEVATION_READY_TOLERANCE_US);
     // Locked, spun up, elevation there: F fires exactly one ball.
     Serial.output.clear();
@@ -817,7 +825,7 @@ void testFullAutoFiresByItself() {
     hoststub::shooterReady = true;
     ShotTableLookup::Result shot = {0.0, 0.0};
     assert(ShotTableLookup::lookupTarget(hoststub::visionTargetId, 4.0, shot));
-    while (fabs(hoststub::anglePulseUs - shot.elevationPulseUs) >
+    while (fabs(hoststub::anglePulseUs - tableUs(shot)) >
            TuningConstants::Auto::ELEVATION_READY_TOLERANCE_US + 50.0) {
         assert(shotsDuring(100) == 0);
     }
@@ -1039,9 +1047,9 @@ void testElevationTargetCommands() {
     assert(rec.anglePulseSets > 0 && fabs(rec.anglePulseUs - startUs) > 0.0);
     assert(fabs(rec.anglePulseUs - startUs) <=
            TuningConstants::Auto::ELEVATION_SLEW_US_PER_SECOND * 0.31 + 1.0);
-    assert(fabs(rec.anglePulseUs - startUs) < fabs(expected.elevationPulseUs - startUs));
+    assert(fabs(rec.anglePulseUs - startUs) < fabs(tableUs(expected) - startUs));
     runArmed(3000);                                       // ...then arrives
-    assert(nearly(rec.anglePulseUs, expected.elevationPulseUs));
+    assert(nearly(rec.anglePulseUs, tableUs(expected)));
     Serial.output.clear();
     send("ANGT,100"); step();
     assert(saw("REJECTED_AUTO_MODE"));

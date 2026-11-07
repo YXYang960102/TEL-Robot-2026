@@ -14,8 +14,10 @@ int main() {
     using namespace ShooterConstants;
 
     // Provisional calibration = the servo spec: 500 us = 0 deg, 2500 us = 270 deg.
+    // The travel starts at MIN_PULSE_US 765 (2026-11-07), so 0 deg clamps
+    // there and the lowest reachable angle is 265 * 270 / 2000 = 35.775 deg.
     const ServoAngleMap& m = Angle::ANGLE_MAP;
-    assert(near(m.toPulse(0.0), 500.0));
+    assert(near(m.toPulse(0.0), 765.0));
     assert(near(m.toPulse(270.0), 2500.0));
     assert(near(m.toPulse(135.0), 1500.0));          // middle = neutral
     assert(near(m.toPulse(45.0), 500.0 + 45.0 * 2000.0 / 270.0));
@@ -24,7 +26,7 @@ int main() {
     // Out of range clamps to the pulse limits (= the servo's ends).
     assert(near(m.toPulse(-20.0), Angle::MIN_PULSE_US));
     assert(near(m.toPulse(400.0), Angle::MAX_PULSE_US));
-    assert(near(m.minDegrees(), 0.0) && near(m.maxDegrees(), 270.0));
+    assert(near(m.minDegrees(), 35.775) && near(m.maxDegrees(), 270.0));
 
     // A real elevation calibration, e.g. level (0 deg) at 1900 us and the
     // top stop (60 deg) at 1100 us -- mounted so a higher angle is a

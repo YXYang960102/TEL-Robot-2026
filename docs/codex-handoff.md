@@ -6900,3 +6900,263 @@ edit), with a comment.
   - Risk: inside 3 px, P 0.03 + I cap 0.12 < 0.16, so the lock relies on stall pulses and may hop across the band.
   - Not decided.
 - dev → main merge is still outstanding (main b92078a).
+
+## 2026-11-07 — Claude Code: auto shot spacing 300 → 1300 ms
+
+**User Request (Jeremy):** In auto, after each ball sent, wait 1.3 s before
+the next. With flywheel and elevation already there, the next ball went out
+as soon as the turret's lock read true, while it was still moving.
+
+**Discussion Result:** The lock is judged on the camera's tx, which reaches
+the Mega 70–100 ms late, so it can read "locked" mid-move. A longer gap is
+the quick fix. The root fix (AS5600 tx estimate between frames) is queued
+for later.
+
+**Changed:** `TuningConstants::Auto::COOLDOWN_MS` 300 → 1300, with a
+comment. Semi and full auto both use it. Unchanged: after the cooldown,
+firing still needs lock, flywheel, elevation and the 500 ms aim-switch
+settle.
+
+**Calculation:** shot spacing = max(1300, tower lockout 1000) = 1.3 s plus
+time to re-lock. 3 balls/hole ≈ 4 s instead of ≈ 3 s; a 27-ball cycle is
+≈ 8 s longer.
+
+**Evidence:** pio megaatmega2560 SUCCESS. No hardware.
+
+**Next Test:** full auto at one hole: the turret should be still when each
+ball leaves. Still firing mid-move → the lock itself is too loose (the AS5600
+estimate item).
+
+## 2026-11-07 — Claude Code: auto paths drive (open loop, timed)
+
+**User Request (Jeremy):** The four paths from the 2026 report (left 1 /
+right 1 diagonal to the middle, left 2 / right 2 forward then turn). Pick
+full auto, pick the path, start; shoot only at the end. While driving the
+turret and elevation may aim, the flywheel stays off. No path = shoot in
+place as now. The robot has no IMU and no encoder; it starts facing the grid.
+
+**Discussion Result (Jeremy's answers):**
+- All four paths end turned back to face the grid (turret right limit +38.5°).
+- Right paths: turret held at 0° until the target hole is seen.
+- Stick during a path: the path stops and the mode becomes semi auto.
+- Paths run only in semi / full auto. **Superseded the same day (Jeremy):
+  full auto only** — refused in semi auto, and switching to semi mid-path
+  stops it (the stick takeover still ends in semi).
+
+**Changed:**
+- `ManualControl::requestAutoPath` starts `AutoPath` (refused outside the
+  autos). `applyOutputs` gives the chassis to the path while it runs; it
+  aborts on a mode outside the autos, or on a stick past
+  `STICK_TAKEOVER` → `setOperatorMode(SEMI_AUTO)` + `pathStickSemi`.
+- Wireless: `pathStickSemi` keeps semi while CH4 still says full auto;
+  any other CH4 mode clears it. Wired `MODE,n` clears it.
+- Enable / disarm: `AutoPath::reset()`.
+- `Auto`: flywheel 0 and no fire while the path runs (`readyBits` bit 32);
+  right paths `disableRotate()` until `Vision::isValid()` once.
+- Telemetry slots 59–60: path state (0 none, 1 driving, 2 done, 3
+  aborted), move index.
+- Dashboard: shows the path state; when the robot reports semi after a
+  takeover it sends `MODE,1`, so the ground's CH4 follows (otherwise a
+  later X → `MODE,0` would be a no-op at the ground and the robot would stay
+  semi).
+- Existing `test/manual_control_test.cpp` adjusted (send an auto mode before
+  AUTO); `test/README` build line gains `src/Auto/AutoPath.cpp`.
+
+**Added:** `src/Auto/AutoPath.h/.cpp`; `TuningConstants::AutoPath`.
+No new rcmap events and no channel change, so the ground and robot bridge
+images need no reflash.
+
+**Calculation:** move time = distance / rate.
+- Field drawing: left 1 = 160 cm across, 240 cm up → 288 cm at 34°.
+  Left 2 = 365 cm up, then 160 cm across.
+- Provisional rates, set high on purpose so the robot stops short: 120 cm/s
+  at 0.40, 180 °/s at 0.35.
+- Left 2 = 3042 ms → 300 → 500 → 300 → 1333 → 300 → 500 → 300 = 6.58 s.
+  Host simulation shows the same moves.
+
+**Evidence:**
+- pio megaatmega2560 SUCCESS (RAM 51.6 %).
+- manual_control_test passes in all three variants.
+- Dashboard page/control tests pass.
+- Scratch simulation (not in the repo): path moves, wired and wireless
+  stick takeover → semi, CH4 semi → full clears, disarm resets.
+- No hardware yet.
+
+**Next Test (robot on blocks first, then field):**
+1. On blocks, wired, full auto + left 2: wheels follow the 4 moves; the
+   Dashboard shows 行駛中 → 已到點; the flywheel starts only after.
+2. Calibrate: drive 2 s straight / pivot 2 s, set `DRIVE_CM_PER_S` /
+   `TURN_DEG_PER_S`. Check the field distances against the real field.
+3. Stick mid-path → stops, semi; X → full auto again (wireless too).
+4. Right 1 / right 2: the turret stays at 0 until the hole is seen.
+
+## 2026-11-07 — Claude Code: both 11-07 changes reverted (Jeremy)
+
+Jeremy asked to revert everything from today before it was committed or
+flashed. **The two 2026-11-07 entries above are withdrawn**:
+- `Auto::COOLDOWN_MS` is back to 300.
+- The auto-path driving is removed: `AutoPath` is gone, and CH8 / `AUTO,n` is
+  record-only again.
+- Every file is back to 8326923; only this log keeps the notes.
+
+The design and Jeremy's answers in those entries stay as reference in case
+the work is picked up again: full auto only, all paths end facing the grid,
+right paths hold the turret until a hole is seen, stick → semi auto.
+
+## 2026-11-07 — Claude Code: elevation travel 765–2500 us
+
+**User Request (Jeremy):** Set the elevation limits to 765–2500 us.
+
+**Discussion Result:** 19 shot-table points are below 765 (hole 4 all at
+500; hole 5 655 / 500; hole 6 560 / 500). Clamped, the servo would sit at
+765 while Auto waited for "elevation arrived" (±10 us of 500) forever, so
+those distances would never fire. Jeremy chose: clamp Auto's target in code,
+leave the table as it is.
+
+**Changed:**
+- `ShooterConstants::Angle::MIN_PULSE_US` 500 → 765 (MAX stays 2500). The
+  jog, ANGT, Servo::attach and the Dashboard slider range all follow it.
+- `Auto`: the table target (+ fine-adjust) is `constrain`ed to MIN..MAX
+  before the slew and the arrived check.
+- `tools/shot_table/apply.py` (check, chart axis, Excel validation, help),
+  its README, and the Dashboard S-record check / pulse label: 765–2500.
+- Existing tests updated for the clamp: `manual_control_test` uses
+  `tableUs()`; `servo_angle_map_test` 0° → 765 us, min angle 35.775°.
+
+**Calculation:** angle map unchanged (500 us = 0°, 2500 = 270°): 765 us =
+(765 − 500) × 270 / 2000 = 35.775° servo angle — the new lowest.
+
+**Evidence:**
+- pio megaatmega2560 SUCCESS.
+- manual_control_test passes in all 3 variants.
+- servo_angle_map_test, shot_table_lookup_test and both Dashboard tests pass.
+- `apply.py --check` now refuses the 19 points below 765, as intended. Fix
+  them in shot_table.xlsx before the next import.
+
+**Next Test:** jog the elevation fully down: it must stop at 765 us. Then in
+full auto at hole 4 (table 500 us) it must fire with the elevation at 765.
+Shots there may land differently, since the table was measured at 500.
+
+## 2026-11-07 — Claude Code: elevation boot pulse 1500 → 2500 us
+
+**User Request (Jeremy):** Enable sends the elevation to 1500 us; make it
+2500.
+
+**Changed:**
+- `ShooterConstants::Angle::POSITION_INITIAL_US` 1500 → 2500, plus a
+  static_assert that it lies inside MIN..MAX.
+- `Shooter::anglePulseUs` now starts at that value for the positional servo,
+  not at 1500 neutral. TEL / the Dashboard and Auto's slew start therefore
+  start from the pulse the first Enable sends.
+
+**Impact:**
+- Only the first Enable after boot goes to 2500, because the servo attaches
+  on the first jog / hold.
+- A disable keeps the target (detach, no pulse), so later Enables resume
+  where the elevation was. Unchanged.
+- With the mechanism at the other end, the first Enable swings it the whole
+  way at the servo's own speed, with no slew. Same as before, just from
+  1500 → 2500.
+
+**Evidence:** pio megaatmega2560 SUCCESS. Shooter.cpp is not in any host
+test. No hardware.
+
+**Next Test:** power on, Enable: the Dashboard elevation pulse reads 2500
+and the mechanism goes to its 2500 end without stalling against a stop.
+Disable, jog, re-Enable: it keeps the jogged pulse.
+
+## 2026-11-07 — Claude Code: feed tower "ball ready" line on A1 (autos only, off by default)
+
+**User Request (Jeremy):** the feed tower may send a HIGH to the Mega, and
+the shooter may fire only after it arrives.
+
+**Discussion Result (Jeremy's answers):**
+- Pin A1.
+- Steady HIGH = a ball is ready; the Mega reads the level.
+- Only full auto and semi auto wait for it. Full manual and test still fire
+  on F.
+- Behind a switch that is off by default.
+
+**Changed:**
+- `DribblerConstants::Tower`: `READY_PIN = 55` (A1) and
+  `READY_REQUIRED = false`.
+- `Dribbler::init()` sets A1 to INPUT. `isTowerReady()` = A1 HIGH;
+  `towerAllowsShot()` = `!READY_REQUIRED || isTowerReady()`.
+- `Auto`: `ready` also needs `towerAllowsShot()`. readyBits bit 32 = tower
+  ready (or not required). Semi-auto F while not ready answers
+  FIRE_NOT_READY (existing event), so ground and bridge need no reflash.
+- `main.cpp` pincheck: an input may not share a pin with an output or a
+  serial pin.
+- Telemetry slots 59-60: A1 level and READY_REQUIRED.
+- Dashboard: the ready line shows "送球塔 A1 HIGH/LOW" in every mode, plus
+  "（未啟用）" while off. "塔 ready ✓/✗" appears among the fire conditions
+  once required.
+
+**Impact:**
+- With READY_REQUIRED = false, firing behaves as at 8326923.
+- `Dribbler::requestFeed()` is untouched, so the D22 100 ms pulse, the
+  1000 ms lockout and manual / test F are unchanged.
+- Wiring: 10k pull-down A1→GND and a shared ground, so a loose wire reads
+  LOW = not ready. A 3.3 V tower output is marginal against the Mega's
+  3.0 V V_IH; measure it.
+- Slots 59-60 are on USB TEL only, not the wireless uplink.
+
+**Evidence:**
+- pio megaatmega2560 SUCCESS, no warnings.
+- manual_control_test (3 variants) and the two dashboard .cjs tests pass.
+  They cover the default-off path only; the true path is not host-tested
+  (no new tests, per Jeremy).
+- No hardware.
+
+**Next Test:**
+1. Flash with READY_REQUIRED = false. On the USB Dashboard, A1 should read
+   LOW with the tower unplugged or without a ball, and HIGH with a ball.
+2. Set it to true and reflash. Semi-auto F without a ball → FIRE_NOT_READY
+   with "塔 ready ✗". With a ball it fires. Full manual F fires either way.
+
+**Supersede (same day, Jeremy: "改成全自動有就好"):** only full auto waits
+for the tower now. In `Auto`, `towerReady = mode != FULL_AUTO ||
+Dribbler::towerAllowsShot()`, so semi auto fires without A1, like full
+manual and test. The Dashboard shows "塔 ready ✓/✗" only in full auto; the
+A1 level still shows in every mode. Next Test step 2 becomes: in full auto
+with no ball, "塔 ready ✗" and no shot; with a ball it fires. Semi-auto F
+fires either way.
+
+## 2026-11-07 — Claude Code: shot table points below 765 us → 765
+
+**User Request (Jeremy):** change every 500 us in the shot table to the
+elevation's current low end. Asked about 655 and 560 as well: "也改成 765".
+
+**Changed:**
+- `tools/shot_table/shot_table.xlsx`: 19 elevation cells set to 765 us
+  (backup: `tools/shot_table/backup/shot_table_20261107_133910.xlsx`).
+  - Hole 4: all 10 points (500).
+  - Hole 5: 3.55 m (655) and 4.29–7.01 m (500).
+  - Hole 6: 5.44 m (560), 6.32 m and 6.78 m (500).
+- Flywheel % unchanged.
+- The cells were written with apply.py's own `set_cells` and re-read with
+  `parse_points`. The normal `--import` path could not be used, because it
+  refuses an Excel that already fails the 765 check.
+- `src/Constants/ShotTableData.h` regenerated by `apply.py`.
+
+**Impact:**
+- `apply.py --check` passes again.
+- Auto's 765 clamp stays as a guard but no longer changes any table value.
+- Shots at these points will land differently from where they were
+  measured (at 500–655), so re-check them on the field.
+
+**Evidence:**
+- `apply.py` and `--check` both pass, and pio megaatmega2560 SUCCESS.
+- `shot_table_lookup_test` and `manual_control_test` (both pin-table
+  variants) pass.
+- No hardware.
+
+**Next Test:** in semi auto at holes 4, 5 and 6, at the changed distances,
+check where the shots land. Re-tune with the Dashboard S → CSV → --import
+if needed.
+
+**Withdrawn (same day, Jeremy: "算了轉速表先不要改"):** `shot_table.xlsx`
+and `ShotTableData.h` were restored to HEAD. The backup was byte-identical
+to HEAD. The 500/560/655 points are back. Auto still clamps them to 765, and
+`apply.py --check` refuses the Excel again until those cells are ≥ 765.
+pio SUCCESS after the restore.

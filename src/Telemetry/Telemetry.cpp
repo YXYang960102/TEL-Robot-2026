@@ -203,5 +203,11 @@ void Telemetry::update() {
     Serial.print(",");
     // Slot 58 (2026-11-01): turret searching for a chosen hole out of
     // view: -1 left, +1 right, 0 no.
-    Serial.println(Shooter::getSearchDirection());
+    Serial.print(Shooter::getSearchDirection());
+    Serial.print(",");
+    // Slots 59-60 (2026-11-07): the tower's ball-ready line A1 (1 HIGH) and
+    // whether full auto waits for it (DribblerConstants READY_REQUIRED).
+    Serial.print(Dribbler::isTowerReady() ? 1 : 0);
+    Serial.print(",");
+    Serial.println(DribblerConstants::Tower::READY_REQUIRED ? 1 : 0);
 }
