@@ -16,7 +16,7 @@ one measured point per row:
   洞口      Dashboard key 1-9 (1 left-bottom, 2 left-mid, 3 left-top ... 9 right-top),
             10 / 11 / 12 = the bonus holes left / middle / right (keys Q W E)
   距離(m)   the camera distance shown on the Dashboard while locked, 0.5-15 m, <= 2 decimals
-  仰角(us)  elevation servo pulse, whole number 500-2500
+  仰角(us)  elevation servo pulse, whole number 765-2500 (Angle::MIN/MAX_PULSE_US)
   轉速      Falcon command, in the unit of the next column
   轉速單位  "%" (0-100, <= 1 decimal) or "us" (the Dashboard's Falcon PWM
             pulse, whole number, on the forward side of 1500: 1500-2000
@@ -225,8 +225,8 @@ def parse_rows(cells, what=None):
             if not Decimal("0.5") <= dist <= Decimal("15") or decimals(dist) > 2:
                 raise TableError(f"{cell_name(row, found['dist'])}：距離要在 0.5–15 m、最多 2 位小數，現在是「{vals['dist']}」")
             elev = number(vals["elev"], cell_name(row, found["elev"]), "仰角")
-            if elev != elev.to_integral_value() or not 500 <= elev <= 2500:
-                raise TableError(f"{cell_name(row, found['elev'])}：仰角要是 500–2500 的整數 µs，現在是「{vals['elev']}」")
+            if elev != elev.to_integral_value() or not 765 <= elev <= 2500:
+                raise TableError(f"{cell_name(row, found['elev'])}：仰角要是 765–2500 的整數 µs，現在是「{vals['elev']}」")
             unit = vals["unit"]
             uref = cell_name(row, found["unit"])
             if unit not in UNITS:
@@ -428,7 +428,7 @@ def _height_chart_xml(slot, title):
             + axis(510000001, 510000002, "b", "到目標距離 (m)", 0, None)
             + axis(510000002, 510000001, "l", "轉速 (%)", 0, 100)
             + axis(510000003, 510000004, "b", None, 0, None, delete=True, grid=False)
-            + axis(510000004, 510000003, "r", "仰角 (µs)", 500, 2500, crosses="max", grid=False)
+            + axis(510000004, 510000003, "r", "仰角 (µs)", 765, 2500, crosses="max", grid=False)
             + '</c:plotArea><c:legend><c:legendPos val="b"/><c:overlay val="0"/></c:legend>'
             '<c:plotVisOnly val="0"/><c:dispBlanksAs val="gap"/></c:chart></c:chartSpace>')
 
@@ -470,7 +470,7 @@ def write_xlsx(path, points):
         '<dataValidation type="decimal" allowBlank="1" showErrorMessage="1" errorTitle="距離" '
         f'error="距離 0.5–15 m" sqref="B2:B{MAX_ROWS}"><formula1>0.5</formula1><formula2>15</formula2></dataValidation>'
         '<dataValidation type="whole" allowBlank="1" showErrorMessage="1" errorTitle="仰角" '
-        f'error="仰角 500–2500 的整數 µs" sqref="C2:C{MAX_ROWS}"><formula1>500</formula1><formula2>2500</formula2></dataValidation>'
+        f'error="仰角 765–2500 的整數 µs" sqref="C2:C{MAX_ROWS}"><formula1>765</formula1><formula2>2500</formula2></dataValidation>'
         '<dataValidation type="custom" allowBlank="1" showErrorMessage="1" errorTitle="轉速" '
         'error="單位 % 時 0–100；單位 us 時 1000–2000 的整數" '
         f'sqref="D2:D{MAX_ROWS}"><formula1>{escape(FLY_RULE)}</formula1></dataValidation>'
@@ -538,7 +538,7 @@ def write_xlsx(path, points):
         "- 若插入其他欄位，新欄位一定要有名稱；它們不會被讀取。",
         "- 洞口：Dashboard 的編號 1–9（1 左下、2 左中、3 左上 … 9 右上）；10、11、12 是最上面的加分框左、中、右（Dashboard 按 Q、W、E 選）。",
         "- 距離：鎖定目標時 Dashboard 顯示的相機距離（不是捲尺），0.5–15 m，最多 2 位小數。",
-        "- 仰角：Dashboard 的仰角脈寬，500–2500 的整數。",
+        "- 仰角：Dashboard 的仰角脈寬，765–2500 的整數。",
         "- 轉速單位：用下拉選單選「%」或「us」，每一列可以不同。",
         f"- 轉速：單位 % 時 0–100、最多 1 位小數；單位 us 時填 Dashboard「Falcon PWM」的脈寬整數，必須在正轉那一側（依 TuningConstants 的 Flywheel::INVERTED：false 是 1500–2000、true 是 1000–1500；產生這份 Excel 時是 {fly_side}），會自動換算成 %。",
         "- 列的順序不重要；空白列會略過；同一個洞口的同一個距離不能重複。",

@@ -28,8 +28,12 @@ constexpr uint8_t OUTPUTS[] = {
     ShooterConstants::Rotate::SIGNAL_PIN,
     ShooterConstants::Flywheel::SIGNAL_PIN,
 };
+constexpr uint8_t INPUTS[] = {
+    DribblerConstants::Tower::READY_PIN,
+};
 constexpr uint8_t SERIAL_PINS[] = {0, 1, 14, 15, 16, 17, 18, 19};
 constexpr unsigned OUTPUT_COUNT = sizeof(OUTPUTS) / sizeof(OUTPUTS[0]);
+constexpr unsigned INPUT_COUNT = sizeof(INPUTS) / sizeof(INPUTS[0]);
 constexpr unsigned SERIAL_COUNT = sizeof(SERIAL_PINS) / sizeof(SERIAL_PINS[0]);
 
 // C++11 constexpr (single return, recursion) for the AVR toolchain.
@@ -50,6 +54,9 @@ static_assert(allDistinct(OUTPUTS, OUTPUT_COUNT),
               "Two outputs share a pin -- check the pin values in Chassis/Dribbler/ShooterConstants.h");
 static_assert(noneIn(OUTPUTS, OUTPUT_COUNT, SERIAL_PINS, SERIAL_COUNT),
               "An output is on a hardware serial pin (0/1, 14-19)");
+static_assert(noneIn(INPUTS, INPUT_COUNT, OUTPUTS, OUTPUT_COUNT) &&
+                  noneIn(INPUTS, INPUT_COUNT, SERIAL_PINS, SERIAL_COUNT),
+              "An input shares a pin with an output or a hardware serial pin");
 }  // namespace pincheck
 
 void setup() {

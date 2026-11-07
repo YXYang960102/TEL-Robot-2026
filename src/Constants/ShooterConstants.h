@@ -27,7 +27,9 @@ constexpr uint8_t ANGLE_PIN = 24; // elevation servo signal
 // Set false only for a continuous-rotation unit: the command is then a
 // speed and disable sends neutral.
 constexpr bool POSITION_SERVO = true;
-constexpr double POSITION_INITIAL_US = 1500.0;
+// The first pulse after boot (the first Enable attaches the servo there);
+// later Enables keep the last target. 1500 -> 2500 (2026-11-07, Jeremy).
+constexpr double POSITION_INITIAL_US = 2500.0;
 constexpr double POSITION_RATE_US_PER_SECOND = 1000.0;
 
 // Pulse travel. Widened 1000..2000 -> 500..2500 us on 2026-10-15 (Jeremy):
@@ -37,7 +39,9 @@ constexpr double POSITION_RATE_US_PER_SECOND = 1000.0;
 // jog slowly the first time, note the pulse (Dashboard "elevation pulse")
 // at each real mechanical end, and narrow MIN/MAX to those values.
 // Both the jog target and Servo::attach() clamp to this range.
-constexpr int MIN_PULSE_US = 500;
+// MIN 500 -> 765 (2026-11-07, Jeremy): the elevation's limit. Shot table
+// points below it (holes 4-6, 500-655 us) are clamped to 765 by Auto.
+constexpr int MIN_PULSE_US = 765;
 constexpr int NEUTRAL_US = 1500;
 constexpr int MAX_PULSE_US = 2500;
 
@@ -131,6 +135,9 @@ static_assert(Angle::CAL_A_PULSE_US != Angle::CAL_B_PULSE_US &&
                   Angle::CAL_A_DEGREES != Angle::CAL_B_DEGREES,
               "Elevation calibration needs two distinct points");
 static_assert(Angle::NEUTRAL_US < Angle::MAX_PULSE_US, "Invalid angle maximum PWM");
+static_assert(Angle::POSITION_INITIAL_US >= Angle::MIN_PULSE_US &&
+                  Angle::POSITION_INITIAL_US <= Angle::MAX_PULSE_US,
+              "Elevation boot pulse must be inside the pulse travel");
 static_assert(Rotate::MIN_PULSE_US < Rotate::NEUTRAL_US, "Invalid rotate minimum PWM");
 static_assert(Rotate::NEUTRAL_US < Rotate::MAX_PULSE_US, "Invalid rotate maximum PWM");
 static_assert(Flywheel::MIN_PULSE_US < Flywheel::NEUTRAL_US, "Invalid flywheel minimum PWM");

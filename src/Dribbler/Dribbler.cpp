@@ -18,6 +18,7 @@ void Dribbler::init() {
     writeLine(true);
     if (BuildProfile::DRIVES_FEED_TOWER) {
         pinMode(Tower::TRIGGER_PIN, OUTPUT);
+        pinMode(Tower::READY_PIN, INPUT); // external 10k pull-down
     }
     writeLine(true);
     pulseActive = false;
@@ -74,6 +75,17 @@ bool Dribbler::isBusy() {
 
 unsigned long Dribbler::getTriggerCount() {
     return triggerCount;
+}
+
+bool Dribbler::isTowerReady() {
+    if (!BuildProfile::DRIVES_FEED_TOWER) {
+        return false;
+    }
+    return digitalRead(Tower::READY_PIN) == HIGH;
+}
+
+bool Dribbler::towerAllowsShot() {
+    return !Tower::READY_REQUIRED || isTowerReady();
 }
 
 void Dribbler::writeLine(bool active) {
