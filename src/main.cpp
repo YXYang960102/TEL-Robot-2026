@@ -18,7 +18,9 @@
 // file; nothing here has to be edited when a pin changes. The build only
 // fails if two outputs are set to the same pin, or an output lands on a
 // hardware serial pin (0/1 USB, 14/15 Serial3, 16/17 Serial2 = ELRS bridge,
-// 18/19 Serial1 = Orin).
+// 18/19 Serial1 = Orin), or an input lands on an output or on a serial
+// port in use. Serial3 is never opened, so its pins may be inputs (the
+// tower's ready line is on D14).
 namespace pincheck {
 constexpr uint8_t OUTPUTS[] = {
     ChassisConstants::LeftDrive::SIGNAL_PIN,
@@ -32,9 +34,11 @@ constexpr uint8_t INPUTS[] = {
     DribblerConstants::Tower::READY_PIN,
 };
 constexpr uint8_t SERIAL_PINS[] = {0, 1, 14, 15, 16, 17, 18, 19};
+constexpr uint8_t OPEN_SERIAL_PINS[] = {0, 1, 16, 17, 18, 19}; // Serial3 unused
 constexpr unsigned OUTPUT_COUNT = sizeof(OUTPUTS) / sizeof(OUTPUTS[0]);
 constexpr unsigned INPUT_COUNT = sizeof(INPUTS) / sizeof(INPUTS[0]);
 constexpr unsigned SERIAL_COUNT = sizeof(SERIAL_PINS) / sizeof(SERIAL_PINS[0]);
+constexpr unsigned OPEN_SERIAL_COUNT = sizeof(OPEN_SERIAL_PINS) / sizeof(OPEN_SERIAL_PINS[0]);
 
 // C++11 constexpr (single return, recursion) for the AVR toolchain.
 constexpr bool notIn(uint8_t pin, const uint8_t* list, unsigned count) {
@@ -55,8 +59,8 @@ static_assert(allDistinct(OUTPUTS, OUTPUT_COUNT),
 static_assert(noneIn(OUTPUTS, OUTPUT_COUNT, SERIAL_PINS, SERIAL_COUNT),
               "An output is on a hardware serial pin (0/1, 14-19)");
 static_assert(noneIn(INPUTS, INPUT_COUNT, OUTPUTS, OUTPUT_COUNT) &&
-                  noneIn(INPUTS, INPUT_COUNT, SERIAL_PINS, SERIAL_COUNT),
-              "An input shares a pin with an output or a hardware serial pin");
+                  noneIn(INPUTS, INPUT_COUNT, OPEN_SERIAL_PINS, OPEN_SERIAL_COUNT),
+              "An input shares a pin with an output or a serial port in use");
 }  // namespace pincheck
 
 void setup() {

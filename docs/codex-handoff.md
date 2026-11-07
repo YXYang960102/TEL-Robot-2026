@@ -7160,3 +7160,25 @@ and `ShotTableData.h` were restored to HEAD. The backup was byte-identical
 to HEAD. The 500/560/655 points are back. Auto still clamps them to 765, and
 `apply.py --check` refuses the Excel again until those cells are ≥ 765.
 pio SUCCESS after the restore.
+
+## 2026-11-07 — Claude Code: tower ready line A1 → D14
+
+**User Request (Jeremy):** "A1改D14".
+
+**Changed:**
+- `DribblerConstants::Tower::READY_PIN` 55 (A1) → 14.
+- Comments in Auto and Telemetry updated, and the Dashboard text now reads
+  "送球塔 D14".
+- `main.cpp` pincheck: inputs are checked against the serial ports in use
+  (0/1, 16-19) instead of all of 14-19. Serial3 (D14/D15) is never opened
+  anywhere in src, so D14 is a plain GPIO. Outputs are still refused on
+  every serial pin, Serial3 included.
+
+**Impact:** same behaviour as before, only the pin changed. The wiring is
+still a 10k pull-down D14→GND and a shared ground. If Serial3 is ever
+opened, the ready line has to move.
+
+**Evidence:**
+- pio megaatmega2560 SUCCESS.
+- manual_control_test and the two Dashboard tests pass.
+- No hardware.

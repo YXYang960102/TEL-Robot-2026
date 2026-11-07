@@ -34,12 +34,13 @@ constexpr unsigned long PULSE_MS = 100;
 // been measured -- tune on the robot.
 constexpr unsigned long COOLDOWN_MS = 1000;
 
-// "Ball ready" line from the tower (Jeremy, 2026-11-07): A1 (= digital 55
-// on the Mega), held HIGH while the tower has a ball ready to shoot, LOW
-// otherwise. Wire a 10k pull-down from A1 to GND and share the tower's
+// "Ball ready" line from the tower (Jeremy, 2026-11-07): D14 (was A1),
+// held HIGH while the tower has a ball ready to shoot, LOW otherwise. D14
+// is Serial3's TX, free because Serial3 is never opened (main.cpp's
+// pincheck). Wire a 10k pull-down from D14 to GND and share the tower's
 // ground, so a loose wire reads LOW = not ready. Only full auto waits for
 // it; semi auto, full manual and test fire regardless.
-constexpr uint8_t READY_PIN = 55; // A1
+constexpr uint8_t READY_PIN = 14;
 // false = the line is only shown on the Dashboard (TEL slot 59), full auto
 // fires as before. Set true once the Dashboard shows the right level.
 constexpr bool READY_REQUIRED = false;

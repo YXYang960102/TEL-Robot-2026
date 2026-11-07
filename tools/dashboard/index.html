@@ -1943,7 +1943,7 @@
         // Slot 58 (2026-11-01): turret searching for the chosen hole out of
         // view (-1 left, +1 right, 0 no).
         searchDir: p.length > 58 ? Number(p[58]) : NaN,
-        // Slots 59-60 (2026-11-07): the tower's ball-ready line A1 (1 HIGH)
+        // Slots 59-60 (2026-11-07): the tower's ball-ready line D14 (1 HIGH)
         // and whether full auto waits for it (READY_REQUIRED).
         towerReady: p.length > 59 ? Number(p[59]) : NaN,
         towerRequired: p.length > 60 ? Number(p[60]) : NaN
@@ -2062,9 +2062,9 @@
     // waits for, so a test shows which one never comes.
     function renderReady(data) {
       if (!Number.isFinite(data.readyBits)) return;
-      // The tower's A1 line, shown in every mode so the wiring can be checked.
+      // The tower's D14 line, shown in every mode so the wiring can be checked.
       const tower = Number.isFinite(data.towerReady)
-        ? `送球塔 A1 ${data.towerReady === 1 ? "HIGH（有球）" : "LOW（沒球）"}` +
+        ? `送球塔 D14 ${data.towerReady === 1 ? "HIGH（有球）" : "LOW（沒球）"}` +
           (data.towerRequired === 1 ? "" : "（未啟用）")
         : "";
       if (operatorMode !== 0 && operatorMode !== 1) {

@@ -379,7 +379,7 @@ void Auto::update() {
         aimChangedMs = now;
     }
     const bool settledOnHole = now - aimChangedMs >= TuningConstants::Auto::AIM_SWITCH_SETTLE_MS;
-    // The tower's ball-ready line (A1), once Tower::READY_REQUIRED is on.
+    // The tower's ball-ready line (D14), once Tower::READY_REQUIRED is on.
     // Full auto only (Jeremy, 2026-11-07): semi auto fires without it.
     const bool towerReady = mode != OperatorMode::FULL_AUTO || Dribbler::towerAllowsShot();
     const bool ready = Shooter::isReady() && shotAvailable && elevationArrived && holeAllowed &&

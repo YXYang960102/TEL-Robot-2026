@@ -205,7 +205,7 @@ void Telemetry::update() {
     // view: -1 left, +1 right, 0 no.
     Serial.print(Shooter::getSearchDirection());
     Serial.print(",");
-    // Slots 59-60 (2026-11-07): the tower's ball-ready line A1 (1 HIGH) and
+    // Slots 59-60 (2026-11-07): the tower's ball-ready line D14 (1 HIGH) and
     // whether full auto waits for it (DribblerConstants READY_REQUIRED).
     Serial.print(Dribbler::isTowerReady() ? 1 : 0);
     Serial.print(",");
