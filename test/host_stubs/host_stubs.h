@@ -35,6 +35,9 @@ struct Recorder {
     uint16_t visionCode = 0;
     unsigned long seenCount = 0;       // seen frames (code bits 15-14 = 11)
     uint16_t seenCode = 0;
+    unsigned long ballsCount = 0;      // ball frames (code bits 15-13 = 011)
+    uint8_t ballsFlags = 0;
+    unsigned long ballsSeq = 0;
     unsigned long turretReturns = 0;   // Shooter::requestTurretReturn (THOME)
 };
 

@@ -132,6 +132,12 @@ void MechLink::sendStatus(uint8_t flags, unsigned long eventSeq, uint16_t eventC
         rec.aimCode = eventCode;
         return;
     }
+    if ((eventCode & 0xE000u) == 0x6000u) { // ball frame (2026-11-07): apart
+        rec.ballsCount++;
+        rec.ballsFlags = flags;
+        rec.ballsSeq = eventSeq;
+        return;
+    }
     if ((eventCode & 0xC000u) == 0x4000u) { // vision frame: also apart
         rec.visionCount++;
         rec.visionFlags = flags;

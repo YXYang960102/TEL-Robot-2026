@@ -34,8 +34,9 @@ public:
     static bool isBusy();
     static unsigned long getTriggerCount(); // shots sent since boot
 
-    // D14: a pulse since the last shot ("one ball ready"), and pulses since
-    // boot. towerAllowsShot() is what the autos wait for: always true while
+    // D14: a pulse since the last shot ("one ball ready"), and balls that
+    // reached the shooting position since boot (a pulse while one is
+    // already latched is the same ball, not counted). towerAllowsShot() is what the autos wait for: always true while
     // Tower::READY_REQUIRED is false.
     static bool hasBall();
     static unsigned long getLoadedCount();

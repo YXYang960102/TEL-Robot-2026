@@ -7299,3 +7299,36 @@ opened, the ready line has to move.
 4. Through the ground station, the same counts.
 5. Set READY_REQUIRED true and verify that no ball means no shot in every
    mode.
+
+## 2026-11-07 — Claude Code: count each ball once, preloaded ball counts at Y; host test fixed for the 6-slot uplink
+
+**User Request (Jeremy):** the tower preloads 3 balls after Enable, before Y.
+On the Dashboard, "已裝" counts from the ball waiting at the shooting
+position.
+
+**Changed:**
+- `Dribbler::pollReady()` adds to `loadedCount` only when no ball is
+  latched. The tower Nano (TEL2026_NANO_v9, updated today) repeats its D14
+  pulse on every disabled → enabled change while a ball sits at SA/SB.
+  That is the same ball, and was counted twice.
+- Dashboard Y base: `loaded − (ballReady ? 1 : 0)`, so a ball waiting at
+  the shooting position when Y is pressed shows as "已裝 1".
+- **Correction:** commit 003a9ea shipped with `manual_control_test` failing.
+  `testAimUplink` / `testVisionUplink` still assumed the 5-slot cycle, and
+  the stub recorded ball frames as vision frames. Fixed now:
+  - The stub records ball frames apart (`rec.ballsCount`).
+  - Slot counts use the 6-slot cycle.
+  - The aim frame wait is 1250 ms (two 600 ms periods, so a frame after the
+    0.3 s aim-offset lock-in).
+  - The vision loops use 6 steps.
+  - Firmware behaviour was not affected.
+
+**Evidence:**
+- pio megaatmega2560 SUCCESS.
+- manual_control_test passes in all 3 variants.
+- rc_control_map, ground_state, shot_table_lookup, servo_angle_map,
+  operator_target, pidf, vision_follow, servo_position_jog, vision_link and
+  both Dashboard tests pass.
+- A scratch simulation (not committed) shows a re-enable re-pulse no
+  longer adds to the count, and the next real ball does.
+- No hardware.
