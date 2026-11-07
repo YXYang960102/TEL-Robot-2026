@@ -808,13 +808,12 @@
         <div class="grid">
           <div class="metric"><div class="label">target hole / 目標洞（1–9）</div><div class="value" id="targetHole">none / 未選</div>
             <div class="subvalue" id="aimState">--</div></div>
-          <div class="metric"><div class="label">Falcon PWM / 飛輪 PWM</div><div class="value" id="falconPwm">--</div><div class="subvalue">command ratio, not RPM / 指令佔比，非轉速</div></div>
-          <div class="metric"><div class="label">elevation pulse / 仰角脈寬</div><div class="value" id="anglePulse">--</div><div class="subvalue">765–2500 us, no limit switch / 無限位，量機構兩端</div></div>
+          <div class="metric"><div class="label">tx / 水平偏差（視覺）</div><div class="value" id="controlTx">--</div></div>
+          <div class="metric"><div class="label">ty / 垂直偏差（視覺）</div><div class="value" id="controlTy">--</div></div>
           <div class="metric"><div class="label">wireless link / 無線狀態</div><div class="value" id="wirelessState">--</div><div class="subvalue" id="rfLinkState">ground station only / 僅接地面站時</div></div>
           <div class="metric"><div class="label">control owner / 控制權</div><div class="value" id="controlOwner">--</div></div>
           <div class="metric"><div class="label">feed tower / 送球塔</div><div class="value" id="towerState">--</div><div class="subvalue">trigger pulses sent, no ball sensor / 已送觸發次數，無球感測</div></div>
           <div class="metric"><div class="label">auto path / 本次啟用的自動路徑</div><div class="value" id="autoPath">未啟動 / not started</div><div class="subvalue" id="autoPathsUsed">--</div></div>
-          <div class="metric"><div class="label">rotate / angle mode / 旋轉・俯仰模式</div><div class="value" id="shooterAxisMode">--</div></div>
           <div class="metric"><div class="label">left / right pulse / 左右輪脈衝</div><div class="value" id="chassisPulses">--</div></div>
           <div class="metric"><div class="label">gamepad / 手把</div><div class="value" id="gamepadState">none / 未連接</div><div class="subvalue" id="gamepadInputs">按手把任一鍵讓瀏覽器偵測</div></div>
         </div>
@@ -891,7 +890,7 @@
   </main>
 
   <script>
-    const ids = ["tx", "ty", "distance", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "shooterAxisMode", "falconPwm", "anglePulse", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed", "aimState", "distanceRaw", "matchTimer", "matchState", "boardElevation", "boardFlywheel", "boardFlywheelCmd", "boardDistance", "targetBoardState", "boardReady", "boardTurret", "boardTurretRaw", "boardTurretMagnet", "boardTurretGuard", "ringValue", "ringDetail"];
+    const ids = ["tx", "ty", "distance", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "controlTx", "controlTy", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed", "aimState", "distanceRaw", "matchTimer", "matchState", "boardElevation", "boardFlywheel", "boardFlywheelCmd", "boardDistance", "targetBoardState", "boardReady", "boardTurret", "boardTurretRaw", "boardTurretMagnet", "boardTurretGuard", "ringValue", "ringDetail"];
     const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     const connectButton = document.getElementById("connect");
     const demoButton = document.getElementById("demo");
@@ -1027,8 +1026,6 @@
 
     // Must match src/Shooter/Shooter.h's enums (no sensors on the shooter
     // head since 2026-10-14: no profiled/closed-loop modes any more).
-    const ROTATE_MODE_NAMES = ["disabled", "manual", "vision"];
-    const ANGLE_MODE_NAMES = ["disabled", "manual"];
 
     function setConnection(online) {
       connection.className = online ? "status ok" : "status";
@@ -1512,8 +1509,7 @@
         aimOffsetPx, elevationOffsetUs: NaN,
       };
       updateDistanceReadout(data);
-      el.anglePulse.textContent = `${pulseUs} us`;
-      el.boardElevation.textContent = el.anglePulse.textContent;
+      el.boardElevation.textContent = `${pulseUs} us`;
       el.aimState.textContent = aimStateText(data);
       el.targetBoardState.textContent = el.aimState.textContent;
       setSeenHole(valid === 1 ? holeForVisionId(targetId) : 0);
@@ -1528,15 +1524,21 @@
       if (p.length < 7 || p.slice(1).some((v) => !Number.isFinite(v))) return;
       const [, fresh, flywheelUs, tx2, ty2, valid] = p;
       const show = fresh === 1 && valid === 1;
-      el.tx.textContent = show ? (tx2 / 2).toFixed(1) : "--";
-      el.ty.textContent = show ? (ty2 / 2).toFixed(1) : "--";
+      setTxTy(show ? (tx2 / 2).toFixed(1) : "--", show ? (ty2 / 2).toFixed(1) : "--");
       // Same format as the wired TEL readout: pulse, and its share of the
       // 500 us from neutral (at rest it shows the stop pulse, 1500 + the
       // Falcon's STOP_PULSE_OFFSET_US).
-      el.falconPwm.textContent = fresh === 1 && flywheelUs > 0
+      el.boardFlywheel.textContent = fresh === 1 && flywheelUs > 0
         ? `${flywheelUs} us (${(Math.abs(flywheelUs - 1500) / 5).toFixed(1)}%)` : "--";
-      el.boardFlywheel.textContent = el.falconPwm.textContent;
       if (fresh === 1) noteShotReadings({ falconUs: flywheelUs });
+    }
+
+    // tx / ty go to the Vision panel and to Manual Control (2026-11-07).
+    function setTxTy(txText, tyText) {
+      el.tx.textContent = txText;
+      el.ty.textContent = tyText;
+      el.controlTx.textContent = txText;
+      el.controlTy.textContent = tyText;
     }
 
     function aimStateText(data) {
@@ -1949,8 +1951,7 @@
     }
 
     function updateMetrics(data) {
-      el.tx.textContent = data.tx.toFixed(1);
-      el.ty.textContent = data.ty.toFixed(1);
+      setTxTy(data.tx.toFixed(1), data.ty.toFixed(1));
       updateDistanceReadout(data);
       setOperatorMode(data.operatorMode); // ignores -1 (not reported)
       el.ch0.textContent = data.ch0;
@@ -2004,14 +2005,10 @@
       if (data.towerBusy !== null && Number.isFinite(data.triggerCount)) {
         el.towerState.textContent = `${data.towerBusy ? "busy / 冷卻中" : "ready / 可觸發"} · ${data.triggerCount}`;
       }
-      if (Number.isFinite(data.rotateMode) && Number.isFinite(data.angleMode)) {
-        el.shooterAxisMode.textContent = `${ROTATE_MODE_NAMES[data.rotateMode] ?? data.rotateMode} / ${ANGLE_MODE_NAMES[data.angleMode] ?? data.angleMode}`;
-      }
       if (Number.isFinite(data.anglePulseUs)) {
-        el.anglePulse.textContent = Number.isFinite(data.angleTargetDeg)
+        el.boardElevation.textContent = Number.isFinite(data.angleTargetDeg)
           ? `${data.angleTargetDeg.toFixed(1)}° · ${data.anglePulseUs} us`
           : `${data.anglePulseUs} us`;
-        el.boardElevation.textContent = el.anglePulse.textContent;
       }
       const hasAngle = Number.isFinite(data.angleTargetDeg) &&
         Number.isFinite(data.angleMinDeg) && Number.isFinite(data.angleMaxDeg);
@@ -2046,8 +2043,7 @@
       }
       setSeenHole(data.valid && Number.isInteger(data.targetId) ? holeForVisionId(data.targetId) : 0);
       if (Number.isFinite(data.falconPulseUs) && Number.isFinite(data.falconRatioPct)) {
-        el.falconPwm.textContent = `${data.falconPulseUs} us (${data.falconRatioPct.toFixed(1)}%)`;
-        el.boardFlywheel.textContent = el.falconPwm.textContent;
+        el.boardFlywheel.textContent = `${data.falconPulseUs} us (${data.falconRatioPct.toFixed(1)}%)`;
       }
       // The firmware is the source of truth for whether outputs are
       // actually enabled (e.g. a watchdog timeout disables them without
@@ -2827,7 +2823,6 @@
         `${pins ? "" : " · pins unconfirmed / 腳位未確認"} · ${ageMs} ms`;
       el.controlOwner.textContent = OWNER_NAMES[owner] ?? `#${owner}`;
       el.towerState.textContent = feedBusy ? "busy / 冷卻中" : "ready / 可觸發";
-      el.shooterAxisMode.textContent = rotateManual ? "manual / 手動" : "vision / 視覺";
       const wirelessOwned = armed === 1 && owner === 2;
       // Status rides the sparse ELRS uplink and can be seconds old, so it
       // never disarms this page (2026-10-17: a late "disarmed" from the

@@ -316,7 +316,7 @@ async function emergencyStopViaEnter() {
   await arm();
   line(tel(0, 0));
   assert.equal(armed(), false);
-  assert.match(elements.falconPwm.textContent, /1500 us \(0\.0%\)/);
+  assert.match(elements.boardFlywheel.textContent, /1500 us \(0\.0%\)/);
 
   // Armed, but by the wireless source: this USB page must not count as
   // armed (it would heartbeat and send motion the Mega rejects).
@@ -498,7 +498,7 @@ async function emergencyStopViaEnter() {
   line('$AIM,1,352,1620,10,10,1,-15');
   assert.equal(elements.distance.textContent, '3.52 m');
   assert.match(elements.distanceRaw.textContent, /^3520 mm/);
-  assert.equal(elements.anglePulse.textContent, '1620 us');
+  assert.equal(elements.boardElevation.textContent, '1620 us');
   assert.equal(elements.aimState.textContent, '視覺 #10 已看到 ✓ 3.52 m · 微調 水平 -60 px');  // 4 px units since 2026-10-30
   line('$AIM,1,0,1620,10,0,0,0');
   assert.equal(elements.distance.textContent, '--');
@@ -515,7 +515,9 @@ async function emergencyStopViaEnter() {
   line('$VISION,1,1290,-125,41,1,10');
   assert.equal(elements.tx.textContent, '-62.5');
   assert.equal(elements.ty.textContent, '20.5');
-  assert.equal(elements.falconPwm.textContent, '1290 us (42.0%)');  // the Falcon's real pulse
+  assert.equal(elements.controlTx.textContent, '-62.5');            // Manual Control copy
+  assert.equal(elements.controlTy.textContent, '20.5');
+  assert.equal(elements.boardFlywheel.textContent, '1290 us (42.0%)');  // the Falcon's real pulse
   line('$VISION,1,0,0,0,0,0');                     // no valid target
   assert.equal(elements.tx.textContent, '--');
   line('$VISION,0,0,0,0,0,0');                     // stale
@@ -701,11 +703,11 @@ async function emergencyStopViaEnter() {
   // Slot 28 (appended): elevation pulse; older lines without it are fine.
   line(['TEL', 1, 0, 0, 0, 0, 0, 1500, 1500, 1500, 1500, 1500, 0, 3, 1,
     'NaN', 'NaN', 'NaN', 0, 1500, 1500, 0, 0, 0, 0, 0, 1500, 0.0, 2310].join(','));
-  assert.equal(elements.anglePulse.textContent, '2310 us');
+  assert.equal(elements.boardElevation.textContent, '2310 us');
   // Slots 29-31: target angle and range -> label and slider limits.
   line(['TEL', 1, 0, 0, 0, 0, 0, 1500, 1500, 1500, 1500, 1500, 0, 3, 1,
     'NaN', 'NaN', 'NaN', 0, 1500, 1500, 0, 0, 0, 0, 0, 1500, 0.0, 2310, 243.5, 0.0, 270.0].join(','));
-  assert.equal(elements.anglePulse.textContent, '243.5° · 2310 us');
+  assert.equal(elements.boardElevation.textContent, '243.5° · 2310 us');
   assert.equal(elements.angleSlider.max, '270');
   assert.equal(elements.angleSlider.value, '244');
   assert.match(elements.angleValue.textContent, /243\.5°/);
@@ -1237,13 +1239,14 @@ assert.doesNotMatch(html, /data-panel="(trace|stream)"|id="(chart|streamUrl|stre
   assert.doesNotMatch(html, /data-panel="safety"|id="risk"/);
 }
 
-// Manual Control readout order (Jeremy, 2026-10-17): row 1 target hole,
-// Falcon, elevation, wireless; row 2 the rest; last the wheel pulses and
-// the gamepad (4 per row).
+// Manual Control readout order (Jeremy, 2026-10-17; 2026-11-07 Falcon,
+// elevation and rotate/angle mode removed -- the target board shows them --
+// and the vision tx / ty put in): target hole, tx, ty, wireless, then the
+// rest, last the wheel pulses and the gamepad.
 {
   const control = html.slice(html.indexOf('data-panel="control"'));
   const grid = control.slice(0, control.indexOf('</section>'));
   const order = [...grid.matchAll(/class="value" id="([A-Za-z]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(order, ['targetHole', 'falconPwm', 'anglePulse', 'wirelessState',
-    'controlOwner', 'towerState', 'autoPath', 'shooterAxisMode', 'chassisPulses', 'gamepadState']);
+  assert.deepEqual(order, ['targetHole', 'controlTx', 'controlTy', 'wirelessState',
+    'controlOwner', 'towerState', 'autoPath', 'chassisPulses', 'gamepadState']);
 }
