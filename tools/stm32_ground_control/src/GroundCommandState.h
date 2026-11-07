@@ -132,6 +132,9 @@ public:
     // ",<turretDeg*10>,<as5600Status>,<ringPct>,<ringSectors>" -- the
     // turret AS5600 angle and status bits, the depth ring's usable share
     // (-1 = none) and its sectors with depth (bit k, 0 right, clockwise).
+    // Then "$BALLS,<fresh>,<loaded>,<fired>,<ballReady>,<required>,
+    // <towerEnabled>" from the latest ball frame (2026-11-07): D14 ready
+    // pulses and D22 shots since the Mega's boot (mod 4096), same rule.
     void tick(uint32_t nowMs, GroundEmitFn emit, void* ctx);
 
     bool fresh(uint32_t nowMs) const;
@@ -155,5 +158,8 @@ private:
     rcmap_seen lastSeen{};
     bool haveSeen = false;
     uint32_t lastSeenMs = 0;
+    rcmap_balls lastBalls{};
+    bool haveBalls = false;
+    uint32_t lastBallsMs = 0;
     uint32_t lastReportMs = 0;
 };

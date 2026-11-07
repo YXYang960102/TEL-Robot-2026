@@ -464,7 +464,7 @@ void ManualControl::requestEnable(Owner source) {
 
     clearCommands();
     Shooter::stopAll();
-    Dribbler::setEnabled(true); // tower line: held HIGH -> idle LOW
+    Dribbler::setEnabled(true); // tower D15 HIGH -> LOW
     Chassis::setOutputsEnabled(true);
     Shooter::setOutputsEnabled(true);
     owner = source;
@@ -505,7 +505,7 @@ void ManualControl::disarm(rcmap_event reason) {
     clearCommands();
     Chassis::setOutputsEnabled(false);
     Shooter::setOutputsEnabled(false);
-    Dribbler::setEnabled(false); // tower line held HIGH while disabled
+    Dribbler::setEnabled(false); // tower D15 held HIGH while disabled
     sendEvent(reason);
 }
 
@@ -761,8 +761,9 @@ void ManualControl::sendStatusIfDue() {
     // robot bridge (which forwards the latest line every 100 ms) passes
     // them all.
     const uint8_t slot = statusSlot;
-    // 2026-10-27: a fifth slot, the seen frame (Orin v3 detected holes).
-    statusSlot = static_cast<uint8_t>((statusSlot + 1) % 5);
+    // 2026-10-27: a fifth slot, the seen frame (Orin v3 detected holes);
+    // 2026-11-07: a sixth, the ball frame (feed tower counts).
+    statusSlot = static_cast<uint8_t>((statusSlot + 1) % 6);
     if (slot == 1) {
         AimUplink::send();
         return;
@@ -773,6 +774,10 @@ void ManualControl::sendStatusIfDue() {
     }
     if (slot == 4) {
         AimUplink::sendSeen();
+        return;
+    }
+    if (slot == 5) {
+        AimUplink::sendBalls();
         return;
     }
     MechLink::sendStatus(statusFlags(), eventSeq,

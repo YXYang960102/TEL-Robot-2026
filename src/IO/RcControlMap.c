@@ -303,7 +303,7 @@ static float half_px_value(uint32_t field) {
 }
 
 void rcmap_vision_to_status(const rcmap_vision *v, uint8_t *flags, uint32_t *seq, uint16_t *code) {
-    const uint16_t us = v->flywheel_pulse_us > 0x3FFFu ? 0x3FFFu : v->flywheel_pulse_us;
+    const uint16_t us = v->flywheel_pulse_us > 0x1FFFu ? 0x1FFFu : v->flywheel_pulse_us;
     *code = (uint16_t)(RCMAP_VISION_FRAME_BIT | us);
     *seq = half_px_field(v->tx_px) | (half_px_field(v->ty_px) << 12);
     *flags = (uint8_t)((v->valid ? 1u : 0u) | ((v->target_id & 0x0Fu) << 1));
@@ -311,11 +311,28 @@ void rcmap_vision_to_status(const rcmap_vision *v, uint8_t *flags, uint32_t *seq
 
 bool rcmap_vision_from_status(const rcmap_status *s, rcmap_vision *out) {
     if (!rcmap_status_is_vision(s->event_code)) return false;
-    out->flywheel_pulse_us = (uint16_t)(s->event_code & 0x3FFFu);
+    out->flywheel_pulse_us = (uint16_t)(s->event_code & 0x1FFFu);
     out->tx_px = half_px_value(s->event_seq);
     out->ty_px = half_px_value(s->event_seq >> 12);
     out->valid = (s->flags & 1u) != 0u;
     out->target_id = (uint8_t)((s->flags >> 1) & 0x0Fu);
+    return true;
+}
+
+void rcmap_balls_to_status(const rcmap_balls *b, uint8_t *flags, uint32_t *seq, uint16_t *code) {
+    *code = (uint16_t)RCMAP_BALLS_FRAME_BITS;
+    *seq = ((uint32_t)(b->loaded & 0x0FFFu)) | ((uint32_t)(b->fired & 0x0FFFu) << 12);
+    *flags = (uint8_t)((b->ball_ready ? 1u : 0u) | (b->required ? 2u : 0u) |
+                       (b->tower_enabled ? 4u : 0u));
+}
+
+bool rcmap_balls_from_status(const rcmap_status *s, rcmap_balls *out) {
+    if (!rcmap_status_is_balls(s->event_code)) return false;
+    out->loaded = (uint16_t)(s->event_seq & 0x0FFFu);
+    out->fired = (uint16_t)((s->event_seq >> 12) & 0x0FFFu);
+    out->ball_ready = (s->flags & 1u) != 0u;
+    out->required = (s->flags & 2u) != 0u;
+    out->tower_enabled = (s->flags & 4u) != 0u;
     return true;
 }
 

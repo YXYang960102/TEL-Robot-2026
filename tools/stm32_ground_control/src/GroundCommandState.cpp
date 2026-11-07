@@ -344,6 +344,9 @@ void RobotStatusTracker::reset(uint32_t nowMs) {
     haveSeen = false;
     lastSeen = rcmap_seen{};
     lastSeenMs = nowMs;
+    haveBalls = false;
+    lastBalls = rcmap_balls{};
+    lastBallsMs = nowMs;
     lastReportMs = nowMs;
 }
 
@@ -353,6 +356,14 @@ void RobotStatusTracker::onStatus(const rcmap_status& s, uint32_t nowMs, GroundE
         lastSeen = seen;
         haveSeen = true;
         lastSeenMs = nowMs;
+        return;
+    }
+    // Before the vision check: a ball frame shares its bits 15-14.
+    rcmap_balls balls;
+    if (rcmap_balls_from_status(&s, &balls)) {
+        lastBalls = balls;
+        haveBalls = true;
+        lastBallsMs = nowMs;
         return;
     }
     rcmap_vision vision;
@@ -452,5 +463,16 @@ void RobotStatusTracker::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
              static_cast<unsigned>(sn.turret_status),
              static_cast<int>(sn.ring_percent),
              static_cast<unsigned>(sn.ring_sectors));
+    emitLine(emit, ctx, text);
+
+    const bool ballsFresh = haveBalls && nowMs - lastBallsMs <= STALE_MS;
+    const rcmap_balls b = ballsFresh ? lastBalls : rcmap_balls{};
+    snprintf(text, sizeof(text), "$BALLS,%d,%u,%u,%d,%d,%d",
+             ballsFresh ? 1 : 0,
+             static_cast<unsigned>(b.loaded),
+             static_cast<unsigned>(b.fired),
+             b.ball_ready ? 1 : 0,
+             b.required ? 1 : 0,
+             b.tower_enabled ? 1 : 0);
     emitLine(emit, ctx, text);
 }

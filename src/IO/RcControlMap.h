@@ -378,10 +378,11 @@ bool rcmap_seen_from_status(const rcmap_status *s, rcmap_seen *out);
 /* Vision frames (2026-10-17): tx / ty for the wireless Dashboard, in the
  * same ST line / Battery frame. The Mega's 100 ms slots go status, aim,
  * status, vision.
- *   code  bits 15-14 = 01 (a status code is at most 0x3FFF, an aim frame
- *         has bit 15 set), bits 0-13 = the Falcon's actual PWM pulse in us
- *         (2026-10-18; was the camera distance, which the aim frame
- *         already carries)
+ *   code  bits 15-13 = 010 (a status code is at most 0x3FFF, an aim frame
+ *         has bit 15 set; 011 is the ball frame below), bits 0-12 = the
+ *         Falcon's actual PWM pulse in us (2026-10-18; was the camera
+ *         distance, which the aim frame already carries; 14 bits until
+ *         2026-11-07, the pulse never passes 2000)
  *   seq   bits 0-11 tx * 2, bits 12-23 ty * 2, both 12-bit two's
  *         complement: 0.5 px steps, +-1023.5 px
  *   flags bit 0 valid, bits 1-4 vision id of the frame in hand
@@ -389,7 +390,7 @@ bool rcmap_seen_from_status(const rcmap_status *s, rcmap_seen *out);
  * reflash the ground together with the Mega. */
 #define RCMAP_VISION_FRAME_BIT 0x4000u
 typedef struct {
-    uint16_t flywheel_pulse_us; /* what D25 sends now, max 16383 */
+    uint16_t flywheel_pulse_us; /* what D25 sends now, max 8191 */
     float tx_px;
     float ty_px;
     bool valid;
@@ -397,12 +398,40 @@ typedef struct {
 } rcmap_vision;
 
 static inline bool rcmap_status_is_vision(uint16_t code) {
-    return (code & 0xC000u) == RCMAP_VISION_FRAME_BIT;
+    return (code & 0xE000u) == RCMAP_VISION_FRAME_BIT;
 }
 /* Out-of-range values are clamped (pulse, tx, ty) or masked (id). */
 void rcmap_vision_to_status(const rcmap_vision *v, uint8_t *flags, uint32_t *seq, uint16_t *code);
 /* False if s is not a vision frame. */
 bool rcmap_vision_from_status(const rcmap_status *s, rcmap_vision *out);
+
+/* Ball frames (2026-11-07): the feed tower's counts for the wireless
+ * Dashboard. A sixth 100 ms slot: status, aim, status, vision, seen, balls.
+ *   code  bits 15-13 = 011 (a vision frame with bit 13 set, which its
+ *         pulse never reaches), bits 0-12 = 0
+ *   seq   bits 0-11 D14 ready pulses since boot, bits 12-23 shots sent
+ *         (D22 triggers) since boot, both mod 4096
+ *   flags bit 0 a ball is ready (a D14 pulse since the last shot), bit 1
+ *         firing waits for it (READY_REQUIRED), bit 2 the tower is enabled
+ *         (D15 LOW)
+ * A ground older than this reads it as a vision frame with a bogus pulse:
+ * reflash the ground together with the Mega. The robot bridge forwards it
+ * unchanged. */
+#define RCMAP_BALLS_FRAME_BITS 0x6000u
+typedef struct {
+    uint16_t loaded;   /* mod 4096 */
+    uint16_t fired;    /* mod 4096 */
+    bool ball_ready;
+    bool required;
+    bool tower_enabled;
+} rcmap_balls;
+
+static inline bool rcmap_status_is_balls(uint16_t code) {
+    return (code & 0xE000u) == RCMAP_BALLS_FRAME_BITS;
+}
+void rcmap_balls_to_status(const rcmap_balls *b, uint8_t *flags, uint32_t *seq, uint16_t *code);
+/* False if s is not a ball frame. */
+bool rcmap_balls_from_status(const rcmap_status *s, rcmap_balls *out);
 
 #ifdef __cplusplus
 }

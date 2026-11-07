@@ -7182,3 +7182,116 @@ opened, the ready line has to move.
 - pio megaatmega2560 SUCCESS.
 - manual_control_test and the two Dashboard tests pass.
 - No hardware.
+
+## 2026-11-07 — Claude Code: feed tower split into D15 disable / D22 fire / D14 ready pulse, ball counts (USB + wireless), creative design (Art)
+
+**User Request (Jeremy):**
+- Split the disable signal off D22 onto D15.
+- D14 is now a 100 ms pulse from the tower's Nano meaning "a ball is ready";
+  a shot waits for it.
+- Count balls from it, on the wireless Dashboard too.
+- Creative design: `Art.h` / `Art.cpp`. The link motor uses a Fire Phoenix
+  ESC on D47 (first said D44). Sounds are pulled LOW on D40 / D41 / D42.
+
+**Discussion Result (Jeremy's answers):**
+- Every mode waits for the ball.
+- No ball after boot until the first pulse.
+- `READY_REQUIRED` stays off for now.
+- Counts reset on Y.
+- Wireless too.
+- Sound pins: D40 = 動感光波 every shot, D41 = 哇哈哈 on the first shot at a
+  new hole, D42 reserved. Each trigger pulls the line LOW for 200 ms.
+- The link turns one direction for 1.5 s on every shot.
+
+**Changed:**
+- **Tower lines** (`DribblerConstants`):
+  - D15 `DISABLE_PIN` is HIGH while disabled and LOW while enabled.
+  - D22 is LOW except the 100 ms fire pulse, and is LOW while disabled too.
+    Until now D22 was held HIGH while disabled.
+  - D14 `READY_PIN` is an input. A pulse counts once it has been HIGH for
+    20 ms (`READY_MIN_HIGH_MS`).
+- **Dribbler:**
+  - Latches `hasBall()` on each D14 pulse and counts `getLoadedCount()`.
+  - `requestFeed()` clears the latch. With `READY_REQUIRED` it refuses
+    without a ball, so full manual / test F answers FEED_BUSY.
+  - Disable keeps the latch.
+- **Auto:** `towerReady = Dribbler::towerAllowsShot()` in every auto mode;
+  semi-auto F answers FIRE_NOT_READY.
+- **Wireless ball frame** (RcControlMap):
+  - code `0x6000` (bits 15-13 = 011).
+  - seq = loaded mod 4096 | fired mod 4096 << 12.
+  - flags = ready | required<<1 | towerEnabled<<2.
+  - The vision frame's pulse is now 13 bits, and `is_vision` masks 0xE000.
+  - The Mega's status slots go 5 → 6, the sixth being `AimUplink::sendBalls()`.
+- **Ground:** decodes the ball frame before the vision check (otherwise it
+  would read as a status with event 0) and emits
+  `$BALLS,<fresh>,<loaded>,<fired>,<ready>,<required>,<towerEnabled>`. The
+  robot bridge is unchanged.
+- **TEL slots 59-61:** ball latch, READY_REQUIRED, loaded count. Shots
+  sent are still slot 22.
+- **Dashboard:**
+  - The feed tower card reads "可觸發/冷卻中 · 已裝 N · 已發射 M ·
+    有球/沒球 · D15 啟用/停用", from TEL or `$WIRELESS` + `$BALLS`.
+  - Y stores a base, so a match starts at 0. A count below the base means
+    the Mega restarted, and the base resets to 0.
+- **Art** (new `src/Art/Art.{h,cpp}`, `src/Constants/ArtConstants.h`):
+  - Watches `Dribbler::getTriggerCount()`.
+  - Each new shot runs the D47 ESC at 1750 us (COMMAND 0.5, INVERTED
+    false; PROVISIONAL) for 1.5 s, only while the tower is enabled, and
+    sends neutral 1500 otherwise.
+  - Each shot pulls D40 LOW for 200 ms.
+  - The first shot at a hole different from the last shot's hole pulls D41
+    LOW 1.5 s later (`LAUGH_DELAY_MS`, PROVISIONAL = the 動感光波 clip
+    length).
+  - The hole is the camera's locked target, else `Auto::getAimTarget()`;
+    0 never laughs.
+  - D42 is held HIGH.
+  - Art never affects firing. `BuildProfile::DRIVES_ART` is off on partial
+    benches.
+- **main.cpp pincheck:** outputs and inputs are both checked against the
+  serial ports in use only (0/1, 16-19). Serial3 (D14/D15) is plain GPIO.
+  D15, D47 and D40-42 were added to the outputs.
+
+**Calculation:**
+- Link pulse = 1500 + 0.5 × (2000 − 1500) = 1750 us; INVERTED gives 1250.
+- Status cadence: 6 × 100 ms per cycle, so the status frame comes twice
+  per 600 ms (before: twice per 500 ms).
+
+**Impact:**
+- The **Nano program must change with the Mega**: read disable on D15 and
+  fire on D22, pulse D14 for each loaded ball, and send one pulse once
+  enabled with a ball.
+- Mega and ground must be reflashed together. An old ground reads the ball
+  frame as a vision frame with a bogus pulse.
+- Bridge: no reflash.
+- With READY_REQUIRED false, firing is as before apart from D22 now being
+  LOW while disabled.
+- Wiring: D15 10k pull-up to 5V, D14 and D22 10k pull-down to GND, a
+  shared ground with the Nano.
+
+**Evidence:**
+- pio builds SUCCESS: megaatmega2560, mega_wired_manual_test,
+  mega_drive_test, mega_manual_axes_test, mega_elrs_link_test, ground
+  blackpill_f401cc.
+- Host tests pass: manual_control_test (3 variants; the disable assertions
+  now check D15), rc_control_map_test (vision clamp 0x1FFF),
+  ground_state, bridge ch_line_format, and both Dashboard tests.
+- Scratch-only checks, not committed:
+  - Ball frame round trip and ground `$BALLS` output.
+  - A READY_REQUIRED=true simulation: a 10 ms blip is ignored, a 100 ms
+    pulse counts once, no ball is refused, and the Art timing holds (1750
+    us for 1.5 s, D40 200 ms, D41 at about 1.5 s, the motor stops on
+    disable).
+- Browser: the Dashboard renders `$BALLS` and the Y base.
+- No hardware.
+
+**Next Test:**
+1. Unpowered link motor, USB Dashboard. Enable: D15 goes LOW. Each Nano
+   pulse adds 1 to 已裝. F sends D22 and adds 1 to 已發射.
+2. With the link motor powered, check its direction and speed (tune
+   COMMAND / INVERTED) and the 1.5 s run, and that Disable stops it at once.
+3. Check the sounds: D40 on every shot, D41 only on a hole change; set
+   LAUGH_DELAY_MS to the clip length.
+4. Through the ground station, the same counts.
+5. Set READY_REQUIRED true and verify that no ball means no shot in every
+   mode.
