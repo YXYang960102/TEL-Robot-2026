@@ -17,8 +17,12 @@ constexpr uint8_t SIGNAL_PIN = 47;
 constexpr int MIN_PULSE_US = 1000;
 constexpr int NEUTRAL_US = 1500;
 constexpr int MAX_PULSE_US = 2000;
-constexpr double COMMAND = 0.5;       // 0..1 of full speed -> 1750 us
-constexpr bool INVERTED = false;      // true -> 1250 us
+// 0..1 of full speed: 1500 - 0.1 * 500 = 1450 us inverted (Jeremy,
+// 2026-11-07; was 0.5 = 1250 us, too fast).
+constexpr double COMMAND = 0.1;
+// true since 2026-11-07 (Jeremy, on the robot: 1750 us turned it the wrong
+// way).
+constexpr bool INVERTED = true;
 constexpr unsigned long RUN_MS = 2000;
 }
 
