@@ -20,9 +20,8 @@
 // file; nothing here has to be edited when a pin changes. The build only
 // fails if two outputs are set to the same pin, or an output lands on a
 // serial port in use (0/1 USB, 16/17 Serial2 = ELRS bridge, 18/19 Serial1 =
-// Orin), or an input lands on an output or on such a port. Serial3 is never
-// opened, so its pins are plain GPIO (the tower's D14 ready and D15
-// disable lines).
+// Orin), or an input lands on an output or on such a port. Serial3 (14/15)
+// is never opened, so its pins would be plain GPIO too.
 namespace pincheck {
 constexpr uint8_t OUTPUTS[] = {
     ChassisConstants::LeftDrive::SIGNAL_PIN,
@@ -66,6 +65,9 @@ static_assert(noneIn(OUTPUTS, OUTPUT_COUNT, OPEN_SERIAL_PINS, OPEN_SERIAL_COUNT)
 static_assert(noneIn(INPUTS, INPUT_COUNT, OUTPUTS, OUTPUT_COUNT) &&
                   noneIn(INPUTS, INPUT_COUNT, OPEN_SERIAL_PINS, OPEN_SERIAL_COUNT),
               "An input shares a pin with an output or a serial port in use");
+// The tower lines are on the analog header (Jeremy, 2026-11-07).
+static_assert(DribblerConstants::Tower::DISABLE_PIN == A15 && DribblerConstants::Tower::READY_PIN == A14,
+              "Feed tower disable / ready lines are wired to A15 / A14");
 }  // namespace pincheck
 
 void setup() {

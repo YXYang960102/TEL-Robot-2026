@@ -409,11 +409,11 @@ bool rcmap_vision_from_status(const rcmap_status *s, rcmap_vision *out);
  * Dashboard. A sixth 100 ms slot: status, aim, status, vision, seen, balls.
  *   code  bits 15-13 = 011 (a vision frame with bit 13 set, which its
  *         pulse never reaches), bits 0-12 = 0
- *   seq   bits 0-11 D14 ready pulses since boot, bits 12-23 shots sent
+ *   seq   bits 0-11 A14 ready pulses since boot, bits 12-23 shots sent
  *         (D22 triggers) since boot, both mod 4096
- *   flags bit 0 a ball is ready (a D14 pulse since the last shot), bit 1
+ *   flags bit 0 a ball is ready (a A14 pulse since the last shot), bit 1
  *         firing waits for it (READY_REQUIRED), bit 2 the tower is enabled
- *         (D15 LOW)
+ *         (A15 LOW)
  * A ground older than this reads it as a vision frame with a bogus pulse:
  * reflash the ground together with the Mega. The robot bridge forwards it
  * unchanged. */

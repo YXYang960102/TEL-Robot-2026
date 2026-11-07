@@ -7369,3 +7369,33 @@ position.
 
 **Next Test:** with the sound module, check it triggers on LOW→HIGH (the
 polarity flipped) and plays one clip per shot.
+
+## 2026-11-07 — Claude Code: feed tower disable / ready lines D15 / D14 → A15 / A14 (the real wiring)
+
+**User Request (Jeremy):** on the robot the tower stayed running while the
+Mega was disabled. The Nano log showed `DR2=L` while the Dashboard showed
+"D15 停用 HIGH". Jeremy: the wires are on Mega **A14 / A15**. Asked which is
+which: A15 = disable (to Nano A2), A14 = ready (from Nano A1).
+
+**Changed:**
+- `DribblerConstants::Tower`: `DISABLE_PIN` 15 → 69 (A15) and
+  `READY_PIN` 14 → 68 (A14).
+- `main.cpp` has a `static_assert` that they equal `A15` / `A14`.
+- Comments, Dashboard text and the host test comments now say A15 / A14.
+- D22 (fire, to Nano A3) is unchanged.
+- The pincheck still treats Serial3 as unused; nothing is on 14/15 now.
+
+**Impact:**
+- Mega only.
+- Wire A15 with a 10k pull-up to 5V and A14 with a 10k pull-down, plus a
+  shared ground.
+
+**Evidence:**
+- pio megaatmega2560 and mega_drive_test SUCCESS.
+- manual_control_test (both pin-table variants) and both Dashboard tests
+  pass.
+- No hardware.
+
+**Next Test:** with the Mega disabled, the Nano log shows `DR2=H` and then
+`DISABLE=YES`, and every motor stops. After Enable, `DR2=L` and
+`DISABLE=NO`.

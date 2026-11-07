@@ -205,9 +205,9 @@ void Telemetry::update() {
     // view: -1 left, +1 right, 0 no.
     Serial.print(Shooter::getSearchDirection());
     Serial.print(",");
-    // Slots 59-61 (2026-11-07): a D14 ball-ready pulse since the last shot,
+    // Slots 59-61 (2026-11-07): a A14 ball-ready pulse since the last shot,
     // whether firing waits for it (DribblerConstants READY_REQUIRED), and
-    // D14 pulses since boot (shots sent are slot 22).
+    // A14 pulses since boot (shots sent are slot 22).
     Serial.print(Dribbler::hasBall() ? 1 : 0);
     Serial.print(",");
     Serial.print(DribblerConstants::Tower::READY_REQUIRED ? 1 : 0);

@@ -133,7 +133,7 @@ public:
     // turret AS5600 angle and status bits, the depth ring's usable share
     // (-1 = none) and its sectors with depth (bit k, 0 right, clockwise).
     // Then "$BALLS,<fresh>,<loaded>,<fired>,<ballReady>,<required>,
-    // <towerEnabled>" from the latest ball frame (2026-11-07): D14 ready
+    // <towerEnabled>" from the latest ball frame (2026-11-07): A14 ready
     // pulses and D22 shots since the Mega's boot (mod 4096), same rule.
     void tick(uint32_t nowMs, GroundEmitFn emit, void* ctx);
 
