@@ -12,4 +12,6 @@ public:
     static void sendVision();
     // Seen frame (Orin v3): detected holes + target / predicted state.
     static void sendSeen();
+    // Ball frame (2026-11-07): feed tower counts.
+    static void sendBalls();
 };

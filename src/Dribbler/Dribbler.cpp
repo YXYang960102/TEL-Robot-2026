@@ -9,32 +9,69 @@ bool Dribbler::pulseActive = false;
 bool Dribbler::everTriggered = false;
 unsigned long Dribbler::pulseStartMs = 0;
 unsigned long Dribbler::triggerCount = 0;
+bool Dribbler::ballReady = false;
+unsigned long Dribbler::loadedCount = 0;
+bool Dribbler::readyHigh = false;
+bool Dribbler::readyCounted = false;
+unsigned long Dribbler::readyHighSinceMs = 0;
 
 void Dribbler::init() {
-    // Boot = disabled: the line is held HIGH (DribblerConstants.h). Preload
-    // the level before switching the pin to output. (Before this runs the
-    // pin floats.)
+    // Boot = disabled: D15 HIGH, D22 LOW (DribblerConstants.h). Preload the
+    // levels before switching the pins to output. (Before this runs the
+    // pins float; D15's pull-up and D22's pull-down cover that.)
     enabled = false;
-    writeLine(true);
+    writeDisable(true);
+    writeTrigger(false);
     if (BuildProfile::DRIVES_FEED_TOWER) {
+        pinMode(Tower::DISABLE_PIN, OUTPUT);
         pinMode(Tower::TRIGGER_PIN, OUTPUT);
         pinMode(Tower::READY_PIN, INPUT); // external 10k pull-down
     }
-    writeLine(true);
+    writeDisable(true);
+    writeTrigger(false);
     pulseActive = false;
     everTriggered = false;
     triggerCount = 0;
+    // No ball until the tower's first D14 pulse.
+    ballReady = false;
+    loadedCount = 0;
+    readyHigh = false;
+    readyCounted = false;
 }
 
 void Dribbler::update() {
     if (pulseActive && millis() - pulseStartMs >= Tower::PULSE_MS) {
         pulseActive = false;
-        writeLine(!enabled); // back to idle: LOW enabled, HIGH disabled
+        writeTrigger(false);
+    }
+    pollReady();
+}
+
+void Dribbler::pollReady() {
+    if (!BuildProfile::DRIVES_FEED_TOWER) {
+        return;
+    }
+    const unsigned long now = millis();
+    if (digitalRead(Tower::READY_PIN) != HIGH) {
+        readyHigh = false;
+        readyCounted = false;
+        return;
+    }
+    if (!readyHigh) {
+        readyHigh = true;
+        readyHighSinceMs = now;
+    }
+    // One count per pulse, once it has lasted READY_MIN_HIGH_MS.
+    if (!readyCounted && now - readyHighSinceMs >= Tower::READY_MIN_HIGH_MS) {
+        readyCounted = true;
+        ballReady = true;
+        loadedCount++;
     }
 }
 
 void Dribbler::setEnabled(bool on) {
     enabled = on;
+    writeDisable(!on);
     stop();
 }
 
@@ -44,21 +81,22 @@ bool Dribbler::isEnabled() {
 
 void Dribbler::stop() {
     pulseActive = false;
-    writeLine(!enabled); // idle level: LOW enabled, HIGH (held) disabled
+    writeTrigger(false);
 }
 
 bool Dribbler::requestFeed() {
     if (!BuildProfile::DRIVES_FEED_TOWER) {
         return false; // Tower not wired on this bench.
     }
-    if (!enabled || isBusy()) {
+    if (!enabled || isBusy() || !towerAllowsShot()) {
         return false;
     }
     pulseStartMs = millis();
     pulseActive = true;
     everTriggered = true;
     triggerCount++;
-    writeLine(true);
+    ballReady = false; // this ball is on its way; wait for the next D14 pulse
+    writeTrigger(true);
     return true;
 }
 
@@ -77,20 +115,28 @@ unsigned long Dribbler::getTriggerCount() {
     return triggerCount;
 }
 
-bool Dribbler::isTowerReady() {
-    if (!BuildProfile::DRIVES_FEED_TOWER) {
-        return false;
-    }
-    return digitalRead(Tower::READY_PIN) == HIGH;
+bool Dribbler::hasBall() {
+    return ballReady;
+}
+
+unsigned long Dribbler::getLoadedCount() {
+    return loadedCount;
 }
 
 bool Dribbler::towerAllowsShot() {
-    return !Tower::READY_REQUIRED || isTowerReady();
+    return !Tower::READY_REQUIRED || ballReady;
 }
 
-void Dribbler::writeLine(bool active) {
+void Dribbler::writeTrigger(bool active) {
     if (!BuildProfile::DRIVES_FEED_TOWER) {
         return;
     }
     digitalWrite(Tower::TRIGGER_PIN, active == Tower::TRIGGER_ACTIVE_HIGH ? HIGH : LOW);
+}
+
+void Dribbler::writeDisable(bool disabled) {
+    if (!BuildProfile::DRIVES_FEED_TOWER) {
+        return;
+    }
+    digitalWrite(Tower::DISABLE_PIN, disabled ? HIGH : LOW);
 }

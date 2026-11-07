@@ -2,6 +2,7 @@
 
 #include <math.h>
 
+#include "../Dribbler/Dribbler.h"
 #include "../Sensors/TurretAngle.h"
 #include "../Shooter/Shooter.h"
 #include "../Vision/Vision.h"
@@ -51,6 +52,20 @@ void AimUplink::sendSeen() {
     uint32_t seq = 0;
     uint16_t code = 0;
     rcmap_seen_to_status(&v, &flags, &seq, &code);
+    MechLink::sendStatus(flags, seq, code);
+}
+
+void AimUplink::sendBalls() {
+    rcmap_balls b = {};
+    b.loaded = static_cast<uint16_t>(Dribbler::getLoadedCount() & 0x0FFFu);
+    b.fired = static_cast<uint16_t>(Dribbler::getTriggerCount() & 0x0FFFu);
+    b.ball_ready = Dribbler::hasBall();
+    b.required = DribblerConstants::Tower::READY_REQUIRED;
+    b.tower_enabled = Dribbler::isEnabled();
+    uint8_t flags = 0;
+    uint32_t seq = 0;
+    uint16_t code = 0;
+    rcmap_balls_to_status(&b, &flags, &seq, &code);
     MechLink::sendStatus(flags, seq, code);
 }
 

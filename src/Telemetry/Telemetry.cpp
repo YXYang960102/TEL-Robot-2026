@@ -205,9 +205,12 @@ void Telemetry::update() {
     // view: -1 left, +1 right, 0 no.
     Serial.print(Shooter::getSearchDirection());
     Serial.print(",");
-    // Slots 59-60 (2026-11-07): the tower's ball-ready line D14 (1 HIGH) and
-    // whether full auto waits for it (DribblerConstants READY_REQUIRED).
-    Serial.print(Dribbler::isTowerReady() ? 1 : 0);
+    // Slots 59-61 (2026-11-07): a D14 ball-ready pulse since the last shot,
+    // whether firing waits for it (DribblerConstants READY_REQUIRED), and
+    // D14 pulses since boot (shots sent are slot 22).
+    Serial.print(Dribbler::hasBall() ? 1 : 0);
     Serial.print(",");
-    Serial.println(DribblerConstants::Tower::READY_REQUIRED ? 1 : 0);
+    Serial.print(DribblerConstants::Tower::READY_REQUIRED ? 1 : 0);
+    Serial.print(",");
+    Serial.println(Dribbler::getLoadedCount());
 }

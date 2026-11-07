@@ -41,6 +41,7 @@ using Owner = ManualControl::Owner;
 namespace {
 
 constexpr uint8_t TRIGGER_PIN = DribblerConstants::Tower::TRIGGER_PIN;
+constexpr uint8_t DISABLE_PIN = DribblerConstants::Tower::DISABLE_PIN;
 
 rcmap_command wireless; // what the "ground station" is currently sending
 
@@ -100,6 +101,7 @@ bool saw(const std::string& event) {
 }
 
 [[maybe_unused]] bool triggerHigh() { return digitalOut[TRIGGER_PIN] == HIGH; }
+[[maybe_unused]] bool towerDisabled() { return digitalOut[DISABLE_PIN] == HIGH; }
 
 [[maybe_unused]] void runWithHeartbeat(unsigned long totalMs) {
     for (unsigned long t = 0; t < totalMs; t += 10) {
@@ -163,8 +165,8 @@ void testWiredRefusedWhileDisarmed() {
         assert(saw("REJECTED_DISARMED"));
     }
     runWithHeartbeat(2000);
-    // Disabled: the tower line is held HIGH (and no trigger was counted).
-    assert(!ManualControl::isArmed() && triggerHigh());
+    // Disabled: D15 held HIGH, D22 LOW (and no trigger was counted).
+    assert(!ManualControl::isArmed() && towerDisabled() && !triggerHigh());
     assert(nearly(rec.chassisLeft, 0.0) && nearly(rec.flywheelCommand, 0.0));
     assert(Dribbler::getTriggerCount() == 0);
     assert(ManualControl::getTarget() == RCMAP_TARGET_NONE);
@@ -362,14 +364,15 @@ void testDisarmCutsPulse() {
     assert(triggerHigh());
     send("X");
     step();
-    // Disabled: held HIGH from now on, and no new trigger is accepted.
-    assert(triggerHigh() && !Dribbler::isEnabled());
+    // Disabled: the pulse is cut (D22 LOW), D15 held HIGH from now on, and
+    // no new trigger is accepted.
+    assert(!triggerHigh() && towerDisabled() && !Dribbler::isEnabled());
     const unsigned long count = Dribbler::getTriggerCount();
     runWithHeartbeat(300);
-    assert(triggerHigh() && Dribbler::getTriggerCount() == count);
-    // Enable again: idle LOW.
+    assert(!triggerHigh() && towerDisabled() && Dribbler::getTriggerCount() == count);
+    // Enable again: D15 LOW, D22 idle LOW.
     armWired();
-    assert(!triggerHigh() && Dribbler::isEnabled());
+    assert(!triggerHigh() && !towerDisabled() && Dribbler::isEnabled());
 }
 
 // --------------------------------------------------------------- wireless

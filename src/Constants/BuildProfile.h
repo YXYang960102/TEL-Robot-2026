@@ -53,5 +53,7 @@ constexpr bool DRIVES_SHOOTER_AXES = !PARTIAL_HARDWARE_BENCH || BENCH_HAS_SHOOTE
 constexpr bool DRIVES_FLYWHEEL = !PARTIAL_HARDWARE_BENCH || BENCH_HAS_FLYWHEEL;
 // The feed tower is never wired on a partial bench.
 constexpr bool DRIVES_FEED_TOWER = !PARTIAL_HARDWARE_BENCH;
+// The creative-design link motor and sound triggers (src/Art/) neither.
+constexpr bool DRIVES_ART = !PARTIAL_HARDWARE_BENCH;
 
 }  // namespace BuildProfile

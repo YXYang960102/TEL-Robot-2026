@@ -812,7 +812,7 @@
           <div class="metric"><div class="label">ty / 垂直偏差（視覺）</div><div class="value" id="controlTy">--</div></div>
           <div class="metric"><div class="label">wireless link / 無線狀態</div><div class="value" id="wirelessState">--</div><div class="subvalue" id="rfLinkState">ground station only / 僅接地面站時</div></div>
           <div class="metric"><div class="label">control owner / 控制權</div><div class="value" id="controlOwner">--</div></div>
-          <div class="metric"><div class="label">feed tower / 送球塔</div><div class="value" id="towerState">--</div><div class="subvalue">trigger pulses sent, no ball sensor / 已送觸發次數，無球感測</div></div>
+          <div class="metric"><div class="label">feed tower / 送球塔</div><div class="value" id="towerState">--</div><div class="subvalue">已裝＝D14 有球脈衝、已發射＝D22 發射次數（按 Y 歸零）；只是塔的 nano 回報，不是球的感測器</div></div>
           <div class="metric"><div class="label">auto path / 本次啟用的自動路徑</div><div class="value" id="autoPath">未啟動 / not started</div><div class="subvalue" id="autoPathsUsed">--</div></div>
           <div class="metric"><div class="label">left / right pulse / 左右輪脈衝</div><div class="value" id="chassisPulses">--</div></div>
           <div class="metric"><div class="label">gamepad / 手把</div><div class="value" id="gamepadState">none / 未連接</div><div class="subvalue" id="gamepadInputs">按手把任一鍵讓瀏覽器偵測</div></div>
@@ -929,6 +929,11 @@
     let lastRateAt = performance.now();
     let demoTimer;
     let latestData;
+    // Feed tower (2026-11-07): TEL slots 18 / 22-23 / 59-61 (USB) or
+    // $WIRELESS + $BALLS (ground station). Counts are since the Mega's boot;
+    // ballsBase is what they were at the last Y, so a match starts at 0.
+    const tower = { busy: null, loaded: NaN, fired: NaN, ballReady: NaN, required: NaN, enabled: null };
+    let ballsBase = null;
     let layoutEditing = false;
     let activeDrag;
     let activeResize;
@@ -1082,6 +1087,11 @@
       if (!controlArmed || matchStarted) return;
       matchStarted = true;
       matchEndsAt = performance.now() + MATCH_MS;
+      // Ball counts start over with each match.
+      if (Number.isFinite(tower.loaded) && Number.isFinite(tower.fired)) {
+        ballsBase = { loaded: tower.loaded, fired: tower.fired };
+        renderTower();
+      }
       // A stick held while pressing Y must not drive: center it once.
       gamepadNeedsCenter = true;
       updateControlUi();
@@ -1943,10 +1953,13 @@
         // Slot 58 (2026-11-01): turret searching for the chosen hole out of
         // view (-1 left, +1 right, 0 no).
         searchDir: p.length > 58 ? Number(p[58]) : NaN,
-        // Slots 59-60 (2026-11-07): the tower's ball-ready line D14 (1 HIGH)
-        // and whether full auto waits for it (READY_REQUIRED).
+        // Slots 59-60 (2026-11-07): a D14 ball-ready pulse since the last
+        // shot (1 = a ball is ready) and whether firing waits for it
+        // (READY_REQUIRED, every mode).
         towerReady: p.length > 59 ? Number(p[59]) : NaN,
-        towerRequired: p.length > 60 ? Number(p[60]) : NaN
+        towerRequired: p.length > 60 ? Number(p[60]) : NaN,
+        // Slot 61 (2026-11-07): D14 ball-ready pulses since boot.
+        loadedCount: p.length > 61 ? Number(p[61]) : NaN
       };
     }
 
@@ -2003,7 +2016,13 @@
         el.controlOwner.textContent = OWNER_NAMES[data.controlOwner] ?? `#${data.controlOwner}`;
       }
       if (data.towerBusy !== null && Number.isFinite(data.triggerCount)) {
-        el.towerState.textContent = `${data.towerBusy ? "busy / 冷卻中" : "ready / 可觸發"} · ${data.triggerCount}`;
+        tower.busy = data.towerBusy;
+        tower.fired = data.triggerCount;
+        if (Number.isFinite(data.towerReady)) tower.ballReady = data.towerReady;
+        if (Number.isFinite(data.towerRequired)) tower.required = data.towerRequired;
+        if (Number.isFinite(data.loadedCount)) tower.loaded = data.loadedCount;
+        if (data.armed !== null) tower.enabled = data.armed;
+        renderTower();
       }
       if (Number.isFinite(data.anglePulseUs)) {
         el.boardElevation.textContent = Number.isFinite(data.angleTargetDeg)
@@ -2062,13 +2081,14 @@
     // waits for, so a test shows which one never comes.
     function renderReady(data) {
       if (!Number.isFinite(data.readyBits)) return;
-      // The tower's D14 line, shown in every mode so the wiring can be checked.
-      const tower = Number.isFinite(data.towerReady)
-        ? `送球塔 D14 ${data.towerReady === 1 ? "HIGH（有球）" : "LOW（沒球）"}` +
-          (data.towerRequired === 1 ? "" : "（未啟用）")
+      // The tower's ball latch (D14), shown in every mode so the wiring can
+      // be checked.
+      const towerText = Number.isFinite(data.towerReady)
+        ? `送球塔 ${data.towerReady === 1 ? "有球" : "沒球"}` +
+          (data.towerRequired === 1 ? "" : "（未啟用等球）")
         : "";
       if (operatorMode !== 0 && operatorMode !== 1) {
-        el.boardReady.textContent = "發射條件：只在半自動／全自動時判斷" + (tower ? ` · ${tower}` : "");
+        el.boardReady.textContent = "發射條件：只在半自動／全自動時判斷" + (towerText ? ` · ${towerText}` : "");
         return;
       }
       const b = data.readyBits;
@@ -2076,8 +2096,47 @@
       const shot = data.shotDistanceCm > 0 ? `${(data.shotDistanceCm / 100).toFixed(2)} m` : "--";
       // Bit 16 (2026-10-31): the elevation has reached the table's pulse.
       el.boardReady.textContent = `發射條件：轉台鎖定 ${mark(1)} · 飛輪轉穩 ${mark(2)} · 有射擊值 ${mark(4)}` +
-        ` · 仰角到位 ${mark(16)}` + (data.towerRequired === 1 && operatorMode === 0 ? ` · 塔 ready ${mark(32)}` : "") +
-        ` · ${b & 8 ? "可發射" : "等待中"} · 射擊距離（穩定後）${shot}` + (tower ? ` · ${tower}` : "");
+        ` · 仰角到位 ${mark(16)}` + (data.towerRequired === 1 ? ` · 塔有球 ${mark(32)}` : "") +
+        ` · ${b & 8 ? "可發射" : "等待中"} · 射擊距離（穩定後）${shot}` + (towerText ? ` · ${towerText}` : "");
+    }
+
+    // Feed tower readout: lockout, balls loaded / shots sent since the last
+    // Y, the ball latch and the D15 disable line.
+    function renderTower() {
+      if (tower.busy === null) return;
+      const parts = [tower.busy ? "冷卻中" : "可觸發"];
+      if (Number.isFinite(tower.loaded) && Number.isFinite(tower.fired)) {
+        // A count below the base = the Mega restarted: count from its boot.
+        if (ballsBase && (tower.loaded < ballsBase.loaded || tower.fired < ballsBase.fired)) {
+          ballsBase = { loaded: 0, fired: 0 };
+        }
+        const base = ballsBase ?? { loaded: 0, fired: 0 };
+        parts.push(`已裝 ${tower.loaded - base.loaded}`, `已發射 ${tower.fired - base.fired}`);
+      } else if (Number.isFinite(tower.fired)) {
+        parts.push(`已發射 ${tower.fired}`);
+      }
+      if (Number.isFinite(tower.ballReady)) {
+        parts.push((tower.ballReady === 1 ? "有球" : "沒球") + (tower.required === 1 ? "" : "（未啟用等球）"));
+      }
+      if (tower.enabled !== null) parts.push(`D15 ${tower.enabled ? "啟用 LOW" : "停用 HIGH"}`);
+      el.towerState.textContent = parts.join(" · ");
+    }
+
+    // "$BALLS,<fresh>,<loaded>,<fired>,<ballReady>,<required>,<towerEnabled>"
+    // from the ground station (2026-11-07): counts since the Mega's boot,
+    // mod 4096.
+    function handleBallsStatus(line) {
+      const p = line.trim().split(",").map(Number);
+      if (p.length < 7 || p.slice(1).some((v) => !Number.isFinite(v))) return;
+      const [, fresh, loaded, fired, ballReady, required, enabled] = p;
+      if (fresh !== 1) return;
+      tower.loaded = loaded;
+      tower.fired = fired;
+      tower.ballReady = ballReady;
+      tower.required = required;
+      tower.enabled = enabled === 1;
+      if (tower.busy === null) tower.busy = false;
+      renderTower();
     }
 
     // Turret AS5600 (TEL slots 42-44, src/Sensors/TurretAngle.h status bits).
@@ -2392,6 +2451,11 @@
       if (line.startsWith("$VISION,")) {
         linkKind = "ground";
         handleVisionStatus(line);
+        return;
+      }
+      if (line.startsWith("$BALLS,")) {
+        linkKind = "ground";
+        handleBallsStatus(line);
         return;
       }
       if (line.startsWith("$RFLINK,")) {
@@ -2822,7 +2886,9 @@
         `${armed ? "armed / 已啟用" : "disarmed / 未啟用"} · ${OWNER_NAMES[owner] ?? owner}` +
         `${pins ? "" : " · pins unconfirmed / 腳位未確認"} · ${ageMs} ms`;
       el.controlOwner.textContent = OWNER_NAMES[owner] ?? `#${owner}`;
-      el.towerState.textContent = feedBusy ? "busy / 冷卻中" : "ready / 可觸發";
+      tower.busy = feedBusy === 1;
+      tower.enabled = armed === 1;
+      renderTower();
       const wirelessOwned = armed === 1 && owner === 2;
       // Status rides the sparse ELRS uplink and can be seconds old, so it
       // never disarms this page (2026-10-17: a late "disarmed" from the
