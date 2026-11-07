@@ -7405,3 +7405,13 @@ other way.
 sends 1500 − 0.5 × 500 = **1250 us** for 2 s (was 1750 us).
 
 **Evidence:** pio megaatmega2560 SUCCESS. No hardware.
+
+## 2026-11-07 — Claude Code: Art link motor at 1450 us
+
+**User Request (Jeremy):** run the link motor at 1450 us.
+
+**Changed:** `ArtConstants::Link::COMMAND` 0.5 → 0.1. With INVERTED, each
+shot now sends 1500 − 0.1 × 500 = **1450 us** for 2 s (was 1250 us).
+Docs (walkthrough, logic-and-formulas) updated to match.
+
+**Evidence:** pio megaatmega2560 SUCCESS. No hardware.
