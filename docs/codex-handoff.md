@@ -7328,3 +7328,40 @@ position.
 - A scratch simulation (not committed) shows a re-enable re-pulse no
   longer adds to the count, and the next real ball does.
 - No hardware.
+
+## 2026-11-07 — Claude Code: Art link 2 s; sound lines idle LOW, HIGH for 1 s
+
+**User Request (Jeremy):**
+- The link motor runs for 2 s.
+- In every mode, each fire signal plays 動感光波 once. The line is normally
+  LOW and goes HIGH for 1 s, together with the link motor.
+- Asked about D41 / D42: same polarity and length; the laugh still plays
+  only on a hole change.
+
+**Changed (`ArtConstants` / `Art`):**
+- `Link::RUN_MS` 1500 → 2000.
+- `Sound::ACTIVE_HIGH = true` and `PULSE_MS` 200 → 1000. D40 / D41 / D42
+  idle LOW (until now: idle HIGH, pulled LOW).
+- New `Sound::REARM_MS` = 50. A trigger while the line is still HIGH drops
+  it LOW for 50 ms first, so the module sees a fresh edge. Shots can come
+  exactly 1 s apart, at the end of the tower lockout, the same moment the
+  previous clip's 1 s ends.
+- Sound handling moved into a small `SoundLine` struct (pending / active)
+  for both clips.
+- Still triggered by every D22 fire pulse, in any mode. The laugh still
+  plays 1.5 s after a shot at a new hole.
+
+**Evidence:**
+- pio megaatmega2560 and mega_drive_test SUCCESS.
+- A scratch simulation (not committed) checked:
+  - Idle LOW on all three lines.
+  - D40 HIGH for 1 s from the shot, together with the link at 1750 us,
+    which stops at 2 s.
+  - D41 HIGH 1.5 s after a shot at a new hole, for 1 s.
+  - A shot at the lockout's end while D40 is still HIGH gives a LOW gap,
+    then HIGH again.
+  - Same hole: no laugh.
+- No hardware.
+
+**Next Test:** with the sound module, check it triggers on LOW→HIGH (the
+polarity flipped) and plays one clip per shot.

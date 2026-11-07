@@ -10,15 +10,26 @@
 // once on disable. It never affects whether or when a shot is fired.
 class Art {
 public:
-    static void init();   // motor at stop, sound lines HIGH
+    static void init();   // motor at stop, sound lines at their idle level
     static void update(); // after Dribbler::update()
 
     static bool isLinkRunning();
     static int getLinkPulseUs();
 
 private:
+    // One sound trigger line: idle, a pending start, or active for PULSE_MS.
+    struct SoundLine {
+        uint8_t pin;
+        bool active;
+        unsigned long startMs;
+        bool pending;
+        unsigned long dueMs;
+    };
+
     static void onShot(unsigned long now);
-    static void startSound(uint8_t pin, unsigned long now, unsigned long& startMs, bool& active);
+    static void triggerSound(SoundLine& line, unsigned long now, unsigned long delayMs);
+    static void updateSound(SoundLine& line, unsigned long now);
+    static void writeSound(const SoundLine& line, bool active);
     static uint8_t shotHole();
 
     static Servo linkMotor;
@@ -27,10 +38,6 @@ private:
     static unsigned long linkStartMs;
     static unsigned long lastTriggerCount;
     static uint8_t lastShotHole;
-    static bool waveActive;
-    static unsigned long waveStartMs;
-    static bool laughActive;
-    static unsigned long laughStartMs;
-    static bool laughPending;
-    static unsigned long laughDueMs;
+    static SoundLine wave;
+    static SoundLine laugh;
 };

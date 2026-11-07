@@ -11,36 +11,37 @@
 
 using namespace ArtConstants;
 
+namespace {
+uint8_t soundLevel(bool active) {
+    return active == Sound::ACTIVE_HIGH ? HIGH : LOW;
+}
+}
+
 Servo Art::linkMotor;
 int Art::linkPulseUs = Link::NEUTRAL_US;
 bool Art::linkRunning = false;
 unsigned long Art::linkStartMs = 0;
 unsigned long Art::lastTriggerCount = 0;
 uint8_t Art::lastShotHole = 0;
-bool Art::waveActive = false;
-unsigned long Art::waveStartMs = 0;
-bool Art::laughActive = false;
-unsigned long Art::laughStartMs = 0;
-bool Art::laughPending = false;
-unsigned long Art::laughDueMs = 0;
+Art::SoundLine Art::wave = {Sound::WAVE_PIN, false, 0, false, 0};
+Art::SoundLine Art::laugh = {Sound::LAUGH_PIN, false, 0, false, 0};
 
 void Art::init() {
     linkRunning = false;
     linkPulseUs = Link::NEUTRAL_US;
-    waveActive = false;
-    laughActive = false;
-    laughPending = false;
+    wave.active = wave.pending = false;
+    laugh.active = laugh.pending = false;
     lastShotHole = 0;
     lastTriggerCount = Dribbler::getTriggerCount();
     if (!BuildProfile::DRIVES_ART) {
         return;
     }
-    // Sound lines idle HIGH: preload, then drive.
+    // Sound lines at their idle level: preload, then drive.
     const uint8_t soundPins[] = {Sound::WAVE_PIN, Sound::LAUGH_PIN, Sound::SPARE_PIN};
     for (uint8_t pin : soundPins) {
-        digitalWrite(pin, HIGH);
+        digitalWrite(pin, soundLevel(false));
         pinMode(pin, OUTPUT);
-        digitalWrite(pin, HIGH);
+        digitalWrite(pin, soundLevel(false));
     }
     linkMotor.attach(Link::SIGNAL_PIN, Link::MIN_PULSE_US, Link::MAX_PULSE_US);
     linkMotor.writeMicroseconds(Link::NEUTRAL_US); // the ESC arms on a steady stop
@@ -66,19 +67,8 @@ void Art::update() {
         linkPulseUs = Link::NEUTRAL_US;
     }
 
-    if (laughPending && static_cast<long>(now - laughDueMs) >= 0) {
-        laughPending = false;
-        startSound(Sound::LAUGH_PIN, now, laughStartMs, laughActive);
-    }
-    // Release each sound line after PULSE_MS.
-    if (waveActive && now - waveStartMs >= Sound::PULSE_MS) {
-        waveActive = false;
-        if (BuildProfile::DRIVES_ART) digitalWrite(Sound::WAVE_PIN, HIGH);
-    }
-    if (laughActive && now - laughStartMs >= Sound::PULSE_MS) {
-        laughActive = false;
-        if (BuildProfile::DRIVES_ART) digitalWrite(Sound::LAUGH_PIN, HIGH);
-    }
+    updateSound(wave, now);
+    updateSound(laugh, now);
 
     if (BuildProfile::DRIVES_ART) {
         linkMotor.writeMicroseconds(linkPulseUs);
@@ -92,19 +82,41 @@ void Art::onShot(unsigned long now) {
         linkRunning = true;
         linkStartMs = now;
     }
-    startSound(Sound::WAVE_PIN, now, waveStartMs, waveActive);
+    triggerSound(wave, now, 0);
     const uint8_t hole = shotHole();
     if (hole != OperatorTarget::NONE && hole != lastShotHole) {
         lastShotHole = hole;
-        laughPending = true;
-        laughDueMs = now + Sound::LAUGH_DELAY_MS;
+        triggerSound(laugh, now, Sound::LAUGH_DELAY_MS);
     }
 }
 
-void Art::startSound(uint8_t pin, unsigned long now, unsigned long& startMs, bool& active) {
-    active = true;
-    startMs = now;
-    if (BuildProfile::DRIVES_ART) digitalWrite(pin, LOW);
+void Art::triggerSound(SoundLine& line, unsigned long now, unsigned long delayMs) {
+    if (line.active) {
+        // Still playing the last one: back to idle first, then a fresh edge.
+        line.active = false;
+        writeSound(line, false);
+        if (delayMs < Sound::REARM_MS) delayMs = Sound::REARM_MS;
+    }
+    line.pending = true;
+    line.dueMs = now + delayMs;
+    updateSound(line, now);
+}
+
+void Art::updateSound(SoundLine& line, unsigned long now) {
+    if (line.pending && static_cast<long>(now - line.dueMs) >= 0) {
+        line.pending = false;
+        line.active = true;
+        line.startMs = now;
+        writeSound(line, true);
+    }
+    if (line.active && now - line.startMs >= Sound::PULSE_MS) {
+        line.active = false;
+        writeSound(line, false);
+    }
+}
+
+void Art::writeSound(const SoundLine& line, bool active) {
+    if (BuildProfile::DRIVES_ART) digitalWrite(line.pin, soundLevel(active));
 }
 
 // The hole this shot went to (Dashboard numbering): the one the camera is
