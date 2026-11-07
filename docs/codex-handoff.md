@@ -7395,3 +7395,13 @@ which: A15 = disable (to Nano A2), A14 = ready (from Nano A1).
 **Next Test:** with the Mega disabled, the Nano log shows `DR2=H` and then
 `DISABLE=YES`, and every motor stops. After Enable, `DR2=L` and
 `DISABLE=NO`.
+
+## 2026-11-07 — Claude Code: Art link motor reversed
+
+**User Request (Jeremy):** the creative-design link motor should turn the
+other way.
+
+**Changed:** `ArtConstants::Link::INVERTED` false → true. Each shot now
+sends 1500 − 0.5 × 500 = **1250 us** for 2 s (was 1750 us).
+
+**Evidence:** pio megaatmega2560 SUCCESS. No hardware.
