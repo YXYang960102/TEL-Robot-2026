@@ -70,6 +70,19 @@
 
     button:hover { border-color: var(--cyan); }
 
+    /* Enable button (Jeremy, 2026-11-07): red until the robot confirms the
+       Enable (also while it is pending), green while enabled. */
+    #enableControl {
+      background: var(--red);
+      border-color: var(--red);
+      color: #fff;
+    }
+
+    #enableControl.armed {
+      background: var(--green);
+      border-color: var(--green);
+    }
+
     button:disabled,
     input:disabled {
       opacity: 0.45;
@@ -1126,6 +1139,7 @@
       controlArmedBadge.textContent = controlArmed ? `enabled / 已啟用 · ${modeName}`
         : enablePending ? "enabling / 啟用中" : "disabled / 未啟用";
       enableButton.textContent = controlArmed ? "Enabled / 輸出已啟用" : enablePending ? "Enabling… / 等待機器人確認" : "Enable / 啟用輸出";
+      enableButton.className = controlArmed ? "armed" : "";
       // In the auto modes the shot table sets the flywheel, not the slider.
       // Nothing that moves the robot before the match is started (Y).
       flywheelSlider.disabled = !controlArmed || !matchStarted || !operatorSetsFlywheel(operatorMode);
