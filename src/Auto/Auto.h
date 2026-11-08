@@ -60,6 +60,12 @@ public:
     static bool isRowDone();      // the whole cycle (not one row)
     // A lit bonus hole being served first (Dashboard hole 10-12, 0 = none).
     static uint8_t getLitPriorityHole();
+    // This loop's shot-table elevation pulse (us, before the operator's
+    // trim) for the target in view, in the autos and in test (where it is
+    // looked up but not applied). False = none: full manual, no hole in
+    // view, no depth yet, or no table. ManualControl saves the test-mode
+    // elevation trim against it (2026-11-08).
+    static bool getTableElevationUs(double& us);
 
 private:
     enum class FireState {

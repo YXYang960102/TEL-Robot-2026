@@ -22,22 +22,32 @@ int Art::linkPulseUs = Link::NEUTRAL_US;
 bool Art::linkRunning = false;
 unsigned long Art::linkStartMs = 0;
 unsigned long Art::lastTriggerCount = 0;
-uint8_t Art::lastShotHole = 0;
-Art::SoundLine Art::wave = {Sound::WAVE_PIN, false, 0, false, 0};
-Art::SoundLine Art::laugh = {Sound::LAUGH_PIN, false, 0, false, 0};
+uint8_t Art::lastAimedHole = OperatorTarget::NONE;
+bool Art::laughWanted = false;
+bool Art::waveEverPlayed = false;
+unsigned long Art::waveStartMs = 0;
+unsigned long Art::readyLastStartMs = 0;
+Art::SoundLine Art::wave = {Sound::WAVE_PIN, false, 0, false, 0, Sound::PULSE_MS};
+Art::SoundLine Art::laugh = {Sound::LAUGH_PIN, false, 0, false, 0, Sound::PULSE_MS};
+Art::SoundLine Art::ready = {Sound::READY_PIN, false, 0, false, 0, Sound::PULSE_MS};
+uint8_t Art::readyPlays = 0;
+uint8_t Art::readyStutterLeft = 0;
 
 void Art::init() {
     linkRunning = false;
     linkPulseUs = Link::NEUTRAL_US;
     wave.active = wave.pending = false;
     laugh.active = laugh.pending = false;
-    lastShotHole = 0;
+    ready.active = ready.pending = false;
+    readyPlays = readyStutterLeft = 0;
+    lastAimedHole = OperatorTarget::NONE;
+    laughWanted = waveEverPlayed = false;
     lastTriggerCount = Dribbler::getTriggerCount();
     if (!BuildProfile::DRIVES_ART) {
         return;
     }
     // Sound lines at their idle level: preload, then drive.
-    const uint8_t soundPins[] = {Sound::WAVE_PIN, Sound::LAUGH_PIN, Sound::SPARE_PIN};
+    const uint8_t soundPins[] = {Sound::WAVE_PIN, Sound::LAUGH_PIN, Sound::READY_PIN};
     for (uint8_t pin : soundPins) {
         digitalWrite(pin, soundLevel(false));
         pinMode(pin, OUTPUT);
@@ -67,8 +77,30 @@ void Art::update() {
         linkPulseUs = Link::NEUTRAL_US;
     }
 
+    // 哇哈哈: once each time the aimed hole changes (the operator picks
+    // another one, or full auto moves on), only while enabled. Locking on
+    // and fine corrections at the same hole never play it. It waits until
+    // the 動感光波 clip is over (WAVE_CLIP_MS): the module plays one clip at
+    // a time, and a new trigger cuts the one playing.
+    const uint8_t hole = aimedHole();
+    if (hole != OperatorTarget::NONE && hole != lastAimedHole) {
+        lastAimedHole = hole;
+        laughWanted = Dribbler::isEnabled();
+    }
+    if (!Dribbler::isEnabled()) {
+        laughWanted = false;
+    }
+    const bool wavePlaying = waveEverPlayed && now - waveStartMs < Sound::WAVE_CLIP_MS;
+    if (laughWanted && !wavePlaying && !laugh.active && !laugh.pending) {
+        laughWanted = false;
+        triggerSound(laugh, now, Sound::REARM_MS, Sound::PULSE_MS);
+    }
+
+    updateReady(now);
+
     updateSound(wave, now);
     updateSound(laugh, now);
+    updateSound(ready, now);
 
     if (BuildProfile::DRIVES_ART) {
         linkMotor.writeMicroseconds(linkPulseUs);
@@ -82,15 +114,59 @@ void Art::onShot(unsigned long now) {
         linkRunning = true;
         linkStartMs = now;
     }
-    triggerSound(wave, now, 0);
-    const uint8_t hole = shotHole();
-    if (hole != OperatorTarget::NONE && hole != lastShotHole) {
-        lastShotHole = hole;
-        triggerSound(laugh, now, Sound::LAUGH_DELAY_MS);
-    }
+    triggerSound(wave, now, 0, Sound::PULSE_MS);
+    waveEverPlayed = true;
+    waveStartMs = now;
 }
 
-void Art::triggerSound(SoundLine& line, unsigned long now, unsigned long delayMs) {
+// 準備好了 while disabled, cut off at once on Enable. The first play starts
+// at once, each later one READY_PERIOD_MS after the last one started. Plays
+// 1..READY_NORMAL_PLAYS are normal (HIGH PULSE_MS); every later one
+// stutters: READY_STUTTER_CUTS
+// triggers of READY_STUTTER_HIT_MS, each REARM_MS after the last, so the
+// module restarts the clip and drops the previous one (準 準 準 準), then a
+// last full PULSE_MS one (準備好了).
+void Art::updateReady(unsigned long now) {
+    if (Dribbler::isEnabled()) {
+        if (ready.active || ready.pending) {
+            ready.active = ready.pending = false;
+            writeSound(ready, false);
+        }
+        readyPlays = readyStutterLeft = 0; // the next disable starts over
+        return;
+    }
+    if (ready.active || ready.pending) return;
+
+    if (readyStutterLeft > 0) {
+        // Next trigger of this stutter; the last one plays the whole clip.
+        readyStutterLeft--;
+        triggerSound(ready, now, Sound::REARM_MS,
+                     readyStutterLeft > 0 ? Sound::READY_STUTTER_HIT_MS : Sound::PULSE_MS);
+        return;
+    }
+
+    // A new play: at once if it's the first since disable, else one period
+    // after the last one started.
+    unsigned long delayMs = Sound::REARM_MS;
+    if (readyPlays > 0) {
+        const unsigned long sinceLast = now - readyLastStartMs;
+        if (sinceLast < Sound::READY_PERIOD_MS) delayMs = Sound::READY_PERIOD_MS - sinceLast;
+        if (delayMs < Sound::REARM_MS) delayMs = Sound::REARM_MS;
+    }
+    if (readyPlays < Sound::READY_NORMAL_PLAYS) {
+        readyPlays++;
+        triggerSound(ready, now, delayMs, Sound::PULSE_MS);
+    } else {
+        // Stutter: this short trigger, then READY_STUTTER_CUTS - 1 more
+        // short ones and the full one.
+        readyStutterLeft = Sound::READY_STUTTER_CUTS;
+        triggerSound(ready, now, delayMs, Sound::READY_STUTTER_HIT_MS);
+    }
+    readyLastStartMs = ready.dueMs;
+}
+
+void Art::triggerSound(SoundLine& line, unsigned long now, unsigned long delayMs,
+                       unsigned long pulseMs) {
     if (line.active) {
         // Still playing the last one: back to idle first, then a fresh edge.
         line.active = false;
@@ -99,6 +175,7 @@ void Art::triggerSound(SoundLine& line, unsigned long now, unsigned long delayMs
     }
     line.pending = true;
     line.dueMs = now + delayMs;
+    line.pulseMs = pulseMs;
     updateSound(line, now);
 }
 
@@ -109,7 +186,7 @@ void Art::updateSound(SoundLine& line, unsigned long now) {
         line.startMs = now;
         writeSound(line, true);
     }
-    if (line.active && now - line.startMs >= Sound::PULSE_MS) {
+    if (line.active && now - line.startMs >= line.pulseMs) {
         line.active = false;
         writeSound(line, false);
     }
@@ -119,15 +196,14 @@ void Art::writeSound(const SoundLine& line, bool active) {
     if (BuildProfile::DRIVES_ART) digitalWrite(line.pin, soundLevel(active));
 }
 
-// The hole this shot went to (Dashboard numbering): the one the camera is
-// locked on, else the one Auto / the operator aims at; 0 = unknown (full
-// manual without a target in view), which never plays the laugh.
-uint8_t Art::shotHole() {
-    if (Vision::isValid()) {
-        const uint8_t hole = OperatorTarget::holeForVisionId(Vision::getTargetId());
-        if (hole != OperatorTarget::NONE) return hole;
-    }
-    return Auto::getAimTarget();
+// The hole being aimed at (Dashboard numbering): the one Auto / the
+// operator aims at, else the one the camera is locked on (the Orin's own
+// pick); 0 = none, which never changes lastAimedHole.
+uint8_t Art::aimedHole() {
+    const uint8_t target = Auto::getAimTarget();
+    if (target != OperatorTarget::NONE) return target;
+    return Vision::isValid() ? OperatorTarget::holeForVisionId(Vision::getTargetId())
+                             : OperatorTarget::NONE;
 }
 
 bool Art::isLinkRunning() {

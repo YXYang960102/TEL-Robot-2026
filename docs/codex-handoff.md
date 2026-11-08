@@ -7415,3 +7415,358 @@ shot now sends 1500 − 0.1 × 500 = **1450 us** for 2 s (was 1250 us).
 Docs (walkthrough, logic-and-formulas) updated to match.
 
 **Evidence:** pio megaatmega2560 SUCCESS. No hardware.
+
+## 2026-11-08 — Claude Code: Nano one ball per fire request (TEL2026_NANO_v9)
+
+**User Request (Jeremy):** one fire press shoots 3 balls; the Mega sends
+only one 100 ms pulse. Fix it in the Nano.
+
+**Discussion Result:** Mega side correct (one pulse, 1000 ms lockout). The
+Nano dropped `need_pieces` only after SA stayed HIGH for 0.5 s; with balls
+stacked, the next ball reached SA within 0.5 s, so MA kept running at full
+speed until the tower was empty.
+
+**Changed (TEL2026_NANO_v9, uncommitted):** `need_pieces--` on each debounced
+SA LOW -> HIGH (ball left, 15 ms debounce). New `FEED_TIMEOUT_MS` 1500:
+`need_pieces` > 0 with no ball leaving for 1.5 s -> 0. Removed
+`SA_HIGH_CONFIRM_TIME_MS`. README updated (also stale D15/D14 -> A15/A14,
+MD 1700 -> 1600 us).
+
+**Evidence:** pio nanoatmega328new SUCCESS. No hardware.
+
+**Next Test:** 3 balls preloaded, one fire: Nano log shows one `DR1 ADD`,
+one `SA ball left, need_pieces=0`, one ball out. Risk: if two touching
+balls leave no gap SA can see, the second still goes out; then switch to a
+fixed MA run time per ball.
+
+## 2026-11-08 — Claude Code: 動感光波 on D42, 準備好了 on D40 while disabled
+
+**User Request (Jeremy):** D40's clip is "準備好了" (it also plays at boot
+and on USB connect). Move the shot sound to one of the other two lines, and
+play 準備好了 every 1 s while disabled.
+
+**Changed:** `Sound::WAVE_PIN` 40 -> 42 (動感光波, every shot). `SPARE_PIN`
+renamed `READY_PIN` = 40. New `READY_GAP_MS` 1000. `Art::update()`: while
+`Dribbler::isEnabled()` is false, the ready line repeats HIGH 1 s (PULSE_MS)
+/ LOW 1 s (period 2 s); on Enable it drops LOW at once and any pending clip
+is cancelled. `LAUGH_PIN` stays 41. main.cpp pincheck uses `READY_PIN`.
+
+**Why the boot play:** a Mega reset (power-on, or USB connect toggling DTR)
+leaves D40 floating for the bootloader's ~1-2 s, before `Art::init()` drives
+it LOW. Software cannot cover that window; a 10 k pull-down from each sound
+line to GND would. With D40 now 準備好了 while disabled, the boot play is
+harmless; D42 may still blip at boot.
+
+**Evidence:** pio megaatmega2560 and mega_drive_test SUCCESS. No hardware.
+
+**Next Test:** disabled: 準備好了 every 2 s. Enable: stops at once. Fire:
+動感光波 (D42) + link 2 s. If D42 is not 動感光波, swap WAVE_PIN to 41 and
+LAUGH_PIN to 42.
+
+## 2026-11-08 — Claude Code: 哇哈哈 on turret movement
+
+**User Request (Jeremy):** play 哇哈哈哈 when the shooter head turns.
+Answers: replace the hole-change laugh; any movement counts (vision-follow
+corrections included); all modes, only while enabled.
+
+**Changed:** `Art::update()`: enabled and `Shooter::getRotatePulseUs()` !=
+`Rotate::NEUTRAL_US` and the laugh line idle -> trigger it after `REARM_MS`
+(50 ms). HIGH 1 s per clip, never restarted while playing, so continuous
+movement plays it every 1.05 s. Removed `shotHole()`, `lastShotHole`,
+`LAUGH_DELAY_MS` and the Auto/OperatorTarget/Vision includes. Docs updated.
+
+**Impact:** 哇哈哈 and 動感光波 can now overlap (a shot while the turret
+corrects). During vision-follow lock the turret output is rarely exactly
+1500 us, so expect near-continuous laughing while tracking (Jeremy's choice).
+
+**Evidence:** pio megaatmega2560 and mega_drive_test SUCCESS. No hardware.
+
+**Next Test:** Enable, jog the turret: 哇哈哈 once per ~1 s while it moves,
+silent when stopped; Disable: silent laugh, 準備好了 every 2 s.
+
+## 2026-11-08 — Claude Code: 哇哈哈 only after 0.3 s of turret movement
+
+**User Request (Jeremy):** play it only after the turret turns
+continuously for 0.3 s or more.
+
+**Changed:** new `Sound::TURRET_MOVE_MS` 300. `Art::update()` times each
+movement (rotate output off 1500 us without a break, enabled): at 300 ms,
+if not yet played this movement and the line is idle, trigger after
+`REARM_MS`. One clip per movement; the output must return to 1500 us before
+the next movement can play it. New state `turretWasMoving`,
+`laughedThisMove`, `turretMoveStartMs`.
+
+**Impact:** 80 ms stall pushes and short corrections no longer play it. A
+vision-follow lock whose output never sits exactly at 1500 us counts as one
+long movement: one laugh at its start, then silent.
+
+**Evidence:** pio megaatmega2560 and mega_drive_test SUCCESS. No hardware.
+
+**Next Test:** Enable; a short jog (< 0.3 s) is silent; a long jog plays
+once; stop and jog again plays again.
+
+## 2026-11-08 — Claude Code: 動感光波 D41, 哇哈哈 D42 (swapped)
+
+**User Request (Jeremy):** on the robot, a shot plays 哇哈哈哈 -- swap the
+lines.
+
+**Changed:** `Sound::WAVE_PIN` 42 -> 41 (動感光波, every shot),
+`LAUGH_PIN` 41 -> 42 (哇哈哈, turret moving >= 0.3 s). `READY_PIN` stays 40
+(準備好了, disabled). Docs updated.
+
+**Evidence:** pio megaatmega2560 and mega_drive_test SUCCESS. No hardware.
+
+## 2026-11-08 — Claude Code: 準備好了 stutter after 3 plays
+
+**User Request (Jeremy):** D40: after 3 plays it should become
+準準準準準備好了, each new trigger cutting off the previous one. Answers:
+first 3 normal, every later play stutters (until Enable); 4 cut-offs + 1
+full.
+
+**Changed:** `SoundLine` gets a per-trigger `pulseMs`; `triggerSound()`
+takes it (shots and laugh pass `PULSE_MS`). New `Art::updateReady()`
+(moved out of `update()`): Enable -> cut off, `readyPlays` and
+`readyStutterLeft` reset. Disabled, line idle: plays 1-3 are HIGH 1 s after
+a 1 s gap; later plays are a stutter: after the 1 s gap,
+`READY_STUTTER_CUTS` (4) triggers HIGH `READY_STUTTER_HIT_MS` (150, 
+PROVISIONAL) each `REARM_MS` (50) after the last, then one HIGH 1 s.
+New constants `READY_NORMAL_PLAYS` 3, `READY_STUTTER_CUTS` 4,
+`READY_STUTTER_HIT_MS` 150.
+
+**Calculation:** disabled at t = 0: normal plays start at 1.0, 3.0, 5.0 s;
+the stutter's 準 at 7.0, 7.2, 7.4, 7.6, 7.8 s, the last held to 8.8 s; the
+next stutter at 9.8 s (period 2.8 s).
+
+**Assumption:** the module restarts the clip on each new rising edge
+(Jeremy's description). If it ignores edges while playing, the stutter
+sounds like one normal play.
+
+**Evidence:** pio megaatmega2560 and mega_drive_test SUCCESS. No hardware.
+
+**Next Test:** disabled: 3 normal plays, then 準準準準準備好了 every 2.8 s.
+If 準 sounds too short or long, change `READY_STUTTER_HIT_MS`.
+
+## 2026-11-08 — Claude Code: Nano clear time + MB hold while firing (TEL2026_NANO_v9)
+
+**User Request (Jeremy):** after the one-ball fix, the top ball and the
+second ball jam inside the tower when firing. Approved fix A + B,
+`CLEAR_MS` 0.2 s.
+
+**Discussion Result:** `need_pieces` hit 0 the instant the ball left SA,
+so MA dropped to slow/stop while that ball could still be in the MA
+rollers, and MB (runs while SA and SB both see no ball, or SC sees none)
+pushed the second ball up into it.
+
+**Changed (uncommitted):** new `CLEAR_MS` 200 (PROVISIONAL). When the last
+requested ball leaves SA, `feedClearing` holds MA at full speed for
+`CLEAR_MS`. `firing = need_pieces > 0 || feedClearing`: MA full, MB stopped.
+A feed timeout or disable clears `feedClearing` (no clear time when stuck).
+After it, the old rules (MA slow, MB lift) resume. MC/MD unchanged. New log
+line `[EVENT] clear done`. README updated.
+
+**Evidence:** pio nanoatmega328new SUCCESS. No hardware.
+
+**Next Test:** 3 balls, one fire: one ball out, no jam, the second rises
+and stops at the top. Top ball still jams -> raise `CLEAR_MS`; second ball
+also fires -> lower it.
+
+## 2026-11-08 — Claude Code: stick turn flipped back; shot table elevations 500 -> 765
+
+**User Request (Jeremy):** the chassis stick turns left/right the wrong way;
+and in the shot table change every 500 to the current 765.
+
+**Changed:**
+- `tools/dashboard/index.html` `gamepadTank()`: stick right now sends
+  `T,-turn,+turn` (left wheel back, right forward), the polarity before
+  09267fa (2026-10-17). Wired and wireless follow from the page; no
+  firmware change. `test/dashboard_page_test.cjs`: the five stick-turn
+  assertions mirrored.
+- `tools/shot_table/shot_table.xlsx` -> `apply.py` ->
+  `src/Constants/ShotTableData.h`: 16 points at 500 us, plus one 655 us
+  (hole 5, 3.55 m) and one 560 us (hole 6, 5.44 m), set to 765 us. The two
+  non-500 points were included because apply.py's strict 765-2500 check
+  refuses to write anything while any point is below 765. Backup:
+  `tools/shot_table/backup/shot_table_20261108_145104.xlsx`.
+
+**Impact:** shots unchanged: Auto already clamps table points below 765 to
+765 (11a39b7). The flip reverses the 2026-10-17 fix; if the drive ESCs or
+motors were rewired since, the autos' turns would also be mirrored (none
+use the chassis today).
+
+**Evidence:** dashboard_page_test, dashboard_control_test,
+vision_rotate_page_test PASS; apply.py wrote the header; pio
+megaatmega2560 SUCCESS. No hardware.
+
+**Next Test:** reload the Dashboard; stick right turns the robot right.
+
+## 2026-11-08 — Claude Code: 準備好了 every 10 s; 哇哈哈 on hole change, never over 動感光波
+
+**User Request (Jeremy):** 準備好了 only every 10 s; 哇哈哈 once per head
+turn: in semi auto it kept playing while locked and cut 動感光波 off
+mid-clip. Answers: "head turn" = the aimed hole changes; protect
+動感光波 for 3 s.
+
+**Changed:**
+- `Sound::READY_GAP_MS` 1000 -> `READY_PERIOD_MS` 10000, start to start;
+  the first play after disable starts at once (was after 1 s). Stutter
+  rule (3 normal, then stutter) unchanged.
+- 哇哈哈: `aimedHole()` = `Auto::getAimTarget()`, else the vision-locked
+  hole (`OperatorTarget::holeForVisionId`), 0 = none. A change to another
+  non-zero hole while enabled sets `laughWanted`; it plays once
+  `WAVE_CLIP_MS` (3000, PROVISIONAL) has passed since the last 動感光波
+  start and D42 is idle. Disable drops a waiting laugh. Removed the
+  turret-movement trigger (`TURRET_MOVE_MS`, `isTurretMoving()`, Shooter
+  includes).
+
+**Why:** the sound module plays one clip at a time and a new trigger on any
+line cuts the one playing; lock-on corrections kept re-triggering D42.
+
+**Impact:** 動感光波 itself is never delayed: a shot still cuts a laugh in
+progress. In the Orin's own pick (no hole chosen) a lock that flips between
+two holes plays it on each flip.
+
+**Calculation:** disabled at t = 0: 準備好了 at 0, 10, 20 s, the stutter
+from 30 s. Shot at t = 0 then hole change at 1 s: laugh at 3.05 s.
+
+**Evidence:** pio megaatmega2560 and mega_drive_test SUCCESS. No hardware.
+
+**Next Test:** semi auto locked on one hole: no laugh. Pick another hole:
+one laugh. Fire then pick a hole at once: 動感光波 plays whole, laugh after.
+
+## 2026-11-08 — Claude Code: elevation fine-adjust is hold-to-move in the autos
+
+**User Request (Jeremy):** in semi auto, fine-adjust the elevation the way
+the horizontal works (hold to move).
+
+**Changed:** `ManualControl::updateFineAdjust()`: up / down held (Dashboard
+ANG or radio CH7 nudge), with Auto owning the elevation (autos, measured
+table), moves `elevationOffsetUs` at the new
+`TuningConstants::Auto::ELEVATION_JOG_US_PER_SECOND` 200 (PROVISIONAL);
+released, it stays. Still clamped to `ELEVATION_OFFSET_MAX_US` ±200, still
+cleared by a new hole / Enable / disarm, same release-first rule after a
+clear. Loop time capped at 100 ms per step. `ELEVATION_OFFSET_STEP_US`
+(10 us per press) removed. Auto still slews the servo at 400 us/s, so the
+servo keeps up. Applies in both autos (same as left / right); test mode and
+full manual unchanged (their up/down is the plain jog).
+Dashboard help text and docs updated; `test/manual_control_test.cpp`'s
+per-press assertion replaced (held 250 ms = 50 us, stays on release,
+clamps at 200).
+
+**Calculation:** offset += dir × 200 us/s × dt; held 0.5 s = +100 us on the
+table pulse (≈ 15.6° at 270° / 1735 us), the ±200 us limit after 1 s.
+
+**Evidence:** pio megaatmega2560 and mega_drive_test SUCCESS;
+manual_control_test PASS in all 3 variants. No hardware.
+
+**Next Test:** semi auto locked on a hole, hold ↑ ~0.5 s: elevation rises
+smoothly and stays when released; a new hole resets it.
+
+## 2026-11-08 — Claude Code: link 1300 us; saved aim / elevation trim (C clears), link version 5
+
+**User Request (Jeremy):** link motor 1300 us. In semi auto and test: the
+AI locks on but the shots go off; when he moves the elevation or the
+horizontal by hand, remember the difference and apply it. Answers: one trim
+for every hole; EEPROM (survives power off); test-mode elevation = manual
+pulse − table pulse; recorded when the fine-adjust is let go; a C key that
+also works wireless (link version bump accepted).
+
+**Changed:**
+- `ArtConstants::Link::COMMAND` 0.1 -> 0.4: 1500 − 0.4 × 500 = 1300 us.
+- `ManualControl`: `clearFineAdjust()` no longer zeroes `aimOffsetPx` /
+  `elevationOffsetUs` (new hole, mode change, Enable, disarm keep them).
+  `trimSeq` bumps when a left / right hand turn settles with the hole in
+  view, when up / down is let go (autos), when up / down is let go in TEST
+  with a table pulse available (offset = `Shooter::getAnglePulseUs()` −
+  `Auto::getTableElevationUs()`, clamped ±200 us), and on `clearTrim()`.
+  New wired `TCLR` and wireless CH8 level 5 edge -> `clearTrim()`.
+  `setTrim()` for the boot load.
+- New `src/IO/AimTrimStore.{h,cpp}`: 7-byte record (magic 0xB1, seq,
+  aim px × 10, elevation us × 10, CRC-8), two slots at EEPROM 400 / 408
+  (TurretStore uses 0..383), written one byte per loop when `trimSeq`
+  changes; loaded in `setup()` after `ManualControl::init()`.
+- `Auto`: the steadied-distance lookup moved into `lookUpShot()`, also run
+  in TEST (looked up, never applied); `getTableElevationUs()`.
+- `RcControlMap`: `trim_clear` = CH8 level 5 (2000 us; auto path wins if
+  both), `RCMAP_LINK_VERSION` 4 -> 5 (CH10 2000 us, the last free version).
+- Ground `GroundCommandState`: `TCLR` -> `trim_clear` for 200 ms (not while
+  an auto path pulse is on CH8); cleared on release.
+- Dashboard: C sends `TCLR` (armed only), logs it; help text.
+- Tests (existing only): rc_control_map version / CH8 levels;
+  manual_control_test: trim kept on a new hole (wired and CH3), `TCLR`
+  clears both, `reset()` zeroes the trim.
+
+**Impact:** the ground STM32 and the Mega must be flashed together: a v4
+ground with a v5 Mega (or the reverse) is rejected frame by frame
+(LINK_VERSION_MISMATCH) and the robot never enables over radio. The bridge
+is unchanged (passes channels through). Flywheel LT / RT offset unchanged
+(not saved). A saved trim also applies in full auto. The ground only sends
+while enabled, so C works only while enabled.
+
+**Evidence:** pio megaatmega2560 + all other Mega envs SUCCESS; ground
+blackpill_f401cc SUCCESS; rc_control_map_test, host_test_ground_state,
+manual_control_test (3 variants), 3 Dashboard tests PASS. Test-mode
+elevation recording and EEPROM persistence not exercised (no new tests,
+Jeremy's rule). No hardware.
+
+**Next Test:** semi auto, hand-turn the turret 0.3 s settle -> Dashboard
+"微調 水平" shows the px; change hole: kept; power-cycle the Mega: still
+there; C: 0. Test mode: lock on a hole with depth, jog elevation, let go ->
+semi auto shows 仰角 = that difference.
+
+## 2026-11-08 — Claude Code: Nano MD cycle reverses instead of stopping (TEL2026_NANO_v9)
+
+**User Request (Jeremy):** "MB" runs forward a while then stops a while;
+make it forward then reverse, reverse at 1400 for 300 ms.
+
+**Discussion Result:** the only timed run/stop cycle in the Nano is MD (D7,
+`updateMdOutput`); MB (D12) runs or stops by sensors only. Changed MD;
+Jeremy to confirm that is the motor he meant.
+
+**Changed (uncommitted):** `MD_STOP_TIME_MS` 600 -> `MD_REVERSE_TIME_MS`
+300, new `MD_REVERSE_US` 1400: SD HIGH -> 1600 us 600 ms, 1400 us 300 ms,
+repeat. SD LOW, disabled or ESC start-up still stop at 1500 us. README.
+Then (same day, Jeremy): a 50 ms stop at 1500 us between backward and
+forward (`MD_PAUSE_TIME_MS`); `mdRunPhase` became `mdPhase`
+(MD_FORWARD / MD_REVERSE / MD_PAUSE). Cycle 950 ms.
+
+**Evidence:** pio nanoatmega328new SUCCESS. No hardware.
+
+## 2026-11-08 — Claude Code: elevation minimum back to 500 us
+
+**User Request (Jeremy):** elevation lowest = 500.
+
+**Changed:** `ShooterConstants::Angle::MIN_PULSE_US` 765 -> 500 (the value
+before 11a39b7). Follows from it: the jog, ANGT, `Servo::attach()` and
+Auto's table clamp (`constrain(table + trim, MIN, MAX)`), the angle map's
+lowest angle (0 deg again). `apply.py` / its README / Dashboard S accept
+500-2500. Docs and the two existing tests (servo_angle_map,
+manual_control comment) updated.
+
+**Not changed:** the shot table keeps today's 765 us points (from the
+500 -> 765 edit); the pre-edit Excel is
+`tools/shot_table/backup/shot_table_20261108_145104.xlsx` if Jeremy wants
+the 500 / 655 / 560 points back. First-Enable pulse stays 2500.
+
+**Evidence:** pio megaatmega2560, mega_drive_test, mega_wired_manual_test
+SUCCESS; servo_angle_map_test, manual_control_test (2 variants), 3
+Dashboard tests PASS; apply.py --check OK. No hardware.
+
+**Next Test:** full manual, jog the elevation down slowly to 500 us and
+check the mechanism has room there (no limit switch).
+
+## 2026-11-08 — Claude Code: elevation maximum 2461 us
+
+**User Request (Jeremy):** elevation max 2461 us.
+
+**Changed:** `ShooterConstants::Angle::MAX_PULSE_US` 2500 -> 2461 and
+`POSITION_INITIAL_US` 2500 -> 2461 (the first-Enable pulse must sit inside
+the travel; static_assert). The angle map's calibration (2500 us = 270 deg,
+the servo spec) is unchanged, so the top reads 1961 × 270 / 2000 = 264.735
+deg. apply.py (check, chart axis, Excel validation text), its README and
+Dashboard S accept 500-2461. Docs; existing tests servo_angle_map
+(toPulse(270) = 2461, maxDegrees 264.735) and shot_table_lookup (range).
+Shot table: highest point 1913 us, nothing to change.
+
+**Evidence:** pio megaatmega2560, mega_drive_test, mega_wired_manual_test
+SUCCESS; servo_angle_map_test, shot_table_lookup_test, manual_control_test
+(2 variants), 3 Dashboard tests PASS; apply.py --check OK. No hardware.

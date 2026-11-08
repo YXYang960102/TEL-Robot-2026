@@ -55,6 +55,7 @@ void GroundCommandState::release(uint32_t nowMs) {
     cmd.fire = false;
     cmd.auto_path = RCMAP_AUTO_NONE;
     cmd.turret_home = false;
+    cmd.trim_clear = false;
     rotate = 0;
     angle = 0;
     updateNudge();
@@ -177,8 +178,10 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
     const bool isFlywheelOffset = strncmp(line, "FLYO,", 5) == 0;
     const bool isSingle = line[1] == '\0' && (line[0] == 'F' || line[0] == 'M');
     const bool isTurretHome = strcmp(line, "THOME") == 0;
+    const bool isTrimClear = strcmp(line, "TCLR") == 0;
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isNoChannel && !isTarget &&
-        !isAutoPath && !isModeSet && !isFlywheelOffset && !isSingle && !isTurretHome) {
+        !isAutoPath && !isModeSet && !isFlywheelOffset && !isSingle && !isTurretHome &&
+        !isTrimClear) {
         emitLine(emit, ctx, "$GROUND_EVENT,UNKNOWN_COMMAND");
         return;
     }
@@ -263,7 +266,7 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
             cmd.test_mode = mode == RCMAP_MODE_TEST;
             cmd.mode_us = rcmap_mode_to_us(cmd.test_mode ? RCMAP_MODE_FULL_MANUAL : mode);
             emitModeEvent(mode, emit, ctx);
-        } else if (cmd.auto_path == RCMAP_AUTO_NONE) {
+        } else if (cmd.auto_path == RCMAP_AUTO_NONE && !cmd.trim_clear) {
             // A new press only after the previous pulse ended (the robot
             // needs to see "none" between presses).
             cmd.auto_path = static_cast<uint8_t>(n);
@@ -281,6 +284,15 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
         if (!cmd.turret_home) {
             cmd.turret_home = true;
             homeStartMs = nowMs;
+        }
+        return;
+    }
+    if (isTrimClear) {
+        // One C press = one pulse on CH8 (shared with the auto paths: only
+        // when none is being sent, so the robot sees "none" in between).
+        if (!cmd.trim_clear && cmd.auto_path == RCMAP_AUTO_NONE) {
+            cmd.trim_clear = true;
+            trimClearStartMs = nowMs;
         }
         return;
     }
@@ -320,6 +332,9 @@ void GroundCommandState::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
     }
     if (cmd.turret_home && nowMs - homeStartMs >= HOME_PULSE_MS) {
         cmd.turret_home = false;
+    }
+    if (cmd.trim_clear && nowMs - trimClearStartMs >= TRIM_CLEAR_PULSE_MS) {
+        cmd.trim_clear = false;
     }
     raiseArmIfReady(nowMs);
     if (enabled && nowMs - lastPcMs > PC_TIMEOUT_MS) {

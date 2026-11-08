@@ -73,8 +73,16 @@ public:
     static uint8_t getAutoPathThisEnable();   // 0 = none, 1..4
     static uint8_t getAutoPathsUsedMask();    // bit n = path n started since boot
     // Fine-adjust (TuningConstants::Auto): + = aim right / elevation up.
+    // Since 2026-11-08 a saved trim, the same for every hole: kept across
+    // hole changes, mode changes, Enable / disarm and (AimTrimStore, EEPROM)
+    // power cycles; only C (wired TCLR / CH8 level 5) clears it.
     static double getAimOffsetPx();
     static double getElevationOffsetUs();
+    // Bumped whenever the operator sets or clears the trim (a left / right
+    // hand turn settles, up / down is let go, C): AimTrimStore saves then.
+    static uint16_t getTrimSeq();
+    // The trim read back from EEPROM at boot (clamped to the limits).
+    static void setTrim(double aimOffsetPx, double elevationOffsetUs);
     // Autos and test (2026-10-30): left / right held = the operator turns
     // the turret by hand, then it stands still AIM_JOG_SETTLE_MS before the
     // camera takes over again with the new aim offset. While this is true
@@ -113,6 +121,7 @@ private:
     static void selectTarget(uint8_t hole);
     static void updateFineAdjust();
     static void clearFineAdjust();
+    static void clearTrim();
     static void requestAutoPath(uint8_t path);
     static void cycleOperatorMode();
     static void setOperatorMode(OperatorMode mode);
@@ -139,6 +148,7 @@ private:
     static bool wirelessFirePrev;
     static uint8_t wirelessAutoPrev;
     static bool wirelessHomePrev;
+    static bool wirelessTrimClearPrev;
     static unsigned long lastVersionEventMs; // LINK_VERSION_MISMATCH rate limit
 
     static double tankLeftCommand;
@@ -162,6 +172,9 @@ private:
     static bool aimJogSettling;      // released, waiting before the latch
     static unsigned long aimJogReleasedMs;
     static int angleNudgePrev;
+    static unsigned long elevationJogLastMs; // last updateFineAdjust(), for the up / down hold
+    static bool elevationJogPrev;            // up / down held last loop (release = save)
+    static uint16_t trimSeq;
 
     static unsigned long eventSeq;
     static uint16_t lastEventCode;

@@ -4,8 +4,8 @@
 
 // Creative design (Jeremy, 2026-11-07), same show as last year: every shot
 // (any mode: each fire pulse the Mega sends) the "動感光波" link motor turns
-// and the 動感光波 sound plays at the same time; the first shot at a hole
-// different from the previous shot's adds "哇哈哈哈哈".
+// and the 動感光波 sound plays at the same time; while enabled, the turret
+// moving plays "哇哈哈哈哈"; while disabled, "準備好了" repeats.
 namespace ArtConstants {
 
 // Link motor: Fire Phoenix (火鳳凰) brushed ESC on D47, driven like the
@@ -17,9 +17,9 @@ constexpr uint8_t SIGNAL_PIN = 47;
 constexpr int MIN_PULSE_US = 1000;
 constexpr int NEUTRAL_US = 1500;
 constexpr int MAX_PULSE_US = 2000;
-// 0..1 of full speed: 1500 - 0.1 * 500 = 1450 us inverted (Jeremy,
-// 2026-11-07; was 0.5 = 1250 us, too fast).
-constexpr double COMMAND = 0.1;
+// 0..1 of full speed: 1500 - 0.4 * 500 = 1300 us inverted (Jeremy,
+// 2026-11-08; 0.1 = 1450 us since 2026-11-07, before that 0.5 = 1250 us).
+constexpr double COMMAND = 0.4;
 // true since 2026-11-07 (Jeremy, on the robot: 1750 us turned it the wrong
 // way).
 constexpr bool INVERTED = true;
@@ -30,17 +30,36 @@ constexpr unsigned long RUN_MS = 2000;
 // (Jeremy, 2026-11-07; until then idle HIGH, pulled LOW for 200 ms).
 namespace Sound {
 constexpr bool ACTIVE_HIGH = true;
-constexpr uint8_t WAVE_PIN = 40;   // 動感光波, every shot
-constexpr uint8_t LAUGH_PIN = 41;  // 哇哈哈哈哈, first shot at a new hole
-constexpr uint8_t SPARE_PIN = 42;  // third clip, reserved: held idle, never triggered
+// Jeremy, 2026-11-08, from the robot: D40's clip is "準備好了" (now played
+// while disabled), D42's is "哇哈哈哈哈", so 動感光波 is on D41.
+constexpr uint8_t WAVE_PIN = 41;   // 動感光波, every shot
+// Laugh: once each time the aimed hole changes, while enabled (Jeremy,
+// 2026-11-08). Briefly: on any turret movement >= 0.3 s, which in semi auto
+// played it over and over while locked and cut 動感光波 off.
+constexpr uint8_t LAUGH_PIN = 42;  // 哇哈哈哈哈, aimed hole changed
+// The module plays one clip at a time and a new trigger cuts the one
+// playing, so a laugh waits this long after a 動感光波 starts. PROVISIONAL:
+// set it to the 動感光波 clip's length.
+constexpr unsigned long WAVE_CLIP_MS = 3000;
+constexpr uint8_t READY_PIN = 40;  // 準備好了, repeats while disabled
 constexpr unsigned long PULSE_MS = 1000;
+// While disabled: 準備好了 at once, then every READY_PERIOD_MS (start to
+// start; Jeremy, 2026-11-08, was 1 s LOW between plays). Stops at once on
+// Enable.
+constexpr unsigned long READY_PERIOD_MS = 10000;
+// Jeremy, 2026-11-08: the first READY_NORMAL_PLAYS plays of each disabled
+// period are normal; every later one stutters, 準準準準準備好了: a new
+// trigger makes the module drop the clip and start it again, so
+// READY_STUTTER_CUTS short triggers (HIGH READY_STUTTER_HIT_MS, then LOW
+// REARM_MS) and one full one. PROVISIONAL: set READY_STUTTER_HIT_MS to how
+// long "準" lasts on the module.
+constexpr uint8_t READY_NORMAL_PLAYS = 3;
+constexpr uint8_t READY_STUTTER_CUTS = 4;
+constexpr unsigned long READY_STUTTER_HIT_MS = 150;
 // A trigger while the line is still active drops it to idle this long
 // first, so the module sees a fresh edge (shots can come 1 s apart, the
 // tower lockout).
 constexpr unsigned long REARM_MS = 50;
-// The laugh waits for the wave clip to finish, so the two never overlap.
-// PROVISIONAL: set it to the 動感光波 clip's length.
-constexpr unsigned long LAUGH_DELAY_MS = 1500;
 }
 
 static_assert(Link::COMMAND >= 0.0 && Link::COMMAND <= 1.0, "Link command is a 0..1 ratio");

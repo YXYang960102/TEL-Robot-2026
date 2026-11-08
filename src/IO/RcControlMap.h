@@ -45,7 +45,11 @@
  *   CH7  nudge           1000 + 200*k, k = 0..4: center / up / down /
  *                        left / right (elevation up/down, turret left/right)
  *   CH8  auto path       1000 + 200*k, k = 0..4: none / 1 / 2 / 3 / 4
- *                        (keys Q W E R = left 1, left 2, right 1, right 2)
+ *                        (keys Q W E R = left 1, left 2, right 1, right 2);
+ *                        k = 5 (2026-11-08, link version 5): clear the
+ *                        saved aim / elevation trim (Dashboard C; the
+ *                        ground holds it 200 ms per press, the robot acts
+ *                        on its rising edge)
  *   CH9  test + home     1000 + 200*k (2026-10-31, link version 4; was
  *                        1500 off / 2000 TEST): k = 2 normal, 1 normal +
  *                        turret home, 4 TEST, 5 TEST + turret home (0 / 3
@@ -94,9 +98,10 @@ extern "C" {
 #define RCMAP_CH_VERSION 9u
 /* 1 = table v2 + CH3 80 us steps (bonus holes) + CH9 test (2026-10-27).
  * 4 = CH9 six levels with the turret-home request (2026-10-31; 2 and 3
- * would collide with an old ground's 1500 on CH10). 0..5 only (CH10 is a
- * 6-position AUX channel). */
-#define RCMAP_LINK_VERSION 4u
+ * would collide with an old ground's 1500 on CH10). 5 = CH8 level 5, trim
+ * clear (2026-11-08). 0..5 only (CH10 is a 6-position AUX channel): the
+ * last free version. */
+#define RCMAP_LINK_VERSION 5u
 #define RCMAP_CHANNEL_COUNT 10u
 
 #define RCMAP_TARGET_NONE 0u
@@ -110,6 +115,7 @@ extern "C" {
 
 #define RCMAP_AUTO_NONE 0u
 #define RCMAP_AUTO_PATHS 4u /* 1..4 */
+#define RCMAP_AUTO_TRIM_CLEAR_LEVEL 5u /* CH8's level for trim_clear */
 
 /* Operator mode on CH4 (a full-resolution channel). Ids match the
  * firmware's OperatorMode enum order. The ground sends exactly the *_US
@@ -167,6 +173,9 @@ typedef struct {
     uint8_t nudge;     /* RCMAP_NUDGE_* */
     uint8_t auto_path; /* 0 = none, 1..4 */
     bool turret_home;  /* CH9 (2026-10-31): RB, turret back to 0 deg */
+    bool trim_clear;   /* CH8 level 5 (2026-11-08): C, clear the saved
+                          aim / elevation trim; encode sends it only with
+                          no auto path, decode gives auto_path 0 with it */
 } rcmap_command;
 
 /* The operator mode a command carries: CH4's level, or TEST when CH4 is

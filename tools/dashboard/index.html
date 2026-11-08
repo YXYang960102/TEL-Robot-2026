@@ -779,7 +779,7 @@
         </div>
         <div class="stream-controls">
           <button id="enableControl" disabled>Enable / 啟用輸出</button>
-          <span class="label">Xbox 手把：左蘑菇頭 前後・右蘑菇頭 轉向・十字鍵 ↑↓ 仰角 ←→ 水平（全手動按住移動；自動／測試模式 ←→ 按住手動轉，放開 0.3 秒後鏡頭鎖住這個位置，↑↓ 每按一下微調一格）・X 全自動・A 半自動・B 全手動・LB 發射・RB 轉台回 0°・Y 開始比賽｜鍵盤：1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・Q W E 選加分框左中右・0 回到 AI 自選・S 記錄射擊點・Enter 停用・Space 停用並斷線｜測試模式（模式選單）：水平由鏡頭鎖定（←→ 按住手動轉、放開後鎖住新位置），仰角、轉速、發射跟全手動一樣</span>
+          <span class="label">Xbox 手把：左蘑菇頭 前後・右蘑菇頭 轉向・十字鍵 ↑↓ 仰角 ←→ 水平（全手動按住移動；自動／測試模式 ←→ 按住手動轉，放開 0.3 秒後鏡頭鎖住這個位置，↑↓ 按住微調仰角，放開停在那裡）・X 全自動・A 半自動・B 全手動・LB 發射・RB 轉台回 0°・Y 開始比賽｜鍵盤：1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・Q W E 選加分框左中右・0 回到 AI 自選・S 記錄射擊點・C 清除水平／仰角偏差（自動／測試模式的微調會記住，所有洞共用，斷電也保留）・Enter 停用・Space 停用並斷線｜測試模式（模式選單）：水平由鏡頭鎖定（←→ 按住手動轉、放開後鎖住新位置），仰角、轉速、發射跟全手動一樣</span>
         </div>
         <div class="stream-controls">
           <button id="startMatch" disabled>開始比賽 / Start（Y）</button>
@@ -1361,7 +1361,7 @@
 
     // S: the point, or null (and the reason in the log). Same ranges as
     // tools/shot_table/apply.py: hole 1-9, 0.5-15 m in whole cm, elevation
-    // 765-2500 us, flywheel 0-100% with at most one decimal.
+    // 500-2461 us, flywheel 0-100% with at most one decimal.
     function recordShot() {
       const now = performance.now();
       const refuse = (why) => { appendControlLog(`S 沒有記錄 / not recorded：${why}`); return null; };
@@ -1385,7 +1385,7 @@
       }
       if (now - shotElevationAt > SHOT_READING_FRESH_MS) return refuse("收不到仰角脈寬");
       const elevationUs = Math.round(shotElevationUs);
-      if (elevationUs < 765 || elevationUs > 2500) return refuse(`仰角 ${elevationUs} us 不在 765–2500 內`);
+      if (elevationUs < 500 || elevationUs > 2461) return refuse(`仰角 ${elevationUs} us 不在 500–2461 內`);
       const falconFresh = now - shotFalconAt <= SHOT_READING_FRESH_MS;
       const actualPct = falconFresh ? Math.abs(shotFalconUs - 1500) / 5 : NaN;
       let flywheelPct;
@@ -2683,9 +2683,10 @@
       return Math.sign(value) * Math.min(1, (Math.abs(value) - GAMEPAD_DEADZONE) / (1 - GAMEPAD_DEADZONE));
     }
 
-    // Stick right = turn right = T,1,-1 (left wheel forward, right wheel
-    // back): on the robot (2026-10-17) the old T,-1,1 turned it the wrong
-    // way. Fixed here, so the wired and the wireless path (the ground
+    // Stick right = T,-1,1 (left wheel back, right wheel forward) since
+    // 2026-11-08: on the robot T,1,-1 (set 2026-10-17, when the old T,-1,1
+    // had turned it the wrong way) now turned it opposite to the stick
+    // (Jeremy). Set here, so the wired and the wireless path (the ground
     // station turns T into forward/turn and the Mega mixes it back) both
     // follow.
     // Turn gain blends from 1 with no forward (turn alone = equal and
@@ -2700,8 +2701,8 @@
       const turn = shapeAxis(pad.axes[profile.turnAxis]) * TURN_SPEED_SCALE;
       if (forward === 0 && turn === 0) return null;
       const gain = 1 + (DRIVE_TURN_GAIN - 1) * Math.abs(forward);
-      let left = forward + turn * gain;
-      let right = forward - turn * gain;
+      let left = forward - turn * gain;
+      let right = forward + turn * gain;
       const scale = Math.max(1, Math.abs(left), Math.abs(right));
       left /= scale;
       right /= scale;
@@ -3026,6 +3027,15 @@
         return;
       }
       if (typing || !controlArmed || event.repeat) return;
+      // C (2026-11-08): clear the robot's saved aim / elevation trim (kept
+      // for every hole and across power cycles otherwise). TCLR to the Mega
+      // (USB) or to the ground (CH8 level 5).
+      if (key === "c" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        await sendControl("TCLR");
+        appendControlLog("C：清除水平／仰角偏差 / trim cleared");
+        return;
+      }
       const hole = targetForKey(key);
       if (hole || key === "0") {
         // 1-9 / Q W E: that hole; 0: back to the AI's own pick.

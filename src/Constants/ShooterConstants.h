@@ -28,8 +28,9 @@ constexpr uint8_t ANGLE_PIN = 24; // elevation servo signal
 // speed and disable sends neutral.
 constexpr bool POSITION_SERVO = true;
 // The first pulse after boot (the first Enable attaches the servo there);
-// later Enables keep the last target. 1500 -> 2500 (2026-11-07, Jeremy).
-constexpr double POSITION_INITIAL_US = 2500.0;
+// later Enables keep the last target. 1500 -> 2500 (2026-11-07, Jeremy);
+// 2461 with MAX_PULSE_US (2026-11-08): the top of the travel.
+constexpr double POSITION_INITIAL_US = 2461.0;
 constexpr double POSITION_RATE_US_PER_SECOND = 1000.0;
 
 // Pulse travel. Widened 1000..2000 -> 500..2500 us on 2026-10-15 (Jeremy):
@@ -39,11 +40,12 @@ constexpr double POSITION_RATE_US_PER_SECOND = 1000.0;
 // jog slowly the first time, note the pulse (Dashboard "elevation pulse")
 // at each real mechanical end, and narrow MIN/MAX to those values.
 // Both the jog target and Servo::attach() clamp to this range.
-// MIN 500 -> 765 (2026-11-07, Jeremy): the elevation's limit. Shot table
-// points below it (holes 4-6, 500-655 us) are clamped to 765 by Auto.
-constexpr int MIN_PULSE_US = 765;
+// MIN 500 -> 765 (2026-11-07, Jeremy): the elevation's limit; back to 500
+// on 2026-11-08 (Jeremy). Auto still clamps table points to MIN..MAX.
+// MAX 2500 -> 2461 (2026-11-08, Jeremy): the elevation's top limit.
+constexpr int MIN_PULSE_US = 500;
 constexpr int NEUTRAL_US = 1500;
-constexpr int MAX_PULSE_US = 2500;
+constexpr int MAX_PULSE_US = 2461;
 
 // Angle <-> pulse, for the Dashboard's degree readout and its slider /
 // number box (ANGT). The positional servo holds an absolute position, so a
