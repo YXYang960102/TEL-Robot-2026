@@ -101,7 +101,8 @@ void rcmap_encode(const rcmap_command *c, int ch_us[16]) {
     const uint8_t nudge = c->nudge < RCMAP_FIVE_LEVELS ? c->nudge : RCMAP_NUDGE_CENTER;
     ch_us[RCMAP_CH_NUDGE] = RCMAP_LEVEL_BASE_US + (int)nudge * RCMAP_LEVEL_STEP_US;
     const uint8_t path = c->auto_path <= RCMAP_AUTO_PATHS ? c->auto_path : RCMAP_AUTO_NONE;
-    ch_us[RCMAP_CH_AUTO] = RCMAP_LEVEL_BASE_US + (int)path * RCMAP_LEVEL_STEP_US;
+    const uint8_t autoLevel = path == RCMAP_AUTO_NONE && c->trim_clear ? RCMAP_AUTO_TRIM_CLEAR_LEVEL : path;
+    ch_us[RCMAP_CH_AUTO] = RCMAP_LEVEL_BASE_US + (int)autoLevel * RCMAP_LEVEL_STEP_US;
     {
         const bool test = rcmap_command_mode(c) == RCMAP_MODE_TEST;
         const int level = test ? (c->turret_home ? 5 : 4) : (c->turret_home ? 1 : 2);
@@ -134,7 +135,7 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
         !us_to_level(ch_us[RCMAP_CH_NUDGE], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
                      RCMAP_LEVEL_TOLERANCE_US, RCMAP_FIVE_LEVELS, &nudge) ||
         !us_to_level(ch_us[RCMAP_CH_AUTO], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
-                     RCMAP_LEVEL_TOLERANCE_US, RCMAP_FIVE_LEVELS, &path) ||
+                     RCMAP_LEVEL_TOLERANCE_US, RCMAP_AUTO_TRIM_CLEAR_LEVEL + 1u, &path) ||
         !us_to_level(ch_us[RCMAP_CH_TEST], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
                      RCMAP_LEVEL_TOLERANCE_US, 6u, &test_level)) {
         return false;
@@ -148,7 +149,8 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     out->fire = ch_us[RCMAP_CH_FIRE] >= RCMAP_SWITCH_ON_US;
     out->armed = ch_us[RCMAP_CH_ARM] >= RCMAP_SWITCH_ON_US;
     out->nudge = nudge;
-    out->auto_path = path;
+    out->trim_clear = path == RCMAP_AUTO_TRIM_CLEAR_LEVEL;
+    out->auto_path = out->trim_clear ? RCMAP_AUTO_NONE : path;
     /* Fail-safe like fire / arm: only a clear high counts, and only with
        CH4 in full manual (any other level is that mode, whatever CH9 says). */
     /* CH9 (a level, like CH7 / CH8: between levels = corrupt frame): TEST

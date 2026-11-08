@@ -63,6 +63,35 @@ void aimTurret(bool visionHealthy) {
 }
 uint8_t filterSelection = 0;
 int filterTargetId = 0;
+// This loop's shot-table pulse for the target in view (autos and test;
+// getTableElevationUs()).
+bool tableElevationValid = false;
+double tableElevationUs = 0.0;
+
+// The shot for the target in this frame, at the STEADIED distance
+// (2026-10-27, ShotDistanceFilter): each new depth frame of this target
+// feeds it, and its latched value only moves for a real move, so standing
+// still the flywheel command and the elevation target stay put and the
+// shooter can count as ready. A new hole (selection, or the Orin's own pick
+// changing) starts the filter over. False = no target to shoot at: no
+// valid frame, no depth, nothing latched yet, or no table for that hole.
+bool lookUpShot(unsigned long now, ShotTableLookup::Result& shot) {
+    const uint8_t selection = Vision::getSelectedTarget();
+    const bool frameHasDepth = Vision::isValid() && Vision::getDistance() > 0.0;
+    if (selection != filterSelection ||
+        (Vision::isValid() && Vision::getTargetId() != filterTargetId)) {
+        distanceFilter.reset();
+        filterSelection = selection;
+        if (Vision::isValid()) filterTargetId = Vision::getTargetId();
+    }
+    const unsigned long frame = Vision::getFrameCount();
+    if (frameHasDepth && frame != lastFilterFrame) {
+        distanceFilter.addSample(Vision::getDistance() / 1000.0, now);
+    }
+    lastFilterFrame = frame;
+    return frameHasDepth && distanceFilter.latched() > 0.0 &&
+        ShotTableLookup::lookupTarget(Vision::getTargetId(), distanceFilter.latched(), shot);
+}
 }  // namespace
 
 double Auto::getShotDistanceM() {
@@ -229,6 +258,7 @@ void Auto::update() {
     updateRowCycle(mode);
     // getOperatorMode() is FULL_MANUAL whenever disarmed (and always on the
     // wired-manual benches), so this also covers "nobody armed".
+    tableElevationValid = false;
     if (mode == OperatorMode::FULL_MANUAL) {
         ManualControl::takeFireRequest(); // never let a stale F carry over
         enterFireState(FireState::IDLE);
@@ -248,9 +278,16 @@ void Auto::update() {
         ManualControl::takeFireRequest(); // never set in test; never carry one over
         enterFireState(FireState::IDLE);
         haveLastShot = false;
-        distanceFilter.reset();
         readyBits = 0;
         aimTurret(visionHealthy);
+        // The table is still looked up (never applied here), so letting go
+        // of up / down can save the difference as the elevation trim
+        // (ManualControl, 2026-11-08).
+        ShotTableLookup::Result shot = {0.0, 0.0};
+        if (visionHealthy && lookUpShot(millis(), shot)) {
+            tableElevationValid = true;
+            tableElevationUs = shot.elevationPulseUs;
+        }
         return;
     }
 
@@ -276,30 +313,13 @@ void Auto::update() {
     // (the selected one, or the Orin's own pick with none selected), so the
     // table is that hole's row. valid=1 with distance 0 (the Orin's webcam
     // bench mode) or an id with no table can be aimed at but never fired at.
-    //
-    // The table is looked up at the STEADIED distance (2026-10-27,
-    // ShotDistanceFilter): each new depth frame of this target feeds it,
-    // and its latched value only moves for a real move, so standing still
-    // the flywheel command and the elevation target stay put and the
-    // shooter can count as ready. A new hole (selection, or the Orin's own
-    // pick changing) starts the filter over.
+    // Looked up at the steadied distance (lookUpShot()).
     const unsigned long now = millis();
     const uint8_t selection = Vision::getSelectedTarget();
-    const bool frameHasDepth = Vision::isValid() && Vision::getDistance() > 0.0;
-    if (selection != filterSelection ||
-        (Vision::isValid() && Vision::getTargetId() != filterTargetId)) {
-        distanceFilter.reset();
-        filterSelection = selection;
-        if (Vision::isValid()) filterTargetId = Vision::getTargetId();
-    }
-    const unsigned long frame = Vision::getFrameCount();
-    if (frameHasDepth && frame != lastFilterFrame) {
-        distanceFilter.addSample(Vision::getDistance() / 1000.0, now);
-    }
-    lastFilterFrame = frame;
     ShotTableLookup::Result shot = {0.0, 0.0};
-    const bool hasTarget = frameHasDepth && distanceFilter.latched() > 0.0 &&
-        ShotTableLookup::lookupTarget(Vision::getTargetId(), distanceFilter.latched(), shot);
+    const bool hasTarget = lookUpShot(now, shot);
+    tableElevationValid = hasTarget;
+    tableElevationUs = shot.elevationPulseUs;
 
     // Target hold (2026-10-18): a single invalid / distance-0 / other-hole
     // frame used to drop the flywheel to the pre-spin for ~90 ms and back,
@@ -341,9 +361,10 @@ void Auto::update() {
         if (TuningConstants::ShotTable::ELEVATION_MEASURED) {
             // Toward the target at ELEVATION_SLEW_US_PER_SECOND, not a jump
             // (current limiting, 2026-10-18).
-            // Kept inside the servo's range (2026-11-07: MIN 765 us; the
-            // table still holds 500 us points). Unclamped, the servo would
-            // stop at 765 and "elevation arrived" (10 us) never come.
+            // Kept inside the servo's range (Angle::MIN/MAX_PULSE_US; MIN
+            // was 765 on 2026-11-07, 500 again since 2026-11-08). Unclamped,
+            // a point outside it would leave the servo at the limit and
+            // "elevation arrived" (10 us) would never come.
             const double targetUs = constrain(lastShotElevationUs + ManualControl::getElevationOffsetUs(),
                                               static_cast<double>(ShooterConstants::Angle::MIN_PULSE_US),
                                               static_cast<double>(ShooterConstants::Angle::MAX_PULSE_US));
@@ -427,4 +448,10 @@ void Auto::update() {
     if (firePressed && !fired && mode == OperatorMode::SEMI_AUTO) {
         ManualControl::reportEvent(RCMAP_EVENT_FIRE_NOT_READY);
     }
+}
+
+bool Auto::getTableElevationUs(double& us) {
+    if (!tableElevationValid) return false;
+    us = tableElevationUs;
+    return true;
 }

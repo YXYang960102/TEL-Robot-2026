@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../Auto/Auto.h"
 #include "../Chassis/Chassis.h"
 #include "../Constants/Pins.h"
 #include "../Constants/TuningConstants.h"
@@ -31,6 +32,7 @@ bool ManualControl::wirelessArmPrev = true;
 bool ManualControl::wirelessFirePrev = true;
 uint8_t ManualControl::wirelessAutoPrev = RCMAP_AUTO_NONE;
 bool ManualControl::wirelessHomePrev = true;
+bool ManualControl::wirelessTrimClearPrev = true;
 unsigned long ManualControl::lastVersionEventMs = 0;
 
 double ManualControl::tankLeftCommand = 0.0;
@@ -53,6 +55,9 @@ bool ManualControl::aimJogging = false;
 bool ManualControl::aimJogSettling = false;
 unsigned long ManualControl::aimJogReleasedMs = 0;
 int ManualControl::angleNudgePrev = 0;
+unsigned long ManualControl::elevationJogLastMs = 0;
+bool ManualControl::elevationJogPrev = false;
+uint16_t ManualControl::trimSeq = 0;
 
 unsigned long ManualControl::eventSeq = 0;
 uint16_t ManualControl::lastEventCode = RCMAP_EVENT_NONE;
@@ -237,9 +242,12 @@ void ManualControl::processCommand(char* command) {
     const bool isSingle = command[1] == '\0' && (command[0] == 'F' || command[0] == 'M');
     // THOME (2026-10-31, RB): drive the turret back to 0 deg.
     const bool isTurretHome = strcmp(command, "THOME") == 0;
+    // TCLR (2026-11-08, C): clear the saved aim / elevation trim.
+    const bool isTrimClear = strcmp(command, "TCLR") == 0;
 
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle && !isAngleTarget &&
-        !isTarget && !isAutoPath && !isModeSet && !isFlywheelOffset && !isTurretHome) {
+        !isTarget && !isAutoPath && !isModeSet && !isFlywheelOffset && !isTurretHome &&
+        !isTrimClear) {
         sendEvent(RCMAP_EVENT_UNKNOWN_COMMAND);
         return;
     }
@@ -257,6 +265,11 @@ void ManualControl::processCommand(char* command) {
     if (isTurretHome) {
         refreshWiredWatchdog();
         requestTurretHome();
+        return;
+    }
+    if (isTrimClear) {
+        refreshWiredWatchdog();
+        clearTrim();
         return;
     }
     if (isTank) {
@@ -376,6 +389,7 @@ void ManualControl::resetWirelessTracking() {
     wirelessFirePrev = true;
     wirelessAutoPrev = 0xFF; // "unknown": needs a NONE first
     wirelessHomePrev = true;
+    wirelessTrimClearPrev = true;
 }
 
 void ManualControl::processWirelessFrame() {
@@ -425,6 +439,8 @@ void ManualControl::processWirelessFrame() {
     wirelessAutoPrev = c.auto_path;
     const bool homeEdge = c.turret_home && !wirelessHomePrev;
     wirelessHomePrev = c.turret_home;
+    const bool trimClearEdge = c.trim_clear && !wirelessTrimClearPrev;
+    wirelessTrimClearPrev = c.trim_clear;
 
     if (owner == Owner::WIRELESS) {
         // Arcade -> tank with the same polarity as the Dashboard: turn +1
@@ -444,7 +460,8 @@ void ManualControl::processWirelessFrame() {
         if (fireEdge) handleFire();
         if (autoEdge) requestAutoPath(c.auto_path);
         if (homeEdge) requestTurretHome(); // RB (CH9): back to 0 deg
-    } else if (fireEdge || autoEdge || homeEdge) {
+        if (trimClearEdge) clearTrim();    // C (CH8 level 5)
+    } else if (fireEdge || autoEdge || homeEdge || trimClearEdge) {
         sendEvent(owner == Owner::NONE ? RCMAP_EVENT_REJECTED_DISARMED
                                        : RCMAP_EVENT_REJECTED_NOT_OWNER);
     }
@@ -523,8 +540,8 @@ void ManualControl::clearCommands() {
 }
 
 void ManualControl::clearFineAdjust() {
-    aimOffsetPx = 0.0;
-    elevationOffsetUs = 0.0;
+    // The aim / elevation offsets are a saved trim since 2026-11-08 and stay
+    // (clearTrim() is the only reset); the rest is per-session.
     turretHeldHome = false; // a new hole, Enable, disarm
     aimJogging = false;
     aimJogSettling = false;
@@ -554,10 +571,15 @@ void ManualControl::updateFineAdjust() {
     const int rotateNow = signOf(rotateManualCommand);
     const int angleNow = signOf(angleManualCommand);
     nudgePressed(rotateNow, rotateNudgePrev); // keeps the release-first rule
-    const bool anglePress = nudgePressed(angleNow, angleNudgePrev);
+    nudgePressed(angleNow, angleNudgePrev);
+    const unsigned long nowMs = millis();
+    unsigned long jogElapsedMs = nowMs - elevationJogLastMs;
+    if (jogElapsedMs > 100) jogElapsedMs = 100; // a stalled loop never jumps
+    elevationJogLastMs = nowMs;
     if (operatorMode == OperatorMode::FULL_MANUAL) {
         aimJogging = false;
         aimJogSettling = false;
+        elevationJogPrev = false;
         return; // manual: the arrows are the hold-to-move jog
     }
     // Autos and test: left / right held = turn the turret by hand (Auto
@@ -579,16 +601,62 @@ void ManualControl::updateFineAdjust() {
         aimJogSettling = false;
         if (Vision::isValid()) {
             aimOffsetPx = clampAbs(-Vision::getTx(), AIM_OFFSET_MAX_PX);
+            trimSeq++; // the saved trim: kept for every hole from now on
         }
     }
-    // Up/down only adjust Auto's elevation once Auto owns it; until the
-    // shot table is measured they stay the manual jog (applyOutputs).
-    if (anglePress && autoOwnsElevation()) {
+    // Up / down held = move the elevation by hand, like left / right
+    // (2026-11-08, Jeremy; was one 10 us step per press):
+    // the offset on the shot table's pulse grows at ELEVATION_JOG_US_PER_SECOND
+    // while held, and what it reached stays when released. Example: up held
+    // 0.5 s = +100 us on the table pulse. Only once Auto owns the elevation;
+    // until the shot table is measured they stay the manual jog
+    // (applyOutputs). Same release-first rule as left / right after a clear.
+    const bool elevationJogNow = angleNow != 0 && angleNudgePrev != NUDGE_NEEDS_RELEASE;
+    if (elevationJogNow && autoOwnsElevation()) {
         // Same direction as the jog: "up" moves the pulse the way ANG,1 does.
         const int up = TuningConstants::Angle::INVERTED ? -1 : 1;
-        elevationOffsetUs = clampAbs(elevationOffsetUs + angleNow * up * ELEVATION_OFFSET_STEP_US,
-                                     ELEVATION_OFFSET_MAX_US);
+        elevationOffsetUs = clampAbs(
+            elevationOffsetUs + angleNow * up * ELEVATION_JOG_US_PER_SECOND * jogElapsedMs / 1000.0,
+            ELEVATION_OFFSET_MAX_US);
     }
+    // Let go of up / down: that is the saved elevation trim now (2026-11-08).
+    // Autos: the offset just reached. Test (the operator holds the
+    // elevation, no table applied): the difference to the shot table's
+    // pulse for this hole at this distance, so the autos shoot where the
+    // operator aimed by hand. Example: table 1600 us at 4.3 m, operator let
+    // go at 1650 us -> trim +50 us. No table pulse right now (no hole in
+    // view, no depth, no table): nothing is recorded.
+    if (elevationJogPrev && !elevationJogNow) {
+        if (autoOwnsElevation()) {
+            trimSeq++;
+        } else if (operatorMode == OperatorMode::TEST) {
+            double tableUs = 0.0;
+            if (Auto::getTableElevationUs(tableUs)) {
+                elevationOffsetUs = clampAbs(Shooter::getAnglePulseUs() - tableUs,
+                                             ELEVATION_OFFSET_MAX_US);
+                trimSeq++;
+            }
+        }
+    }
+    elevationJogPrev = elevationJogNow;
+}
+
+// C (wired TCLR / CH8 level 5, 2026-11-08): the saved trim back to 0.
+void ManualControl::clearTrim() {
+    aimOffsetPx = 0.0;
+    elevationOffsetUs = 0.0;
+    aimJogSettling = false; // a hand turn in progress doesn't set it again
+    trimSeq++;
+}
+
+uint16_t ManualControl::getTrimSeq() {
+    return trimSeq;
+}
+
+void ManualControl::setTrim(double aimOffset, double elevationOffset) {
+    using namespace TuningConstants::Auto;
+    aimOffsetPx = clampAbs(aimOffset, AIM_OFFSET_MAX_PX);
+    elevationOffsetUs = clampAbs(elevationOffset, ELEVATION_OFFSET_MAX_US);
 }
 
 int ManualControl::getFlywheelOffsetPct() {

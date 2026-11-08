@@ -247,9 +247,12 @@ constexpr unsigned long DISTANCE_LATCH_SETTLE_MS = 300;
 // also applies, so the real full-auto rate is whichever is longer.
 constexpr uint32_t COOLDOWN_MS = 300;
 
-// Operator fine-adjust in the auto modes and test (Jeremy, 2026-10-16); a
-// new target hole, Enable and disarm clear both. PROVISIONAL -- tune on
-// the field.
+// Operator fine-adjust in the auto modes and test (Jeremy, 2026-10-16).
+// Since 2026-11-08 the aim / elevation offsets are a saved trim, one for
+// every hole: kept across hole / mode changes, Enable, disarm and power
+// cycles (AimTrimStore, EEPROM); only C clears them. Test mode saves the
+// elevation part as (the operator's pulse - the shot table's pulse) when
+// up / down is let go. PROVISIONAL -- tune on the field.
 //   left/right (2026-10-30, Jeremy; was one 20 px step per press, max 100
 //     px, which the camera then pulled back from): held = the operator
 //     turns the turret by hand (the camera lets go, same jog as full
@@ -261,12 +264,16 @@ constexpr uint32_t COOLDOWN_MS = 300;
 //     further out are refused) so the hole stays usable. 300 px is about
 //     16 deg on the 1280 px, ~69 deg D435 image. No hole in view at the
 //     end of the wait: the old offset stays.
-//   up/down: one step per press, added to the shot table's elevation
-//     pulse; only once the table is measured (ShotTable::
-//     ELEVATION_MEASURED), until then up/down stay the manual elevation jog.
+//   up/down (2026-11-08, Jeremy; was one 10 us step per press): held =
+//     the offset on the shot table's elevation pulse moves at
+//     ELEVATION_JOG_US_PER_SECOND, like left / right; it stays where it was
+//     let go, within ELEVATION_OFFSET_MAX_US. Auto still slews the servo at
+//     ELEVATION_SLEW_US_PER_SECOND. Only once the table is measured
+//     (ShotTable::ELEVATION_MEASURED), until then up/down stay the manual
+//     elevation jog.
 constexpr unsigned long AIM_JOG_SETTLE_MS = 300;
 constexpr double AIM_OFFSET_MAX_PX = 300.0;
-constexpr double ELEVATION_OFFSET_STEP_US = 10.0;
+constexpr double ELEVATION_JOG_US_PER_SECOND = 200.0;
 constexpr double ELEVATION_OFFSET_MAX_US = 200.0;
 
 }
@@ -369,8 +376,8 @@ static_assert(Rotate::VISION_STALL_COMMAND >= 0.0 && Rotate::VISION_STALL_COMMAN
 static_assert(Rotate::VISION_kIZONE_PX >= 0.0 && Rotate::VISION_READY_TOLERANCE_PX > 0.0,
               "Vision-follow pixel windows must be non-negative");
 static_assert(Auto::AIM_OFFSET_MAX_PX > 0.0 && Auto::AIM_OFFSET_MAX_PX < 400.0 &&
-              Auto::ELEVATION_OFFSET_STEP_US > 0.0 &&
-              Auto::ELEVATION_OFFSET_MAX_US >= Auto::ELEVATION_OFFSET_STEP_US,
+              Auto::ELEVATION_JOG_US_PER_SECOND > 0.0 &&
+              Auto::ELEVATION_OFFSET_MAX_US > 0.0,
               "Fine-adjust steps must be positive and fit inside their limits");
 
 }

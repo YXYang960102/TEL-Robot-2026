@@ -66,6 +66,7 @@ void reset() {
     Serial.input.clear();
     Serial.output.clear();
     ManualControl::init();
+    ManualControl::setTrim(0.0, 0.0); // the saved trim outlives init() (EEPROM on the robot)
     Auto::init();
     Dribbler::init();
     nowMs += DribblerConstants::Tower::COOLDOWN_MS; // start outside any lockout
@@ -133,7 +134,7 @@ bool saw(const std::string& event) {
 [[maybe_unused]] bool nearly(double a, double b) { return fabs(a - b) < 1e-6; }
 
 // Where Auto drives the elevation for a table point: its pulse kept inside
-// the servo's range (2026-11-07: MIN 765 us; the table's 500 us points).
+// the servo's range (Angle::MIN/MAX_PULSE_US).
 [[maybe_unused]] double tableUs(const ShotTableLookup::Result& shot) {
     return std::min(std::max(shot.elevationPulseUs, static_cast<double>(ShooterConstants::Angle::MIN_PULSE_US)),
                     static_cast<double>(ShooterConstants::Angle::MAX_PULSE_US));
@@ -1375,11 +1376,11 @@ void testFineAdjustWired() {
     hoststub::visionTx = -40.0;
     send("ROT,1"); step(); send("ROT,0"); step(); runWithHeartbeat(AIM_JOG_SETTLE_MS);
     assert(nearly(ManualControl::getAimOffsetPx(), 40.0));
-    // A new hole clears it (and stops a hand turn), and a key still held
-    // then needs a release.
+    // A new hole keeps it (a saved trim since 2026-11-08) but stops a hand
+    // turn, and a key still held then needs a release.
     send("ROT,1"); step();
     send("TGT,4"); step();
-    assert(nearly(ManualControl::getAimOffsetPx(), 0.0) && !ManualControl::isAimJogActive());
+    assert(nearly(ManualControl::getAimOffsetPx(), 40.0) && !ManualControl::isAimJogActive());
     assert(rec.rotateMode == "vision");
     send("ROT,1"); step(); send("ROT,1"); step();
     assert(rec.rotateMode == "vision");
@@ -1391,17 +1392,28 @@ void testFineAdjustWired() {
     send("TGT,4"); step();
     assert(nearly(ManualControl::getAimOffsetPx(), 40.0));
     hoststub::visionTx = 0.0;
-    // Up/down: Auto owns the elevation now (measured table), so each press
-    // adds one elevation-offset step instead of jogging.
+    // Up/down: Auto owns the elevation now (measured table), so holding
+    // moves the elevation offset at ELEVATION_JOG_US_PER_SECOND (2026-11-08),
+    // and it stays where it was let go.
     static_assert(TuningConstants::ShotTable::ELEVATION_MEASURED,
                   "with placeholder pulses, up/down stay the manual jog: restore the old check");
     const double up = TuningConstants::Angle::INVERTED ? -1.0 : 1.0;
-    send("ANG,1"); step();
-    assert(nearly(ManualControl::getElevationOffsetUs(), up * ELEVATION_OFFSET_STEP_US));
+    const double jogStepUs = ELEVATION_JOG_US_PER_SECOND * 10 / 1000.0; // one 10 ms loop
+    for (int i = 0; i < 25; i++) { send("ANG,1"); step(); }             // held 250 ms
+    const double held = ELEVATION_JOG_US_PER_SECOND * 0.25;
+    assert(fabs(ManualControl::getElevationOffsetUs() - up * held) <= jogStepUs + 1e-6);
+    send("ANG,0"); step(); step();
+    assert(fabs(ManualControl::getElevationOffsetUs() - up * held) <= jogStepUs + 1e-6);
+    for (int i = 0; i < 200; i++) { send("ANG,1"); step(); }            // held long: clamped
+    assert(nearly(ManualControl::getElevationOffsetUs(), up * ELEVATION_OFFSET_MAX_US));
     send("ANG,0"); step();
-    // Disarm clears; so does a new Enable.
+    // Only C (TCLR) clears the saved trim, both parts (2026-11-08; a
+    // disarm, a new Enable and a new hole used to).
+    const uint16_t seq = ManualControl::getTrimSeq();
+    send("TCLR"); step();
+    assert(nearly(ManualControl::getAimOffsetPx(), 0.0) &&
+           nearly(ManualControl::getElevationOffsetUs(), 0.0) && ManualControl::getTrimSeq() != seq);
     send("X"); step();
-    assert(nearly(ManualControl::getAimOffsetPx(), 0.0));
 }
 
 void testFineAdjustWireless() {
@@ -1426,11 +1438,11 @@ void testFineAdjustWireless() {
     runWireless(AIM_JOG_SETTLE_MS + 20);
     assert(nearly(ManualControl::getAimOffsetPx(), -30.0));
     hoststub::visionTx = 0.0;
-    // Switching hole on CH3 clears it.
+    // Switching hole on CH3 keeps it (a saved trim since 2026-11-08).
     wireless.nudge = RCMAP_NUDGE_CENTER;
     wireless.target = 2;
     rcStep();
-    assert(nearly(ManualControl::getAimOffsetPx(), 0.0) && ManualControl::getTarget() == 2);
+    assert(nearly(ManualControl::getAimOffsetPx(), -30.0) && ManualControl::getTarget() == 2);
 }
 
 // Turret home point and return (2026-10-31): TZERO only while disarmed,

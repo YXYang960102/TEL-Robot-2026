@@ -1,6 +1,7 @@
 #include <Arduino.h>
 
 #include "Auto/Auto.h"
+#include "IO/AimTrimStore.h"
 #include "IO/MechLink.h"
 #include "IO/ManualControl.h"
 #include "Vision/OperatorTarget.h"
@@ -34,7 +35,7 @@ constexpr uint8_t OUTPUTS[] = {
     ArtConstants::Link::SIGNAL_PIN,
     ArtConstants::Sound::WAVE_PIN,
     ArtConstants::Sound::LAUGH_PIN,
-    ArtConstants::Sound::SPARE_PIN,
+    ArtConstants::Sound::READY_PIN,
 };
 constexpr uint8_t INPUTS[] = {
     DribblerConstants::Tower::READY_PIN,
@@ -75,6 +76,7 @@ void setup() {
 
     MechLink::init();
     ManualControl::init();
+    AimTrimStore::init(); // the saved aim / elevation trim (EEPROM)
     Vision::init();
     Shooter::init();
     Dribbler::init();
@@ -96,6 +98,7 @@ void loop() {
     // Chassis/Dribbler/Shooter calls while armed, before Auto::update(),
     // which steps aside whenever ManualControl::isActive().
     ManualControl::update();
+    AimTrimStore::update(); // saves a new trim, one byte per loop
 
     // The operator's hole (keys 1-9 / CH3) -> the Orin's numbering. Before
     // Auto, so a switch drops the old hole's frame in this same loop.
