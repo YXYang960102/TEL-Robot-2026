@@ -38,7 +38,8 @@ private:
     static int rightPulseUs;
     static int leftPulseUs;
 
-    // Smoothed (filterTowards()) versions of leftCommand/rightCommand, fed
+    // Smoothed (filterTowards(); speeding up only since 2026-11-08) versions
+    // of leftCommand/rightCommand, fed
     // to commandToPulseUs() instead of the raw commands. Reset to 0 by
     // stop(), so a disable/enable always ramps back up from neutral instead
     // of snapping to a stale value. getLeftCommand()/getRightCommand() keep

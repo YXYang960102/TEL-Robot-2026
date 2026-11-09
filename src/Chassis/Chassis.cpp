@@ -169,6 +169,16 @@ double Chassis::filterTowards(double target, double& state, double dtMs) {
         state = target;
         return state;
     }
+    // Only speeding up is smoothed (2026-11-08, Jeremy: let go from full and
+    // the 80 ms ease-out felt like lag). Slowing down or letting go jumps
+    // straight to the target; reversing drops to stop at once, then eases up
+    // the other way like any start (no full-speed reverse step on the motor).
+    // Example: full forward, stick released -> 1500 us on the next loop.
+    if (target * state < 0.0) state = 0.0;
+    if (fabs(target) <= fabs(state)) {
+        state = target;
+        return state;
+    }
     const double alpha = dtMs / (dtMs + Manual::COMMAND_FILTER_TIME_CONSTANT_MS);
     state += (target - state) * alpha;
     return state;
