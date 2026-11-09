@@ -46,6 +46,8 @@ constexpr double MAX_COMMAND = 1.0;
 // to neutral. 80 ms is a first guess -- fast enough that an intentional
 // stick move still feels immediate, slow enough to average out single-frame
 // jitter at ~10-15 ms/loop. TUNE ON THE ROBOT.
+// Since 2026-11-08 (Jeremy) it smooths only speeding up: slowing down and
+// letting go reach the target at once, a reversal drops to stop first.
 constexpr double COMMAND_FILTER_TIME_CONSTANT_MS = 80.0;
 }
 

@@ -7770,3 +7770,31 @@ Shot table: highest point 1913 us, nothing to change.
 **Evidence:** pio megaatmega2560, mega_drive_test, mega_wired_manual_test
 SUCCESS; servo_angle_map_test, shot_table_lookup_test, manual_control_test
 (2 variants), 3 Dashboard tests PASS; apply.py --check OK. No hardware.
+
+## 2026-11-09 — Claude Code: chassis filter smooths speeding up only
+
+**User Request (Jeremy):** releasing the stick from full felt delayed
+(asked whether the chassis has acceleration control); approved fix A.
+
+**Discussion Result:** no acceleration limit anywhere (Dashboard, ground,
+Mega); only `Chassis::filterTowards()`, an 80 ms exponential filter, the
+same both ways: from full, 37 % left after 80 ms, 5 % after 240 ms. A
+robot that keeps rolling after the pulse reads 1500 (Dashboard 左右輪脈衝
+over USB) would be the ESC's brake / coast setting, not code.
+
+**Changed:** `filterTowards()`: target and state of opposite sign -> state
+0 first; |target| <= |state| (slowing, letting go) -> state = target at
+once; only speeding up keeps alpha = dt / (dt + 80 ms). stop() / disable
+unchanged (already immediate). Comments, docs.
+
+**Impact:** stick release -> 1500 us on the next loop (~10 ms). Full
+forward -> full reverse: stop at once, then the reverse eases in over
+~0.2 s, so the motor never sees a full-speed reversal step. Small stick
+noise downward is no longer averaged (upward still is).
+
+**Evidence:** pio megaatmega2560, mega_drive_test, mega_wired_manual_test,
+mega_manual_axes_test SUCCESS. No hardware.
+
+**Next Test:** full forward, let go: wheels stop as fast as the ESC allows;
+over USB the pulses read 1500 at once. Still rolling -> check the ESC's
+drag brake.
