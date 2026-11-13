@@ -88,15 +88,20 @@ constexpr bool MANUAL_JOG_INVERTED = true;
 // mounting). test/vision_follow_controller_test.cpp pins these to the
 // bench constants, so the two can't drift apart silently.
 constexpr double VISION_kP = 0.01;
-constexpr double VISION_kI = 0.01;
+// kI 0.01 -> 0.02 (2026-11-09, Jeremy): stuck just outside the lock
+// (e.g. 5.4 px: P 0.054 of the ~0.16 the turret needs), the I term took
+// ~2 s to make up the rest; 0.02 takes ~1 s. 0.03 swung on 2026-11-01.
+// No longer the A5 bench's 5 us/(px*s) (that would be 0.01).
+constexpr double VISION_kI = 0.02;
 constexpr double VISION_kD = 0.0;
 constexpr double VISION_kIZONE_PX = 20.0;
 constexpr double VISION_kFF = 0.0;
 constexpr double VISION_MAX_COMMAND = 1.0;
 constexpr double VISION_MAX_INTEGRAL_COMMAND = 0.12;
 // "Locked, OK to fire" for Auto: |tx| within this for READY_SETTLE_TIME_MS
-// (Jeremy, 2026-10-13: 5 px).
-constexpr double VISION_READY_TOLERANCE_PX = 5.0;
+// (Jeremy, 2026-10-13: 5 px; 6 px since 2026-11-09: the turret kept
+// sitting at 5.x px, shown as "5" on the Dashboard, and could not fire).
+constexpr double VISION_READY_TOLERANCE_PX = 6.0;
 // D on the camera's frame-to-frame tx rate (2026-11-01, Jeremy: the
 // turret swung past and back before settling; VisionFollowController).
 // Command per px/s: kP 0.01 / kd 0.0005 = 50 ms of look-ahead. Example:

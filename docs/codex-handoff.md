@@ -7897,3 +7897,27 @@ higher than the old table for holes 4 and 5.
 
 **Evidence:** apply.py checks passed and wrote the header; pio
 megaatmega2560 SUCCESS; shot_table_lookup_test PASS. No hardware.
+
+## 2026-11-09 — Claude Code: turret lock 6 px, kI 0.02
+
+**User Request (Jeremy):** the turret sits at "5" px (5.x) and can't fire;
+asked about raising I; chose option 1: kI 0.02 + lock 6 px.
+
+**Changed:** `TuningConstants::Rotate::VISION_kI` 0.01 -> 0.02,
+`VISION_READY_TOLERANCE_PX` 5 -> 6 (also the integral-hold and stall-push
+boundary). vision_follow_controller_test: kI pinned at 2 × bench, 6 px;
+the bench side-by-side runs with the bench's kI (still checks the math);
+the ready / stall cases moved 1 px out (6 -> 7, 7 -> 8); the PI-alone
+bound is now "under the push" (-0.17), not -0.10. Docs.
+
+**Calculation:** stuck at 7 px: P 0.07; I adds 0.02 × 7 = 0.14 per s ->
+the turret's ~0.16 in ~0.6 s (was ~1.3 s); stuck at 5.4 px: now inside.
+6 px ≈ 0.32° on the 1280 px / ~69° D435, ~2.3 cm at 4 m.
+
+**Evidence:** pio megaatmega2560, mega_drive_test, mega_vision_rotate_test
+SUCCESS; vision_follow_controller_test, vision_rotate_bench_state_test,
+manual_control_test (2 variants) PASS. No hardware.
+
+**Next Test:** semi auto at 3-5 m: locks and fires without the 2-5 s wait;
+watch for swinging across center (kI 0.03 swung on 2026-11-01) -> back to
+0.015.
