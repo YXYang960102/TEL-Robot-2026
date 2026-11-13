@@ -88,8 +88,15 @@ public:
     // camera takes over again with the new aim offset. While this is true
     // Auto drives the turret open loop with getAimJogCommand() (0 during
     // the wait) instead of the camera follow.
+    // With the aim offset off (TuningConstants::Auto::AIM_OFFSET_ENABLED,
+    // 2026-11-09) there is no wait: the turret stays where the operator let
+    // go (isAimHandHeld()) until the aimed hole changes, a mode change, RB,
+    // Enable / disarm; then the camera takes over again.
     static bool isAimJogActive();
     static double getAimJogCommand();
+    // The operator aimed the turret by hand and it is held there: Auto
+    // counts the turret as aimed (no camera lock needed to fire).
+    static bool isAimHandHeld();
     // RB in the autos / test (2026-10-31): the turret goes back to 0 deg
     // and stays there (no camera follow) until a hole is chosen (wired:
     // also the same one again), the mode changes, or left / right is held
@@ -170,6 +177,8 @@ private:
     static void requestTurretHome();
     static bool aimJogging;          // left / right held in an auto / test
     static bool aimJogSettling;      // released, waiting before the latch
+    static bool aimHandHeld;         // released, held there (offset off)
+    static uint8_t handHeldAimTarget; // Auto's aimed hole when it was let go
     static unsigned long aimJogReleasedMs;
     static int angleNudgePrev;
     static unsigned long elevationJogLastMs; // last updateFineAdjust(), for the up / down hold

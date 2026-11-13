@@ -53,6 +53,8 @@ bool ManualControl::turretHeldHome = false;
 uint16_t ManualControl::targetSelectSeq = 0;
 bool ManualControl::aimJogging = false;
 bool ManualControl::aimJogSettling = false;
+bool ManualControl::aimHandHeld = false;
+uint8_t ManualControl::handHeldAimTarget = 0;
 unsigned long ManualControl::aimJogReleasedMs = 0;
 int ManualControl::angleNudgePrev = 0;
 unsigned long ManualControl::elevationJogLastMs = 0;
@@ -545,6 +547,7 @@ void ManualControl::clearFineAdjust() {
     turretHeldHome = false; // a new hole, Enable, disarm
     aimJogging = false;
     aimJogSettling = false;
+    aimHandHeld = false;
     // An arrow still held from before needs a release before it counts.
     rotateNudgePrev = NUDGE_NEEDS_RELEASE;
     angleNudgePrev = NUDGE_NEEDS_RELEASE;
@@ -579,6 +582,7 @@ void ManualControl::updateFineAdjust() {
     if (operatorMode == OperatorMode::FULL_MANUAL) {
         aimJogging = false;
         aimJogSettling = false;
+        aimHandHeld = false;
         elevationJogPrev = false;
         return; // manual: the arrows are the hold-to-move jog
     }
@@ -587,19 +591,31 @@ void ManualControl::updateFineAdjust() {
     // the hole's place in the image becomes the aim offset. Example: let
     // go with the hole 120 px left of center (tx = -120) -> offset +120,
     // the camera keeps the hole 120 px left. Up / down: see below.
+    // Aim offset off (2026-11-09): let go = the turret stays right there
+    // (aimHandHeld) until the aimed hole changes -- the operator's choice or
+    // full auto moving on -- then the camera takes over again.
     const bool jogNow = rotateNow != 0 && rotateNudgePrev != NUDGE_NEEDS_RELEASE;
     if (jogNow) {
         turretHeldHome = false; // the hand turn takes the turret back
         aimJogging = true;
         aimJogSettling = false;
+        aimHandHeld = false;
     } else if (aimJogging) {
         aimJogging = false;
-        aimJogSettling = true;
-        aimJogReleasedMs = millis();
+        if (AIM_OFFSET_ENABLED) {
+            aimJogSettling = true;
+            aimJogReleasedMs = millis();
+        } else {
+            aimHandHeld = true;
+            handHeldAimTarget = Auto::getAimTarget();
+        }
+    }
+    if (aimHandHeld && Auto::getAimTarget() != handHeldAimTarget) {
+        aimHandHeld = false; // a new hole: the camera aims again
     }
     if (aimJogSettling && millis() - aimJogReleasedMs >= AIM_JOG_SETTLE_MS) {
         aimJogSettling = false;
-        if (Vision::isValid()) {
+        if (AIM_OFFSET_ENABLED && Vision::isValid()) {
             aimOffsetPx = clampAbs(-Vision::getTx(), AIM_OFFSET_MAX_PX);
             trimSeq++; // the saved trim: kept for every hole from now on
         }
@@ -664,7 +680,9 @@ int ManualControl::getFlywheelOffsetPct() {
 }
 
 double ManualControl::getAimOffsetPx() {
-    return aimOffsetPx;
+    // Off (TuningConstants::Auto::AIM_OFFSET_ENABLED): always 0, whatever
+    // was saved.
+    return TuningConstants::Auto::AIM_OFFSET_ENABLED ? aimOffsetPx : 0.0;
 }
 
 // RB (wired THOME or the radio's CH9): back to 0 deg (the turret guard),
@@ -672,6 +690,7 @@ double ManualControl::getAimOffsetPx() {
 void ManualControl::requestTurretHome() {
     Shooter::requestTurretReturn();
     turretHeldHome = true;
+    aimHandHeld = false; // RB wins over a hand-held aim
 }
 
 uint16_t ManualControl::getTargetSelectSeq() {
@@ -683,7 +702,11 @@ bool ManualControl::isTurretHeldHome() {
 }
 
 bool ManualControl::isAimJogActive() {
-    return aimJogging || aimJogSettling;
+    return aimJogging || aimJogSettling || aimHandHeld;
+}
+
+bool ManualControl::isAimHandHeld() {
+    return aimHandHeld;
 }
 
 double ManualControl::getAimJogCommand() {
@@ -764,6 +787,7 @@ void ManualControl::setOperatorMode(OperatorMode mode) {
     }
     operatorMode = mode;
     turretHeldHome = false;
+    aimHandHeld = false; // a new mode: the camera aims again
     // Whoever had the turret/flywheel before the switch gives them up from
     // zero: leaving auto must not jump the flywheel back to an old slider
     // value, and entering it must not carry a manual jog.

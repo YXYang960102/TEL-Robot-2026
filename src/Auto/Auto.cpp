@@ -403,8 +403,12 @@ void Auto::update() {
     // A A14 pulse from the tower since the last shot, once
     // Tower::READY_REQUIRED is on (every mode, Jeremy 2026-11-07).
     const bool towerReady = Dribbler::towerAllowsShot();
-    const bool ready = Shooter::isReady() && shotAvailable && elevationArrived && holeAllowed &&
-                       settledOnHole && towerReady;
+    // Turret aimed: the camera's lock, or the operator's hand-held aim
+    // (aim offset off, 2026-11-09: the operator turned it and let go; the
+    // camera stays out of it until the hole changes).
+    const bool turretAimed = Shooter::isRotateReady() || ManualControl::isAimHandHeld();
+    const bool ready = turretAimed && Shooter::isFlywheelReady() && shotAvailable &&
+                       elevationArrived && holeAllowed && settledOnHole && towerReady;
     bool fired = false;
 
     if (fireState == FireState::IDLE) {
@@ -436,7 +440,7 @@ void Auto::update() {
     }
 
     // Why it can't fire yet, for the Dashboard (TEL slot 40).
-    readyBits = static_cast<uint8_t>((Shooter::isRotateReady() ? 1u : 0u) |
+    readyBits = static_cast<uint8_t>((turretAimed ? 1u : 0u) |
                                      (Shooter::isFlywheelReady() ? 2u : 0u) |
                                      (shotAvailable ? 4u : 0u) |
                                      (fireState == FireState::READY ? 8u : 0u) |
