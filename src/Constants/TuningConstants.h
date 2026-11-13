@@ -274,6 +274,15 @@ constexpr uint32_t COOLDOWN_MS = 300;
 //     (ShotTable::ELEVATION_MEASURED), until then up/down stay the manual
 //     elevation jog.
 constexpr unsigned long AIM_JOG_SETTLE_MS = 300;
+// OFF since 2026-11-09 (Jeremy, until it is redone): the saved horizontal
+// offset was one value for every hole, so after trimming one hole the
+// others were no longer aimed at their center (and the turret could not
+// lock: FIRE_NOT_READY). false = the aim offset is always 0 -- the camera
+// aims at each hole's center; left / right still turn the turret by hand
+// while held, and the camera takes over again after AIM_JOG_SETTLE_MS. A
+// horizontal offset already in EEPROM is ignored. The elevation trim is
+// unchanged.
+constexpr bool AIM_OFFSET_ENABLED = false;
 constexpr double AIM_OFFSET_MAX_PX = 300.0;
 constexpr double ELEVATION_JOG_US_PER_SECOND = 200.0;
 constexpr double ELEVATION_OFFSET_MAX_US = 200.0;

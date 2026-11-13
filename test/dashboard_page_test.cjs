@@ -779,13 +779,13 @@ async function emergencyStopViaEnter() {
   await poll();
   // Right stick X = turn: right = right wheel forward (flipped back on
   // 2026-11-08 on the robot); deadzone-rescaled analog, then x TURN_SPEED_SCALE
-  // 0.6 (2026-10-27: turning slower, forward / back untouched).
+  // 0.8 (2026-11-09; 0.6 since 2026-10-27, forward / back untouched).
   pads = [xbox([0, 0, 1, 0])];
   await poll();
-  assert.equal(last(), 'T,-0.6,0.6');
+  assert.equal(last(), 'T,-0.8,0.8');
   pads = [xbox([0, 0, 0.575, 0])];            // half way past the deadzone
   await poll();
-  assert.equal(last(), 'T,-0.3,0.3');
+  assert.equal(last(), 'T,-0.4,0.4');
   pads = [xbox([0, -1, 0, 0])];               // left stick up = forward
   await poll();
   assert.equal(last(), 'T,1,1');
@@ -817,7 +817,7 @@ async function emergencyStopViaEnter() {
   // Unplugged while driving and jogging: everything drops to zero.
   pads = [xbox([0, 0, -1, 0], [XB.LEFT])];
   await poll();
-  assert.ok(writes.includes('T,0.6,-0.6') && writes.includes('ROT,-1'));
+  assert.ok(writes.includes('T,0.8,-0.8') && writes.includes('ROT,-1'));
   pads = [];
   await poll();
   assert.ok(writes.slice(-2).includes('T,0,0') && writes.slice(-2).includes('ROT,0'));
@@ -850,7 +850,7 @@ async function emergencyStopViaEnter() {
   pads = [pad11([])]; await poll();
   assert.equal(run('matchStarted'), true);
   pads = [pad11([undefined, undefined, 1])]; await poll(); // right stick right
-  assert.equal(last(), 'T,-0.6,0.6');
+  assert.equal(last(), 'T,-0.8,0.8');
   pads = [pad11([0, -1, 0])]; await poll();             // left stick up
   assert.equal(last(), 'T,1,1');
   pads = [pad11([])]; await poll();

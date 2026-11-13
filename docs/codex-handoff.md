@@ -7798,3 +7798,98 @@ mega_manual_axes_test SUCCESS. No hardware.
 **Next Test:** full forward, let go: wheels stop as fast as the ESC allows;
 over USB the pulses read 1500 at once. Still rolling -> check the ESC's
 drag brake.
+
+## 2026-11-09 — Claude Code: horizontal aim offset switched off
+
+**User Request (Jeremy):** the saved horizontal offset is one value for
+every hole, so after trimming one hole the others are no longer aimed at
+their center; in semi auto F now logs FIRE_NOT_READY, likely the turret
+not locking because of it. Turn the horizontal offset off with a boolean
+until it is redone (per hole).
+
+**Changed:** new `TuningConstants::Auto::AIM_OFFSET_ENABLED = false`.
+`ManualControl::getAimOffsetPx()` returns 0 while off (Auto, the turret,
+Telemetry, the aim uplink, AimTrimStore all read it), and a hand turn no
+longer sets it. Left / right held still turns the turret by hand; the
+camera takes over again after AIM_JOG_SETTLE_MS, aiming at the center. A
+value already in EEPROM is ignored (and overwritten with 0 at the next
+trim save). Elevation trim unchanged (still saved, one for every hole).
+manual_control_test: expected offsets go through `aimOffset()` (0 while
+off).
+
+**Why FIRE_NOT_READY fits:** "locked" = |tx + offset| <= 5 px for 100 ms;
+with a large offset learned on another hole, the turret holds the hole far
+off center and can lose it.
+
+**Evidence:** pio megaatmega2560, mega_drive_test, mega_wired_manual_test
+SUCCESS; manual_control_test 3 variants PASS. No hardware.
+
+**Next Test:** semi auto, pick holes in turn: Dashboard 微調 水平 shows 0,
+the turret centers each hole, F fires (ready bits: locked, flywheel,
+shot, elevation). Still FIRE_NOT_READY -> read which ready bit is missing.
+
+**Open:** per-hole horizontal (and maybe elevation) offset, to be designed.
+
+## 2026-11-09 — Claude Code: hand-turned turret stays until the hole changes
+
+**User Request (Jeremy):** with the offset off, a hand turn should not be
+pulled back to the hole's center 0.3 s after release: keep it where it was
+let go, and let the camera take over only after a hole change.
+
+**Changed:** `ManualControl`: with `AIM_OFFSET_ENABLED` false, releasing
+left / right sets `aimHandHeld` (no settle wait) and remembers
+`Auto::getAimTarget()`; `isAimJogActive()` stays true, so Auto drives the
+turret open loop at 0 (it stands still). Cleared -> camera again when the
+aimed hole changes (operator's pick or full auto moving on), on a mode
+change, RB, Enable / disarm (`clearFineAdjust()`), or a new hand turn.
+New `isAimHandHeld()`. `Auto`: turret aimed = `Shooter::isRotateReady()`
+or `isAimHandHeld()` (the operator aimed it), so F fires without a camera
+lock; ready bit 0 follows. With the offset on, the old settle -> offset
+path is unchanged. Dashboard help text, docs; manual_control_test
+expectations via `afterHandTurn()`.
+
+**Impact:** while hand-held, aiming is the operator's: Auto still needs
+the hole in view with a table distance (shot available), the flywheel and
+the elevation. With the Orin's own pick (no hole chosen, aim target 0) the
+hold lasts until a hole is chosen or the mode changes.
+
+**Evidence:** pio megaatmega2560, mega_drive_test, mega_wired_manual_test
+SUCCESS; manual_control_test 3 variants, 3 Dashboard tests PASS. No
+hardware.
+
+**Next Test:** semi auto: hand-turn a little, let go -> turret stays, F
+fires; pick another hole -> camera centers it.
+
+## 2026-11-09 — Claude Code: turning 0.6 -> 0.8
+
+**User Request (Jeremy):** chassis "speed to 0.8, turn a bit faster";
+asked: forward is already 1.0 (CHASSIS_MANUAL_SCALE) -> answer: turning
+0.6 -> 0.8 only.
+
+**Changed:** Dashboard `TURN_SPEED_SCALE` 0.6 -> 0.8 (stick X before the
+tank mix; forward / back untouched). No firmware change.
+dashboard_page_test's stick-turn values follow (full 0.8, half 0.4).
+
+**Evidence:** 3 Dashboard tests PASS. No hardware.
+
+## 2026-11-09 — Claude Code: shot table replaced by the 11-12 log
+
+**User Request (Jeremy):** new shot log CSV; chose REPLACE (it re-measures
+every hole the table had: 4, 5, 6, 11).
+
+**Changed:** `tools/shot_table/shot_table.xlsx` rows 2..26 (25 old points)
+-> rows 2..23 = the 22 points of `shot_log_20261112_1907.csv` (TEST mode,
+2026-11-12 18:19-18:51) via apply.py's sheet helpers (`--import` only
+merges, and refuses an empty sheet); then `apply.py` ->
+`src/Constants/ShotTableData.h`. Backup of the old Excel:
+`tools/shot_table/backup/shot_table_20261113_180917.xlsx`.
+Holes: 4 7 points (all 500 us, 42-47 %), 5 7 points (500-828 us,
+50-52 %), 6 6 points (743-1693 us, 60-69 %), 11 2 points; the other holes
+borrow as before.
+
+**Note:** hole 5's elevation is not monotonic (3.01 m 828, 3.57 m 594,
+3.96 m 773 us); 3.57 m may be an outlier. Flywheel values are 6-16 points
+higher than the old table for holes 4 and 5.
+
+**Evidence:** apply.py checks passed and wrote the header; pio
+megaatmega2560 SUCCESS; shot_table_lookup_test PASS. No hardware.

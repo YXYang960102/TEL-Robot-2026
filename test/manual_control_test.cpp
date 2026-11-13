@@ -133,6 +133,19 @@ bool saw(const std::string& event) {
 
 [[maybe_unused]] bool nearly(double a, double b) { return fabs(a - b) < 1e-6; }
 
+// The aim offset as the robot reports it: the value set, or 0 while the
+// feature is off (TuningConstants::Auto::AIM_OFFSET_ENABLED, 2026-11-09).
+[[maybe_unused]] double aimOffset(double px) {
+    return TuningConstants::Auto::AIM_OFFSET_ENABLED ? px : 0.0;
+}
+
+// The turret after a hand turn has settled: the camera with the new offset,
+// or (offset off, 2026-11-09) still held where the operator let go until
+// the hole changes.
+[[maybe_unused]] std::string afterHandTurn() {
+    return TuningConstants::Auto::AIM_OFFSET_ENABLED ? "vision" : "manual";
+}
+
 // Where Auto drives the elevation for a table point: its pulse kept inside
 // the servo's range (Angle::MIN/MAX_PULSE_US).
 [[maybe_unused]] double tableUs(const ShotTableLookup::Result& shot) {
@@ -657,7 +670,7 @@ void testAimUplink() {
     assert(abs(static_cast<int>(a.elevation_pulse_us) - hoststub::anglePulseUs) <=
            static_cast<int>(TuningConstants::Auto::ELEVATION_SLEW_US_PER_SECOND * 0.61) + 1);
     assert(a.selected_id == 10 && a.target_id == 10 && a.valid);
-    assert(a.aim_offset_px == 20);        // +80 px in 4 px units (2026-10-30)
+    assert(a.aim_offset_px == static_cast<int>(aimOffset(80.0) / 4.0)); // 4 px units (2026-10-30)
     hoststub::visionTx = 0.0;
     // The status frames in between are untouched by it.
     assert(rec.statusFlags & RCMAP_STATUS_ARMED);
@@ -1168,8 +1181,8 @@ void testTestModeWired() {
     send("ROT,0"); step();
     assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, 0.0));
     runWithHeartbeat(TuningConstants::Auto::AIM_JOG_SETTLE_MS);
-    assert(nearly(ManualControl::getAimOffsetPx(), 60.0));
-    assert(nearly(rec.aimOffsetPx, 60.0) && rec.rotateMode == "vision");
+    assert(nearly(ManualControl::getAimOffsetPx(), aimOffset(60.0)));
+    assert(nearly(rec.aimOffsetPx, aimOffset(60.0)) && rec.rotateMode == afterHandTurn());
     hoststub::visionTx = 0.0;
     // F fires the tower right away, locked or not (no FIRE_NOT_READY).
     hoststub::shooterReady = false;
@@ -1358,39 +1371,39 @@ void testFineAdjustWired() {
     runWithHeartbeat(AIM_JOG_SETTLE_MS - 20);
     assert(ManualControl::isAimJogActive() && nearly(ManualControl::getAimOffsetPx(), 0.0));
     runWithHeartbeat(20);
-    assert(!ManualControl::isAimJogActive());
-    assert(nearly(ManualControl::getAimOffsetPx(), 120.0));
-    assert(nearly(rec.aimOffsetPx, 120.0) && rec.rotateMode == "vision"); // Auto hands it to the turret
+    assert(ManualControl::isAimJogActive() == !TuningConstants::Auto::AIM_OFFSET_ENABLED);
+    assert(nearly(ManualControl::getAimOffsetPx(), aimOffset(120.0)));
+    assert(nearly(rec.aimOffsetPx, aimOffset(120.0)) && rec.rotateMode == afterHandTurn()); // Auto hands it to the turret
     // The other way, straight from one side to the other, and clamped.
     send("ROT,1"); step();
     send("ROT,-1"); step();
     assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, -jog));
     hoststub::visionTx = 500.0;
     send("ROT,0"); step(); runWithHeartbeat(AIM_JOG_SETTLE_MS);
-    assert(nearly(ManualControl::getAimOffsetPx(), -AIM_OFFSET_MAX_PX));
+    assert(nearly(ManualControl::getAimOffsetPx(), aimOffset(-AIM_OFFSET_MAX_PX)));
     // No hole in view at the end of the wait: the old offset stays.
     hoststub::visionValid = false;
     send("ROT,1"); step(); send("ROT,0"); step(); runWithHeartbeat(AIM_JOG_SETTLE_MS);
-    assert(nearly(ManualControl::getAimOffsetPx(), -AIM_OFFSET_MAX_PX));
+    assert(nearly(ManualControl::getAimOffsetPx(), aimOffset(-AIM_OFFSET_MAX_PX)));
     hoststub::visionValid = true;
     hoststub::visionTx = -40.0;
     send("ROT,1"); step(); send("ROT,0"); step(); runWithHeartbeat(AIM_JOG_SETTLE_MS);
-    assert(nearly(ManualControl::getAimOffsetPx(), 40.0));
+    assert(nearly(ManualControl::getAimOffsetPx(), aimOffset(40.0)));
     // A new hole keeps it (a saved trim since 2026-11-08) but stops a hand
     // turn, and a key still held then needs a release.
     send("ROT,1"); step();
     send("TGT,4"); step();
-    assert(nearly(ManualControl::getAimOffsetPx(), 40.0) && !ManualControl::isAimJogActive());
+    assert(nearly(ManualControl::getAimOffsetPx(), aimOffset(40.0)) && !ManualControl::isAimJogActive());
     assert(rec.rotateMode == "vision");
     send("ROT,1"); step(); send("ROT,1"); step();
     assert(rec.rotateMode == "vision");
     send("ROT,0"); step(); send("ROT,1"); step();
     assert(rec.rotateMode == "manual");
     send("ROT,0"); step(); runWithHeartbeat(AIM_JOG_SETTLE_MS);
-    assert(nearly(ManualControl::getAimOffsetPx(), 40.0));
+    assert(nearly(ManualControl::getAimOffsetPx(), aimOffset(40.0)));
     // The same hole again is not a change: kept.
     send("TGT,4"); step();
-    assert(nearly(ManualControl::getAimOffsetPx(), 40.0));
+    assert(nearly(ManualControl::getAimOffsetPx(), aimOffset(40.0)));
     hoststub::visionTx = 0.0;
     // Up/down: Auto owns the elevation now (measured table), so holding
     // moves the elevation offset at ELEVATION_JOG_US_PER_SECOND (2026-11-08),
@@ -1430,19 +1443,19 @@ void testFineAdjustWireless() {
     hoststub::visionTx = 90.0;
     wireless.nudge = RCMAP_NUDGE_CENTER;
     runWireless(AIM_JOG_SETTLE_MS + 20);
-    assert(nearly(ManualControl::getAimOffsetPx(), -90.0) && rec.rotateMode == "vision");
+    assert(nearly(ManualControl::getAimOffsetPx(), aimOffset(-90.0)) && rec.rotateMode == afterHandTurn());
     wireless.nudge = RCMAP_NUDGE_LEFT; rcStep();
     assert(rec.rotateMode == "manual");
     hoststub::visionTx = 30.0;
     wireless.nudge = RCMAP_NUDGE_CENTER;
     runWireless(AIM_JOG_SETTLE_MS + 20);
-    assert(nearly(ManualControl::getAimOffsetPx(), -30.0));
+    assert(nearly(ManualControl::getAimOffsetPx(), aimOffset(-30.0)));
     hoststub::visionTx = 0.0;
     // Switching hole on CH3 keeps it (a saved trim since 2026-11-08).
     wireless.nudge = RCMAP_NUDGE_CENTER;
     wireless.target = 2;
     rcStep();
-    assert(nearly(ManualControl::getAimOffsetPx(), -30.0) && ManualControl::getTarget() == 2);
+    assert(nearly(ManualControl::getAimOffsetPx(), aimOffset(-30.0)) && ManualControl::getTarget() == 2);
 }
 
 // Turret home point and return (2026-10-31): TZERO only while disarmed,
@@ -1506,7 +1519,7 @@ void testTurretHomeCommands() {
     assert(!ManualControl::isTurretHeldHome() && rec.rotateMode == "manual");
     send("ROT,0"); step();
     runWithHeartbeat(TuningConstants::Auto::AIM_JOG_SETTLE_MS);
-    assert(rec.rotateMode == "vision");
+    assert(rec.rotateMode == afterHandTurn());
     send("THOME"); step();
     send("X"); step();                                    // disarm clears it
     assert(!ManualControl::isTurretHeldHome());
