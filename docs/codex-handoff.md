@@ -8112,3 +8112,35 @@ flywheel 0 and no shot while running, as before.
 
 **Evidence:** pio megaatmega2560 SUCCESS; manual_control_test PASS. No
 hardware.
+
+## 2026-11-14 — Claude Code: Nano jam -> no second ball queued; turret turns after a lost target
+
+**User Request (Jeremy):** (1) sometimes one fire sends two balls: if the
+fire signal comes while the same ball is still in place, it is a jam --
+do not count another. (2) When the followed hole (also the AI's own pick)
+is no longer in the image, turn toward the side it was last seen on within
+the last second.
+
+**Discussion Result:** (1) the Nano added `need_pieces` per DR1 pulse;
+with the ball stuck at SA (Nano FEED_TIMEOUT 1.5 s) and the Mega's 1 s
+tower lockout, a second pulse made it 2 and both balls went out once the
+jam cleared. The Mega cannot see the ball, so its 已發射 still counts that
+pulse.
+
+**Changed:**
+- TEL2026_NANO_v9 `processDr1Event`: `need_pieces > 0` -> log
+  `[EVENT] DR1 while ball still at SA: jam, not added`, nothing queued;
+  otherwise `need_pieces = 1`. README.
+- `TuningConstants::Rotate::LOST_TURN_MS` 1000, `LOST_EDGE_PX` 256 (0.4 of
+  the 640 px half-width). `Shooter::updateRotate` (vision follow): the
+  last valid frame's tx and time are kept (cleared on a new selection);
+  neither seen nor predicted, no chosen-hole search running, last seen
+  <= 1 s ago with |tx| >= 256 -> searchDir = sign(tx) at SEARCH_COMMAND 0.3
+  (the same drive as the search). Dropouts mid-image do nothing.
+
+**Evidence:** pio nanoatmega328new, megaatmega2560, mega_drive_test,
+mega_vision_rotate_test SUCCESS. No hardware.
+
+**Next Test:** (1) jam a ball by hand and press F twice: one ball after the
+jam clears, Nano log shows the jam line. (2) semi auto / AI pick, swing the
+robot so the hole leaves the image: the turret follows it for up to 1 s.

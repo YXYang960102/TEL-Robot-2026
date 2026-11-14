@@ -144,6 +144,15 @@ constexpr bool VISION_HOLD_I_IN_TOLERANCE = true;
 // slow enough for the camera to pick holes up on the way.
 constexpr double SEARCH_COMMAND = 0.3;
 constexpr unsigned long SEARCH_MAX_MS = 3000;
+// Lost target (2026-11-14, Jeremy): the hole being followed -- the
+// operator's or the Orin's own pick -- leaves the image (neither seen nor
+// predicted): the turret keeps turning at SEARCH_COMMAND toward the side
+// it was last seen on, for at most LOST_TURN_MS after that last frame.
+// Only when it left near an edge (|tx| >= LOST_EDGE_PX, 0.4 of the 640 px
+// half-width): a frame or two missing in the middle of the image must not
+// swing the turret. PROVISIONAL.
+constexpr unsigned long LOST_TURN_MS = 1000;
+constexpr double LOST_EDGE_PX = 256.0;
 
 }
 
