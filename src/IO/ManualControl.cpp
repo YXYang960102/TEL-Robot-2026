@@ -33,6 +33,8 @@ bool ManualControl::wirelessFirePrev = true;
 uint8_t ManualControl::wirelessAutoPrev = RCMAP_AUTO_NONE;
 bool ManualControl::wirelessHomePrev = true;
 bool ManualControl::wirelessTrimClearPrev = true;
+bool ManualControl::wirelessCapturePrev = true;
+bool ManualControl::captureOn = false;
 unsigned long ManualControl::lastVersionEventMs = 0;
 
 double ManualControl::tankLeftCommand = 0.0;
@@ -246,10 +248,12 @@ void ManualControl::processCommand(char* command) {
     const bool isTurretHome = strcmp(command, "THOME") == 0;
     // TCLR (2026-11-08, C): clear the saved aim / elevation trim.
     const bool isTrimClear = strcmp(command, "TCLR") == 0;
+    // CAPT (2026-11-14, P): photo capture on the Orin on / off.
+    const bool isCapture = strcmp(command, "CAPT") == 0;
 
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle && !isAngleTarget &&
         !isTarget && !isAutoPath && !isModeSet && !isFlywheelOffset && !isTurretHome &&
-        !isTrimClear) {
+        !isTrimClear && !isCapture) {
         sendEvent(RCMAP_EVENT_UNKNOWN_COMMAND);
         return;
     }
@@ -272,6 +276,11 @@ void ManualControl::processCommand(char* command) {
     if (isTrimClear) {
         refreshWiredWatchdog();
         clearTrim();
+        return;
+    }
+    if (isCapture) {
+        refreshWiredWatchdog();
+        toggleCapture();
         return;
     }
     if (isTank) {
@@ -392,6 +401,7 @@ void ManualControl::resetWirelessTracking() {
     wirelessAutoPrev = 0xFF; // "unknown": needs a NONE first
     wirelessHomePrev = true;
     wirelessTrimClearPrev = true;
+    wirelessCapturePrev = true;
 }
 
 void ManualControl::processWirelessFrame() {
@@ -443,6 +453,8 @@ void ManualControl::processWirelessFrame() {
     wirelessHomePrev = c.turret_home;
     const bool trimClearEdge = c.trim_clear && !wirelessTrimClearPrev;
     wirelessTrimClearPrev = c.trim_clear;
+    const bool captureEdge = c.capture_toggle && !wirelessCapturePrev;
+    wirelessCapturePrev = c.capture_toggle;
 
     if (owner == Owner::WIRELESS) {
         // Arcade -> tank with the same polarity as the Dashboard: turn +1
@@ -463,7 +475,8 @@ void ManualControl::processWirelessFrame() {
         if (autoEdge) requestAutoPath(c.auto_path);
         if (homeEdge) requestTurretHome(); // RB (CH9): back to 0 deg
         if (trimClearEdge) clearTrim();    // C (CH8 level 5)
-    } else if (fireEdge || autoEdge || homeEdge || trimClearEdge) {
+        if (captureEdge) toggleCapture();  // P (CH9 level 3)
+    } else if (fireEdge || autoEdge || homeEdge || trimClearEdge || captureEdge) {
         sendEvent(owner == Owner::NONE ? RCMAP_EVENT_REJECTED_DISARMED
                                        : RCMAP_EVENT_REJECTED_NOT_OWNER);
     }
@@ -665,6 +678,16 @@ void ManualControl::clearTrim() {
     trimSeq++;
 }
 
+// P (wired CAPT / CH9 level 3, 2026-11-14): photo capture on the Orin.
+void ManualControl::toggleCapture() {
+    captureOn = !captureOn;
+    sendEvent(captureOn ? RCMAP_EVENT_CAPTURE_ON : RCMAP_EVENT_CAPTURE_OFF);
+}
+
+bool ManualControl::isCaptureOn() {
+    return captureOn;
+}
+
 uint16_t ManualControl::getTrimSeq() {
     return trimSeq;
 }
@@ -712,7 +735,7 @@ bool ManualControl::isAimHandHeld() {
 double ManualControl::getAimJogCommand() {
     if (!aimJogging) return 0.0; // the wait: stand still
     const double jogSign = TuningConstants::Rotate::MANUAL_JOG_INVERTED ? -1.0 : 1.0;
-    return jogSign * rotateManualCommand * ManualControlConstants::ROTATE_MANUAL_SCALE;
+    return jogSign * rotateManualCommand * TuningConstants::Auto::AIM_JOG_COMMAND;
 }
 
 double ManualControl::getElevationOffsetUs() {

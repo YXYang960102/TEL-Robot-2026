@@ -46,6 +46,10 @@ public:
     // change drops the current frame at once.
     static void setSelectedTarget(uint8_t visionId);
     static uint8_t getSelectedTarget();
+    // Photo capture on the Orin (2026-11-14, ManualControl::isCaptureOn()):
+    // MEGA_CAPTURE,<version>,<0|1> on change and with every heartbeat. An
+    // older Orin ignores the line.
+    static void setCaptureRequested(bool on);
 
     // Transport and Orin lifecycle status
     static bool isConnected();
@@ -66,6 +70,9 @@ private:
     static void invalidateTarget();
     static void sendHeartbeat();
     static void sendSelection();
+    static void sendCapture();
+    static bool captureRequested;
+    static bool captureDirty;
 
     static String rx;
     static double tx;

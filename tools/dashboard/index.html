@@ -779,7 +779,7 @@
         </div>
         <div class="stream-controls">
           <button id="enableControl" disabled>Enable / 啟用輸出</button>
-          <span class="label">Xbox 手把：左蘑菇頭 前後・右蘑菇頭 轉向・十字鍵 ↑↓ 仰角 ←→ 水平（全手動按住移動；自動／測試模式 ←→ 按住手動轉，放開後停在那裡、可以直接發射，換洞後鏡頭再接手，↑↓ 按住微調仰角，放開停在那裡）・X 全自動・A 半自動・B 全手動・LB 發射・RB 轉台回 0°・Y 開始比賽｜鍵盤：1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・Q W E 選加分框左中右・0 回到 AI 自選・S 記錄射擊點・C 清除水平／仰角偏差（自動／測試模式的微調會記住，所有洞共用，斷電也保留）・Enter 停用・Space 停用並斷線｜測試模式（模式選單）：水平由鏡頭鎖定（←→ 按住手動轉、放開後停在那裡，換洞後鏡頭再接手），仰角、轉速、發射跟全手動一樣</span>
+          <span class="label">Xbox 手把：左蘑菇頭 前後・右蘑菇頭 轉向・十字鍵 ↑↓ 仰角 ←→ 水平（全手動按住移動；自動／測試模式 ←→ 按住手動轉，放開後停在那裡、可以直接發射，換洞後鏡頭再接手，↑↓ 按住微調仰角，放開停在那裡）・X 全自動・A 半自動・B 全手動・LB 發射・RB 轉台回 0°・Y 開始比賽｜鍵盤：1–9 選洞（1 左下 2 左中 3 左上 4 中下 5 中 6 中上 7 右下 8 右中 9 右上）・Q W E 選加分框左中右・0 回到 AI 自選・S 記錄射擊點・P 拍照收集開／關（手把 View 鍵；Orin 每秒存一張，測試模式無線不能切）・C 清除水平／仰角偏差（自動／測試模式的微調會記住，所有洞共用，斷電也保留）・Enter 停用・Space 停用並斷線｜測試模式（模式選單）：水平由鏡頭鎖定（←→ 按住手動轉、放開後停在那裡，換洞後鏡頭再接手），仰角、轉速、發射跟全手動一樣</span>
         </div>
         <div class="stream-controls">
           <button id="startMatch" disabled>開始比賽 / Start（Y）</button>
@@ -810,6 +810,7 @@
             <div class="subvalue" id="aimState">--</div></div>
           <div class="metric"><div class="label">tx / 水平偏差（視覺）</div><div class="value" id="controlTx">--</div></div>
           <div class="metric"><div class="label">ty / 垂直偏差（視覺）</div><div class="value" id="controlTy">--</div></div>
+          <div class="metric"><div class="label">photos / 拍照收集（P）</div><div class="value" id="captureState">--</div><div class="subvalue">Orin 每秒存一張原始畫面到 dataset_capture/</div></div>
           <div class="metric"><div class="label">wireless link / 無線狀態</div><div class="value" id="wirelessState">--</div><div class="subvalue" id="rfLinkState">ground station only / 僅接地面站時</div></div>
           <div class="metric"><div class="label">control owner / 控制權</div><div class="value" id="controlOwner">--</div></div>
           <div class="metric"><div class="label">feed tower / 送球塔</div><div class="value" id="towerState">--</div><div class="subvalue">已裝＝A14 有球脈衝、已發射＝D22 發射次數（按 Y 歸零）；只是塔的 nano 回報，不是球的感測器</div></div>
@@ -890,7 +891,7 @@
   </main>
 
   <script>
-    const ids = ["tx", "ty", "distance", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "controlTx", "controlTy", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed", "aimState", "distanceRaw", "matchTimer", "matchState", "boardElevation", "boardFlywheel", "boardFlywheelCmd", "boardDistance", "targetBoardState", "boardReady", "boardTurret", "boardTurretRaw", "boardTurretMagnet", "boardTurretGuard", "ringValue", "ringDetail"];
+    const ids = ["tx", "ty", "distance", "ch0", "ch1", "ch2", "ch3", "ch8", "robotX", "robotY", "heading", "paramAge", "paramRate", "safeZone", "chassisPulses", "controlOwner", "towerState", "wirelessState", "rfLinkState", "controlTx", "controlTy", "captureState", "gamepadState", "gamepadInputs", "targetHole", "autoPath", "autoPathsUsed", "aimState", "distanceRaw", "matchTimer", "matchState", "boardElevation", "boardFlywheel", "boardFlywheelCmd", "boardDistance", "targetBoardState", "boardReady", "boardTurret", "boardTurretRaw", "boardTurretMagnet", "boardTurretGuard", "ringValue", "ringDetail"];
     const el = Object.fromEntries(ids.map((id) => [id, document.getElementById(id)]));
     const connectButton = document.getElementById("connect");
     const demoButton = document.getElementById("demo");
@@ -2416,6 +2417,10 @@
         if (eventName === "LINK_VERSION_MISMATCH") {
           appendControlLog("地面站和 Mega 的通道表版本不一致（CH10）：兩塊要燒同一版，之前不能無線 Enable");
         }
+        if (eventName === "CAPTURE_ON" || eventName === "CAPTURE_OFF") {
+          el.captureState.textContent = eventName === "CAPTURE_ON" ? "拍照中 ON" : "關閉 OFF";
+          el.captureState.style.color = eventName === "CAPTURE_ON" ? "#e25b5b" : "";
+        }
         if (eventName === "TURRET_ZERO_SET") {
           appendControlLog("已設定歸位點：轉台現在是 0°，位置已存進 EEPROM");
         }
@@ -2432,6 +2437,9 @@
           setControlArmed(false);
         }
         appendControlLog(`ground: ${eventName}`);
+        if (eventName === "CAPTURE_REJECTED_TEST") {
+          appendControlLog("測試模式不能開關拍照（無線的 CH9 被測試模式佔用）：先切到其他模式再按 P");
+        }
         return;
       }
       if (line.startsWith("$WIRELESS,")) {
@@ -2649,7 +2657,9 @@
       // 2026-10-18 (Jeremy): LB fires and RB is turret home (swapped from
       // RB / LB); LT / RT are buttons: flywheel -1% / +1% per press.
       standard: {
+        // View (8, 2026-11-14): photo capture on / off, same as P.
         label: "Xbox", forwardAxis: 1, turnAxis: 2, fireButton: 4, startButton: 3, homeButton: 5,
+        captureButton: 8,
         flywheelDownButton: 6, flywheelUpButton: 7,
         modeButtons: { 2: 0, 0: 1, 1: 2 }, // X full auto, A semi auto, B full manual
         dpad: { up: 12, down: 13, left: 14, right: 15 },
@@ -2660,13 +2670,16 @@
       // right stick X = axis 2; the D-pad is a hat switch on axis 9.
       // LT 8, RT 9 as buttons (their analog axes 3 / 4 are not used).
       vendor11c1: {
+        // captureButton: not mapped yet (its View / Back index unknown).
         label: "Xbox (11c1)", forwardAxis: 1, turnAxis: 2, fireButton: 6, startButton: 4, homeButton: 7,
+        captureButton: -1,
         flywheelDownButton: 8, flywheelUpButton: 9,
         modeButtons: { 3: 0, 0: 1, 1: 2 }, // X full auto, A semi auto, B full manual
         dpad: { hatAxis: 9 },
       },
       other: {
         label: "flight stick", forwardAxis: 1, turnAxis: 0, fireButton: 0, startButton: -1, homeButton: -1,
+        captureButton: -1,
         flywheelDownButton: -1, flywheelUpButton: -1,
         modeButtons: {}, dpad: null,
       },
@@ -2784,6 +2797,8 @@
       // RB: turret back to 0 deg -- THOME to the Mega (USB) or to the
       // ground station, which sends it on CH9 (2026-10-31).
       if (edge(profile.homeButton)) await sendControl("THOME");
+      // View: photo capture on / off (the Orin's training images).
+      if (edge(profile.captureButton)) await toggleCapture();
       if (!matchStarted) return; // the robot holds still until Y
 
       let drive = gamepadTank(pad);
@@ -2813,6 +2828,14 @@
         return;
       }
       await setFlywheelOffset(flywheelOffsetPct + stepPct);
+    }
+
+    // P / the pad's View (2026-11-14): photo capture on the Orin. The robot
+    // owns the state (it toggles and answers CAPTURE_ON / CAPTURE_OFF).
+    async function toggleCapture() {
+      if (!controlArmed) return;
+      await sendControl("CAPT");
+      appendControlLog("P：拍照收集 開／關 / capture toggle");
     }
 
     async function setFlywheelOffset(pct, { send = true } = {}) {
@@ -3028,6 +3051,13 @@
         return;
       }
       if (typing || !controlArmed || event.repeat) return;
+      // P (2026-11-14): photo capture on the Orin on / off. CAPT to the
+      // Mega (USB) or to the ground (CH9 level 3; not in TEST).
+      if (key === "p" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        event.preventDefault();
+        await toggleCapture();
+        return;
+      }
       // C (2026-11-08): clear the robot's saved aim / elevation trim (kept
       // for every hole and across power cycles otherwise). TCLR to the Mega
       // (USB) or to the ground (CH8 level 5).

@@ -1176,7 +1176,7 @@ void testTestModeWired() {
     // Left / right (2026-10-30): held = turn by hand, then the camera
     // holds the new place as the aim offset.
     send("ROT,1"); step();
-    assert(rec.rotateMode == "manual" && fabs(rec.rotateCommand) > 0.5);
+    assert(rec.rotateMode == "manual" && nearly(fabs(rec.rotateCommand), TuningConstants::Auto::AIM_JOG_COMMAND));
     hoststub::visionTx = -60.0;
     send("ROT,0"); step();
     assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, 0.0));
@@ -1354,10 +1354,11 @@ void testFineAdjustWired() {
     send("ROT,0"); send("M"); step();                     // semi-auto
     hoststub::visionValid = true;
     hoststub::visionTx = 0.0;
-    // 2026-10-30: held = the turret turns by hand (same jog as full
-    // manual), the camera lets go; heartbeat resends keep it going.
+    // 2026-10-30: held = the turret turns by hand (at AIM_JOG_COMMAND since
+    // 2026-11-09, slower than full manual), the camera lets go; heartbeat
+    // resends keep it going.
     const double jog = (TuningConstants::Rotate::MANUAL_JOG_INVERTED ? -1.0 : 1.0) *
-                       ManualControlConstants::ROTATE_MANUAL_SCALE;
+                       TuningConstants::Auto::AIM_JOG_COMMAND; // slow (2026-11-09)
     send("ROT,1"); step();
     assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, jog));
     send("ROT,1"); step();
@@ -1439,7 +1440,7 @@ void testFineAdjustWireless() {
     hoststub::visionValid = true;
     wireless.nudge = RCMAP_NUDGE_RIGHT;
     runWireless(200);                                     // held: every frame repeats it
-    assert(rec.rotateMode == "manual" && fabs(rec.rotateCommand) > 0.5);
+    assert(rec.rotateMode == "manual" && nearly(fabs(rec.rotateCommand), TuningConstants::Auto::AIM_JOG_COMMAND));
     hoststub::visionTx = 90.0;
     wireless.nudge = RCMAP_NUDGE_CENTER;
     runWireless(AIM_JOG_SETTLE_MS + 20);

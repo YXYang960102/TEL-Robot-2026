@@ -105,6 +105,8 @@ void loop() {
     // Auto's aim target: the operator's hole, or in full auto the row
     // cycle's current one (2026-10-31; one loop behind Auto, harmless).
     Vision::setSelectedTarget(OperatorTarget::visionIdForHole(Auto::getAimTarget()));
+    // P (2026-11-14): photo capture on the Orin, sent with the heartbeat.
+    Vision::setCaptureRequested(ManualControl::isCaptureOn());
 
     // Rotate mode arbitration and the auto-fire sequence both live in
     // Auto::update() now (moved out of here 2026-10-06) so "what mode is
