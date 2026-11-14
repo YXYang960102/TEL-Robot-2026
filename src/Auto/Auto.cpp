@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 
+#include "AutoPath.h"
 #include "../Constants/ShooterConstants.h"
 #include "../Constants/TuningConstants.h"
 #include "../Control/ShotDistanceFilter.h"
@@ -52,6 +53,8 @@ unsigned long lastFilterFrame = 0;
 void aimTurret(bool visionHealthy) {
     if (ManualControl::isAimJogActive()) {
         Shooter::setRotateOpenLoop(ManualControl::getAimJogCommand());
+    } else if (AutoPath::holdsTurret()) {
+        Shooter::disableRotate(); // a right path: 0 deg until the hole is seen
     } else if (ManualControl::isTurretHeldHome()) {
         Shooter::disableRotate(); // RB: stay at 0 deg (the guard drove it there)
     } else if (visionHealthy) {
@@ -381,6 +384,8 @@ void Auto::update() {
         }
     }
     lastElevationSlewMs = now;
+    // An auto path driving (2026-11-14): flywheel off, no shot until the end.
+    if (AutoPath::holdsShooter()) flywheelCommand = 0.0;
     Shooter::setFlywheelOpenLoop(flywheelCommand);
 
     // Turret locked on the target (|tx + aim offset| <= 5 px for 100 ms),
@@ -407,7 +412,7 @@ void Auto::update() {
     // (aim offset off, 2026-11-09: the operator turned it and let go; the
     // camera stays out of it until the hole changes).
     const bool turretAimed = Shooter::isRotateReady() || ManualControl::isAimHandHeld();
-    const bool ready = turretAimed && Shooter::isFlywheelReady() && shotAvailable &&
+    const bool ready = !AutoPath::holdsShooter() && turretAimed && Shooter::isFlywheelReady() && shotAvailable &&
                        elevationArrived && holeAllowed && settledOnHole && towerReady;
     bool fired = false;
 

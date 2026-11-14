@@ -191,6 +191,55 @@ constexpr double RAMP_DOWN_PER_SECOND = 0.5;
 
 }
 
+// Auto paths (2026-11-07 design, built 2026-11-14; src/Auto/AutoPath.h).
+// Picked in the Dashboard's Match Setup menu, sent with Y ("開始比賽") as
+// AUTO,n right after MODE,0; run once per Enable, in FULL AUTO only (it
+// waits PENDING_MS for the mode to arrive, then gives up). The chassis has
+// no encoder and no IMU, so each move is open loop for a time =
+// distance / rate. Every path ends facing the grid again (the turret only
+// reaches +38.5 deg to the right). While driving: turret and elevation
+// work as usual, flywheel 0, no shot; at the end full auto goes on as if
+// the robot had always stood there.
+//   left 1 (path 1): turn right DIAGONAL_TURN_DEG, DIAGONAL_CM ahead, turn back.
+//   left 2 (path 2): FORWARD_CM ahead, turn right 90, SIDE_CM ahead, turn left 90.
+//   right 1 / right 2 (paths 3 / 4): the same, mirrored.
+// Distances read off the 2026 field drawing (zone A ~400 x 500 cm, start
+// boxes 70 x 120 cm in its back corners), from the start box center to
+// the circle: left 1 ~160 cm across and ~240 cm up = 288 cm at 34 deg;
+// left 2 ~365 cm up, then ~160 cm across. MEASURE ON THE FIELD.
+namespace AutoPath {
+constexpr double DRIVE_COMMAND = 0.40; // both wheels, straight
+constexpr double TURN_COMMAND = 0.35;  // pivot: one wheel +, the other -
+// PROVISIONAL rates at the commands above -- measure them: drive 2 s
+// straight and measure the distance (cm / 2), pivot 2 s and measure the
+// angle (deg / 2). Set high on purpose: a too-high rate makes each move
+// too SHORT, so before calibration the robot stops early, not in a wall.
+constexpr double DRIVE_CM_PER_S = 120.0;
+constexpr double TURN_DEG_PER_S = 180.0;
+constexpr double DIAGONAL_TURN_DEG = 34.0;
+constexpr double DIAGONAL_CM = 288.0;
+constexpr double FORWARD_CM = 365.0;
+constexpr double SIDE_CM = 160.0;
+// Standing still between moves, so a turn doesn't start while the robot
+// still rolls.
+constexpr unsigned long PAUSE_MS = 300;
+// AUTO,n can arrive before MODE,0 over the radio (CH8 and CH4 are not in
+// the same packet): the path waits this long for full auto, then gives up.
+constexpr unsigned long PENDING_MS = 1500;
+// The operator's stick past this (either wheel) takes over: the path stops,
+// the mode goes to semi auto (Jeremy 2026-11-07), the stick drives.
+constexpr double STICK_TAKEOVER = 0.20;
+// Right paths: the turret stays at 0 deg until a frame of the target hole
+// comes in (Jeremy 2026-11-07): mid-drive the grid can be past the turret's
+// +38.5 deg limit, and the search would push it there.
+constexpr bool RIGHT_PATHS_HOLD_TURRET_UNTIL_SEEN = true;
+// Pivot direction in the Mega's tank commands: turning right = left wheel
+// back, right wheel forward -- what the stick sends since 2026-11-08 (the
+// Dashboard's flip after the robot turned against the stick). PROVISIONAL:
+// check on blocks first; flip if the robot turns the wrong way.
+constexpr bool RIGHT_TURN_LEFT_WHEEL_BACK = true;
+}
+
 namespace Auto {
 
 // Auto moves the elevation toward the shot table's pulse at most this fast
@@ -397,6 +446,12 @@ static_assert(Rotate::VISION_STALL_COMMAND >= 0.0 && Rotate::VISION_STALL_COMMAN
               "Turret stall push: a small creep, not a drive");
 static_assert(Rotate::VISION_kIZONE_PX >= 0.0 && Rotate::VISION_READY_TOLERANCE_PX > 0.0,
               "Vision-follow pixel windows must be non-negative");
+static_assert(AutoPath::DRIVE_COMMAND > 0.0 && AutoPath::DRIVE_COMMAND <= 1.0 &&
+                  AutoPath::TURN_COMMAND > 0.0 && AutoPath::TURN_COMMAND <= 1.0 &&
+                  AutoPath::DRIVE_CM_PER_S > 0.0 && AutoPath::TURN_DEG_PER_S > 0.0,
+              "Auto path commands are 0..1 ratios and the rates positive");
+static_assert(AutoPath::STICK_TAKEOVER > 0.0 && AutoPath::STICK_TAKEOVER < 1.0,
+              "Stick takeover threshold is a 0..1 command");
 static_assert(Auto::AIM_JOG_COMMAND > 0.0 && Auto::AIM_JOG_COMMAND <= 1.0, "Hand-turn speed is a 0..1 command");
 static_assert(Auto::AIM_OFFSET_MAX_PX > 0.0 && Auto::AIM_OFFSET_MAX_PX < 400.0 &&
               Auto::ELEVATION_JOG_US_PER_SECOND > 0.0 &&

@@ -7977,3 +7977,58 @@ toggle. No hardware.
 **Next Test:** enabled, full manual: P -> Dashboard 拍照中 ON, Orin log
 "[capture] ON from the Dashboard", JPEGs in dataset_capture/<start>/; P
 again -> OFF.
+
+## 2026-11-14 — Claude Code: auto paths drive (open loop, timed), from the Match Setup menu
+
+**User Request (Jeremy):** add the auto paths; no new key, use the
+Dashboard's existing menu.
+
+**Discussion Result:** rebuilt from the 2026-11-07 design and Jeremy's
+answers then (that code was reverted the same day; its constants were
+recovered from an unreachable git blob): full auto only, all four paths
+end facing the grid, right paths hold the turret at 0 until the hole is
+seen, stick -> path stops + semi auto, flywheel 0 and no shot while
+driving. The Dashboard already sends MODE,0 then AUTO,n on Y.
+
+**Added:** `src/Auto/AutoPath.{h,cpp}` (NONE / PENDING / DRIVING / DONE /
+ABORTED; moves = time = distance / rate, PAUSE_MS standing still after
+each); `TuningConstants::AutoPath` (DRIVE 0.40 at 120 cm/s, TURN 0.35 at
+180 deg/s -- placeholders set high so the robot stops short;
+DIAGONAL 34 deg / 288 cm, FORWARD 365 cm, SIDE 160 cm from the field
+drawing; PENDING_MS 1500; STICK_TAKEOVER 0.20; RIGHT_TURN_LEFT_WHEEL_BACK
+true = the stick's polarity since 2026-11-08). Events AUTO_PATH_DONE /
+TAKEOVER / ABORTED.
+
+**Changed:** `ManualControl`: `requestAutoPath()` starts it after the
+once-per-Enable record (AUTO,n may arrive before MODE,0 over the radio, so
+it waits PENDING_MS for full auto; not full auto by then -> ABORTED);
+`applyOutputs()` gives it the chassis while it drives; a stick past 0.20
+-> takeover: abort, semi auto, `pathStickSemi` keeps semi against a radio
+CH4 still at full auto until CH4 says anything else; wired MODE clears it;
+leaving full auto aborts; Enable / disarm reset. `Auto`: flywheel 0 and
+not ready while `holdsShooter()`; `aimTurret` holds the turret
+(disableRotate) while `holdsTurret()`. Dashboard: path readout 行駛中 /
+已到點 / 中止 / 搖桿接手 from the events; on TAKEOVER it sends MODE,1 so the
+ground's CH4 follows; Match Setup note. test/README build lines gain
+`src/Auto/AutoPath.cpp`.
+
+**Calculation:** left 2 = 365/120 = 3.04 s, pause 0.3, 90/180 = 0.5 s,
+0.3, 160/120 = 1.33 s, 0.3, 0.5 s, 0.3 -> ~6.6 s. Right 1 = 34/180 =
+0.19 s, 0.3, 2.4 s, 0.3, 0.19 s, 0.3 (a 0.19 s pivot is short next to the
+chassis' 80 ms speed-up filter: calibrate before trusting it).
+
+**Flash:** Mega and the ground STM32 (new event codes: an old ground drops
+those status frames); the bridge is unchanged.
+
+**Evidence:** pio megaatmega2560, mega_drive_test, mega_wired_manual_test,
+ground SUCCESS; manual_control_test (3 variants, with AutoPath linked),
+rc_control_map, ground host test, vision_link, 3 Dashboard tests PASS;
+scratch simulation (not in the repo) of left 2 / right 1: moves and
+timing as above, PENDING in semi -> ABORTED after 1.5 s, right path holds
+the turret until a frame is valid. No hardware.
+
+**Next Test (robot on blocks first):** full auto + left 2 + Y: wheels do
+the 4 moves, Dashboard 行駛中 -> 已到點, flywheel starts only after. Check
+the pivot direction (flip RIGHT_TURN_LEFT_WHEEL_BACK if wrong). Calibrate
+on the floor: drive 2 s and pivot 2 s, set DRIVE_CM_PER_S / TURN_DEG_PER_S;
+measure the field distances. Stick mid-path -> stops, semi.

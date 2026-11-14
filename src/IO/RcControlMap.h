@@ -280,6 +280,9 @@ typedef enum {
     RCMAP_EVENT_TURRET_ZERO_REJECTED,  /* armed, or no healthy AS5600 reading */
     RCMAP_EVENT_CAPTURE_ON,            /* 2026-11-14: P, the Orin saves photos */
     RCMAP_EVENT_CAPTURE_OFF,
+    RCMAP_EVENT_AUTO_PATH_DONE,        /* 2026-11-14: the path reached its end */
+    RCMAP_EVENT_AUTO_PATH_TAKEOVER,    /* stick during the path: stopped, semi auto */
+    RCMAP_EVENT_AUTO_PATH_ABORTED,     /* mode change, or full auto never came */
     RCMAP_EVENT_COUNT
 } rcmap_event;
 

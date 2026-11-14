@@ -135,6 +135,11 @@ private:
     static void clearFineAdjust();
     static void clearTrim();
     static void toggleCapture();
+    static void reportPathState();
+    // Stick takeover of an auto path (2026-11-14): semi auto, kept against a
+    // radio CH4 that still says full auto until CH4 says anything else.
+    static bool pathStickSemi;
+    static uint8_t lastPathState; // AutoPath::State last reported
     static bool captureOn;
     static void requestAutoPath(uint8_t path);
     static void cycleOperatorMode();
