@@ -238,6 +238,9 @@ static const char *const event_names[RCMAP_EVENT_COUNT] = {
     "TURRET_ZERO_REJECTED",
     "CAPTURE_ON",
     "CAPTURE_OFF",
+    "AUTO_PATH_DONE",
+    "AUTO_PATH_TAKEOVER",
+    "AUTO_PATH_ABORTED",
 };
 
 const char *rcmap_event_name(uint16_t code) {

@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "../Auto/Auto.h"
+#include "../Auto/AutoPath.h"
 #include "../Chassis/Chassis.h"
 #include "../Constants/Pins.h"
 #include "../Constants/TuningConstants.h"
@@ -35,6 +36,8 @@ bool ManualControl::wirelessHomePrev = true;
 bool ManualControl::wirelessTrimClearPrev = true;
 bool ManualControl::wirelessCapturePrev = true;
 bool ManualControl::captureOn = false;
+bool ManualControl::pathStickSemi = false;
+uint8_t ManualControl::lastPathState = 0;
 unsigned long ManualControl::lastVersionEventMs = 0;
 
 double ManualControl::tankLeftCommand = 0.0;
@@ -338,6 +341,7 @@ void ManualControl::processCommand(char* command) {
         } else if (ManualControlConstants::WIRED_MANUAL_ONLY) {
             sendEvent(RCMAP_EVENT_MODE_FULL_MANUAL); // benches stay manual, like M
         } else {
+            pathStickSemi = false; // the operator's own choice from here on
             setOperatorMode(static_cast<OperatorMode>(n));
         }
         return;
@@ -464,7 +468,18 @@ void ManualControl::processWirelessFrame() {
         // Nudge (arrows): one direction at a time; held = hold-to-move jog.
         angleManualCommand = c.nudge == RCMAP_NUDGE_UP ? 1.0 : (c.nudge == RCMAP_NUDGE_DOWN ? -1.0 : 0.0);
         rotateManualCommand = c.nudge == RCMAP_NUDGE_RIGHT ? 1.0 : (c.nudge == RCMAP_NUDGE_LEFT ? -1.0 : 0.0);
-        setOperatorMode(static_cast<OperatorMode>(frameMode));
+        // After a stick takeover of an auto path: semi auto while CH4 still
+        // says full auto (the Dashboard then sends MODE,1 to the ground);
+        // any other CH4 mode is the operator's own choice again.
+        OperatorMode wantedMode = static_cast<OperatorMode>(frameMode);
+        if (pathStickSemi) {
+            if (wantedMode == OperatorMode::FULL_AUTO) {
+                wantedMode = OperatorMode::SEMI_AUTO;
+            } else {
+                pathStickSemi = false;
+            }
+        }
+        setOperatorMode(wantedMode);
         // The Dashboard's Falcon slider, on CH4 with the mode (decode gives
         // 0 outside full manual / test; applyOutputs only uses it there).
         flywheelCommand = c.flywheel;
@@ -552,6 +567,10 @@ void ManualControl::clearCommands() {
     operatorMode = OperatorMode::FULL_MANUAL;
     fireRequested = false;
     clearFineAdjust();
+    // An auto path never outlives its Enable.
+    AutoPath::reset();
+    pathStickSemi = false;
+    lastPathState = static_cast<uint8_t>(AutoPath::State::NONE);
 }
 
 void ManualControl::clearFineAdjust() {
@@ -678,6 +697,18 @@ void ManualControl::clearTrim() {
     trimSeq++;
 }
 
+// The auto path's end or abort, once each (the stick takeover reports itself).
+void ManualControl::reportPathState() {
+    const uint8_t now = static_cast<uint8_t>(AutoPath::getState());
+    if (now == lastPathState) return;
+    lastPathState = now;
+    if (now == static_cast<uint8_t>(AutoPath::State::DONE)) {
+        sendEvent(RCMAP_EVENT_AUTO_PATH_DONE);
+    } else if (now == static_cast<uint8_t>(AutoPath::State::ABORTED)) {
+        sendEvent(RCMAP_EVENT_AUTO_PATH_ABORTED);
+    }
+}
+
 // P (wired CAPT / CH9 level 3, 2026-11-14): photo capture on the Orin.
 void ManualControl::toggleCapture() {
     captureOn = !captureOn;
@@ -781,10 +812,13 @@ void ManualControl::requestAutoPath(uint8_t path) {
         sendEvent(RCMAP_EVENT_AUTO_PATH_REJECTED);
         return;
     }
-    // Phase 1: the trigger, the once-per-Enable rule and the record are
-    // real; the path itself (driving) needs chassis localization first.
+    // Accepted and recorded; AutoPath drives it once the mode is full auto
+    // (2026-11-14; it waits AutoPath::PENDING_MS for MODE,0, which can
+    // arrive after AUTO,n over the radio).
     autoPathThisEnable = path;
     autoPathsUsedMask = static_cast<uint8_t>(autoPathsUsedMask | (1u << path));
+    AutoPath::request(path, millis());
+    lastPathState = static_cast<uint8_t>(AutoPath::getState());
     sendEvent(RCMAP_EVENT_AUTO_PATH_STARTED);
 }
 
@@ -826,9 +860,28 @@ void ManualControl::setOperatorMode(OperatorMode mode) {
 
 void ManualControl::applyOutputs() {
     using namespace ManualControlConstants;
-    Chassis::setTankOpenLoop(
-        tankLeftCommand * CHASSIS_MANUAL_SCALE,
-        tankRightCommand * CHASSIS_MANUAL_SCALE);
+    // Auto path (2026-11-14): it drives the chassis while it runs; the stick
+    // past STICK_TAKEOVER stops it and the mode goes to semi auto.
+    if (AutoPath::isActive() &&
+        (fabs(tankLeftCommand) > TuningConstants::AutoPath::STICK_TAKEOVER ||
+         fabs(tankRightCommand) > TuningConstants::AutoPath::STICK_TAKEOVER)) {
+        AutoPath::abort();
+        lastPathState = static_cast<uint8_t>(AutoPath::State::ABORTED);
+        pathStickSemi = true;
+        setOperatorMode(OperatorMode::SEMI_AUTO);
+        sendEvent(RCMAP_EVENT_AUTO_PATH_TAKEOVER);
+    }
+    double pathLeft = 0.0;
+    double pathRight = 0.0;
+    const bool pathDrives = AutoPath::update(operatorMode, millis(), pathLeft, pathRight);
+    reportPathState();
+    if (pathDrives) {
+        Chassis::setTankOpenLoop(pathLeft, pathRight);
+    } else {
+        Chassis::setTankOpenLoop(
+            tankLeftCommand * CHASSIS_MANUAL_SCALE,
+            tankRightCommand * CHASSIS_MANUAL_SCALE);
+    }
 
     // Elevation: the operator's, unless Auto sets it from the shot table
     // (auto mode and a measured table). The open-loop call also holds an

@@ -768,7 +768,7 @@
               <option value="4">右二 right 2</option>
             </select>
           </label>
-          <span class="label">Enable 後機器人不動，按手把 Y（或「開始比賽」）才套用：先切到這個模式，再跑一次這條路徑。比賽中改模式（或按 X / A / B）會立刻切換。</span>
+          <span class="label">Enable 後機器人不動，按手把 Y（或「開始比賽」）才套用：先切到這個模式，再跑一次這條路徑。比賽中改模式（或按 X / A / B）會立刻切換。自動路徑只在全自動跑（選其他模式會中止）；跑的時候推搖桿就中止、改成半自動。</span>
         </div>
       </section>
 
@@ -1026,6 +1026,9 @@
     let litHoleShown = 0;      // TEL 56: the lit bonus hole the Orin sees
     let litPriorityShown = 0;  // TEL 57: the one full auto serves first
     let autoPathThisEnable = 0;
+    // The path's progress from the robot's events (2026-11-14): "" while it
+    // runs (or none), else 已到點 / 中止.
+    let autoPathResult = "";
     let autoPathsUsedMask = 0;
     let robotReportsTarget = false;  // TEL slots 32-34 seen
     let sentTarget = 0, sentAutoPath = 0;
@@ -1073,6 +1076,7 @@
         // Every Enable starts on the AI's own target pick (the robot resets
         // it too); the menus wait for Y.
         sentTarget = 0;
+        autoPathResult = "";
         if (!robotReportsTarget) {
           targetHole = 0;
           autoPathThisEnable = 0;
@@ -1584,7 +1588,7 @@
         cell.classList.toggle("lit", n === litHoleShown);
       }
       el.autoPath.textContent = autoPathThisEnable
-        ? `已啟動 ${AUTO_PATH_NAMES[autoPathThisEnable]}`
+        ? `已啟動 ${AUTO_PATH_NAMES[autoPathThisEnable]} · ${autoPathResult || "行駛中 / driving"}`
         : "未啟動 / not started";
       const used = [1, 2, 3, 4].filter((p) => autoPathsUsedMask & (1 << p)).map((p) => AUTO_PATH_NAMES[p]);
       el.autoPathsUsed.textContent = `${robotReportsTarget ? "開機後已用" : "本頁送出紀錄"}：${used.length ? used.join("、") : "無"}`;
@@ -2417,6 +2421,20 @@
         if (eventName === "LINK_VERSION_MISMATCH") {
           appendControlLog("地面站和 Mega 的通道表版本不一致（CH10）：兩塊要燒同一版，之前不能無線 Enable");
         }
+        // Auto path (2026-11-14): its end, or why it stopped.
+        if (eventName === "AUTO_PATH_DONE") autoPathResult = "已到點 / done";
+        if (eventName === "AUTO_PATH_ABORTED") {
+          autoPathResult = "中止 / stopped";
+          appendControlLog("自動路徑中止：換了模式，或 1.5 秒內沒進全自動（路徑只在全自動跑）");
+        }
+        if (eventName === "AUTO_PATH_TAKEOVER") {
+          autoPathResult = "搖桿接手 / stick took over";
+          appendControlLog("自動路徑被搖桿中斷：改成半自動");
+          // The robot is in semi auto now; bring the ground's CH4 along so a
+          // later full auto (X) is a real change for it.
+          if (controlArmed) sendControl("MODE,1");
+        }
+        if (eventName.startsWith("AUTO_PATH_")) renderTargetAndAuto();
         if (eventName === "CAPTURE_ON" || eventName === "CAPTURE_OFF") {
           el.captureState.textContent = eventName === "CAPTURE_ON" ? "拍照中 ON" : "關閉 OFF";
           el.captureState.style.color = eventName === "CAPTURE_ON" ? "#e25b5b" : "";
