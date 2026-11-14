@@ -224,11 +224,13 @@ namespace AutoPath {
 constexpr double DRIVE_COMMAND = 1.0; // both wheels, straight
 constexpr double TURN_COMMAND = 0.35;  // pivot: one wheel +, the other -
 // Move times, ms (a turn at TURN_COMMAND, a straight move at DRIVE_COMMAND).
-// Left 1 / right 1 (Jeremy, 2026-11-14, on the floor): first turn 0.6 s,
-// straight 2.5 s, turn back 1.0 s.
-constexpr unsigned long DIAGONAL_TURN_MS = 600;
-constexpr unsigned long DIAGONAL_DRIVE_MS = 2500;
-constexpr unsigned long DIAGONAL_TURN_BACK_MS = 1000;
+// Left 1 / right 1 (Jeremy, 2026-11-14, on the floor): straight 3.5 s,
+// then turn 0.5 s (DIAGONAL_TURN_BACK_MS; left 1 turns left, right 1
+// right). The first turn (was 0.6 s) is off: 0 = that move is skipped
+// (AutoPath::buildMoves). Before: straight 2.5 s, turn 1.0 s.
+constexpr unsigned long DIAGONAL_TURN_MS = 0;
+constexpr unsigned long DIAGONAL_DRIVE_MS = 3500;
+constexpr unsigned long DIAGONAL_TURN_BACK_MS = 500;
 // Left 2 / right 2 (Jeremy, 2026-11-14): straight 4 s, turn 0.5 s,
 // straight 1 s, turn back 1 s (first try 5 / 2 / 1.5 / 2).
 constexpr unsigned long FORWARD_DRIVE_MS = 4000;
@@ -271,20 +273,27 @@ constexpr double ELEVATION_READY_TOLERANCE_US = 10.0;
 // Full auto cycle (Jeremy 2026-10-31; full auto = the Orin's own pick):
 // the first hole fired at stays chosen (or the operator's hole); after
 // SHOTS_PER_HOLE balls Auto moves on in OperatorTarget::buildCycle order --
-// never two columns in one move (the turret turns sideways only): from 5
-// (bottom row out): 5, 8 9, 6, 3 2, then the bonus row Q W E (from a bonus
-// start: the bonus row only) -- skipping
+// never two columns in one move (the turret turns sideways only): from 5:
+// 5, 8 7 9, 6 4, 1 2 3, then the bonus row Q W E (from a bonus start: the
+// bonus row only) -- skipping
 // holes with no shot table. After the last one it stops firing (stays
 // aimed there) until a hole is picked (wired: even the same one again) or
 // the mode changes. Counts trigger pulses sent to the tower, one ball each.
 constexpr bool ROW_CYCLE_ENABLED = true;
 constexpr uint8_t SHOTS_PER_HOLE = 3;
-// Holes full auto never fires at (bit n = Dashboard hole n). Jeremy
-// 2026-10-31: the bottom row 1 / 4 / 7 out for now. The cycle leaves them
-// out (from 5: 5, 8 9, 6, 3 2, Q W E); an excluded hole the
-// Orin picks is swapped for the nearest allowed one in its column (4 ->
-// 5). Semi-auto is not affected. 0 = none out.
-constexpr uint16_t FULL_AUTO_EXCLUDED_HOLES = (1u << 1) | (1u << 4) | (1u << 7);
+// After the last of the SHOTS_PER_HOLE balls (also at a lit bonus hole)
+// the aim stays on that hole this long, with no shot, before the next one
+// (Jeremy, 2026-11-14: moving on right at the third fire signal turned the
+// turret while that ball was still on its way). A mode change, a hole
+// choice or a disarm drops the wait.
+constexpr unsigned long HOLE_SWITCH_DELAY_MS = 2000;
+// Holes full auto never fires at (bit n = Dashboard hole n). The cycle
+// leaves them out; an excluded hole the Orin picks is swapped for the
+// nearest allowed one in its column. Semi-auto is not affected. 0 = none
+// out: since 2026-11-14 (Jeremy: the bottom row back, hole 4 measured;
+// 1 / 7 borrow 4's table). 2026-10-31 to 11-14 it was 1 / 4 / 7,
+// (1u << 1) | (1u << 4) | (1u << 7): from 5: 5, 8 9, 6, 3 2, Q W E.
+constexpr uint16_t FULL_AUTO_EXCLUDED_HOLES = 0;
 // A lit bonus hole (the Orin's red-ring detection, frame field 9) comes
 // first in full auto: SHOTS_PER_HOLE balls at it, then the cycle carries
 // on where it stopped. The same box fires again only after it has been

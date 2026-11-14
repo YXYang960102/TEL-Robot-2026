@@ -35,23 +35,27 @@ void AutoPath::request(uint8_t newPath, unsigned long nowMs) {
 }
 
 // left 1 / left 2 turn right first; right 1 / right 2 are their mirror.
-// Each move runs its *_MS time (tuned on the floor, 2026-11-14).
+// Each move runs its *_MS time (tuned on the floor, 2026-11-14); a move
+// whose time is 0 is left out (left 1 / right 1's first turn, 2026-11-14).
 uint8_t AutoPath::buildMoves(uint8_t p, Move* out) {
     const int8_t side = (p == 3 || p == 4) ? -1 : 1; // + = right
+    Move all[4];
+    uint8_t n = 0;
     if (p == 1 || p == 3) {
-        out[0] = {1, side, DIAGONAL_TURN_MS};
-        out[1] = {0, 1, DIAGONAL_DRIVE_MS};
-        out[2] = {1, static_cast<int8_t>(-side), DIAGONAL_TURN_BACK_MS};
-        return 3;
+        all[n++] = {1, side, DIAGONAL_TURN_MS};
+        all[n++] = {0, 1, DIAGONAL_DRIVE_MS};
+        all[n++] = {1, static_cast<int8_t>(-side), DIAGONAL_TURN_BACK_MS};
+    } else if (p == 2 || p == 4) {
+        all[n++] = {0, 1, FORWARD_DRIVE_MS};
+        all[n++] = {1, side, SIDE_TURN_MS};
+        all[n++] = {0, 1, SIDE_DRIVE_MS};
+        all[n++] = {1, static_cast<int8_t>(-side), SIDE_TURN_BACK_MS};
     }
-    if (p == 2 || p == 4) {
-        out[0] = {0, 1, FORWARD_DRIVE_MS};
-        out[1] = {1, side, SIDE_TURN_MS};
-        out[2] = {0, 1, SIDE_DRIVE_MS};
-        out[3] = {1, static_cast<int8_t>(-side), SIDE_TURN_BACK_MS};
-        return 4;
+    uint8_t count = 0;
+    for (uint8_t i = 0; i < n; i++) {
+        if (all[i].ms > 0) out[count++] = all[i];
     }
-    return 0;
+    return count;
 }
 
 bool AutoPath::update(OperatorMode mode, unsigned long nowMs, double& left, double& right) {

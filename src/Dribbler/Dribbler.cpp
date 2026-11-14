@@ -91,7 +91,7 @@ bool Dribbler::requestFeed() {
     if (!BuildProfile::DRIVES_FEED_TOWER) {
         return false; // Tower not wired on this bench.
     }
-    if (!enabled || isBusy() || !towerAllowsShot()) {
+    if (!enabled || isBusy()) {
         return false;
     }
     pulseStartMs = millis();

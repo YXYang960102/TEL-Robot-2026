@@ -17,7 +17,7 @@
 // No hole selected = the Orin's own pick. Full auto cycle (2026-10-31,
 // TuningConstants::Auto::ROW_CYCLE_ENABLED): 3 balls at a hole, then the
 // next in OperatorTarget::buildCycle order (never two columns in one
-// move; from 5 with the bottom row out: 5, 8 9, 6, 3 2, Q W E), skipping
+// move; from 5: 5, 8 7 9, 6 4, 1 2 3, Q W E), skipping
 // holes without a shot table, then stop -- starting from the chosen hole,
 // or from the first hole shot at when the Orin picks. A lit bonus hole
 // (Vision::getLitBonusId) is served first, 3 balls (LIT_BONUS_PRIORITY).
@@ -78,6 +78,7 @@ private:
     static void enterFireState(FireState next);
     static void updateRowCycle(OperatorMode mode);
     static void countRowShot();
+    static void finishHoleSwitch();
     static void skipHolesWithoutTable();
     static void startCycle(uint8_t hole);
 
@@ -94,6 +95,9 @@ private:
     static uint8_t litHole;
     static uint8_t litShots;
     static uint8_t litServedMask; // bit vision id 1-3: served, waiting to go dark
+    static bool holeSwitchPending;   // last ball at a hole sent: waiting HOLE_SWITCH_DELAY_MS
+    static bool holeSwitchFromLit;   // ... at a lit bonus hole (back to the cycle after)
+    static unsigned long holeSwitchStartMs;
     static unsigned long litLastSeenMs[4];
     static uint8_t lastAimTarget;
     static unsigned long aimChangedMs;

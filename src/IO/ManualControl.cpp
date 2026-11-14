@@ -667,24 +667,14 @@ void ManualControl::updateFineAdjust() {
             elevationOffsetUs + angleNow * up * ELEVATION_JOG_US_PER_SECOND * jogElapsedMs / 1000.0,
             ELEVATION_OFFSET_MAX_US);
     }
-    // Let go of up / down: that is the saved elevation trim now (2026-11-08).
-    // Autos: the offset just reached. Test (the operator holds the
-    // elevation, no table applied): the difference to the shot table's
-    // pulse for this hole at this distance, so the autos shoot where the
-    // operator aimed by hand. Example: table 1600 us at 4.3 m, operator let
-    // go at 1650 us -> trim +50 us. No table pulse right now (no hole in
-    // view, no depth, no table): nothing is recorded.
-    if (elevationJogPrev && !elevationJogNow) {
-        if (autoOwnsElevation()) {
-            trimSeq++;
-        } else if (operatorMode == OperatorMode::TEST) {
-            double tableUs = 0.0;
-            if (Auto::getTableElevationUs(tableUs)) {
-                elevationOffsetUs = clampAbs(Shooter::getAnglePulseUs() - tableUs,
-                                             ELEVATION_OFFSET_MAX_US);
-                trimSeq++;
-            }
-        }
+    // Let go of up / down in the autos: the offset just reached is the saved
+    // elevation trim now (2026-11-08). Test mode records none (Jeremy,
+    // 2026-11-14): it measures the shot table itself (S), and saving
+    // "manual - table" as well added the same correction twice once the
+    // new points were in the table -- a whole day's measuring left +200 us
+    // (the limit) on every auto shot.
+    if (elevationJogPrev && !elevationJogNow && autoOwnsElevation()) {
+        trimSeq++;
     }
     elevationJogPrev = elevationJogNow;
 }

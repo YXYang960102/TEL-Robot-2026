@@ -23,11 +23,10 @@ public:
     // Cuts any pulse short (D22 LOW). Does not shorten the lockout.
     static void stop();
 
-    // One ball. Returns false (and sends nothing) while disabled, while a
-    // pulse or the lockout is still running, or -- with READY_REQUIRED --
-    // while no A14 pulse has arrived since the last shot. No queueing.
-    // Called directly for F in full manual / test, and by Auto when it
-    // fires.
+    // One ball. Returns false (and sends nothing) while disabled or while a
+    // pulse or the lockout is still running. No queueing. Called directly
+    // for F in full manual / test (no ball check), and by Auto when it
+    // fires -- Auto checks towerAllowsShot() itself first.
     static bool requestFeed();
 
     static bool isPulseActive();
@@ -36,7 +35,7 @@ public:
 
     // A14: a pulse since the last shot ("one ball ready"), and balls that
     // reached the shooting position since boot (a pulse while one is
-    // already latched is the same ball, not counted). towerAllowsShot() is what the autos wait for: always true while
+    // already latched is the same ball, not counted). towerAllowsShot() is what the autos (only) wait for: always true while
     // Tower::READY_REQUIRED is false.
     static bool hasBall();
     static unsigned long getLoadedCount();
