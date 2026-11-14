@@ -8036,3 +8036,83 @@ the 4 moves, Dashboard 行駛中 -> 已到點, flywheel starts only after. Check
 the pivot direction (flip RIGHT_TURN_LEFT_WHEEL_BACK if wrong). Calibrate
 on the floor: drive 2 s and pivot 2 s, set DRIVE_CM_PER_S / TURN_DEG_PER_S;
 measure the field distances. Stick mid-path -> stops, semi.
+
+## 2026-11-14 — Claude Code: auto path turn rate 180 -> 34 deg/s
+
+**User Request (Jeremy):** on left 1 the turns should take 1.0 s.
+
+**Changed:** `TuningConstants::AutoPath::TURN_DEG_PER_S` 180 -> 34, so a
+34 deg turn = 1.0 s. Side effect: the 90 deg turns of left / right 2 take
+2.65 s. Still uncalibrated.
+
+**Calculation:** left 1 = 1.0 + 0.3 + 2.4 + 0.3 + 1.0 + 0.3 = 5.3 s.
+
+**Evidence:** pio megaatmega2560 SUCCESS. No hardware.
+
+## 2026-11-14 — Claude Code: auto path drives straight at full speed (1.0)
+
+**User Request (Jeremy):** driven by hand, the robot pulls right at part
+stick but goes straight at full stick: drive the path's straight moves at
+full stick instead. The left-wheel 0.7 change of a moment before is
+withdrawn (never committed).
+
+**Changed:** `TuningConstants::AutoPath::DRIVE_COMMAND` 0.40 -> 1.0 (both
+wheels, = the stick's full forward); `DRIVE_CM_PER_S` 120 -> 300, a high
+guess for full speed so the robot still stops short before calibration.
+Turns unchanged (0.35, 34 deg/s).
+
+**Calculation:** left 1 = 1.0 + 0.3 + 288/300 = 0.96 + 0.3 + 1.0 + 0.3 =
+3.86 s; left 2 = 1.22 + 0.3 + 2.65 + 0.3 + 0.53 + 0.3 + 2.65 + 0.3 = 8.25 s.
+
+**Evidence:** pio megaatmega2560 SUCCESS. No hardware.
+
+**Next Test:** on the floor at full speed, drive 1 s straight and measure
+it (cm / 1 s) -> DRIVE_CM_PER_S. Leave room: at 300 cm/s guessed, a real
+speed above it means the robot goes FURTHER than planned.
+
+## 2026-11-14 — Claude Code: auto path moves are set times (left 1: 0.6 / 2.5 / 1.0 s)
+
+**User Request (Jeremy):** left 1: first turn 0.6 s, straight 2.5 s, last
+turn 1.0 s.
+
+**Changed:** the moves are times now, not distance / rate:
+`TuningConstants::AutoPath::DIAGONAL_TURN_MS` 600, `DIAGONAL_DRIVE_MS`
+2500, `DIAGONAL_TURN_BACK_MS` 1000 (left 1 / right 1); left 2 / right 2
+keep the times the old guesses gave (`FORWARD_DRIVE_MS` 1217,
+`SIDE_TURN_MS` 2647, `SIDE_DRIVE_MS` 533, `SIDE_TURN_BACK_MS` 2647),
+untuned. Removed `DRIVE_CM_PER_S`, `TURN_DEG_PER_S` and the distance /
+angle constants (the field numbers stay in the comment). `AutoPath::Move`
+= kind, direction, ms. Commands unchanged: straight 1.0, turn 0.35, PAUSE
+0.3 s after each move.
+
+**Calculation:** left 1 = 0.6 + 0.3 + 2.5 + 0.3 + 1.0 + 0.3 = 5.0 s.
+
+**Evidence:** pio megaatmega2560 SUCCESS; manual_control_test PASS;
+scratch simulation of left 1 / right 1: 600 / 2500 / 1000 ms moves, right 1
+mirrored. No hardware.
+
+## 2026-11-14 — Claude Code: left 2 / right 2 times 5 / 2 / 1.5 / 2 s
+
+**User Request (Jeremy):** left 2 / right 2: straight 5 s, turn 2 s,
+straight 1.5 s, turn back 2 s (right paths are the mirror, confirmed).
+
+**Changed:** `FORWARD_DRIVE_MS` 5000, `SIDE_TURN_MS` 2000, `SIDE_DRIVE_MS`
+1500, `SIDE_TURN_BACK_MS` 2000. Left 2 = 5 + 2 + 1.5 + 2 + 4 × 0.3 = 11.7 s.
+Then the same day: 4000 / 500 / 1000 / 1000 ms (Jeremy) -> left 2 =
+4 + 0.5 + 1 + 1 + 4 × 0.3 = 7.7 s.
+
+**Evidence:** pio megaatmega2560 SUCCESS. No hardware.
+
+## 2026-11-14 — Claude Code: turret does not lock while an auto path runs
+
+**User Request (Jeremy):** while the auto path runs, the shooter head
+should not lock on; lock once the path is done.
+
+**Changed:** `AutoPath::holdsTurret()` = running (PENDING / DRIVING), any
+path, or after a right path until the hole is seen (as before). Auto then
+`disableRotate()`s: the turret stands where it is, no camera follow; at
+DONE it follows again. Elevation unchanged (still moves to the table);
+flywheel 0 and no shot while running, as before.
+
+**Evidence:** pio megaatmega2560 SUCCESS; manual_control_test PASS. No
+hardware.

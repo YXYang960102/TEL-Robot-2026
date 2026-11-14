@@ -195,31 +195,37 @@ constexpr double RAMP_DOWN_PER_SECOND = 0.5;
 // Picked in the Dashboard's Match Setup menu, sent with Y ("開始比賽") as
 // AUTO,n right after MODE,0; run once per Enable, in FULL AUTO only (it
 // waits PENDING_MS for the mode to arrive, then gives up). The chassis has
-// no encoder and no IMU, so each move is open loop for a time =
-// distance / rate. Every path ends facing the grid again (the turret only
+// no encoder and no IMU, so each move is open loop for a set time (since
+// 2026-11-14 the times themselves, tuned on the floor; before, distance /
+// rate). Every path ends facing the grid again (the turret only
 // reaches +38.5 deg to the right). While driving: turret and elevation
 // work as usual, flywheel 0, no shot; at the end full auto goes on as if
 // the robot had always stood there.
-//   left 1 (path 1): turn right DIAGONAL_TURN_DEG, DIAGONAL_CM ahead, turn back.
-//   left 2 (path 2): FORWARD_CM ahead, turn right 90, SIDE_CM ahead, turn left 90.
+//   left 1 (path 1): turn right, ahead, turn left (back to the grid).
+//   left 2 (path 2): ahead, turn right ~90, ahead, turn left ~90.
 //   right 1 / right 2 (paths 3 / 4): the same, mirrored.
 // Distances read off the 2026 field drawing (zone A ~400 x 500 cm, start
 // boxes 70 x 120 cm in its back corners), from the start box center to
 // the circle: left 1 ~160 cm across and ~240 cm up = 288 cm at 34 deg;
 // left 2 ~365 cm up, then ~160 cm across. MEASURE ON THE FIELD.
 namespace AutoPath {
-constexpr double DRIVE_COMMAND = 0.40; // both wheels, straight
+// Straight moves at full stick (2026-11-14, Jeremy: driven by hand the
+// robot pulls right at part stick but goes straight at full stick; was
+// 0.40).
+constexpr double DRIVE_COMMAND = 1.0; // both wheels, straight
 constexpr double TURN_COMMAND = 0.35;  // pivot: one wheel +, the other -
-// PROVISIONAL rates at the commands above -- measure them: drive 2 s
-// straight and measure the distance (cm / 2), pivot 2 s and measure the
-// angle (deg / 2). Set high on purpose: a too-high rate makes each move
-// too SHORT, so before calibration the robot stops early, not in a wall.
-constexpr double DRIVE_CM_PER_S = 120.0;
-constexpr double TURN_DEG_PER_S = 180.0;
-constexpr double DIAGONAL_TURN_DEG = 34.0;
-constexpr double DIAGONAL_CM = 288.0;
-constexpr double FORWARD_CM = 365.0;
-constexpr double SIDE_CM = 160.0;
+// Move times, ms (a turn at TURN_COMMAND, a straight move at DRIVE_COMMAND).
+// Left 1 / right 1 (Jeremy, 2026-11-14, on the floor): first turn 0.6 s,
+// straight 2.5 s, turn back 1.0 s.
+constexpr unsigned long DIAGONAL_TURN_MS = 600;
+constexpr unsigned long DIAGONAL_DRIVE_MS = 2500;
+constexpr unsigned long DIAGONAL_TURN_BACK_MS = 1000;
+// Left 2 / right 2 (Jeremy, 2026-11-14): straight 4 s, turn 0.5 s,
+// straight 1 s, turn back 1 s (first try 5 / 2 / 1.5 / 2).
+constexpr unsigned long FORWARD_DRIVE_MS = 4000;
+constexpr unsigned long SIDE_TURN_MS = 500;
+constexpr unsigned long SIDE_DRIVE_MS = 1000;
+constexpr unsigned long SIDE_TURN_BACK_MS = 1000;
 // Standing still between moves, so a turn doesn't start while the robot
 // still rolls.
 constexpr unsigned long PAUSE_MS = 300;
@@ -447,9 +453,8 @@ static_assert(Rotate::VISION_STALL_COMMAND >= 0.0 && Rotate::VISION_STALL_COMMAN
 static_assert(Rotate::VISION_kIZONE_PX >= 0.0 && Rotate::VISION_READY_TOLERANCE_PX > 0.0,
               "Vision-follow pixel windows must be non-negative");
 static_assert(AutoPath::DRIVE_COMMAND > 0.0 && AutoPath::DRIVE_COMMAND <= 1.0 &&
-                  AutoPath::TURN_COMMAND > 0.0 && AutoPath::TURN_COMMAND <= 1.0 &&
-                  AutoPath::DRIVE_CM_PER_S > 0.0 && AutoPath::TURN_DEG_PER_S > 0.0,
-              "Auto path commands are 0..1 ratios and the rates positive");
+                  AutoPath::TURN_COMMAND > 0.0 && AutoPath::TURN_COMMAND <= 1.0,
+              "Auto path commands are 0..1 ratios");
 static_assert(AutoPath::STICK_TAKEOVER > 0.0 && AutoPath::STICK_TAKEOVER < 1.0,
               "Stick takeover threshold is a 0..1 command");
 static_assert(Auto::AIM_JOG_COMMAND > 0.0 && Auto::AIM_JOG_COMMAND <= 1.0, "Hand-turn speed is a 0..1 command");

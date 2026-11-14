@@ -10,7 +10,7 @@
 // AUTO,n is accepted, update() every loop while armed (it hands the chassis
 // over while driving), takeover / abort on the stick or a mode change,
 // reset() on Enable / disarm. Auto keeps the flywheel at 0 and never fires
-// while holdsShooter(), and holds the turret at 0 while holdsTurret().
+// while holdsShooter(), and holds the turret still while holdsTurret().
 class AutoPath {
 public:
     enum class State : uint8_t {
@@ -32,15 +32,15 @@ public:
     static uint8_t getPath();
     static bool isActive();      // PENDING or DRIVING
     static bool holdsShooter();  // == isActive(): flywheel 0, no shot
-    static bool holdsTurret();   // right path, target hole not seen yet
+    static bool holdsTurret();   // driving (any path); after a right path until the hole is seen
 
 private:
     struct Move {
-        int8_t kind;   // 0 drive, 1 turn
-        double amount; // cm (+ ahead) or deg (+ right)
+        int8_t kind;        // 0 drive, 1 turn
+        int8_t direction;   // drive: +1 ahead; turn: +1 right, -1 left
+        unsigned long ms;   // TuningConstants::AutoPath::*_MS
     };
     static uint8_t buildMoves(uint8_t path, Move* out);
-    static unsigned long moveMs(const Move& move);
 
     static State state;
     static uint8_t path;
