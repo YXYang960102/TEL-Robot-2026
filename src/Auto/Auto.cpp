@@ -36,6 +36,9 @@ bool Auto::litActive = false;
 uint8_t Auto::litHole = 0;
 uint8_t Auto::litShots = 0;
 uint8_t Auto::litServedMask = 0;
+bool Auto::holeSwitchPending = false;
+bool Auto::holeSwitchFromLit = false;
+unsigned long Auto::holeSwitchStartMs = 0;
 unsigned long Auto::litLastSeenMs[4] = {0, 0, 0, 0};
 uint8_t Auto::lastAimTarget = 0;
 unsigned long Auto::aimChangedMs = 0;
@@ -147,6 +150,7 @@ void Auto::updateRowCycle(OperatorMode mode) {
     if (mode != rowMode || seq != rowSelectSeq) {
         rowMode = mode;
         rowSelectSeq = seq;
+        holeSwitchPending = false;
         rowActive = false;
         rowDone = false;
         rowStep = 0;
@@ -165,12 +169,17 @@ void Auto::updateRowCycle(OperatorMode mode) {
         }
     }
     if (mode != OperatorMode::FULL_AUTO) {
+        holeSwitchPending = false;
         rowActive = false;
         rowDone = false;
         litActive = false;
         return;
     }
-    if (LIT_BONUS_PRIORITY && !litActive && litId >= 1 && litId <= 3 &&
+    // The last ball at a hole went out HOLE_SWITCH_DELAY_MS ago: move on now.
+    if (holeSwitchPending && now - holeSwitchStartMs >= HOLE_SWITCH_DELAY_MS) {
+        finishHoleSwitch();
+    }
+    if (LIT_BONUS_PRIORITY && !holeSwitchPending && !litActive && litId >= 1 && litId <= 3 &&
         !(litServedMask & (1u << litId))) {
         const uint8_t hole = OperatorTarget::holeForVisionId(litId);
         if (hasShotTable(hole)) {
@@ -220,14 +229,18 @@ void Auto::skipHolesWithoutTable() {
 // One ball sent in full auto. A lit bonus hole first: SHOTS_PER_HOLE at
 // it, then back to the cycle as it was. Otherwise SHOTS_PER_HOLE at a
 // hole, then the next one in buildCycle order; after the last, done.
-// Example: the Orin picked vision id 8 (hole 5), the bottom row out:
-// 5, 8 9, 6, 3 2, Q W E -- 27 balls.
+// Example: the Orin picked vision id 8 (hole 5): 5, 8 7 9, 6 4, 1 2 3,
+// Q W E -- 36 balls.
+// After the last ball at a hole (Jeremy, 2026-11-14) the aim stays there
+// for HOLE_SWITCH_DELAY_MS with no shot (holeSwitchPending), then
+// finishHoleSwitch() moves on (updateRowCycle).
 void Auto::countRowShot() {
     using namespace TuningConstants::Auto;
     if (litActive) {
         if (++litShots >= SHOTS_PER_HOLE) {
-            litActive = false;
-            litServedMask = static_cast<uint8_t>(litServedMask | (1u << OperatorTarget::visionIdForHole(litHole)));
+            holeSwitchPending = true;
+            holeSwitchFromLit = true;
+            holeSwitchStartMs = millis();
         }
         return;
     }
@@ -238,6 +251,18 @@ void Auto::countRowShot() {
         startCycle(hole);
     }
     if (++rowShots < SHOTS_PER_HOLE) return;
+    holeSwitchPending = true;
+    holeSwitchFromLit = false;
+    holeSwitchStartMs = millis();
+}
+
+void Auto::finishHoleSwitch() {
+    holeSwitchPending = false;
+    if (holeSwitchFromLit) {
+        litActive = false; // back to the cycle where it stopped
+        litServedMask = static_cast<uint8_t>(litServedMask | (1u << OperatorTarget::visionIdForHole(litHole)));
+        return;
+    }
     rowShots = 0;
     rowStep++;
     skipHolesWithoutTable(); // stays aimed at lastCycleHole once done
@@ -405,14 +430,14 @@ void Auto::update() {
         aimChangedMs = now;
     }
     const bool settledOnHole = now - aimChangedMs >= TuningConstants::Auto::AIM_SWITCH_SETTLE_MS;
-    // A A14 pulse from the tower since the last shot, once
-    // Tower::READY_REQUIRED is on (every mode, Jeremy 2026-11-07).
+    // A A14 pulse from the tower since the last shot, while
+    // Tower::READY_REQUIRED is on (the autos only; on since 2026-11-14).
     const bool towerReady = Dribbler::towerAllowsShot();
     // Turret aimed: the camera's lock, or the operator's hand-held aim
     // (aim offset off, 2026-11-09: the operator turned it and let go; the
     // camera stays out of it until the hole changes).
     const bool turretAimed = Shooter::isRotateReady() || ManualControl::isAimHandHeld();
-    const bool ready = !AutoPath::holdsShooter() && turretAimed && Shooter::isFlywheelReady() && shotAvailable &&
+    const bool ready = !AutoPath::holdsShooter() && !holeSwitchPending && turretAimed && Shooter::isFlywheelReady() && shotAvailable &&
                        elevationArrived && holeAllowed && settledOnHole && towerReady;
     bool fired = false;
 

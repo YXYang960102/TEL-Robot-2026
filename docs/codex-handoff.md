@@ -8116,3 +8116,184 @@ flywheel 0 and no shot while running, as before.
 
 **Evidence:** pio megaatmega2560 SUCCESS; manual_control_test PASS. No
 hardware.
+
+## 2026-11-14 — Claude Code: Nano jam -> no second ball queued; turret turns after a lost target
+
+**User Request (Jeremy):** (1) sometimes one fire sends two balls: if the
+fire signal comes while the same ball is still in place, it is a jam --
+do not count another. (2) When the followed hole (also the AI's own pick)
+is no longer in the image, turn toward the side it was last seen on within
+the last second.
+
+**Discussion Result:** (1) the Nano added `need_pieces` per DR1 pulse;
+with the ball stuck at SA (Nano FEED_TIMEOUT 1.5 s) and the Mega's 1 s
+tower lockout, a second pulse made it 2 and both balls went out once the
+jam cleared. The Mega cannot see the ball, so its 已發射 still counts that
+pulse.
+
+**Changed:**
+- TEL2026_NANO_v9 `processDr1Event`: `need_pieces > 0` -> log
+  `[EVENT] DR1 while ball still at SA: jam, not added`, nothing queued;
+  otherwise `need_pieces = 1`. README.
+- `TuningConstants::Rotate::LOST_TURN_MS` 1000, `LOST_EDGE_PX` 256 (0.4 of
+  the 640 px half-width). `Shooter::updateRotate` (vision follow): the
+  last valid frame's tx and time are kept (cleared on a new selection);
+  neither seen nor predicted, no chosen-hole search running, last seen
+  <= 1 s ago with |tx| >= 256 -> searchDir = sign(tx) at SEARCH_COMMAND 0.3
+  (the same drive as the search). Dropouts mid-image do nothing.
+
+**Evidence:** pio nanoatmega328new, megaatmega2560, mega_drive_test,
+mega_vision_rotate_test SUCCESS. No hardware.
+
+**Next Test:** (1) jam a ball by hand and press F twice: one ball after the
+jam clears, Nano log shows the jam line. (2) semi auto / AI pick, swing the
+robot so the hole leaves the image: the turret follows it for up to 1 s.
+
+## 2026-11-14 — Autos wait for the tower's ball; left 1 / right 1 without the first turn
+
+**User Request (Jeremy):** in full auto, with no ball the shooter still
+sends fire and moves on to the next hole -- the Nano reports whether a
+ball is there. Left 1: no first turn. Ball wait in full / semi auto only
+(full manual / test fire as before); right 1 the same as left 1.
+
+**Discussion Result:** the Nano did pulse A14 per ball, but
+`DribblerConstants::Tower::READY_REQUIRED` was false, so the Mega only
+counted the pulses. Every FEED_TRIGGER_SENT counted a row shot, so empty
+shots advanced the hole cycle. Also reviewed (no change): the two wireless
+disables at a fire / a flywheel raise -- the robot side received wrong
+channel values (Mega OUTPUTS_DISABLED before the ground released);
+suspects ES900RX / bridge power dip or EMI; Jeremy to bench-check
+(UART_DROP in a second window on the Mega USB, RX / bridge LEDs, 5 V min).
+
+**Changed:**
+- `READY_REQUIRED` true. `Dribbler::requestFeed()` no longer checks
+  `towerAllowsShot()`; only Auto does (its `ready`), so full manual / test
+  F fire without a ball pulse, semi F answers FIRE_NOT_READY, full auto
+  neither fires nor counts a row shot until A14.
+- `TuningConstants::AutoPath::DIAGONAL_TURN_MS` 0; `AutoPath::buildMoves`
+  drops moves of 0 ms. Left 1 = straight 2.5 s, turn left 1.0 s (right 1
+  mirrored).
+- TEL2026_NANO_v9 `updateDw1`: when a fire ends (need_pieces back to 0 and
+  CLEAR_MS over, or the feed timeout) with SA/SB still showing a ball, one
+  more DW1 pulse -- a ball right behind the last one may never let SA/SB
+  read empty, and the Mega would wait for good. README.
+- test/manual_control_test.cpp: the harness models a full tower (A14 HIGH
+  while the Mega has no ball latched); expectations unchanged.
+
+**Evidence:** pio megaatmega2560, nanoatmega328new SUCCESS;
+manual_control_test all three variants pass. No hardware.
+
+**Next Test:** full auto with an empty tower: no fire, hole stays; load
+balls one by one: one shot per ball. Two balls back to back: both fire
+(the after-fire pulse). Left 1 / right 1: straight then the one turn.
+
+## 2026-11-14 — Nano MD reverse 1350 us; full auto holds a hole 2 s after its last ball
+
+**User Request (Jeremy):** MD reverse jams balls in the storage tower
+(make it gentler); in full auto, do not switch target at the third fire
+signal -- wait 2 s.
+
+**Changed:**
+- TEL2026_NANO_v9 `include/config.h` `MD_REVERSE_US` 1200 -> 1350 (150 us
+  below stop; forward 1800 is 300 us above). Times unchanged: forward 0.6 s
+  / reverse 0.3 s / stop 0.05 s. README.
+- `TuningConstants::Auto::HOLE_SWITCH_DELAY_MS` 2000. `Auto::countRowShot`:
+  the SHOTS_PER_HOLE-th ball (row hole or lit bonus hole) sets
+  `holeSwitchPending`; `updateRowCycle` calls `finishHoleSwitch()` (the old
+  move-on code) 2 s later. While pending: no shot (`ready` false), no lit
+  box takes over; a mode change / hole choice / disarm drops it.
+- test/manual_control_test.cpp: the cycle / lit tests wait the 2 s
+  (`waitHoleSwitch`); expectations otherwise unchanged.
+
+**Evidence:** pio nanoatmega328new, megaatmega2560 SUCCESS;
+manual_control_test three variants pass. No hardware.
+
+**Next Test:** full auto with balls: after the third ball the turret stays
+on the hole ~2 s, no fourth ball, then turns. MD: no jam in the storage
+tower over a few minutes of refilling.
+
+## 2026-11-14 — MD reverse back to 1200 us but 0.15 s; shot table = today's CSV only, hole 5 4.47 / 5.00 m -2 %
+
+**User Request (Jeremy):** reverse speed back, only shorter; hole 5 at
+4.5-5 m flywheel 2 % lower; drop the 2026-11-12 rows, only today's data.
+
+**Changed:**
+- TEL2026_NANO_v9 `MD_REVERSE_US` 1350 -> 1200 (as before),
+  `MD_REVERSE_TIME_MS` 300 -> 150 (Claude's pick: half; Jeremy gave no
+  number). README.
+- `tools/shot_table/shot_table.xlsx`: rows 2-28 = the 27 rows of
+  shot_log_20261114_1534.csv (the 2026-11-12 rows removed; backup
+  backup/shot_table_20261114_162712.xlsx); hole 5 4.47 m and 5.00 m
+  49 % -> 47 % (the two points bounding 4.5-5 m). `ShotTableData.h`
+  regenerated (holes 4/5/6/11: 8/7/7/5 points).
+- Supersedes the earlier MD 1350 us entry today.
+
+**Evidence:** apply.py --check clean; pio megaatmega2560 /
+nanoatmega328new SUCCESS; manual_control_test, shot_table_lookup_test
+pass. No hardware.
+
+**Next Test:** hole 5 at ~4.7 m in semi auto: the shot drops ~2 % lower
+than before. MD: storage tower no jam with the 0.15 s reverse.
+
+**Follow-up (same day):** Jeremy withdrew the -2 % (the bias came from the
+old and new rows mixed): hole 5 4.47 / 5.00 m back to 49 %. The sheet now
+equals shot_log_20261114_1534.csv row for row (27 rows, checked);
+ShotTableData.h regenerated, megaatmega2560 SUCCESS.
+
+## 2026-11-14 — MD reverse back to 0.3 s; left 1 / right 1 straight 3.5 s, turn 0.5 s
+
+**User Request (Jeremy):** reverse time back to the original; left 1 and
+right 1: straight 3.5 s, turn 0.5 s.
+
+**Changed:** TEL2026_NANO_v9 `MD_REVERSE_TIME_MS` 150 -> 300 (config.h now
+equals commit 41e8d83: 1200 us, 0.3 s; README). `TuningConstants::AutoPath`
+`DIAGONAL_DRIVE_MS` 2500 -> 3500, `DIAGONAL_TURN_BACK_MS` 1000 -> 500
+(first turn still 0 = skipped). Left 1 turns left, right 1 right.
+
+**Evidence:** pio nanoatmega328new, megaatmega2560 SUCCESS;
+manual_control_test passes. No hardware.
+
+**Next Test:** run left 1 and right 1 from the start positions: 3.5 s
+straight, 0.5 s turn, then the turret locks.
+
+## 2026-11-14 — Test mode no longer records the elevation trim
+
+**User Request (Jeremy):** after measuring the table the auto shots drifted
+high; the Dashboard showed 微調 仰角 +200 µs (the ELEVATION_OFFSET_MAX_US
+limit). Test mode should not record the elevation trim.
+
+**Discussion Result:** since 2026-11-08 releasing up / down in test mode
+saved "manual pulse - table pulse" (old mixed table) as the one global
+EEPROM trim; the autos add it to the new table, which already holds the
+manual values -> +200 µs on every auto shot. Jeremy clears it with C.
+
+**Changed:** `ManualControl::updateFineAdjust`: the test-mode branch is
+gone; only the autos (autoOwnsElevation) save the trim on release.
+`Auto::getTableElevationUs` stays (no other caller change).
+
+**Evidence:** pio megaatmega2560 SUCCESS; manual_control_test three
+variants pass. No hardware.
+
+**Next Test:** C -> 仰角 0 µs; test mode up / down then release: the trim
+stays 0; semi auto at a measured distance shoots like the measurement.
+
+## 2026-11-14 — Full auto fires at the bottom row (1 / 4 / 7) again
+
+**User Request (Jeremy):** put 1 / 4 / 7 back into full auto, same
+snake order.
+
+**Changed:** `TuningConstants::Auto::FULL_AUTO_EXCLUDED_HOLES` 0 (was
+1 / 4 / 7; the exclusion code stays for a later mask). `buildCycle`
+unchanged; with nothing excluded: from 5: 5, 8 7 9, 6 4, 1 2 3, Q W E
+(36 balls); from 2: 2 1 3, 6 5 4, 7 8 9, E W Q; from 8: 8 7 9, 6 5 4,
+1 2 3, Q W E. Holes 1 / 7 have no points: they borrow hole 4's table
+(8 points from today's CSV). Comments in Auto.h / Auto.cpp /
+TuningConstants.h. test/manual_control_test.cpp: the cycle order / 36
+balls / next after 8 = 7; the excluded-hole block removed (nothing is
+excluded now).
+
+**Evidence:** pio megaatmega2560 SUCCESS; manual_control_test three
+variants, operator_target_test pass. No hardware.
+
+**Next Test:** full auto from 5 with the tower full: watch the order and
+the bottom row's elevation (1 / 7 on hole 4's table).

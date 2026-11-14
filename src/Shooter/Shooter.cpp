@@ -27,6 +27,10 @@ unsigned long searchStartMs = 0;
 bool searchFound = false;
 int8_t lastSeenColumn = -1;
 int8_t searchDir = 0;
+// Lost target (Rotate::LOST_*): where the followed hole was last seen.
+bool haveLastSeen = false;
+double lastSeenTx = 0.0;
+unsigned long lastSeenMs = 0;
 
 int commandToPulseUs(double command, const ServoMotorConfig& config) {
     command = constrain(command, -1.0, 1.0);
@@ -331,10 +335,14 @@ void Shooter::updateRotate() {
             searchSelection = selection;
             searchStartMs = now;
             searchFound = false;
+            haveLastSeen = false; // the old hole's side says nothing
         }
         if (seen) {
             lastSeenColumn = static_cast<int8_t>(
                 OperatorTarget::columnOf(OperatorTarget::holeForVisionId(Vision::getTargetId())));
+            haveLastSeen = true;
+            lastSeenTx = Vision::getTx();
+            lastSeenMs = now;
         }
         if (seen || predicted) searchFound = true;
         searchDir = 0;
@@ -343,6 +351,14 @@ void Shooter::updateRotate() {
             searchDir = OperatorTarget::searchDirection(
                 OperatorTarget::holeForVisionId(selection),
                 OperatorTarget::holesFromVisionMask(Vision::getSeenMask()), lastSeenColumn);
+        }
+        // Lost (2026-11-14): it left near an edge within LOST_TURN_MS ->
+        // keep turning that way (tx > 0 = right of center = turn right).
+        // Example: last frame tx = +320 px, then gone -> right at 0.3 for
+        // up to 1 s, until it is seen or predicted again.
+        if (searchDir == 0 && !seen && !predicted && haveLastSeen &&
+            now - lastSeenMs <= Rotate::LOST_TURN_MS && fabs(lastSeenTx) >= Rotate::LOST_EDGE_PX) {
+            searchDir = lastSeenTx > 0.0 ? 1 : -1;
         }
         if (searchDir != 0) {
             rotateReady = false;

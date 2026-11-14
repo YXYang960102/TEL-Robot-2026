@@ -51,12 +51,13 @@ constexpr unsigned long COOLDOWN_MS = 1000;
 // enabled (A15 LOW) with a ball loaded.
 constexpr uint8_t READY_PIN = 68; // A14
 constexpr unsigned long READY_MIN_HIGH_MS = 20;
-// true = every mode waits for a A14 pulse before each shot: the autos treat
-// "no ball" as not ready (semi-auto F answers FIRE_NOT_READY), full manual
-// and test F answer FEED_BUSY. false = the pulses are only counted and
-// shown on the Dashboard; firing is as before. Set true once the Dashboard
-// shows one pulse per ball.
-constexpr bool READY_REQUIRED = false;
+// true = full auto and semi auto wait for a A14 pulse before each shot:
+// "no ball" is not ready (semi-auto F answers FIRE_NOT_READY), and full
+// auto neither fires nor counts a shot toward the hole cycle. Full manual
+// and test F fire without it (Jeremy, 2026-11-14: on since then; it was
+// false, so the autos fired, and moved on to the next hole, with an empty
+// tower). false = the pulses are only counted and shown on the Dashboard.
+constexpr bool READY_REQUIRED = true;
 }
 
 static_assert(Tower::COOLDOWN_MS >= Tower::PULSE_MS,

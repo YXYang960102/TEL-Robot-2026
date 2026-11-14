@@ -81,8 +81,16 @@ void rcFrame() {
     MechLink::signalLost = false;
 }
 
+// A full feed tower (2026-11-14, the autos wait for A14): the simulated Nano
+// holds A14 HIGH whenever the Mega has no ball latched, so it latches one
+// READY_MIN_HIGH_MS later, then LOW again -- one pulse per shot.
+void towerAlwaysLoaded() {
+    hoststub::pinLevel[DribblerConstants::Tower::READY_PIN] = Dribbler::hasBall() ? LOW : HIGH;
+}
+
 // One main-loop tick in production order (ManualControl, Auto, Dribbler).
 void step(unsigned long ms = 10) {
+    towerAlwaysLoaded();
     nowMs += ms;
     ManualControl::update();
     Auto::update();
@@ -884,6 +892,15 @@ unsigned long runUntilShots(unsigned long count, unsigned long maxMs) {
     return Dribbler::getTriggerCount();
 }
 
+// The aim stays on a hole HOLE_SWITCH_DELAY_MS after its last ball
+// (2026-11-14); then the cycle moves on.
+void waitHoleSwitch() {
+    for (unsigned long t = 0; t < TuningConstants::Auto::HOLE_SWITCH_DELAY_MS + 20; t += 10) {
+        if (t % 50 == 0) send("K");
+        step(10);
+    }
+}
+
 void testFullAutoRowCycle() {
     reset();
     hoststub::visionReady = true;
@@ -896,17 +913,18 @@ void testFullAutoRowCycle() {
     hoststub::shooterReady = true;
     assert(runUntilShots(1, 3000) == 1);
     assert(Auto::getAimTarget() == 5 && Auto::getRowShots() == 1);   // pinned to it
-    // Never two columns in one move (2026-11-01), the bottom row out in full
-    // auto: 5, the right column 8 9, back to the middle 6, the left 3 2,
-    // then the bonus row Q W E from the left.
-    const uint8_t order[] = {5, 8, 9, 6, 3, 2, 10, 11, 12};
+    // Never two columns in one move (2026-11-01), all three rows (bottom row
+    // back 2026-11-14): 5, the right column 8 7 9, back to the middle 6 4,
+    // the left 1 2 3, then the bonus row Q W E from the left.
+    const uint8_t order[] = {5, 8, 7, 9, 6, 4, 1, 2, 3, 10, 11, 12};
     for (unsigned i = 0; i < sizeof order; i++) {
         const unsigned long done = 3 * i;
-        if (i > 0) assert(runUntilShots(done, 10000) == done);
+        if (i > 0) { assert(runUntilShots(done, 10000) == done); waitHoleSwitch(); }
         // (each hole with a table: own, or its row center's -- W's for Q / E)
         assert(Auto::getAimTarget() == order[i] || Auto::isRowDone());
     }
-    assert(runUntilShots(27, 12000) == 27);
+    assert(runUntilShots(36, 12000) == 36);
+    waitHoleSwitch();
     assert(Auto::isRowDone() && Auto::getAimTarget() == 12);
     assert(shotsDuring(3000) == 0);                       // all done: holds fire
     // A hole key starts over from that hole.
@@ -915,27 +933,11 @@ void testFullAutoRowCycle() {
     // (It may fire in that same loop: ready, elevation already there.)
     const unsigned long before = Dribbler::getTriggerCount() - Auto::getRowShots();
     assert(runUntilShots(before + 3, 8000) == before + 3);
-    assert(Auto::getAimTarget() == 9);                    // from the right edge: 8 9, 6 5, 2 3
+    waitHoleSwitch();
+    assert(Auto::getAimTarget() == 7);                    // from the right edge: 8 7 9, 6 5 4, 1 2 3
     // Semi-auto: no cycle, the operator's hole.
     send("MODE,1"); step();
     assert(Auto::getAimTarget() == 8 && !Auto::isRowDone() && Auto::getRowShots() == 0);
-
-    // The bottom row is out in full auto: the Orin picking 4 is swapped for
-    // 5 right away (nothing fired at 4); a chosen 4 starts past its row.
-    reset();
-    hoststub::visionReady = true;
-    targetInView();
-    hoststub::visionTargetId = 11;                        // the Orin picked hole 4
-    hoststub::shooterReady = true;
-    armWired();
-    send("M"); send("M"); step();                         // full auto
-    assert(Auto::getAimTarget() == 5);
-    hoststub::visionTargetId = 11;                        // still on 4 (not following yet)
-    assert(shotsDuring(8000) == 0);                       // never fired at an excluded hole
-    send("TGT,4"); step();
-    assert(Auto::getAimTarget() == 8);                    // 4 itself out: 8 9 next (right column)
-    send("MODE,1"); step();                               // semi-auto: 4 is the operator's
-    assert(Auto::getAimTarget() == 4);
 }
 
 void testFullAutoLitBonusFirst() {
@@ -956,6 +958,7 @@ void testFullAutoLitBonusFirst() {
     hoststub::shooterReady = true;
     const unsigned long before = Dribbler::getTriggerCount();
     assert(runUntilShots(before + 3, 8000) == before + 3);
+    waitHoleSwitch();
     assert(Auto::getLitPriorityHole() == 0 && Auto::getAimTarget() == 5);  // back where it was
     assert(Auto::getRowShots() == 1);                     // 1 of 3 already at 5
     // Still lit: not again. Dark > LIT_DARK_MS, then lit again: again.
@@ -965,6 +968,13 @@ void testFullAutoLitBonusFirst() {
     runArmed(TuningConstants::Auto::LIT_DARK_MS + 100);
     hoststub::litBonusId = 2;
     step();
+    // (5 may have had its last ball meanwhile: the lit box waits for that
+    // hole's HOLE_SWITCH_DELAY_MS, 2026-11-14.)
+    for (unsigned long t = 0; Auto::getLitPriorityHole() != 11 &&
+         t <= TuningConstants::Auto::HOLE_SWITCH_DELAY_MS; t += 10) {
+        if (t % 50 == 0) send("K");
+        step(10);
+    }
     assert(Auto::getLitPriorityHole() == 11);
     // Semi-auto ignores it.
     send("MODE,1"); step();
