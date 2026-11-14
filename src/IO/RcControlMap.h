@@ -52,8 +52,12 @@
  *                        on its rising edge)
  *   CH9  test + home     1000 + 200*k (2026-10-31, link version 4; was
  *                        1500 off / 2000 TEST): k = 2 normal, 1 normal +
- *                        turret home, 4 TEST, 5 TEST + turret home (0 / 3
- *                        read as normal). TEST counts only while CH4
+ *                        turret home, 4 TEST, 5 TEST + turret home, 3
+ *                        normal + photo-capture toggle (2026-11-14, P / the
+ *                        pad's View: the ground holds it 200 ms per press,
+ *                        the robot toggles on its rising edge; not in TEST;
+ *                        an older robot reads 3 as normal, so no version
+ *                        bump), 0 read as normal. TEST counts only while CH4
  *                        carries full manual (with its flywheel), so test
  *                        mode reuses full manual's CH4 Falcon encoding;
  *                        any other CH4 level wins over CH9 (a round-robin
@@ -173,6 +177,9 @@ typedef struct {
     uint8_t nudge;     /* RCMAP_NUDGE_* */
     uint8_t auto_path; /* 0 = none, 1..4 */
     bool turret_home;  /* CH9 (2026-10-31): RB, turret back to 0 deg */
+    bool capture_toggle; /* CH9 level 3 (2026-11-14): P, photo capture on /
+                            off on the Orin; never in TEST, turret_home
+                            wins */
     bool trim_clear;   /* CH8 level 5 (2026-11-08): C, clear the saved
                           aim / elevation trim; encode sends it only with
                           no auto path, decode gives auto_path 0 with it */
@@ -271,6 +278,8 @@ typedef enum {
                                           on another channel table (CH10) */
     RCMAP_EVENT_TURRET_ZERO_SET,       /* 2026-10-31: home point set (TZERO) */
     RCMAP_EVENT_TURRET_ZERO_REJECTED,  /* armed, or no healthy AS5600 reading */
+    RCMAP_EVENT_CAPTURE_ON,            /* 2026-11-14: P, the Orin saves photos */
+    RCMAP_EVENT_CAPTURE_OFF,
     RCMAP_EVENT_COUNT
 } rcmap_event;
 

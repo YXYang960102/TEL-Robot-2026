@@ -81,6 +81,11 @@ public:
     // Bumped whenever the operator sets or clears the trim (a left / right
     // hand turn settles, up / down is let go, C): AimTrimStore saves then.
     static uint16_t getTrimSeq();
+    // Photo capture on the Orin (2026-11-14): P / the pad's View (wired
+    // CAPT, radio CH9 level 3) toggles it; main.cpp hands it to Vision,
+    // which tells the Orin (MEGA_CAPTURE). Kept across Enable / disarm;
+    // off at boot.
+    static bool isCaptureOn();
     // The trim read back from EEPROM at boot (clamped to the limits).
     static void setTrim(double aimOffsetPx, double elevationOffsetUs);
     // Autos and test (2026-10-30): left / right held = the operator turns
@@ -129,6 +134,8 @@ private:
     static void updateFineAdjust();
     static void clearFineAdjust();
     static void clearTrim();
+    static void toggleCapture();
+    static bool captureOn;
     static void requestAutoPath(uint8_t path);
     static void cycleOperatorMode();
     static void setOperatorMode(OperatorMode mode);
@@ -156,6 +163,7 @@ private:
     static uint8_t wirelessAutoPrev;
     static bool wirelessHomePrev;
     static bool wirelessTrimClearPrev;
+    static bool wirelessCapturePrev;
     static unsigned long lastVersionEventMs; // LINK_VERSION_MISMATCH rate limit
 
     static double tankLeftCommand;

@@ -38,13 +38,15 @@ int main() {
     visionstub::nowMs = 1000;
     Vision::init();
     tick();
-    // First call: READY, then the (empty) selection right away.
-    assert(Serial1.output == "MEGA_READY,3\nMEGA_TARGET,3,0\n");
+    // First call: READY, then the (empty) selection and the photo capture
+    // state (2026-11-14) right away.
+    assert(Serial1.output == "MEGA_READY,3\nMEGA_TARGET,3,0\nMEGA_CAPTURE,3,0\n");
 
     // Heartbeat every 100 ms, each followed by the selection.
     Serial1.output.clear();
     for (int i = 0; i < 30; i++) tick(10);
-    assert(count("MEGA_HEARTBEAT,3\n") == 3 && count("MEGA_TARGET,3,0\n") == 3);
+    assert(count("MEGA_HEARTBEAT,3\n") == 3 && count("MEGA_TARGET,3,0\n") == 3 &&
+           count("MEGA_CAPTURE,3,0\n") == 3);
 
     // Lifecycle: v3 accepted, v2 (an older Orin) refused.
     orin("VISION_READY,2");

@@ -56,6 +56,7 @@ void GroundCommandState::release(uint32_t nowMs) {
     cmd.auto_path = RCMAP_AUTO_NONE;
     cmd.turret_home = false;
     cmd.trim_clear = false;
+    cmd.capture_toggle = false;
     rotate = 0;
     angle = 0;
     updateNudge();
@@ -179,9 +180,10 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
     const bool isSingle = line[1] == '\0' && (line[0] == 'F' || line[0] == 'M');
     const bool isTurretHome = strcmp(line, "THOME") == 0;
     const bool isTrimClear = strcmp(line, "TCLR") == 0;
+    const bool isCapture = strcmp(line, "CAPT") == 0;
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isNoChannel && !isTarget &&
         !isAutoPath && !isModeSet && !isFlywheelOffset && !isSingle && !isTurretHome &&
-        !isTrimClear) {
+        !isTrimClear && !isCapture) {
         emitLine(emit, ctx, "$GROUND_EVENT,UNKNOWN_COMMAND");
         return;
     }
@@ -287,6 +289,17 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
         }
         return;
     }
+    if (isCapture) {
+        // One P press = one pulse on CH9's level 3. TEST uses CH9 itself
+        // (levels 4 / 5), so there is no room for it there.
+        if (rcmap_command_mode(&cmd) == RCMAP_MODE_TEST) {
+            emitLine(emit, ctx, "$GROUND_EVENT,CAPTURE_REJECTED_TEST");
+        } else if (!cmd.capture_toggle && !cmd.turret_home) {
+            cmd.capture_toggle = true;
+            captureStartMs = nowMs;
+        }
+        return;
+    }
     if (isTrimClear) {
         // One C press = one pulse on CH8 (shared with the auto paths: only
         // when none is being sent, so the robot sees "none" in between).
@@ -335,6 +348,9 @@ void GroundCommandState::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
     }
     if (cmd.trim_clear && nowMs - trimClearStartMs >= TRIM_CLEAR_PULSE_MS) {
         cmd.trim_clear = false;
+    }
+    if (cmd.capture_toggle && nowMs - captureStartMs >= CAPTURE_PULSE_MS) {
+        cmd.capture_toggle = false;
     }
     raiseArmIfReady(nowMs);
     if (enabled && nowMs - lastPcMs > PC_TIMEOUT_MS) {

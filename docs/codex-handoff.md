@@ -7917,3 +7917,63 @@ manual_control_test (2 variants) PASS. No hardware.
 **Next Test:** semi auto at 3-5 m: locks and fires without the 2-5 s wait;
 watch for swinging across center (kI 0.03 swung on 2026-11-01) -> back to
 0.015.
+
+## 2026-11-09 — Claude Code: slow hand turn in the autos / test (0.2)
+
+**User Request (Jeremy):** the horizontal fine-adjust is too coarse, one
+tap goes past; use 0.2 for both a tap and a hold.
+
+**Changed:** new `TuningConstants::Auto::AIM_JOG_COMMAND` 0.2 (PROVISIONAL,
+just above the ~0.16 the turret needs); `ManualControl::getAimJogCommand()`
+uses it instead of `ROTATE_MANUAL_SCALE` (1.0), so left / right in semi /
+full auto / test turn the turret at 0.2. Full manual unchanged.
+manual_control_test expects 0.2 there. Docs.
+
+**Evidence:** pio megaatmega2560, mega_drive_test, mega_wired_manual_test
+SUCCESS; manual_control_test 3 variants PASS. No hardware.
+
+**Next Test:** semi auto, tap left / right: small move, no overshoot; a
+tap that does not move -> 0.22; still overshoots -> 0.18.
+
+## 2026-11-14 — Claude Code: photo capture toggled from the Dashboard (P / View)
+
+**User Request (Jeremy):** the Orin's training-image capture (YOLO_Detect_single
+73af82d1, `--capture-every`) should be switched on and off with a key, from
+the Dashboard key and a pad button, while the robot drives.
+
+**Changed (this repo):**
+- `RcControlMap`: `capture_toggle` = CH9 level 3 (normal + capture toggle).
+  An older robot reads level 3 as normal, so no link-version bump (and
+  CH10 has no version left). Not available in TEST (CH9 carries TEST);
+  RB's home level wins. New events `CAPTURE_ON` / `CAPTURE_OFF`.
+- Ground: `CAPT` -> `capture_toggle` for 200 ms; in TEST
+  `$GROUND_EVENT,CAPTURE_REJECTED_TEST`; not while the home pulse is on;
+  cleared on release.
+- Mega `ManualControl`: wired `CAPT` / CH9 level-3 rising edge ->
+  `toggleCapture()` (event CAPTURE_ON / OFF); `isCaptureOn()` kept across
+  Enable / disarm, off at boot. `main.cpp` -> `Vision::setCaptureRequested()`;
+  `Vision` sends `MEGA_CAPTURE,<ver>,<0|1>` on change and with every
+  heartbeat (an older Orin ignores the line).
+- Dashboard: key P and the standard pad's View (button 8; the 11c1 pad
+  unmapped) send `CAPT` while armed; "photos / 拍照收集" readout from the
+  CAPTURE_ON / OFF events; TEST refusal explained in the log; help text.
+- Existing tests: vision_link_test expects the MEGA_CAPTURE line;
+  dashboard_page_test's control-panel order.
+
+**Changed (YOLO_Detect_single):** `serial_tx` parses MEGA_CAPTURE
+(`capture_requested`, cleared by `forget_mega()`); `FrameCapture.set_remote()`
+saves every `CAPTURE_REMOTE_EVERY_SECONDS` (1.0) while on (or every
+`--capture-every` when given); the FrameCapture is always created now.
+
+**Flash:** Mega + ground STM32 (the bridge does not need it); Orin `git pull`.
+An old ground just never sends level 3; an old Orin ignores MEGA_CAPTURE.
+
+**Evidence:** pio megaatmega2560, mega_drive_test, mega_wired_manual_test,
+mega_elrs_link_test, ground blackpill_f401cc SUCCESS; rc_control_map,
+host_test_ground_state, manual_control_test (3 variants), vision_link_test,
+3 Dashboard tests PASS; Orin unittest 74 OK + scratch run of the remote
+toggle. No hardware.
+
+**Next Test:** enabled, full manual: P -> Dashboard 拍照中 ON, Orin log
+"[capture] ON from the Dashboard", JPEGs in dataset_capture/<start>/; P
+again -> OFF.

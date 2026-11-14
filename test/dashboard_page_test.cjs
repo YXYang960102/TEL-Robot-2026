@@ -1247,6 +1247,7 @@ assert.doesNotMatch(html, /data-panel="(trace|stream)"|id="(chart|streamUrl|stre
   const control = html.slice(html.indexOf('data-panel="control"'));
   const grid = control.slice(0, control.indexOf('</section>'));
   const order = [...grid.matchAll(/class="value" id="([A-Za-z]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(order, ['targetHole', 'controlTx', 'controlTy', 'wirelessState',
+  // 2026-11-14: the photo capture state (P) after ty.
+  assert.deepEqual(order, ['targetHole', 'controlTx', 'controlTy', 'captureState', 'wirelessState',
     'controlOwner', 'towerState', 'autoPath', 'chassisPulses', 'gamepadState']);
 }

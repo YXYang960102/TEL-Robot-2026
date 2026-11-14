@@ -26,6 +26,8 @@ bool Vision::sentReady = false;
 unsigned long Vision::lastHeartbeatMs = 0;
 uint8_t Vision::selectedTargetId = OperatorTarget::NONE;
 bool Vision::selectionDirty = false;
+bool Vision::captureRequested = false;
+bool Vision::captureDirty = false;
 Vision::OrinState Vision::orinState = Vision::OrinState::UNKNOWN;
 unsigned long Vision::lastOrinStateMs = 0;
 
@@ -38,6 +40,9 @@ void Vision::update() {
     sendHeartbeat();
     if (selectionDirty && sentReady) {
         sendSelection(); // a new choice goes out now, not at the next heartbeat
+    }
+    if (captureDirty && sentReady) {
+        sendCapture();
     }
 
     while (Serial1.available()) {
@@ -82,6 +87,7 @@ void Vision::sendHeartbeat() {
         sentReady = true;
         lastHeartbeatMs = now;
         sendSelection();
+        sendCapture();
         return;
     }
 
@@ -96,6 +102,22 @@ void Vision::sendHeartbeat() {
     // Resent with every heartbeat (100 ms): the Orin keeps its last valid
     // choice, so a restarted Orin has the current one again within 100 ms.
     sendSelection();
+    sendCapture();
+}
+
+void Vision::sendCapture() {
+    Serial1.print("MEGA_CAPTURE,");
+    Serial1.print(Transport::PROTOCOL_VERSION);
+    Serial1.print(',');
+    Serial1.print(captureRequested ? 1 : 0);
+    Serial1.print('\n');
+    captureDirty = false;
+}
+
+void Vision::setCaptureRequested(bool on) {
+    if (on == captureRequested) return;
+    captureRequested = on;
+    captureDirty = true;
 }
 
 void Vision::sendSelection() {

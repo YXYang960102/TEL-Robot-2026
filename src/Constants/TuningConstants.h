@@ -279,6 +279,12 @@ constexpr uint32_t COOLDOWN_MS = 300;
 //     (ShotTable::ELEVATION_MEASURED), until then up/down stay the manual
 //     elevation jog.
 constexpr unsigned long AIM_JOG_SETTLE_MS = 300;
+// The hand turn's speed in the autos and test (2026-11-09, Jeremy: at full
+// speed, as in full manual, one tap went past the hole). Just above the
+// ~0.16 the turret needs to move at all. PROVISIONAL: a tap moves nothing
+// -> 0.22; a tap still goes too far -> 0.18. Full manual keeps
+// ManualControlConstants::ROTATE_MANUAL_SCALE.
+constexpr double AIM_JOG_COMMAND = 0.2;
 // OFF since 2026-11-09 (Jeremy, until it is redone): the saved horizontal
 // offset was one value for every hole, so after trimming one hole the
 // others were no longer aimed at their center (and the turret could not
@@ -391,6 +397,7 @@ static_assert(Rotate::VISION_STALL_COMMAND >= 0.0 && Rotate::VISION_STALL_COMMAN
               "Turret stall push: a small creep, not a drive");
 static_assert(Rotate::VISION_kIZONE_PX >= 0.0 && Rotate::VISION_READY_TOLERANCE_PX > 0.0,
               "Vision-follow pixel windows must be non-negative");
+static_assert(Auto::AIM_JOG_COMMAND > 0.0 && Auto::AIM_JOG_COMMAND <= 1.0, "Hand-turn speed is a 0..1 command");
 static_assert(Auto::AIM_OFFSET_MAX_PX > 0.0 && Auto::AIM_OFFSET_MAX_PX < 400.0 &&
               Auto::ELEVATION_JOG_US_PER_SECOND > 0.0 &&
               Auto::ELEVATION_OFFSET_MAX_US > 0.0,

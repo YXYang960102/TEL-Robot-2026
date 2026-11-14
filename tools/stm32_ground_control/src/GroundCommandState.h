@@ -26,6 +26,10 @@
 //   AUTO,<n>    -> auto path (CH8) for AUTO_PULSE_MS, then none
 //   THOME       -> turret back to 0 deg (RB, 2026-10-31): CH9's home
 //                  level for HOME_PULSE_MS, then off
+//   CAPT        -> photo capture on / off on the Orin (P, 2026-11-14):
+//                  CH9's level 3 for CAPTURE_PULSE_MS, then off; refused
+//                  in TEST (CH9 carries TEST there) and while RB's home
+//                  pulse is on
 //   TCLR        -> clear the robot's saved aim / elevation trim (C,
 //                  2026-11-08): CH8's level 5 for TRIM_CLEAR_PULSE_MS
 //                  (waits for an auto path pulse to end), then none
@@ -59,6 +63,7 @@ public:
     static constexpr uint32_t AUTO_PULSE_MS = 200;
     static constexpr uint32_t HOME_PULSE_MS = 200;
     static constexpr uint32_t TRIM_CLEAR_PULSE_MS = 200;
+    static constexpr uint32_t CAPTURE_PULSE_MS = 200;
 
     void reset(uint32_t nowMs);
     void rxByte(char c, uint32_t nowMs, GroundEmitFn emit, void* ctx);
@@ -94,6 +99,7 @@ private:
     uint32_t autoStartMs = 0;
     uint32_t homeStartMs = 0;
     uint32_t trimClearStartMs = 0;
+    uint32_t captureStartMs = 0;
     char line[MAX_LINE_LENGTH]{};
     size_t length = 0;
     bool discarding = false;

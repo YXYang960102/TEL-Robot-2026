@@ -105,7 +105,8 @@ void rcmap_encode(const rcmap_command *c, int ch_us[16]) {
     ch_us[RCMAP_CH_AUTO] = RCMAP_LEVEL_BASE_US + (int)autoLevel * RCMAP_LEVEL_STEP_US;
     {
         const bool test = rcmap_command_mode(c) == RCMAP_MODE_TEST;
-        const int level = test ? (c->turret_home ? 5 : 4) : (c->turret_home ? 1 : 2);
+        const int level = test ? (c->turret_home ? 5 : 4)
+                               : (c->turret_home ? 1 : (c->capture_toggle ? 3 : 2));
         ch_us[RCMAP_CH_TEST] = RCMAP_LEVEL_BASE_US + level * RCMAP_LEVEL_STEP_US;
     }
     ch_us[RCMAP_CH_VERSION] = RCMAP_LEVEL_BASE_US + (int)RCMAP_LINK_VERSION * RCMAP_LEVEL_STEP_US;
@@ -159,6 +160,7 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     out->test_mode = (test_level == 4u || test_level == 5u) &&
                      rcmap_mode_from_us(mode_us) == RCMAP_MODE_FULL_MANUAL;
     out->turret_home = test_level == 1u || test_level == 5u;
+    out->capture_toggle = test_level == 3u;
     return true;
 }
 
@@ -234,6 +236,8 @@ static const char *const event_names[RCMAP_EVENT_COUNT] = {
     "LINK_VERSION_MISMATCH",
     "TURRET_ZERO_SET",
     "TURRET_ZERO_REJECTED",
+    "CAPTURE_ON",
+    "CAPTURE_OFF",
 };
 
 const char *rcmap_event_name(uint16_t code) {
