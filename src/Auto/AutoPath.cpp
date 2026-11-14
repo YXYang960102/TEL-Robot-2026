@@ -35,28 +35,23 @@ void AutoPath::request(uint8_t newPath, unsigned long nowMs) {
 }
 
 // left 1 / left 2 turn right first; right 1 / right 2 are their mirror.
+// Each move runs its *_MS time (tuned on the floor, 2026-11-14).
 uint8_t AutoPath::buildMoves(uint8_t p, Move* out) {
-    const double side = (p == 3 || p == 4) ? -1.0 : 1.0; // + = right
+    const int8_t side = (p == 3 || p == 4) ? -1 : 1; // + = right
     if (p == 1 || p == 3) {
-        out[0] = {1, side * DIAGONAL_TURN_DEG};
-        out[1] = {0, DIAGONAL_CM};
-        out[2] = {1, -side * DIAGONAL_TURN_DEG};
+        out[0] = {1, side, DIAGONAL_TURN_MS};
+        out[1] = {0, 1, DIAGONAL_DRIVE_MS};
+        out[2] = {1, static_cast<int8_t>(-side), DIAGONAL_TURN_BACK_MS};
         return 3;
     }
     if (p == 2 || p == 4) {
-        out[0] = {0, FORWARD_CM};
-        out[1] = {1, side * 90.0};
-        out[2] = {0, SIDE_CM};
-        out[3] = {1, -side * 90.0};
+        out[0] = {0, 1, FORWARD_DRIVE_MS};
+        out[1] = {1, side, SIDE_TURN_MS};
+        out[2] = {0, 1, SIDE_DRIVE_MS};
+        out[3] = {1, static_cast<int8_t>(-side), SIDE_TURN_BACK_MS};
         return 4;
     }
     return 0;
-}
-
-// Time = distance / rate. Example: left 2's 365 cm at 120 cm/s = 3042 ms.
-unsigned long AutoPath::moveMs(const Move& move) {
-    const double rate = move.kind == 0 ? DRIVE_CM_PER_S : TURN_DEG_PER_S;
-    return static_cast<unsigned long>(fabs(move.amount) / rate * 1000.0 + 0.5);
 }
 
 bool AutoPath::update(OperatorMode mode, unsigned long nowMs, double& left, double& right) {
@@ -83,7 +78,7 @@ bool AutoPath::update(OperatorMode mode, unsigned long nowMs, double& left, doub
     // Each move: its time at the command, then PAUSE_MS standing still.
     const Move& move = moves[moveIndex];
     const unsigned long elapsed = nowMs - moveStartMs;
-    const unsigned long runMs = moveMs(move);
+    const unsigned long runMs = move.ms;
     if (elapsed >= runMs + PAUSE_MS) {
         moveIndex++;
         moveStartMs = nowMs;
@@ -95,12 +90,11 @@ bool AutoPath::update(OperatorMode mode, unsigned long nowMs, double& left, doub
     }
     if (elapsed < runMs) {
         if (move.kind == 0) {
-            const double sign = move.amount >= 0.0 ? 1.0 : -1.0;
-            left = right = sign * DRIVE_COMMAND;
+            left = right = move.direction * DRIVE_COMMAND;
         } else {
-            // + amount = turn right. RIGHT_TURN_LEFT_WHEEL_BACK: left back,
-            // right forward (the stick's polarity since 2026-11-08).
-            const double rightTurn = move.amount >= 0.0 ? 1.0 : -1.0;
+            // +1 = turn right. RIGHT_TURN_LEFT_WHEEL_BACK: left back, right
+            // forward (the stick's polarity since 2026-11-08).
+            const double rightTurn = move.direction;
             const double leftSign = RIGHT_TURN_LEFT_WHEEL_BACK ? -rightTurn : rightTurn;
             left = leftSign * TURN_COMMAND;
             right = -leftSign * TURN_COMMAND;
@@ -132,6 +126,9 @@ bool AutoPath::holdsShooter() {
     return isActive();
 }
 
+// The turret does not follow the camera while any path runs (2026-11-14,
+// Jeremy: lock only once the robot has stopped), and after a right path
+// not until the hole has been seen (turretHold).
 bool AutoPath::holdsTurret() {
-    return turretHold && state != State::ABORTED;
+    return isActive() || (turretHold && state == State::DONE);
 }

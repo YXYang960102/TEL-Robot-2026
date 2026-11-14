@@ -54,7 +54,7 @@ void aimTurret(bool visionHealthy) {
     if (ManualControl::isAimJogActive()) {
         Shooter::setRotateOpenLoop(ManualControl::getAimJogCommand());
     } else if (AutoPath::holdsTurret()) {
-        Shooter::disableRotate(); // a right path: 0 deg until the hole is seen
+        Shooter::disableRotate(); // auto path running: no camera follow until it ends
     } else if (ManualControl::isTurretHeldHome()) {
         Shooter::disableRotate(); // RB: stay at 0 deg (the guard drove it there)
     } else if (visionHealthy) {
