@@ -58,13 +58,13 @@ public:
     static double flywheel(const TuningConstants::ShotTable::Entry& e) { return e.flywheelPermille / 1000.0; }
     static double elevation(const TuningConstants::ShotTable::Entry& e) { return e.elevationUs; }
 
-    // The shot for one Orin target: its height's table
-    // (ShotTable::tableForVisionId: the hole's, or its row center's) plus
-    // that hole's elevation trim.
+    // The shot for one Orin target: its height's table in the ball color's
+    // set (ShotTable::tableForVisionId: the hole's, or its row center's)
+    // plus that hole's elevation trim.
     // False when the id has no table (0 / unknown): don't shoot at it.
-    static bool lookupTarget(int visionId, double distanceMeters, Result& out) {
+    static bool lookupTarget(int visionId, double distanceMeters, Result& out, uint8_t color = 0) {
         const TuningConstants::ShotTable::Table table =
-            TuningConstants::ShotTable::tableForVisionId(visionId);
+            TuningConstants::ShotTable::tableForVisionId(visionId, color);
         if (table.entries == nullptr) {
             return false;
         }

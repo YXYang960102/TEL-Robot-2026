@@ -36,6 +36,7 @@ bool ManualControl::wirelessHomePrev = true;
 bool ManualControl::wirelessTrimClearPrev = true;
 bool ManualControl::wirelessCapturePrev = true;
 bool ManualControl::captureOn = false;
+uint8_t ManualControl::ballColor = RCMAP_BALL_YELLOW;
 bool ManualControl::pathStickSemi = false;
 uint8_t ManualControl::lastPathState = 0;
 unsigned long ManualControl::lastVersionEventMs = 0;
@@ -253,10 +254,13 @@ void ManualControl::processCommand(char* command) {
     const bool isTrimClear = strcmp(command, "TCLR") == 0;
     // CAPT (2026-11-14, P): photo capture on the Orin on / off.
     const bool isCapture = strcmp(command, "CAPT") == 0;
+    // COL,<0..5> (2026-11-15): the ball color, i.e. which shot table
+    // (yellow purple blue green red orange).
+    const bool isBallColor = strncmp(command, "COL,", 4) == 0;
 
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle && !isAngleTarget &&
         !isTarget && !isAutoPath && !isModeSet && !isFlywheelOffset && !isTurretHome &&
-        !isTrimClear && !isCapture) {
+        !isTrimClear && !isCapture && !isBallColor) {
         sendEvent(RCMAP_EVENT_UNKNOWN_COMMAND);
         return;
     }
@@ -314,11 +318,12 @@ void ManualControl::processCommand(char* command) {
         }
         return;
     }
-    if (isTarget || isAutoPath || isModeSet || isFlywheelOffset) {
-        const char* digits = command + (isTarget ? 4 : 5);
+    if (isTarget || isAutoPath || isModeSet || isFlywheelOffset || isBallColor) {
+        const char* digits = command + (isTarget || isBallColor ? 4 : 5);
         char* end = nullptr;
         const long n = strtol(digits, &end, 10);
         const long maximum = isTarget ? RCMAP_TARGET_MAX
+                           : isBallColor ? RCMAP_BALL_COLORS - 1
                            : isAutoPath ? RCMAP_AUTO_PATHS
                            : isFlywheelOffset ? RCMAP_AUTO_OFFSET_MAX_PCT
                                         : static_cast<long>(OperatorMode::TEST);
@@ -328,7 +333,9 @@ void ManualControl::processCommand(char* command) {
             return;
         }
         refreshWiredWatchdog();
-        if (isFlywheelOffset) {
+        if (isBallColor) {
+            setBallColor(static_cast<uint8_t>(n), true); // answered every time
+        } else if (isFlywheelOffset) {
             // Only meaningful in the autos (full manual and test have the
             // slider).
             flywheelOffsetPct = isAutoMode(operatorMode) ? static_cast<int>(n) : 0;
@@ -486,6 +493,7 @@ void ManualControl::processWirelessFrame() {
         // ...and in the autos the LT / RT flywheel offset (0 in manual).
         flywheelOffsetPct = c.flywheel_offset_pct;
         selectTarget(c.target);
+        setBallColor(c.ball_color, false); // CH3 carries it in every frame
         if (fireEdge) handleFire();
         if (autoEdge) requestAutoPath(c.auto_path);
         if (homeEdge) requestTurretHome(); // RB (CH9): back to 0 deg
@@ -780,6 +788,19 @@ void ManualControl::handleFire() {
         // otherwise). Full-auto fires by itself, so the request is harmless.
         fireRequested = true;
     }
+}
+
+uint8_t ManualControl::getBallColor() {
+    return ballColor;
+}
+
+// Which shot table (ShotTableData, one per color). Wired COL answers every
+// time; the radio only on a change (CH3 repeats it every frame).
+void ManualControl::setBallColor(uint8_t color, bool announceSame) {
+    if (color >= RCMAP_BALL_COLORS) return;
+    if (color == ballColor && !announceSame) return;
+    ballColor = color;
+    sendEvent(static_cast<rcmap_event>(RCMAP_EVENT_BALL_YELLOW + color));
 }
 
 void ManualControl::selectTarget(uint8_t hole) {

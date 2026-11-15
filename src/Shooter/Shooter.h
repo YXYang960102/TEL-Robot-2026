@@ -52,6 +52,9 @@ public:
     // Operator fine-adjust: vision-follow aims this many px right (+) of
     // the target's center. 0 = straight at it.
     static void setRotateAimOffsetPx(double offsetPx);
+    // Auto, every loop: may the vision follow sweep left / right when it
+    // sees nothing at all (TuningConstants::Rotate::SWEEP_*)?
+    static void setRotateSweepAllowed(bool allowed);
 
     // Status
     // Turret locked on target: |tx| within VISION_READY_TOLERANCE_PX for

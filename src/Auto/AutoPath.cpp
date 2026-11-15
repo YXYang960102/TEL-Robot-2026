@@ -44,7 +44,9 @@ uint8_t AutoPath::buildMoves(uint8_t p, Move* out) {
     if (p == 1 || p == 3) {
         all[n++] = {1, side, DIAGONAL_TURN_MS};
         all[n++] = {0, 1, DIAGONAL_DRIVE_MS};
-        all[n++] = {1, static_cast<int8_t>(-side), DIAGONAL_TURN_BACK_MS};
+        // The last turn is set per path (not mirrored, 2026-11-14).
+        if (p == 1) all[n++] = {1, LEFT1_LAST_TURN_DIRECTION, LEFT1_LAST_TURN_MS};
+        else        all[n++] = {1, RIGHT1_LAST_TURN_DIRECTION, RIGHT1_LAST_TURN_MS};
     } else if (p == 2 || p == 4) {
         all[n++] = {0, 1, FORWARD_DRIVE_MS};
         all[n++] = {1, side, SIDE_TURN_MS};
@@ -130,9 +132,11 @@ bool AutoPath::holdsShooter() {
     return isActive();
 }
 
-// The turret does not follow the camera while any path runs (2026-11-14,
-// Jeremy: lock only once the robot has stopped), and after a right path
-// not until the hole has been seen (turretHold).
+// The turret follows the camera while a path drives (2026-11-14 evening,
+// Jeremy: lock horizontally on the way; elevation and flywheel wait for the
+// end -- holdsShooter). Only a right path holds it at 0 deg until the hole
+// has been seen once (turretHold), driving or done. Auto also holds it
+// while a path drives with the hole out of view (no search mid-drive).
 bool AutoPath::holdsTurret() {
-    return isActive() || (turretHold && state == State::DONE);
+    return turretHold && (isActive() || state == State::DONE);
 }

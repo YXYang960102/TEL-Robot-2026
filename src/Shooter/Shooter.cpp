@@ -31,6 +31,11 @@ int8_t searchDir = 0;
 bool haveLastSeen = false;
 double lastSeenTx = 0.0;
 unsigned long lastSeenMs = 0;
+// Sweep (Rotate::SWEEP_*): allowed by Auto this loop, the direction (left
+// first), and since when nothing has been seen.
+bool sweepAllowed = false;
+int8_t sweepDir = -1;
+unsigned long blindSinceMs = 0;
 
 int commandToPulseUs(double command, const ServoMotorConfig& config) {
     command = constrain(command, -1.0, 1.0);
@@ -254,6 +259,10 @@ void Shooter::setRotateAimOffsetPx(double offsetPx) {
     rotateAimOffsetPx = offsetPx;
 }
 
+void Shooter::setRotateSweepAllowed(bool allowed) {
+    sweepAllowed = allowed;
+}
+
 void Shooter::setFlywheelOpenLoop(double command) {
     flywheelOpenLoopCommand = constrain(command, 0.0, 1.0);
 }
@@ -303,6 +312,11 @@ void Shooter::updateAngle() {
 }
 
 void Shooter::updateRotate() {
+    // The sweep's 0.5 s wait starts over whenever the camera follow is not
+    // what drives the turret (hand turn, RB, return, test, a path...).
+    if (rotateMode != RotateControlMode::VISION_FOLLOW || turretGuard.isReturning() || !sweepAllowed) {
+        blindSinceMs = millis();
+    }
     if (turretGuard.isReturning()) {
         // The guard drives the turret back to 0 deg; nothing else does, and
         // the camera follow starts fresh afterwards.
@@ -359,6 +373,19 @@ void Shooter::updateRotate() {
         if (searchDir == 0 && !seen && !predicted && haveLastSeen &&
             now - lastSeenMs <= Rotate::LOST_TURN_MS && fabs(lastSeenTx) >= Rotate::LOST_EDGE_PX) {
             searchDir = lastSeenTx > 0.0 ? 1 : -1;
+        }
+        // Sweep (2026-11-14): nothing at all for SWEEP_START_MS -> left
+        // first to SWEEP_LEFT_DEG, then right to SWEEP_RIGHT_DEG, and back.
+        // Example: blind at +10 deg -> left until -90, right until +35, ...
+        if (seen || predicted || searchDir != 0) {
+            blindSinceMs = now;
+            if (seen) sweepDir = -1; // the next blind spell starts left again
+        } else if (Rotate::SWEEP_ENABLED && sweepAllowed && TurretAngle::isHealthy() &&
+                   TurretAngle::isAbsolute() && now - blindSinceMs >= Rotate::SWEEP_START_MS) {
+            const double deg = TurretAngle::angleDegrees();
+            if (deg <= Rotate::SWEEP_LEFT_DEG) sweepDir = 1;
+            else if (deg >= Rotate::SWEEP_RIGHT_DEG) sweepDir = -1;
+            searchDir = sweepDir;
         }
         if (searchDir != 0) {
             rotateReady = false;

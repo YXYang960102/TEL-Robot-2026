@@ -153,6 +153,17 @@ constexpr unsigned long SEARCH_MAX_MS = 3000;
 // swing the turret. PROVISIONAL.
 constexpr unsigned long LOST_TURN_MS = 1000;
 constexpr double LOST_EDGE_PX = 256.0;
+// Sweep (2026-11-14, Jeremy): in semi / full auto, nothing seen or
+// predicted for SWEEP_START_MS and neither the search nor the lost turn
+// above running -> the turret turns at SEARCH_COMMAND left first (negative
+// angle) to SWEEP_LEFT_DEG, then right to SWEEP_RIGHT_DEG, back and forth,
+// until a hole shows up (then the PID). Needs the AS5600 angle (healthy,
+// absolute); never in test mode, while an auto path drives, a hand-held
+// aim or RB's hold. Inside the soft limits (+38.5 / -166 deg).
+constexpr bool SWEEP_ENABLED = true;
+constexpr unsigned long SWEEP_START_MS = 500;
+constexpr double SWEEP_LEFT_DEG = -90.0;
+constexpr double SWEEP_RIGHT_DEG = 35.0;
 
 }
 
@@ -224,13 +235,19 @@ namespace AutoPath {
 constexpr double DRIVE_COMMAND = 1.0; // both wheels, straight
 constexpr double TURN_COMMAND = 0.35;  // pivot: one wheel +, the other -
 // Move times, ms (a turn at TURN_COMMAND, a straight move at DRIVE_COMMAND).
-// Left 1 / right 1 (Jeremy, 2026-11-14, on the floor): straight 3.5 s,
-// then turn 0.5 s (DIAGONAL_TURN_BACK_MS; left 1 turns left, right 1
-// right). The first turn (was 0.6 s) is off: 0 = that move is skipped
-// (AutoPath::buildMoves). Before: straight 2.5 s, turn 1.0 s.
+// Left 1 / right 1 (Jeremy, 2026-11-14, on the floor): straight 3.0 s,
+// then one turn, each path its own (no longer mirrors there, 2026-11-14
+// evening): direction +1 = right, -1 = left.
+//   left 1:  right 0.5 s (was left 1.0 s)
+//   right 1: right 1.0 s (unchanged)
+// The first turn (was 0.6 s) is off: 0 = that move is skipped
+// (AutoPath::buildMoves).
 constexpr unsigned long DIAGONAL_TURN_MS = 0;
-constexpr unsigned long DIAGONAL_DRIVE_MS = 3500;
-constexpr unsigned long DIAGONAL_TURN_BACK_MS = 500;
+constexpr unsigned long DIAGONAL_DRIVE_MS = 3000;
+constexpr int8_t LEFT1_LAST_TURN_DIRECTION = 1;
+constexpr unsigned long LEFT1_LAST_TURN_MS = 500;
+constexpr int8_t RIGHT1_LAST_TURN_DIRECTION = 1;
+constexpr unsigned long RIGHT1_LAST_TURN_MS = 1000;
 // Left 2 / right 2 (Jeremy, 2026-11-14): straight 4 s, turn 0.5 s,
 // straight 1 s, turn back 1 s (first try 5 / 2 / 1.5 / 2).
 constexpr unsigned long FORWARD_DRIVE_MS = 4000;
@@ -274,8 +291,8 @@ constexpr double ELEVATION_READY_TOLERANCE_US = 10.0;
 // the first hole fired at stays chosen (or the operator's hole); after
 // SHOTS_PER_HOLE balls Auto moves on in OperatorTarget::buildCycle order --
 // never two columns in one move (the turret turns sideways only): from 5:
-// 5, 8 7 9, 6 4, 1 2 3, then the bonus row Q W E (from a bonus start: the
-// bonus row only) -- skipping
+// 5, 8 7 9, 6 4, 1 2 3 (the bonus row Q W E only with
+// CYCLE_SKIPS_BONUS_ROW false) -- skipping
 // holes with no shot table. After the last one it stops firing (stays
 // aimed there) until a hole is picked (wired: even the same one again) or
 // the mode changes. Counts trigger pulses sent to the tower, one ball each.
@@ -294,6 +311,14 @@ constexpr unsigned long HOLE_SWITCH_DELAY_MS = 2000;
 // 1 / 7 borrow 4's table). 2026-10-31 to 11-14 it was 1 / 4 / 7,
 // (1u << 1) | (1u << 4) | (1u << 7): from 5: 5, 8 9, 6, 3 2, Q W E.
 constexpr uint16_t FULL_AUTO_EXCLUDED_HOLES = 0;
+// The bonus boxes Q W E (holes 10-12) are not part of the cycle (Jeremy,
+// 2026-11-14): full auto shoots a bonus box only while it is lit
+// (LIT_BONUS_PRIORITY, SHOTS_PER_HOLE balls). A cycle that would start on a
+// bonus box (the Orin's own pick, or one chosen in full auto) starts on
+// the top hole under it instead (Q -> 3, W -> 6, E -> 9). false = the
+// bonus row after the grid, as before.
+constexpr bool CYCLE_SKIPS_BONUS_ROW = true;
+constexpr uint16_t BONUS_ROW_HOLES = (1u << 10) | (1u << 11) | (1u << 12);
 // A lit bonus hole (the Orin's red-ring detection, frame field 9) comes
 // first in full auto: SHOTS_PER_HOLE balls at it, then the cycle carries
 // on where it stopped. The same box fires again only after it has been
@@ -430,19 +455,24 @@ struct Table {
 // too since 2026-10-31 (Jeremy: Q / E borrow W, hole 11, like the other
 // rows); {nullptr, 0} for 0, unknown ids and an empty row center (Auto
 // never fires).
-inline Table tableForVisionId(int visionId) {
+// color: the ball color's table (2026-11-15, ManualControl::getBallColor,
+// RCMAP_BALL_* 0..5; out of range = yellow's).
+inline Table tableForVisionId(int visionId, uint8_t color = 0) {
+    if (color >= ShotTableData::COLOR_COUNT) color = 0;
+    const auto& counts = ShotTableData::HOLE_COUNTS[color];
+    const auto& points = ShotTableData::HOLE_POINTS[color];
     for (uint8_t hole = 1; hole <= OperatorTarget::LAST_HOLE; hole++) {
         if (OperatorTarget::visionIdForHole(hole) != visionId) continue;
-        if (ShotTableData::HOLE_COUNTS[hole] > 0) {
-            return {ShotTableData::HOLE_POINTS[hole], ShotTableData::HOLE_COUNTS[hole]};
+        if (counts[hole] > 0) {
+            return {points[hole], counts[hole]};
         }
         // Same row, middle column: 1 / 7 -> 4, 2 / 8 -> 5, 3 / 9 -> 6; the
         // bonus row 10 / 12 -> 11 (11 itself: none).
         const uint8_t center = hole >= OperatorTarget::FIRST_BONUS_HOLE
             ? static_cast<uint8_t>(OperatorTarget::FIRST_BONUS_HOLE + 1)
             : static_cast<uint8_t>(4 + (hole - 1) % 3);
-        if (ShotTableData::HOLE_COUNTS[center] > 0) {
-            return {ShotTableData::HOLE_POINTS[center], ShotTableData::HOLE_COUNTS[center]};
+        if (counts[center] > 0) {
+            return {points[center], counts[center]};
         }
         return {nullptr, 0};
     }

@@ -539,7 +539,7 @@ void testWirelessInvalidFramesTimeOut() {
     armWireless();
     for (int i = 0; i < 20; i++) {
         rcFrame();
-        MechLink::channels[RCMAP_CH_TARGET] = 1120; // between target levels (1080 / 1160)
+        MechLink::channels[RCMAP_CH_TARGET] = 1145; // past hole 1's color levels (1080..1130), before hole 2 (1160)
         step(20);
     }
     assert(saw("COMMAND_TIMEOUT") && !ManualControl::isArmed());
@@ -915,17 +915,17 @@ void testFullAutoRowCycle() {
     assert(Auto::getAimTarget() == 5 && Auto::getRowShots() == 1);   // pinned to it
     // Never two columns in one move (2026-11-01), all three rows (bottom row
     // back 2026-11-14): 5, the right column 8 7 9, back to the middle 6 4,
-    // the left 1 2 3, then the bonus row Q W E from the left.
-    const uint8_t order[] = {5, 8, 7, 9, 6, 4, 1, 2, 3, 10, 11, 12};
+    // the left 1 2 3. No bonus row (only when lit, 2026-11-14).
+    const uint8_t order[] = {5, 8, 7, 9, 6, 4, 1, 2, 3};
     for (unsigned i = 0; i < sizeof order; i++) {
         const unsigned long done = 3 * i;
         if (i > 0) { assert(runUntilShots(done, 10000) == done); waitHoleSwitch(); }
         // (each hole with a table: own, or its row center's -- W's for Q / E)
         assert(Auto::getAimTarget() == order[i] || Auto::isRowDone());
     }
-    assert(runUntilShots(36, 12000) == 36);
+    assert(runUntilShots(27, 12000) == 27);
     waitHoleSwitch();
-    assert(Auto::isRowDone() && Auto::getAimTarget() == 12);
+    assert(Auto::isRowDone() && Auto::getAimTarget() == 3);
     assert(shotsDuring(3000) == 0);                       // all done: holds fire
     // A hole key starts over from that hole.
     send("TGT,8"); step();                                // right middle
@@ -1324,8 +1324,8 @@ void testShotTableByHeight() {
         const int id = OperatorTarget::visionIdForHole(hole);
         const uint8_t center = hole >= 10 ? 11 : static_cast<uint8_t>(4 + (hole - 1) % 3);
         const ShotTableData::Point* expected =
-            ShotTableData::HOLE_COUNTS[hole] > 0 ? ShotTableData::HOLE_POINTS[hole]
-                                                 : ShotTableData::HOLE_POINTS[center];
+            ShotTableData::HOLE_COUNTS[0][hole] > 0 ? ShotTableData::HOLE_POINTS[0][hole]
+                                                 : ShotTableData::HOLE_POINTS[0][center];
         assert(tableForVisionId(id).entries == expected);
     }
     for (int id : {0, 13, -1, 99}) assert(tableForVisionId(id).entries == nullptr);

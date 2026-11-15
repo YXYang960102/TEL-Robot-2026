@@ -181,10 +181,25 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
     const bool isTurretHome = strcmp(line, "THOME") == 0;
     const bool isTrimClear = strcmp(line, "TCLR") == 0;
     const bool isCapture = strcmp(line, "CAPT") == 0;
+    // COL,<0..5> (2026-11-15): the ball color, carried on CH3 with the
+    // target hole in every frame (RcControlMap.h). A setting, not a motion:
+    // accepted before Enable too and kept through release / E.
+    const bool isBallColor = strncmp(line, "COL,", 4) == 0;
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isNoChannel && !isTarget &&
         !isAutoPath && !isModeSet && !isFlywheelOffset && !isSingle && !isTurretHome &&
-        !isTrimClear && !isCapture) {
+        !isTrimClear && !isCapture && !isBallColor) {
         emitLine(emit, ctx, "$GROUND_EVENT,UNKNOWN_COMMAND");
+        return;
+    }
+    if (isBallColor) {
+        char* end = nullptr;
+        const long n = strtol(line + 4, &end, 10);
+        if (end == line + 4 || *end != '\0' || n < 0 || n >= static_cast<long>(RCMAP_BALL_COLORS)) {
+            emitLine(emit, ctx, "$GROUND_EVENT,BAD_COMMAND");
+            return;
+        }
+        if (enabled) notePcLine(nowMs, emit, ctx);
+        cmd.ball_color = static_cast<uint8_t>(n);
         return;
     }
     if (!enabled) {

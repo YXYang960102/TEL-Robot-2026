@@ -53,16 +53,24 @@ unsigned long lastFilterFrame = 0;
 // The turret in the autos and test: the operator's hand turn (and its
 // settle wait) wins; then RB's hold at 0 deg; otherwise the camera follow
 // with the aim offset, or hold it with no camera.
-void aimTurret(bool visionHealthy) {
+void aimTurret(bool visionHealthy, bool sweep = false) {
+    Shooter::setRotateSweepAllowed(false); // only the camera follow below may
     if (ManualControl::isAimJogActive()) {
         Shooter::setRotateOpenLoop(ManualControl::getAimJogCommand());
-    } else if (AutoPath::holdsTurret()) {
-        Shooter::disableRotate(); // auto path running: no camera follow until it ends
+    } else if (AutoPath::holdsTurret() || (AutoPath::isActive() && !Vision::isValid())) {
+        // Right path before the hole was seen; or any path driving with the
+        // hole out of view: held, no search sweep mid-drive. In view while
+        // driving: the camera follows (2026-11-14, Jeremy: lock horizontally
+        // on the way, elevation and flywheel only at the end).
+        Shooter::disableRotate();
     } else if (ManualControl::isTurretHeldHome()) {
         Shooter::disableRotate(); // RB: stay at 0 deg (the guard drove it there)
     } else if (visionHealthy) {
         Shooter::setRotateVisionFollow();
         Shooter::setRotateAimOffsetPx(ManualControl::getAimOffsetPx());
+        // Left / right sweep when nothing is seen: the autos only (sweep),
+        // not while a path drives (2026-11-14).
+        Shooter::setRotateSweepAllowed(sweep && !AutoPath::isActive());
     } else {
         Shooter::disableRotate();
     }
@@ -96,7 +104,8 @@ bool lookUpShot(unsigned long now, ShotTableLookup::Result& shot) {
     }
     lastFilterFrame = frame;
     return frameHasDepth && distanceFilter.latched() > 0.0 &&
-        ShotTableLookup::lookupTarget(Vision::getTargetId(), distanceFilter.latched(), shot);
+        ShotTableLookup::lookupTarget(Vision::getTargetId(), distanceFilter.latched(), shot,
+                                      ManualControl::getBallColor());
 }
 }  // namespace
 
@@ -111,7 +120,8 @@ uint8_t Auto::getReadyBits() {
 namespace {
 // A hole Auto can fire at: its own shot table or its row center's.
 bool hasShotTable(uint8_t hole) {
-    return TuningConstants::ShotTable::tableForVisionId(OperatorTarget::visionIdForHole(hole)).entries != nullptr;
+    return TuningConstants::ShotTable::tableForVisionId(OperatorTarget::visionIdForHole(hole),
+                                                        ManualControl::getBallColor()).entries != nullptr;
 }
 
 // A hole full auto never fires at (TuningConstants::Auto::FULL_AUTO_EXCLUDED_HOLES).
@@ -195,7 +205,12 @@ void Auto::updateRowCycle(OperatorMode mode) {
     // cycle at the nearest allowed hole of that column instead (4 -> 5).
     if (ROW_CYCLE_ENABLED && !rowActive && !rowDone && Vision::isValid()) {
         const uint8_t picked = OperatorTarget::holeForVisionId(Vision::getTargetId());
-        if (excludedInFullAuto(picked)) {
+        // An unlit bonus box picked by the Orin: never fired at either; the
+        // cycle starts under it (startCycle, CYCLE_SKIPS_BONUS_ROW).
+        if (CYCLE_SKIPS_BONUS_ROW && !litActive && picked != OperatorTarget::NONE &&
+            OperatorTarget::rowOf(picked) == 3) {
+            startCycle(picked);
+        } else if (excludedInFullAuto(picked)) {
             const uint8_t instead = OperatorTarget::nearestAllowedInColumn(picked, FULL_AUTO_EXCLUDED_HOLES);
             if (instead != OperatorTarget::NONE) startCycle(instead);
         }
@@ -203,12 +218,19 @@ void Auto::updateRowCycle(OperatorMode mode) {
 }
 
 void Auto::startCycle(uint8_t hole) {
+    using namespace TuningConstants::Auto;
+    // No bonus box in the cycle (2026-11-14): a bonus start becomes the top
+    // hole of its column (Q -> 3, W -> 6, E -> 9).
+    if (CYCLE_SKIPS_BONUS_ROW && OperatorTarget::rowOf(hole) == 3) {
+        hole = OperatorTarget::holeAt(2, OperatorTarget::columnOf(hole));
+    }
     rowActive = true;
     rowStartHole = hole;
     rowStep = 0;
     rowShots = 0;
     lastCycleHole = hole;
-    cycleLength = OperatorTarget::buildCycle(hole, TuningConstants::Auto::FULL_AUTO_EXCLUDED_HOLES, cycleHoles);
+    const uint16_t skipped = FULL_AUTO_EXCLUDED_HOLES | (CYCLE_SKIPS_BONUS_ROW ? BONUS_ROW_HOLES : 0);
+    cycleLength = OperatorTarget::buildCycle(hole, skipped, cycleHoles);
     skipHolesWithoutTable();
 }
 
@@ -229,8 +251,8 @@ void Auto::skipHolesWithoutTable() {
 // One ball sent in full auto. A lit bonus hole first: SHOTS_PER_HOLE at
 // it, then back to the cycle as it was. Otherwise SHOTS_PER_HOLE at a
 // hole, then the next one in buildCycle order; after the last, done.
-// Example: the Orin picked vision id 8 (hole 5): 5, 8 7 9, 6 4, 1 2 3,
-// Q W E -- 36 balls.
+// Example: the Orin picked vision id 8 (hole 5): 5, 8 7 9, 6 4, 1 2 3 --
+// 27 balls (the bonus boxes only when lit, CYCLE_SKIPS_BONUS_ROW).
 // After the last ball at a hole (Jeremy, 2026-11-14) the aim stays there
 // for HOLE_SWITCH_DELAY_MS with no shot (holeSwitchPending), then
 // finishHoleSwitch() moves on (updateRowCycle).
@@ -333,7 +355,7 @@ void Auto::update() {
         return;
     }
 
-    aimTurret(true);
+    aimTurret(true, true);
 
     // A target Auto may shoot at: a valid frame (with a hole selected, only
     // that hole's -- Vision drops every other id) that has a depth distance
@@ -386,7 +408,9 @@ void Auto::update() {
         // operator's fine-adjust, once the table holds real measured pulses
         // (ShotTable::ELEVATION_MEASURED); until then the operator keeps
         // the elevation. No target: hold.
-        if (TuningConstants::ShotTable::ELEVATION_MEASURED) {
+        // Not while an auto path drives (2026-11-14): the elevation stays
+        // where it is until the robot has stopped.
+        if (TuningConstants::ShotTable::ELEVATION_MEASURED && !AutoPath::holdsShooter()) {
             // Toward the target at ELEVATION_SLEW_US_PER_SECOND, not a jump
             // (current limiting, 2026-10-18).
             // Kept inside the servo's range (Angle::MIN/MAX_PULSE_US; MIN
@@ -409,7 +433,8 @@ void Auto::update() {
         }
     }
     lastElevationSlewMs = now;
-    // An auto path driving (2026-11-14): flywheel off, no shot until the end.
+    // An auto path driving (2026-11-14): flywheel off, elevation held (above),
+    // no shot until the end; the turret already follows the hole.
     if (AutoPath::holdsShooter()) flywheelCommand = 0.0;
     Shooter::setFlywheelOpenLoop(flywheelCommand);
 
