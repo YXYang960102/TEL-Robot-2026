@@ -79,6 +79,7 @@ private:
     static void updateRowCycle(OperatorMode mode);
     static void countRowShot();
     static void finishHoleSwitch();
+    static void skipHoleNotFound(unsigned long now);
     static void skipHolesWithoutTable();
     static void startCycle(uint8_t hole);
 
@@ -98,6 +99,8 @@ private:
     static bool holeSwitchPending;   // last ball at a hole sent: waiting HOLE_SWITCH_DELAY_MS
     static bool holeSwitchFromLit;   // ... at a lit bonus hole (back to the cycle after)
     static unsigned long holeSwitchStartMs;
+    static uint8_t notFoundAim;            // the aim the not-found clock runs for
+    static unsigned long notFoundSinceMs;  // since then, or its last sighting
     static unsigned long litLastSeenMs[4];
     static uint8_t lastAimTarget;
     static unsigned long aimChangedMs;
