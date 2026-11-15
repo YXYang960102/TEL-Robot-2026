@@ -8594,3 +8594,26 @@ correct; YOLO unittest 74 OK. No hardware.
 **Next Test:** flash Mega + ground, pull YOLO on the Orin, reload the
 Dashboard: 下半場 -> log "半場：Mega 現在是下半場"; full auto starts at the
 nearest bottom hole, 2 balls each, rows bottom to top.
+
+**Follow-up (same day, Jeremy: both halves use the same algorithm, only
+the ball count differs):** `TuningConstants::Auto::CYCLE_BOTTOM_UP` true:
+`startCycle` always uses `buildBottomUpCycle`, and with no hole chosen the
+cycle starts at once at the nearest bottom hole (else under the Orin's
+pick) in BOTH halves. First half 3 a hole, second 2. false = the old
+column cycle starting at the first hole shot. Dashboard half labels just
+say 3 / 2 a hole. manual_control_test cycle / lit tests now expect the
+bottom-up order (pick 5 -> start 4: 4 1 7 8 5 2 3 6 9, ends on 9; TGT,8 ->
+8 then 5). Sims: first half, near 7 -> 7 4 1 2 5 8 9 6 3, 27 balls;
+second half, near 4 -> 4 1 7 8 5 2 3 6 9, 18 balls. pio megaatmega2560
+SUCCESS.
+
+**Follow-up 2 (Jeremy: "7 8 9, 4 5 6, 1 2 3"):** in Dashboard numbering
+1 2 3 / 4 5 6 / 7 8 9 are the left / middle / right COLUMNS bottom -> top,
+so the order is column by column, each from the bottom up (not a row
+snake). `buildBottomUpCycle` rewritten: the start's column (start, above,
+below), then the next column toward the far side (from the middle: right
+first), each bottom -> top; then the bonus row (skipped unless lit). From
+7: 7 8 9, 4 5 6, 1 2 3; from 1: 1 2 3, 4 5 6, 7 8 9; from 4: 4 5 6, 7 8 9,
+1 2 3. Tests updated (pick 5 -> start 4 -> ... ends on 3; TGT,8 -> 9).
+Sims: first half near 7 -> 7 8 9 4 5 6 1 2 3 (27 balls); second half near
+4 -> 4 5 6 7 8 9 1 2 3 (18). pio megaatmega2560 SUCCESS.

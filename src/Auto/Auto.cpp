@@ -214,10 +214,10 @@ void Auto::updateRowCycle(OperatorMode mode) {
     if (ROW_CYCLE_ENABLED && !rowActive && !rowDone && ManualControl::getTarget() != OperatorTarget::NONE) {
         startCycle(ManualControl::getTarget());
     }
-    // The second half with no hole chosen: start at the nearest bottom-row
-    // hole the Orin reports, or else the bottom hole under the Orin's pick
-    // (2026-11-15) -- without waiting for a first shot.
-    if (ROW_CYCLE_ENABLED && secondHalf && !rowActive && !rowDone && !litActive) {
+    // No hole chosen (both halves, CYCLE_BOTTOM_UP): start at the nearest
+    // bottom-row hole the Orin reports, or else the bottom hole under the
+    // Orin's pick (2026-11-15) -- without waiting for a first shot.
+    if (ROW_CYCLE_ENABLED && CYCLE_BOTTOM_UP && !rowActive && !rowDone && !litActive) {
         const uint8_t near = OperatorTarget::holeForVisionId(Vision::getNearBottomId());
         if (near != OperatorTarget::NONE) {
             startCycle(near);
@@ -257,7 +257,7 @@ void Auto::startCycle(uint8_t hole) {
     rowShots = 0;
     lastCycleHole = hole;
     const uint16_t skipped = FULL_AUTO_EXCLUDED_HOLES | (CYCLE_SKIPS_BONUS_ROW ? BONUS_ROW_HOLES : 0);
-    cycleLength = ManualControl::isSecondHalf()
+    cycleLength = CYCLE_BOTTOM_UP
         ? OperatorTarget::buildBottomUpCycle(hole, skipped, cycleHoles)
         : OperatorTarget::buildCycle(hole, skipped, cycleHoles);
     skipHolesWithoutTable();

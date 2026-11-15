@@ -136,47 +136,43 @@ inline uint8_t buildCycle(uint8_t start, uint16_t excludedHoles, uint8_t out[MAX
     return count;
 }
 
-// The second half's order (2026-11-15, Jeremy): bottom-up snake. The start
-// hole's row first (the start, then that row's other holes nearest it first,
-// a tie to the left), then each row above, entered at the column the last
-// row ended in and swept across; rows below the start's last (only if the
-// operator picked a higher start). Then the bonus row from the column the
-// grid ended in. Excluded holes are left out (the start never).
-// From 1: 1 4 7, 8 5 2, 3 6 9. From 7: 7 4 1, 2 5 8, 9 6 3.
-// From 4: 4 1 7, 8 5 2, 3 6 9.
+// The cycle order of both halves (2026-11-15, Jeremy): column by column,
+// each from the bottom up -- the turret turns sideways only between
+// columns, the elevation does the rest. The start hole's column first (the
+// start, then its column's holes above it, then below), then the next
+// column toward the far side (from the middle: right first, then left),
+// each bottom -> top. Then the bonus row from the column the grid ended in.
+// Excluded holes are left out (the start never).
+// From 7: 7 8 9, 4 5 6, 1 2 3. From 1: 1 2 3, 4 5 6, 7 8 9.
+// From 4: 4 5 6, 7 8 9, 1 2 3.
 inline uint8_t buildBottomUpCycle(uint8_t start, uint16_t excludedHoles, uint8_t out[MAX_CYCLE]) {
     if (start < 1 || start > LAST_HOLE) return 0;
     if (rowOf(start) == 3) return buildCycle(start, excludedHoles, out); // bonus: its row only
     uint8_t count = 0;
-    const uint8_t r0 = rowOf(start);
-    int8_t col = static_cast<int8_t>(columnOf(start));
+    const uint8_t c0 = columnOf(start);
     out[count++] = start;
-    auto take = [&](uint8_t row, int8_t from) {
-        // The row's holes not yet listed, nearest column `from` first (a tie
-        // to the left).
-        for (int8_t d = 0; d <= 2; d++) {
-            for (int8_t sign = -1; sign <= 1; sign += 2) {
-                if (d == 0 && sign > 0) continue;
-                const int8_t c = static_cast<int8_t>(from + sign * d);
-                if (c < 0 || c > 2) continue;
-                const uint8_t hole = holeAt(row, static_cast<uint8_t>(c));
-                if (excludedHoles & (1u << hole)) continue;
-                bool listed = false;
-                for (uint8_t i = 0; i < count; i++) listed = listed || out[i] == hole;
-                if (listed) continue;
-                out[count++] = hole;
-                col = c;
-            }
-        }
+    auto add = [&](uint8_t row, uint8_t col) {
+        const uint8_t hole = holeAt(row, col);
+        if (hole == start || (excludedHoles & (1u << hole))) return;
+        out[count++] = hole;
     };
-    take(r0, col);
-    for (uint8_t r = static_cast<uint8_t>(r0 + 1); r <= 2; r++) take(r, col);
-    for (int8_t r = static_cast<int8_t>(r0) - 1; r >= 0; r--) take(static_cast<uint8_t>(r), col);
+    // The start's column: above the start, then below it.
+    for (uint8_t r = static_cast<uint8_t>(rowOf(start) + 1); r <= 2; r++) add(r, c0);
+    for (int8_t r = static_cast<int8_t>(rowOf(start)) - 1; r >= 0; r--) add(static_cast<uint8_t>(r), c0);
+    // The other columns, each bottom -> top.
+    const uint8_t next[2] = {
+        static_cast<uint8_t>(c0 == 0 ? 1 : (c0 == 2 ? 1 : 2)),
+        static_cast<uint8_t>(c0 == 0 ? 2 : 0),
+    };
+    for (uint8_t i = 0; i < 2; i++) {
+        for (uint8_t r = 0; r <= 2; r++) add(r, next[i]);
+    }
     // Bonus row from the column the grid ended in (left -> 0 1 2, right ->
     // 2 1 0, middle -> 1 2 0), like buildCycle.
+    const uint8_t last = next[1];
     for (uint8_t j = 0; j < 3; j++) {
-        const uint8_t c = col == 1 ? static_cast<uint8_t>((1 + j) % 3)
-                        : col == 0 ? j : static_cast<uint8_t>(2 - j);
+        const uint8_t c = last == 1 ? static_cast<uint8_t>((1 + j) % 3)
+                        : last == 0 ? j : static_cast<uint8_t>(2 - j);
         const uint8_t hole = holeAt(3, c);
         if (!(excludedHoles & (1u << hole))) out[count++] = hole;
     }
