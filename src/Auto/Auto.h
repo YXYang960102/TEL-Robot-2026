@@ -105,6 +105,7 @@ private:
     static uint8_t lastAimTarget;
     static unsigned long aimChangedMs;
     static OperatorMode rowMode;
+    static bool rowSecondHalf;
 
     static FireState fireState;
     static unsigned long fireStateEnteredMs;

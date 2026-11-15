@@ -20,6 +20,7 @@ unsigned long Vision::predictedSinceMs = 0;
 uint16_t Vision::seenMask = 0;
 int8_t Vision::ringPercent = -1;
 uint8_t Vision::litBonusId = 0;
+uint8_t Vision::nearBottomId = 0;
 uint8_t Vision::ringSectors = 0;
 bool Vision::hasPacket = false;
 bool Vision::sentReady = false;
@@ -69,6 +70,7 @@ void Vision::update() {
         invalidateTarget();
         seenMask = 0;
         litBonusId = 0;
+        nearBottomId = 0;
     }
 
     if (orinState != OrinState::UNKNOWN &&
@@ -103,6 +105,12 @@ void Vision::sendHeartbeat() {
     // choice, so a restarted Orin has the current one again within 100 ms.
     sendSelection();
     sendCapture();
+    // MEGA_NEAR,<version>,1 (2026-11-15): this Mega reads frame field 10
+    // (the nearest bottom-row hole); an Orin adds it only after hearing
+    // this, so an older Mega never gets a 10-field frame it would reject.
+    Serial1.print("MEGA_NEAR,");
+    Serial1.print(Transport::PROTOCOL_VERSION);
+    Serial1.print(",1\n");
 }
 
 void Vision::sendCapture() {
@@ -148,6 +156,10 @@ bool Vision::isPredicted() {
 
 uint16_t Vision::getSeenMask() {
     return seenMask;
+}
+
+uint8_t Vision::getNearBottomId() {
+    return isConnected() ? nearBottomId : 0;
 }
 
 uint8_t Vision::getLitBonusId() {
@@ -231,13 +243,15 @@ bool Vision::parse(const String& input) {
     // (2026-10-28) by ring_pct,ring_sectors, the depth ring's coverage, and
     // (2026-10-31) lit_id, the lit bonus hole the Orin sees (vision id
     // 1-3, 0 = none)
-    if (commaCount != 5 && commaCount != 7 && commaCount != 8) return false;
+    // ...and (2026-11-15) near_bottom, the nearest bottom-row hole seen
+    // (vision id 10-12, 0 = none) -- only from an Orin that heard MEGA_NEAR.
+    if (commaCount != 5 && commaCount != 7 && commaCount != 8 && commaCount != 9) return false;
 
-    String fields[9];
+    String fields[10];
     int fieldCount = 0;
     int start = 0;
 
-    while (fieldCount < 9 && start <= static_cast<int>(s.length())) {
+    while (fieldCount < 10 && start <= static_cast<int>(s.length())) {
         int idx = s.indexOf(',', start);
 
         if (idx < 0) {
@@ -277,7 +291,13 @@ bool Vision::parse(const String& input) {
     long nextRingPct = -1;
     long nextRingSectors = 0;
     long nextLitId = 0;
-    if (fieldCount == 9) {
+    long nextNearBottom = 0;
+    if (fieldCount == 10) {
+        nextNearBottom = strtol(fields[9].c_str(), &end, 10);
+        if (end == fields[9].c_str() || *end != '\0' ||
+            !(nextNearBottom == 0 || (nextNearBottom >= 10 && nextNearBottom <= 12))) return false;
+    }
+    if (fieldCount >= 9) {
         nextLitId = strtol(fields[8].c_str(), &end, 10);
         if (end == fields[8].c_str() || *end != '\0' || nextLitId < 0 || nextLitId > 3) return false;
     }
@@ -312,6 +332,7 @@ bool Vision::parse(const String& input) {
     // Whatever hole the frame is about (even one not selected): Auto's lit
     // bonus priority must hear of a lit box while aiming elsewhere.
     litBonusId = static_cast<uint8_t>(nextLitId);
+    nearBottomId = static_cast<uint8_t>(nextNearBottom);
     return true;
 }
 

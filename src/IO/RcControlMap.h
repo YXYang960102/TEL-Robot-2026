@@ -62,7 +62,10 @@
  *                        pad's View: the ground holds it 200 ms per press,
  *                        the robot toggles on its rising edge; not in TEST;
  *                        an older robot reads 3 as normal, so no version
- *                        bump), 0 read as normal. TEST counts only while CH4
+ *                        bump), 0 = normal in the SECOND HALF (2026-11-15:
+ *                        2 shots a hole, bottom-up cycle; level 2 = the
+ *                        first half; 1 / 3 / 4 / 5 leave the half as it
+ *                        was; an older robot reads 0 as normal). TEST counts only while CH4
  *                        carries full manual (with its flywheel), so test
  *                        mode reuses full manual's CH4 Falcon encoding;
  *                        any other CH4 level wins over CH9 (a round-robin
@@ -127,6 +130,11 @@ extern "C" {
 #define RCMAP_BALL_GREEN 3u
 #define RCMAP_BALL_RED 4u
 #define RCMAP_BALL_ORANGE 5u
+/* Match half (2026-11-15): the first half 3 shots a hole and the usual
+ * cycle, the second 2 shots and bottom-up from the nearest bottom hole. */
+#define RCMAP_HALF_KEEP 0u
+#define RCMAP_HALF_FIRST 1u
+#define RCMAP_HALF_SECOND 2u
 
 #define RCMAP_NUDGE_CENTER 0u
 #define RCMAP_NUDGE_UP 1u
@@ -198,6 +206,9 @@ typedef struct {
     bool capture_toggle; /* CH9 level 3 (2026-11-14): P, photo capture on /
                             off on the Orin; never in TEST, turret_home
                             wins */
+    uint8_t half;      /* CH9 (2026-11-15): RCMAP_HALF_*; encode sends level
+                          0 for the second half where it would send 2;
+                          decode gives KEEP on the other levels */
     bool trim_clear;   /* CH8 level 5 (2026-11-08): C, clear the saved
                           aim / elevation trim; encode sends it only with
                           no auto path, decode gives auto_path 0 with it */
@@ -307,6 +318,8 @@ typedef enum {
     RCMAP_EVENT_BALL_GREEN,
     RCMAP_EVENT_BALL_RED,
     RCMAP_EVENT_BALL_ORANGE,
+    RCMAP_EVENT_HALF_FIRST,            /* 2026-11-15: the match half in use */
+    RCMAP_EVENT_HALF_SECOND,
     RCMAP_EVENT_COUNT
 } rcmap_event;
 

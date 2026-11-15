@@ -37,6 +37,7 @@ bool ManualControl::wirelessTrimClearPrev = true;
 bool ManualControl::wirelessCapturePrev = true;
 bool ManualControl::captureOn = false;
 uint8_t ManualControl::ballColor = RCMAP_BALL_YELLOW;
+uint8_t ManualControl::half = RCMAP_HALF_FIRST;
 bool ManualControl::pathStickSemi = false;
 uint8_t ManualControl::lastPathState = 0;
 unsigned long ManualControl::lastVersionEventMs = 0;
@@ -257,10 +258,12 @@ void ManualControl::processCommand(char* command) {
     // COL,<0..5> (2026-11-15): the ball color, i.e. which shot table
     // (yellow purple blue green red orange).
     const bool isBallColor = strncmp(command, "COL,", 4) == 0;
+    // HALF,<1|2> (2026-11-15): the first / second half of the match.
+    const bool isHalf = strncmp(command, "HALF,", 5) == 0;
 
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle && !isAngleTarget &&
         !isTarget && !isAutoPath && !isModeSet && !isFlywheelOffset && !isTurretHome &&
-        !isTrimClear && !isCapture && !isBallColor) {
+        !isTrimClear && !isCapture && !isBallColor && !isHalf) {
         sendEvent(RCMAP_EVENT_UNKNOWN_COMMAND);
         return;
     }
@@ -318,22 +321,25 @@ void ManualControl::processCommand(char* command) {
         }
         return;
     }
-    if (isTarget || isAutoPath || isModeSet || isFlywheelOffset || isBallColor) {
+    if (isTarget || isAutoPath || isModeSet || isFlywheelOffset || isBallColor || isHalf) {
         const char* digits = command + (isTarget || isBallColor ? 4 : 5);
         char* end = nullptr;
         const long n = strtol(digits, &end, 10);
         const long maximum = isTarget ? RCMAP_TARGET_MAX
                            : isBallColor ? RCMAP_BALL_COLORS - 1
+                           : isHalf ? RCMAP_HALF_SECOND
                            : isAutoPath ? RCMAP_AUTO_PATHS
                            : isFlywheelOffset ? RCMAP_AUTO_OFFSET_MAX_PCT
                                         : static_cast<long>(OperatorMode::TEST);
-        const long minimum = isAutoPath ? 1 : isFlywheelOffset ? -RCMAP_AUTO_OFFSET_MAX_PCT : 0;
+        const long minimum = isAutoPath || isHalf ? 1 : isFlywheelOffset ? -RCMAP_AUTO_OFFSET_MAX_PCT : 0;
         if (end == digits || *end != '\0' || n < minimum || n > maximum) {
             sendEvent(RCMAP_EVENT_BAD_COMMAND);
             return;
         }
         refreshWiredWatchdog();
-        if (isBallColor) {
+        if (isHalf) {
+            setHalf(static_cast<uint8_t>(n), true);
+        } else if (isBallColor) {
             setBallColor(static_cast<uint8_t>(n), true); // answered every time
         } else if (isFlywheelOffset) {
             // Only meaningful in the autos (full manual and test have the
@@ -494,6 +500,7 @@ void ManualControl::processWirelessFrame() {
         flywheelOffsetPct = c.flywheel_offset_pct;
         selectTarget(c.target);
         setBallColor(c.ball_color, false); // CH3 carries it in every frame
+        if (c.half != RCMAP_HALF_KEEP) setHalf(c.half, false); // CH9 levels 0 / 2
         if (fireEdge) handleFire();
         if (autoEdge) requestAutoPath(c.auto_path);
         if (homeEdge) requestTurretHome(); // RB (CH9): back to 0 deg
@@ -788,6 +795,17 @@ void ManualControl::handleFire() {
         // otherwise). Full-auto fires by itself, so the request is harmless.
         fireRequested = true;
     }
+}
+
+bool ManualControl::isSecondHalf() {
+    return half == RCMAP_HALF_SECOND;
+}
+
+void ManualControl::setHalf(uint8_t newHalf, bool announceSame) {
+    if (newHalf != RCMAP_HALF_FIRST && newHalf != RCMAP_HALF_SECOND) return;
+    if (newHalf == half && !announceSame) return;
+    half = newHalf;
+    sendEvent(half == RCMAP_HALF_SECOND ? RCMAP_EVENT_HALF_SECOND : RCMAP_EVENT_HALF_FIRST);
 }
 
 uint8_t ManualControl::getBallColor() {

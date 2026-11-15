@@ -46,6 +46,7 @@ uint8_t Auto::lastAimTarget = 0;
 unsigned long Auto::aimChangedMs = 0;
 uint16_t Auto::rowSelectSeq = 0;
 OperatorMode Auto::rowMode = OperatorMode::FULL_MANUAL;
+bool Auto::rowSecondHalf = false;
 
 namespace {
 ShotDistanceFilter<TuningConstants::Auto::DISTANCE_MEDIAN_FRAMES> distanceFilter(
@@ -127,6 +128,12 @@ bool hasShotTable(uint8_t hole) {
 }
 
 // A hole full auto never fires at (TuningConstants::Auto::FULL_AUTO_EXCLUDED_HOLES).
+// Balls per hole in this half (2026-11-15).
+uint8_t shotsPerHole() {
+    return ManualControl::isSecondHalf() ? TuningConstants::Auto::SECOND_HALF_SHOTS_PER_HOLE
+                                         : TuningConstants::Auto::SHOTS_PER_HOLE;
+}
+
 bool excludedInFullAuto(uint8_t hole) {
     return hole <= 15 && (TuningConstants::Auto::FULL_AUTO_EXCLUDED_HOLES & (1u << hole)) != 0;
 }
@@ -159,9 +166,11 @@ uint8_t Auto::getLitPriorityHole() {
 void Auto::updateRowCycle(OperatorMode mode) {
     using namespace TuningConstants::Auto;
     const uint16_t seq = ManualControl::getTargetSelectSeq();
-    if (mode != rowMode || seq != rowSelectSeq) {
+    const bool secondHalf = ManualControl::isSecondHalf();
+    if (mode != rowMode || seq != rowSelectSeq || secondHalf != rowSecondHalf) {
         rowMode = mode;
         rowSelectSeq = seq;
+        rowSecondHalf = secondHalf; // a half change starts the cycle over
         holeSwitchPending = false;
         rowActive = false;
         rowDone = false;
@@ -205,6 +214,20 @@ void Auto::updateRowCycle(OperatorMode mode) {
     if (ROW_CYCLE_ENABLED && !rowActive && !rowDone && ManualControl::getTarget() != OperatorTarget::NONE) {
         startCycle(ManualControl::getTarget());
     }
+    // The second half with no hole chosen: start at the nearest bottom-row
+    // hole the Orin reports, or else the bottom hole under the Orin's pick
+    // (2026-11-15) -- without waiting for a first shot.
+    if (ROW_CYCLE_ENABLED && secondHalf && !rowActive && !rowDone && !litActive) {
+        const uint8_t near = OperatorTarget::holeForVisionId(Vision::getNearBottomId());
+        if (near != OperatorTarget::NONE) {
+            startCycle(near);
+        } else if (Vision::isValid()) {
+            const uint8_t picked = OperatorTarget::holeForVisionId(Vision::getTargetId());
+            if (picked != OperatorTarget::NONE) {
+                startCycle(OperatorTarget::holeAt(0, OperatorTarget::columnOf(picked)));
+            }
+        }
+    }
     // The Orin's own pick on an excluded hole: never fired at; start the
     // cycle at the nearest allowed hole of that column instead (4 -> 5).
     if (ROW_CYCLE_ENABLED && !rowActive && !rowDone && Vision::isValid()) {
@@ -234,7 +257,9 @@ void Auto::startCycle(uint8_t hole) {
     rowShots = 0;
     lastCycleHole = hole;
     const uint16_t skipped = FULL_AUTO_EXCLUDED_HOLES | (CYCLE_SKIPS_BONUS_ROW ? BONUS_ROW_HOLES : 0);
-    cycleLength = OperatorTarget::buildCycle(hole, skipped, cycleHoles);
+    cycleLength = ManualControl::isSecondHalf()
+        ? OperatorTarget::buildBottomUpCycle(hole, skipped, cycleHoles)
+        : OperatorTarget::buildCycle(hole, skipped, cycleHoles);
     skipHolesWithoutTable();
 }
 
@@ -264,7 +289,7 @@ void Auto::countRowShot() {
     using namespace TuningConstants::Auto;
     notFoundSinceMs = millis(); // a shot: the hole is making progress
     if (litActive) {
-        if (++litShots >= SHOTS_PER_HOLE) {
+        if (++litShots >= shotsPerHole()) {
             holeSwitchPending = true;
             holeSwitchFromLit = true;
             holeSwitchStartMs = millis();
@@ -277,7 +302,7 @@ void Auto::countRowShot() {
         if (hole == OperatorTarget::NONE) return;
         startCycle(hole);
     }
-    if (++rowShots < SHOTS_PER_HOLE) return;
+    if (++rowShots < shotsPerHole()) return;
     holeSwitchPending = true;
     holeSwitchFromLit = false;
     holeSwitchStartMs = millis();

@@ -71,6 +71,9 @@ public:
     // RCMAP_BALL_* 0..5, yellow at boot; wired COL,<n> or CH3. Kept across
     // Enable / Disable. Every change reports BALL_<COLOR>.
     static uint8_t getBallColor();
+    // The match half (2026-11-15): RCMAP_HALF_FIRST at boot, wired
+    // HALF,<1|2> or CH9; kept across Enable. Reports HALF_FIRST / _SECOND.
+    static bool isSecondHalf();
     // Bumped on every hole choice: a change (wired or radio) and every
     // wired TGT, even of the same hole -- Auto's row cycle starts over.
     static uint16_t getTargetSelectSeq();
@@ -184,6 +187,8 @@ private:
     static bool fireRequested;
     static uint8_t target;
     static uint8_t ballColor;
+    static uint8_t half;
+    static void setHalf(uint8_t newHalf, bool announceSame);
     static void setBallColor(uint8_t color, bool announceSame);
     static uint8_t autoPathThisEnable;
     static uint8_t autoPathsUsedMask;

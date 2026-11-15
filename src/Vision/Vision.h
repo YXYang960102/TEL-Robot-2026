@@ -34,6 +34,12 @@ public:
     // The lit bonus hole the Orin sees (vision id 1-3; 0 = none, or an
     // Orin without frame field 9), from the latest frame whatever its hole.
     static uint8_t getLitBonusId();
+    // The nearest bottom-row hole the Orin sees (vision id 10-12, i.e.
+    // Dashboard 1 / 4 / 7; 0 = none or an Orin without frame field 10),
+    // by its depth-ring distance, from the latest frame (2026-11-15: the
+    // second half's cycle starts there). The Mega asks for the field with
+    // MEGA_NEAR on every heartbeat; an older Orin ignores that.
+    static uint8_t getNearBottomId();
     static uint8_t getRingSectors();
     // Bumped once per target frame from the Orin (valid or not), so a
     // consumer can take each frame exactly once (Auto's distance filter).
@@ -87,6 +93,7 @@ private:
     static uint16_t seenMask;
     static int8_t ringPercent;
     static uint8_t litBonusId;
+    static uint8_t nearBottomId;
     static uint8_t ringSectors;
     static bool hasPacket;
     static bool sentReady;

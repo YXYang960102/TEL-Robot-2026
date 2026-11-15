@@ -185,10 +185,24 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
     // target hole in every frame (RcControlMap.h). A setting, not a motion:
     // accepted before Enable too and kept through release / E.
     const bool isBallColor = strncmp(line, "COL,", 4) == 0;
+    // HALF,<1|2> (2026-11-15): the match half, on CH9 (level 0 = second
+    // half). A setting like COL: before Enable too, kept through release.
+    const bool isHalf = strncmp(line, "HALF,", 5) == 0;
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isNoChannel && !isTarget &&
         !isAutoPath && !isModeSet && !isFlywheelOffset && !isSingle && !isTurretHome &&
-        !isTrimClear && !isCapture && !isBallColor) {
+        !isTrimClear && !isCapture && !isBallColor && !isHalf) {
         emitLine(emit, ctx, "$GROUND_EVENT,UNKNOWN_COMMAND");
+        return;
+    }
+    if (isHalf) {
+        char* end = nullptr;
+        const long n = strtol(line + 5, &end, 10);
+        if (end == line + 5 || *end != '\0' || (n != RCMAP_HALF_FIRST && n != RCMAP_HALF_SECOND)) {
+            emitLine(emit, ctx, "$GROUND_EVENT,BAD_COMMAND");
+            return;
+        }
+        if (enabled) notePcLine(nowMs, emit, ctx);
+        cmd.half = static_cast<uint8_t>(n);
         return;
     }
     if (isBallColor) {
