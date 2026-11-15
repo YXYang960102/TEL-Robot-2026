@@ -262,6 +262,7 @@ void Auto::skipHolesWithoutTable() {
 // finishHoleSwitch() moves on (updateRowCycle).
 void Auto::countRowShot() {
     using namespace TuningConstants::Auto;
+    notFoundSinceMs = millis(); // a shot: the hole is making progress
     if (litActive) {
         if (++litShots >= SHOTS_PER_HOLE) {
             holeSwitchPending = true;
@@ -282,12 +283,13 @@ void Auto::countRowShot() {
     holeSwitchStartMs = millis();
 }
 
-// The cycle's hole (or the lit box) not seen for HOLE_NOT_FOUND_SKIP_MS:
-// on to the next one (2026-11-15). Seen = a valid frame of that hole (the
-// Orin only reports the hole the Mega selected); the clock starts when it
-// becomes the aim and restarts on every sighting, while an auto path
-// drives and during the after-shot wait. Example: 9 aimed at 12.0 s, never
-// in view -> at 18.0 s the cycle moves on to 6.
+// The cycle's hole (or the lit box) with no shot and no turret lock for
+// HOLE_NOT_FOUND_SKIP_MS: on to the next one (2026-11-15). Seeing it does
+// not count any more, only progress: the clock starts when it becomes the
+// aim and restarts on every lock (Shooter::isRotateReady) and every shot
+// (countRowShot), while an auto path drives and during the after-shot
+// wait. Example: 9 aimed at 12.0 s, in view but never locked -> at 19.0 s
+// the cycle moves on to 6.
 void Auto::skipHoleNotFound(unsigned long now) {
     using namespace TuningConstants::Auto;
     const bool cycling = litActive || (rowActive && !rowDone);
@@ -296,9 +298,7 @@ void Auto::skipHoleNotFound(unsigned long now) {
         notFoundAim = aim;
         notFoundSinceMs = now;
     }
-    const bool seen = Vision::isValid() &&
-        Vision::getTargetId() == OperatorTarget::visionIdForHole(aim);
-    if (aim == 0 || seen || holeSwitchPending || AutoPath::isActive()) {
+    if (aim == 0 || Shooter::isRotateReady() || holeSwitchPending || AutoPath::isActive()) {
         notFoundSinceMs = now;
         return;
     }

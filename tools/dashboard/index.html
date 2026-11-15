@@ -1007,6 +1007,9 @@
     const MATCH_MS = 3 * 60 * 1000;
     let matchStarted = false;
     let matchEndsAt = 0; // performance.now() deadline; 0 = never started
+    // Disable stops the countdown (2026-11-15): what was left, shown until
+    // the next Y starts 3:00 again; null = not stopped.
+    let matchStoppedLeft = null;
     let operatorMode = 2; // MODE_FULL_MANUAL
     let enablePending = false;
     let enablePendingSince = 0;
@@ -1081,7 +1084,11 @@
         tankLeft = 0; tankRight = 0; rotateAxis = 0; angleAxis = 0;
         dpadRotate = 0; dpadAngle = 0;
         gamepadDrive = null;
-        // A new Enable waits for Y again (the countdown itself runs on).
+        // A new Enable waits for Y again. The countdown stops here (2026-11-15,
+        // Jeremy): the time left stays shown, the next Y starts 3:00 again.
+        if (matchEndsAt !== 0 && matchStoppedLeft === null) {
+          matchStoppedLeft = Math.max(0, matchEndsAt - performance.now());
+        }
         matchStarted = false;
         flywheelOffsetPct = 0;
         setFlywheelSlider(0);
@@ -1109,6 +1116,7 @@
       if (!controlArmed || matchStarted) return;
       matchStarted = true;
       matchEndsAt = performance.now() + MATCH_MS;
+      matchStoppedLeft = null; // a fresh 3:00
       // Ball counts start over with each match. The ball already waiting at
       // the shooting position (the tower preloads before Y) counts as the
       // match's first loaded ball.
@@ -1140,14 +1148,15 @@
     }
 
     function renderMatchTimer() {
-      const left = matchEndsAt === 0 ? MATCH_MS : Math.max(0, matchEndsAt - performance.now());
+      const left = matchStoppedLeft !== null ? matchStoppedLeft
+                 : matchEndsAt === 0 ? MATCH_MS : Math.max(0, matchEndsAt - performance.now());
       const seconds = Math.ceil(left / 1000);
       el.matchTimer.textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
       el.matchTimer.classList.toggle("done", matchEndsAt !== 0 && left === 0);
       el.matchState.textContent = matchStarted
         ? (left === 0 ? "time up / 時間到" : "running / 比賽中")
         : controlArmed ? "enabled — press Y / 已啟用，按 Y 開始（機器人不會動）"
-                       : matchEndsAt !== 0 && left > 0 ? "running, disabled / 倒數中（未啟用）"
+                       : matchStoppedLeft !== null ? "stopped (disabled) / 已停止計時（Disable），按 Y 重新計時"
                                                        : "Enable 後按 Y 開始；開始前機器人不會動";
     }
 

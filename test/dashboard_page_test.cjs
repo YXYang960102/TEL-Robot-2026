@@ -266,9 +266,10 @@ async function emergencyStopViaEnter() {
   assert.equal(armed(), false);
   assert.equal(elements.flywheelSlider.value, '0');
   assert.equal(run('flywheelRatio'), 0);
-  // Disarm ends the match for this Enable (the countdown itself runs on).
+  // Disarm ends the match for this Enable and stops the countdown
+  // (2026-11-15): the time left stays shown.
   assert.equal(run('matchStarted'), false);
-  assert.match(elements.matchState.textContent, /倒數中/);
+  assert.match(elements.matchState.textContent, /已停止計時/);
 
   // Disarmed: heartbeat sends nothing, slider input is ignored.
   writes.length = 0;
@@ -283,9 +284,10 @@ async function emergencyStopViaEnter() {
   assert.equal(run('matchStarted'), false);
   await run('sendHeartbeat()');
   assert.equal(last(), 'K');
+  const stoppedText = elements.matchTimer.textContent;
   clock.t = 400000;
   run('renderMatchTimer()');
-  assert.equal(elements.matchTimer.textContent, '0:00');   // the old one ran out
+  assert.equal(elements.matchTimer.textContent, stoppedText);   // stopped: frozen
   assert.match(html, /#matchTimer\.done/);
   await start();
   assert.equal(elements.matchTimer.textContent, '3:00');

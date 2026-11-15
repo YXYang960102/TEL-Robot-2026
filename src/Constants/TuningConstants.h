@@ -304,12 +304,13 @@ constexpr uint8_t SHOTS_PER_HOLE = 3;
 // turret while that ball was still on its way). A mode change, a hole
 // choice or a disarm drops the wait.
 constexpr unsigned long HOLE_SWITCH_DELAY_MS = 2000;
-// Full auto (2026-11-15, Jeremy: 5-7 s): the cycle's hole (or the lit box)
-// not seen -- no valid frame of it; a predicted position doesn't count --
-// for this long since it became the aim or was last seen: skip it, on to
-// the next hole (a lit box counts as served). Not while an auto path
-// drives or during the HOLE_SWITCH_DELAY_MS wait. 0 = never skip.
-constexpr unsigned long HOLE_NOT_FOUND_SKIP_MS = 6000;
+// Full auto (2026-11-15, Jeremy): the cycle's hole (or the lit box) with
+// neither a shot nor a turret lock (Shooter::isRotateReady) for this long
+// -- seen or not -- since it became the aim, its last shot or its last
+// lock: skip it, on to the next hole (a lit box counts as served). Not
+// while an auto path drives or during the HOLE_SWITCH_DELAY_MS wait.
+// 0 = never skip. (6 s "not seen" earlier the same day.)
+constexpr unsigned long HOLE_NOT_FOUND_SKIP_MS = 7000;
 // Holes full auto never fires at (bit n = Dashboard hole n). The cycle
 // leaves them out; an excluded hole the Orin picks is swapped for the
 // nearest allowed one in its column. Semi-auto is not affected. 0 = none

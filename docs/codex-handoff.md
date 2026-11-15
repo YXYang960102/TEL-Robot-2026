@@ -8510,3 +8510,44 @@ hardware.
 **Note:** src/Constants/ShotTableData.h had a stray local edit (a comment
 "// red" -> "//  ") not made by Claude; left as is (apply.py regenerates
 the file anyway).
+
+## 2026-11-15 — Dashboard: Disable stops the match countdown, Y restarts 3:00
+
+**User Request (Jeremy):** disable stops the timer; pressing Y again
+restarts it.
+
+**Changed (tools/dashboard/index.html):** `matchStoppedLeft`: every disarm
+(Space / Enter / X, firmware disarm events, ground release -- all go
+through setControlArmed(false)) freezes the time left; renderMatchTimer
+shows it, state text "已停止計時（Disable），按 Y 重新計時". startMatch
+(Y) clears it and starts a fresh 3:00. Before: the countdown ran on after
+a disable. dashboard_page_test expectations updated (frozen time).
+
+**Evidence:** dashboard_page_test, dashboard_control_test pass. Browser
+only: reload the page; no firmware change.
+
+## 2026-11-15 — Skip rule: 7 s with no shot and no lock; Jeremy's emergency table edits -> Excel, all colors
+
+**User Request (Jeremy):** change the skip: whether the hole is seen or
+not, 7 s without a shot or a lock -> next hole. He had edited
+ShotTableData.h by hand during the event (orange holes 4 and 11 -- those
+are the good values); export them to the Excel, for every color.
+
+**Changed:**
+- `HOLE_NOT_FOUND_SKIP_MS` 6000 -> 7000; `skipHoleNotFound`: the clock
+  restarts on aim change, every `Shooter::isRotateReady()` loop and every
+  shot (`countRowShot`), held during an auto path / after-shot wait; a
+  valid sighting alone no longer restarts it.
+- shot_table.xlsx (backup backup/shot_table_20261115_145940.xlsx): every
+  color's hole 4 and hole 11 = Jeremy's orange values from the edited
+  header -- hole 4: 2.72/3.18/3.53 m 40 %, 4.02/4.49 38 %, 5.00/5.45 40 %,
+  5.95 39 % (elevations unchanged); hole 11 (bonus W; Q / E borrow it):
+  4.06 39 % 1938 us, 4.51 39 % 1954, 4.74 39 % 1807, 5.40 40 % 1665,
+  6.03 41 % 1504 (4.93 / 5.57 m replaced by 4.74 / 5.40). Holes 5 / 6 keep
+  each color's values (blue / yellow 4.3-5 m tweaks). ShotTableData.h
+  regenerated (also restores the "// red" comment).
+
+**Evidence:** header orange == his edit; all colors' 4 / 11 == orange;
+pio megaatmega2560 SUCCESS; manual_control_test (3), shot_table_lookup_test
+pass; sim: seen but never locked -> 5 -> 8 at 7.00 s -> 7 at 14.01 s;
+locked -> no timeout skip (moves on only by shots). No hardware.
