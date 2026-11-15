@@ -8483,3 +8483,26 @@ stop unchanged. README.
 
 **Next Test:** tower full (MB stopped): MD forward visibly slower, no jam;
 tower refilling (MB running): forward as before.
+
+## 2026-11-15 — Full auto skips a hole not seen for 6 s
+
+**User Request (Jeremy):** in full auto, when the locked hole can't be
+found for 5-7 s, go straight to the next one.
+
+**Changed:** `TuningConstants::Auto::HOLE_NOT_FOUND_SKIP_MS` 6000 (0 =
+never). `Auto::skipHoleNotFound` (from updateRowCycle, full auto only):
+the clock runs for the current aim (cycle hole or lit box) from when it
+became the aim; any valid frame of that hole (Vision::isValid with its id;
+a predicted position doesn't count; a depth-filled hole does) restarts it;
+held while an auto path drives and during the HOLE_SWITCH_DELAY_MS wait.
+Expired: cycle -> rowShots 0, rowStep++, skipHolesWithoutTable (done after
+the last); lit box -> served, back to the cycle.
+
+**Evidence:** pio megaatmega2560 SUCCESS; manual_control_test 3 variants
+pass; scratch sim (harness, full auto from 5, never seen): 5 -> 8 at 6.00
+s, -> 7 at 12.01 s, -> 9 at 18.02 s; seen again for 8 s -> stays. No
+hardware.
+
+**Note:** src/Constants/ShotTableData.h had a stray local edit (a comment
+"// red" -> "//  ") not made by Claude; left as is (apply.py regenerates
+the file anyway).

@@ -37,6 +37,8 @@ uint8_t Auto::litHole = 0;
 uint8_t Auto::litShots = 0;
 uint8_t Auto::litServedMask = 0;
 bool Auto::holeSwitchPending = false;
+uint8_t Auto::notFoundAim = 0;
+unsigned long Auto::notFoundSinceMs = 0;
 bool Auto::holeSwitchFromLit = false;
 unsigned long Auto::holeSwitchStartMs = 0;
 unsigned long Auto::litLastSeenMs[4] = {0, 0, 0, 0};
@@ -183,12 +185,14 @@ void Auto::updateRowCycle(OperatorMode mode) {
         rowActive = false;
         rowDone = false;
         litActive = false;
+        notFoundAim = 0;
         return;
     }
     // The last ball at a hole went out HOLE_SWITCH_DELAY_MS ago: move on now.
     if (holeSwitchPending && now - holeSwitchStartMs >= HOLE_SWITCH_DELAY_MS) {
         finishHoleSwitch();
     }
+    skipHoleNotFound(now);
     if (LIT_BONUS_PRIORITY && !holeSwitchPending && !litActive && litId >= 1 && litId <= 3 &&
         !(litServedMask & (1u << litId))) {
         const uint8_t hole = OperatorTarget::holeForVisionId(litId);
@@ -276,6 +280,38 @@ void Auto::countRowShot() {
     holeSwitchPending = true;
     holeSwitchFromLit = false;
     holeSwitchStartMs = millis();
+}
+
+// The cycle's hole (or the lit box) not seen for HOLE_NOT_FOUND_SKIP_MS:
+// on to the next one (2026-11-15). Seen = a valid frame of that hole (the
+// Orin only reports the hole the Mega selected); the clock starts when it
+// becomes the aim and restarts on every sighting, while an auto path
+// drives and during the after-shot wait. Example: 9 aimed at 12.0 s, never
+// in view -> at 18.0 s the cycle moves on to 6.
+void Auto::skipHoleNotFound(unsigned long now) {
+    using namespace TuningConstants::Auto;
+    const bool cycling = litActive || (rowActive && !rowDone);
+    const uint8_t aim = cycling ? getAimTarget() : 0;
+    if (aim != notFoundAim) {
+        notFoundAim = aim;
+        notFoundSinceMs = now;
+    }
+    const bool seen = Vision::isValid() &&
+        Vision::getTargetId() == OperatorTarget::visionIdForHole(aim);
+    if (aim == 0 || seen || holeSwitchPending || AutoPath::isActive()) {
+        notFoundSinceMs = now;
+        return;
+    }
+    if (HOLE_NOT_FOUND_SKIP_MS == 0 || now - notFoundSinceMs < HOLE_NOT_FOUND_SKIP_MS) return;
+    if (litActive) {
+        litActive = false; // the lit box: served, back to the cycle
+        litServedMask = static_cast<uint8_t>(litServedMask | (1u << OperatorTarget::visionIdForHole(litHole)));
+    } else {
+        rowShots = 0;
+        rowStep++;
+        skipHolesWithoutTable(); // or done after the last
+    }
+    notFoundAim = 0; // the next aim starts its own clock
 }
 
 void Auto::finishHoleSwitch() {
