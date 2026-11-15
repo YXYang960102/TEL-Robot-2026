@@ -193,7 +193,7 @@ async function emergencyStopViaEnter() {
   clock.t = 1000;
   await press(XB.Y);
   assert.equal(run('matchStarted'), true);
-  assert.deepEqual([...writes], ['COL,0']);              // manual + None: only the ball color (2026-11-15)
+  assert.deepEqual([...writes], ['COL,0', 'HALF,1']);    // manual + None: only the ball color and half (2026-11-15)
   assert.equal(elements.matchTimer.textContent, '3:00');
   assert.match(elements.matchState.textContent, /比賽中/);
   assert.equal(elements.startMatch.disabled, true);
@@ -463,9 +463,9 @@ async function emergencyStopViaEnter() {
   line('$WIRELESS,1,1,2,1,0,1,1,60');
   assert.equal(armed(), true);
   await new Promise((r) => setImmediate(r));
-  assert.deepEqual([...writes], ['E', 'COL,0']);   // Enabled: only the ball color until Y (2026-11-15)
+  assert.deepEqual([...writes], ['E', 'COL,0', 'HALF,1']);   // Enabled: only the ball color and half until Y
   await press(XB.Y);
-  assert.deepEqual([...writes], ['E', 'COL,0', 'MODE,1', 'COL,0', 'AUTO,3']);
+  assert.deepEqual([...writes], ['E', 'COL,0', 'HALF,1', 'MODE,1', 'COL,0', 'HALF,1', 'AUTO,3']);
   assert.match(elements.controlOwner.textContent, /wireless/);
   // The robot reports the mode: the menu follows it while enabled.
   line('$WIRELESS,1,1,2,1,0,1,1,60,1');

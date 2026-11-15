@@ -29,6 +29,7 @@ int flywheelPulseUs = 1490;
 bool turretZeroOk = true;
 uint8_t turretState = 4; // TurretGuard::READY
 uint8_t litBonusId = 0;
+uint8_t nearBottomId = 0; // vision id 10-12, 0 = none (2026-11-15)
 bool shooterReady = false;
 }
 
@@ -98,6 +99,7 @@ bool Vision::isPredicted() { return false; }
 uint16_t Vision::getSeenMask() { return 0; }
 int8_t Vision::getRingPercent() { return -1; }
 uint8_t Vision::getLitBonusId() { return hoststub::litBonusId; }
+uint8_t Vision::getNearBottomId() { return hoststub::nearBottomId; }
 uint8_t Vision::getRingSectors() { return 0; }
 // AimUplink's seen frame carries the turret angle (2026-10-28).
 double TurretAngle::angleDegrees() { return 0.0; }

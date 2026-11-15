@@ -8551,3 +8551,46 @@ are the good values); export them to the Excel, for every color.
 pio megaatmega2560 SUCCESS; manual_control_test (3), shot_table_lookup_test
 pass; sim: seen but never locked -> 5 -> 8 at 7.00 s -> 7 at 14.01 s;
 locked -> no timeout skip (moves on only by shots). No hardware.
+
+## 2026-11-15 — First / second half: the second half 2 shots a hole, bottom-up snake from the nearest bottom hole
+
+**User Request (Jeremy):** a Dashboard menu 上半場 / 下半場. First half =
+today's algorithm (3 a hole). Second half: 2 a hole (lit box too), a
+bottom-up snake, first the nearest target -- chosen: the bottom-row hole
+with the shortest camera distance.
+
+**Changed / Added:**
+- Radio: CH9 level 0 = normal in the SECOND half (2 = first; 1 / 3 / 4 / 5
+  keep the half), `rcmap_command::half` (RCMAP_HALF_KEEP / FIRST /
+  SECOND); no link version change (an older robot reads 0 as normal).
+  Events HALF_FIRST / HALF_SECOND.
+- Mega: `ManualControl::isSecondHalf()` (first at boot), wired `HALF,<1|2>`,
+  CH9. `SECOND_HALF_SHOTS_PER_HOLE` 2 via `shotsPerHole()` (cycle and lit
+  box). `OperatorTarget::buildBottomUpCycle`: start row first (the start,
+  then the row nearest it, a tie left), rows above entered at the last
+  column and swept, rows below last, then the bonus row (skipped by
+  CYCLE_SKIPS_BONUS_ROW). From 1: 1 4 7, 8 5 2, 3 6 9; from 7: 7 4 1, 2 5 8,
+  9 6 3; from 4: 4 1 7, 8 5 2, 3 6 9. Second half with no hole chosen: the
+  cycle starts at once at `Vision::getNearBottomId()` (else the bottom hole
+  under the Orin's pick); a half change restarts the cycle.
+- Mega <-> Orin: the Mega sends `MEGA_NEAR,3,1` with every heartbeat; the
+  Mega accepts a 10th frame field near_bottom (0 or 10-12; anything else
+  rejects the frame). YOLO_Detect_single: serial_tx adds the field only
+  after MEGA_NEAR (so an older Mega never gets 10 fields);
+  `nearest_bottom_hole` = the reliable bottom-row hole (ids 10-12, YOLO or
+  depth-filled) with the shortest ring distance (no smoothing state).
+- Ground: `HALF,<1|2>` any time (kept through release), CH9 level 0.
+- Dashboard: Match Setup 半場 menu; HALF sent with COL on the Enable
+  confirmation, on change while enabled, and at Y; HALF_* events logged.
+
+**Evidence:** pio megaatmega2560 / vision_rotate / drive / wired_manual /
+elrs_link and blackpill_f401cc SUCCESS; rc_control_map, ground host,
+manual_control (3), gamepad, vision_link, operator_target,
+dashboard_page / control tests pass; sim: HALF,2 + near 11 -> 4 1 7 8 5 2
+3 6 9, 18 balls; Mega parses field 10 (11 ok, 9 rejected) and sends
+MEGA_NEAR; Orin: 9 fields until MEGA_NEAR, then 10; nearest-bottom pick
+correct; YOLO unittest 74 OK. No hardware.
+
+**Next Test:** flash Mega + ground, pull YOLO on the Orin, reload the
+Dashboard: 下半場 -> log "半場：Mega 現在是下半場"; full auto starts at the
+nearest bottom hole, 2 balls each, rows bottom to top.

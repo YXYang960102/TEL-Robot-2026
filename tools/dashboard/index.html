@@ -768,6 +768,12 @@
               <option value="4">右二 right 2</option>
             </select>
           </label>
+          <label class="label">半場 / half
+            <select id="halfSelect" aria-label="Match half">
+              <option value="1" selected>上半場 first half（每洞 3 顆）</option>
+              <option value="2">下半場 second half（每洞 2 顆，下排最近的洞開始，由下往上）</option>
+            </select>
+          </label>
           <label class="label">球色 / ball color
             <select id="ballColorSelect" aria-label="Ball color">
               <option value="0" selected>黃 yellow</option>
@@ -914,6 +920,10 @@
     // Ball color (2026-11-15): which shot table the Mega uses (COL,<n>,
     // RCMAP_BALL_* order); the shot log records it too.
     const ballColorSelect = document.getElementById("ballColorSelect");
+    // Match half (2026-11-15): HALF,<1|2>; sent like the ball color.
+    const halfSelect = document.getElementById("halfSelect");
+    const halfValue = () => (Number(halfSelect.value) === 2 ? 2 : 1);
+    const HALF_EVENTS = { HALF_FIRST: "上半場（每洞 3 顆）", HALF_SECOND: "下半場（每洞 2 顆，由下往上）" };
     const BALL_COLORS = ["黃", "紫", "藍", "綠", "紅", "橘"];
     const BALL_EVENTS = { BALL_YELLOW: 0, BALL_PURPLE: 1, BALL_BLUE: 2, BALL_GREEN: 3, BALL_RED: 4, BALL_ORANGE: 5 };
     const autoPathSelect = document.getElementById("autoPathSelect");
@@ -1104,8 +1114,10 @@
           autoPathThisEnable = 0;
           renderTargetAndAuto();
         }
-        // The ball color right away, in every mode (test mode records with it).
+        // The ball color and the half right away, in every mode (test mode
+        // records with the color).
         void sendControl(`COL,${Number(ballColorSelect.value)}`);
+        void sendControl(`HALF,${halfValue()}`);
       }
     }
 
@@ -1132,6 +1144,7 @@
       const mode = Number(startModeSelect.value);
       if (mode in MODE_NAMES && mode !== MODE_FULL_MANUAL) await sendControl(`MODE,${mode}`);
       await sendControl(`COL,${Number(ballColorSelect.value)}`);
+      await sendControl(`HALF,${halfValue()}`);
       const path = Number(autoPathSelect.value);
       if (path >= 1 && path <= 4) {
         sentAutoPath = path;
@@ -2469,6 +2482,9 @@
           el.captureState.textContent = eventName === "CAPTURE_ON" ? "拍照中 ON" : "關閉 OFF";
           el.captureState.style.color = eventName === "CAPTURE_ON" ? "#e25b5b" : "";
         }
+        if (eventName in HALF_EVENTS) {
+          appendControlLog(`半場：Mega 現在是${HALF_EVENTS[eventName]}`);
+        }
         if (eventName in BALL_EVENTS) {
           appendControlLog(`球色：Mega 現在用「${BALL_COLORS[BALL_EVENTS[eventName]]}」球的射擊表`);
         }
@@ -3011,6 +3027,11 @@
 
     // A ball color change goes out at once while enabled (any mode); before
     // Enable it is sent with the Enable confirmation.
+    halfSelect.addEventListener("change", async () => {
+      halfSelect.blur();
+      if (controlArmed) await sendControl(`HALF,${halfValue()}`);
+    });
+
     ballColorSelect.addEventListener("change", async () => {
       ballColorSelect.blur();
       if (controlArmed) await sendControl(`COL,${Number(ballColorSelect.value)}`);

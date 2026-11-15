@@ -298,6 +298,12 @@ constexpr double ELEVATION_READY_TOLERANCE_US = 10.0;
 // the mode changes. Counts trigger pulses sent to the tower, one ball each.
 constexpr bool ROW_CYCLE_ENABLED = true;
 constexpr uint8_t SHOTS_PER_HOLE = 3;
+// The second half (2026-11-15, Dashboard 半場 menu / HALF,2 / CH9 level 0):
+// this many balls a hole (the lit box too), and the cycle bottom-up
+// (OperatorTarget::buildBottomUpCycle) from the nearest bottom-row hole the
+// Orin sees (Vision::getNearBottomId); none seen -> the bottom hole under
+// the Orin's pick. The first half: SHOTS_PER_HOLE and buildCycle, as before.
+constexpr uint8_t SECOND_HALF_SHOTS_PER_HOLE = 2;
 // After the last of the SHOTS_PER_HOLE balls (also at a lit bonus hole)
 // the aim stays on that hole this long, with no shot, before the next one
 // (Jeremy, 2026-11-14: moving on right at the third fire signal turned the
