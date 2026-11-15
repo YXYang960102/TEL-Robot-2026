@@ -17,7 +17,7 @@
 // No hole selected = the Orin's own pick. Full auto cycle (2026-10-31,
 // TuningConstants::Auto::ROW_CYCLE_ENABLED): 3 balls at a hole, then the
 // next in OperatorTarget::buildCycle order (never two columns in one
-// move; from 5: 5, 8 7 9, 6 4, 1 2 3, Q W E), skipping
+// move; from 5: 5, 8 7 9, 6 4, 1 2 3; Q W E only when lit), skipping
 // holes without a shot table, then stop -- starting from the chosen hole,
 // or from the first hole shot at when the Orin picks. A lit bonus hole
 // (Vision::getLitBonusId) is served first, 3 balls (LIT_BONUS_PRIORITY).

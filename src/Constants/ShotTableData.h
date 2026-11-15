@@ -2,10 +2,12 @@
 // DO NOT EDIT BY HAND: change the Excel and run
 //   python3 tools/shot_table/apply.py --upload
 //
-// One table per Dashboard hole (keys 1-9; 10-12 = bonus Q W E): camera distance (cm) -> Falcon
-// command (per mille) and elevation pulse (us), ascending by distance.
-// A hole with no points uses its row's center hole (TuningConstants::
-// ShotTable::tableForVisionId). Integers keep it small in the Mega's RAM.
+// One table per ball color (2026-11-15; sheets 射擊表-黃 ... 射擊表-橘, in
+// RCMAP_BALL_* order) and Dashboard hole (keys 1-9; 10-12 = bonus Q W E):
+// camera distance (cm) -> Falcon command (per mille) and elevation pulse
+// (us), ascending by distance. A hole with no points uses its row's center
+// hole (TuningConstants::ShotTable::tableForVisionId); a color with no
+// points at all uses yellow's. Integers keep it small in the Mega's RAM.
 #pragma once
 
 #include <stdint.h>
@@ -18,20 +20,55 @@ struct Point {
     uint16_t elevationUs;
 };
 
-// Hole 1: no points (uses hole 4).
-// Hole 2: no points (uses hole 5).
-// Hole 3: no points (uses hole 6).
-constexpr Point HOLE_4[] = {
-    {272, 400, 664},  // 2.72 m, 40.0%, 664 us
-    {318, 400, 541},  // 3.18 m, 40.0%, 541 us
-    {353, 400, 500},  // 3.53 m, 40.0%, 500 us
-    {402, 380, 500},  // 4.02 m, 38.0%, 500 us
+constexpr uint8_t COLOR_COUNT = 6;
+
+constexpr Point C0_HOLE_4[] = {  // yellow
+    {272, 410, 664},  // 2.72 m, 41.0%, 664 us
+    {318, 410, 541},  // 3.18 m, 41.0%, 541 us
+    {353, 410, 500},  // 3.53 m, 41.0%, 500 us
+    {402, 390, 500},  // 4.02 m, 39.0%, 500 us
     {449, 380, 500},  // 4.49 m, 38.0%, 500 us
     {500, 390, 600},  // 5.00 m, 39.0%, 600 us
-    {545, 380, 656},  // 5.45 m, 38.0%, 656 us
-    {595, 380, 646},  // 5.95 m, 38.0%, 646 us
+    {545, 390, 656},  // 5.45 m, 39.0%, 656 us
+    {595, 390, 646},  // 5.95 m, 39.0%, 646 us
 };
-constexpr Point HOLE_5[] = {
+constexpr Point C0_HOLE_5[] = {  // yellow
+    {277, 500, 636},  // 2.77 m, 50.0%, 636 us
+    {362, 500, 500},  // 3.62 m, 50.0%, 500 us
+    {398, 500, 500},  // 3.98 m, 50.0%, 500 us
+    {447, 480, 500},  // 4.47 m, 48.0%, 500 us
+    {500, 480, 514},  // 5.00 m, 48.0%, 514 us
+    {546, 480, 602},  // 5.46 m, 48.0%, 602 us
+    {597, 510, 500},  // 5.97 m, 51.0%, 500 us
+};
+constexpr Point C0_HOLE_6[] = {  // yellow
+    {329, 500, 1791},  // 3.29 m, 50.0%, 1791 us
+    {351, 500, 1791},  // 3.51 m, 50.0%, 1791 us
+    {403, 520, 1085},  // 4.03 m, 52.0%, 1085 us
+    {452, 510, 1213},  // 4.52 m, 51.0%, 1213 us
+    {496, 510, 740},  // 4.96 m, 51.0%, 740 us
+    {539, 530, 711},  // 5.39 m, 53.0%, 711 us
+    {614, 540, 702},  // 6.14 m, 54.0%, 702 us
+};
+constexpr Point C0_HOLE_11[] = {  // yellow
+    {406, 550, 1938},  // 4.06 m, 55.0%, 1938 us
+    {451, 550, 1954},  // 4.51 m, 55.0%, 1954 us
+    {493, 560, 2008},  // 4.93 m, 56.0%, 2008 us
+    {557, 580, 1716},  // 5.57 m, 58.0%, 1716 us
+    {603, 590, 1504},  // 6.03 m, 59.0%, 1504 us
+};
+
+constexpr Point C1_HOLE_4[] = {  // purple
+    {272, 410, 664},  // 2.72 m, 41.0%, 664 us
+    {318, 410, 541},  // 3.18 m, 41.0%, 541 us
+    {353, 410, 500},  // 3.53 m, 41.0%, 500 us
+    {402, 390, 500},  // 4.02 m, 39.0%, 500 us
+    {449, 390, 500},  // 4.49 m, 39.0%, 500 us
+    {500, 400, 600},  // 5.00 m, 40.0%, 600 us
+    {545, 390, 656},  // 5.45 m, 39.0%, 656 us
+    {595, 390, 646},  // 5.95 m, 39.0%, 646 us
+};
+constexpr Point C1_HOLE_5[] = {  // purple
     {277, 500, 636},  // 2.77 m, 50.0%, 636 us
     {362, 500, 500},  // 3.62 m, 50.0%, 500 us
     {398, 500, 500},  // 3.98 m, 50.0%, 500 us
@@ -40,7 +77,7 @@ constexpr Point HOLE_5[] = {
     {546, 480, 602},  // 5.46 m, 48.0%, 602 us
     {597, 510, 500},  // 5.97 m, 51.0%, 500 us
 };
-constexpr Point HOLE_6[] = {
+constexpr Point C1_HOLE_6[] = {  // purple
     {329, 500, 1791},  // 3.29 m, 50.0%, 1791 us
     {351, 500, 1791},  // 3.51 m, 50.0%, 1791 us
     {403, 520, 1085},  // 4.03 m, 52.0%, 1085 us
@@ -49,35 +86,174 @@ constexpr Point HOLE_6[] = {
     {539, 530, 711},  // 5.39 m, 53.0%, 711 us
     {614, 540, 702},  // 6.14 m, 54.0%, 702 us
 };
-// Hole 7: no points (uses hole 4).
-// Hole 8: no points (uses hole 5).
-// Hole 9: no points (uses hole 6).
-// Hole 10 (bonus): no points (uses hole 11).
-constexpr Point HOLE_11[] = {
+constexpr Point C1_HOLE_11[] = {  // purple
     {406, 550, 1938},  // 4.06 m, 55.0%, 1938 us
     {451, 560, 1954},  // 4.51 m, 56.0%, 1954 us
     {493, 570, 2008},  // 4.93 m, 57.0%, 2008 us
     {557, 580, 1716},  // 5.57 m, 58.0%, 1716 us
     {603, 590, 1504},  // 6.03 m, 59.0%, 1504 us
 };
-// Hole 12 (bonus): no points (uses hole 11).
 
-// Index = Dashboard hole key (0 unused).
-constexpr const Point* HOLE_POINTS[13] = {
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    HOLE_4,
-    HOLE_5,
-    HOLE_6,
-    nullptr,
-    nullptr,
-    nullptr,
-    nullptr,
-    HOLE_11,
-    nullptr,
+constexpr Point C2_HOLE_4[] = {  // blue
+    {272, 410, 664},  // 2.72 m, 41.0%, 664 us
+    {318, 410, 541},  // 3.18 m, 41.0%, 541 us
+    {353, 410, 500},  // 3.53 m, 41.0%, 500 us
+    {402, 390, 500},  // 4.02 m, 39.0%, 500 us
+    {449, 400, 500},  // 4.49 m, 40.0%, 500 us
+    {500, 410, 600},  // 5.00 m, 41.0%, 600 us
+    {545, 390, 656},  // 5.45 m, 39.0%, 656 us
+    {595, 390, 646},  // 5.95 m, 39.0%, 646 us
 };
-constexpr uint8_t HOLE_COUNTS[13] = {0, 0, 0, 0, 8, 7, 7, 0, 0, 0, 0, 5, 0};
+constexpr Point C2_HOLE_5[] = {  // blue
+    {277, 500, 636},  // 2.77 m, 50.0%, 636 us
+    {362, 500, 500},  // 3.62 m, 50.0%, 500 us
+    {398, 500, 500},  // 3.98 m, 50.0%, 500 us
+    {447, 500, 500},  // 4.47 m, 50.0%, 500 us
+    {500, 500, 514},  // 5.00 m, 50.0%, 514 us
+    {546, 480, 602},  // 5.46 m, 48.0%, 602 us
+    {597, 510, 500},  // 5.97 m, 51.0%, 500 us
+};
+constexpr Point C2_HOLE_6[] = {  // blue
+    {329, 500, 1791},  // 3.29 m, 50.0%, 1791 us
+    {351, 500, 1791},  // 3.51 m, 50.0%, 1791 us
+    {403, 520, 1085},  // 4.03 m, 52.0%, 1085 us
+    {452, 530, 1213},  // 4.52 m, 53.0%, 1213 us
+    {496, 530, 740},  // 4.96 m, 53.0%, 740 us
+    {539, 530, 711},  // 5.39 m, 53.0%, 711 us
+    {614, 540, 702},  // 6.14 m, 54.0%, 702 us
+};
+constexpr Point C2_HOLE_11[] = {  // blue
+    {406, 550, 1938},  // 4.06 m, 55.0%, 1938 us
+    {451, 570, 1954},  // 4.51 m, 57.0%, 1954 us
+    {493, 580, 2008},  // 4.93 m, 58.0%, 2008 us
+    {557, 580, 1716},  // 5.57 m, 58.0%, 1716 us
+    {603, 590, 1504},  // 6.03 m, 59.0%, 1504 us
+};
+
+constexpr Point C3_HOLE_4[] = {  // green
+    {272, 410, 664},  // 2.72 m, 41.0%, 664 us
+    {318, 410, 541},  // 3.18 m, 41.0%, 541 us
+    {353, 410, 500},  // 3.53 m, 41.0%, 500 us
+    {402, 390, 500},  // 4.02 m, 39.0%, 500 us
+    {449, 390, 500},  // 4.49 m, 39.0%, 500 us
+    {500, 400, 600},  // 5.00 m, 40.0%, 600 us
+    {545, 390, 656},  // 5.45 m, 39.0%, 656 us
+    {595, 390, 646},  // 5.95 m, 39.0%, 646 us
+};
+constexpr Point C3_HOLE_5[] = {  // green
+    {277, 500, 636},  // 2.77 m, 50.0%, 636 us
+    {362, 500, 500},  // 3.62 m, 50.0%, 500 us
+    {398, 500, 500},  // 3.98 m, 50.0%, 500 us
+    {447, 490, 500},  // 4.47 m, 49.0%, 500 us
+    {500, 490, 514},  // 5.00 m, 49.0%, 514 us
+    {546, 480, 602},  // 5.46 m, 48.0%, 602 us
+    {597, 510, 500},  // 5.97 m, 51.0%, 500 us
+};
+constexpr Point C3_HOLE_6[] = {  // green
+    {329, 500, 1791},  // 3.29 m, 50.0%, 1791 us
+    {351, 500, 1791},  // 3.51 m, 50.0%, 1791 us
+    {403, 520, 1085},  // 4.03 m, 52.0%, 1085 us
+    {452, 520, 1213},  // 4.52 m, 52.0%, 1213 us
+    {496, 520, 740},  // 4.96 m, 52.0%, 740 us
+    {539, 530, 711},  // 5.39 m, 53.0%, 711 us
+    {614, 540, 702},  // 6.14 m, 54.0%, 702 us
+};
+constexpr Point C3_HOLE_11[] = {  // green
+    {406, 550, 1938},  // 4.06 m, 55.0%, 1938 us
+    {451, 560, 1954},  // 4.51 m, 56.0%, 1954 us
+    {493, 570, 2008},  // 4.93 m, 57.0%, 2008 us
+    {557, 580, 1716},  // 5.57 m, 58.0%, 1716 us
+    {603, 590, 1504},  // 6.03 m, 59.0%, 1504 us
+};
+
+constexpr Point C4_HOLE_4[] = {  // red
+    {272, 410, 664},  // 2.72 m, 41.0%, 664 us
+    {318, 410, 541},  // 3.18 m, 41.0%, 541 us
+    {353, 410, 500},  // 3.53 m, 41.0%, 500 us
+    {402, 390, 500},  // 4.02 m, 39.0%, 500 us
+    {449, 390, 500},  // 4.49 m, 39.0%, 500 us
+    {500, 400, 600},  // 5.00 m, 40.0%, 600 us
+    {545, 390, 656},  // 5.45 m, 39.0%, 656 us
+    {595, 390, 646},  // 5.95 m, 39.0%, 646 us
+};
+constexpr Point C4_HOLE_5[] = {  // red
+    {277, 500, 636},  // 2.77 m, 50.0%, 636 us
+    {362, 500, 500},  // 3.62 m, 50.0%, 500 us
+    {398, 500, 500},  // 3.98 m, 50.0%, 500 us
+    {447, 490, 500},  // 4.47 m, 49.0%, 500 us
+    {500, 490, 514},  // 5.00 m, 49.0%, 514 us
+    {546, 480, 602},  // 5.46 m, 48.0%, 602 us
+    {597, 510, 500},  // 5.97 m, 51.0%, 500 us
+};
+constexpr Point C4_HOLE_6[] = {  // red
+    {329, 500, 1791},  // 3.29 m, 50.0%, 1791 us
+    {351, 500, 1791},  // 3.51 m, 50.0%, 1791 us
+    {403, 520, 1085},  // 4.03 m, 52.0%, 1085 us
+    {452, 520, 1213},  // 4.52 m, 52.0%, 1213 us
+    {496, 520, 740},  // 4.96 m, 52.0%, 740 us
+    {539, 530, 711},  // 5.39 m, 53.0%, 711 us
+    {614, 540, 702},  // 6.14 m, 54.0%, 702 us
+};
+constexpr Point C4_HOLE_11[] = {  // red
+    {406, 550, 1938},  // 4.06 m, 55.0%, 1938 us
+    {451, 560, 1954},  // 4.51 m, 56.0%, 1954 us
+    {493, 570, 2008},  // 4.93 m, 57.0%, 2008 us
+    {557, 580, 1716},  // 5.57 m, 58.0%, 1716 us
+    {603, 590, 1504},  // 6.03 m, 59.0%, 1504 us
+};
+
+constexpr Point C5_HOLE_4[] = {  // orange
+    {272, 410, 664},  // 2.72 m, 41.0%, 664 us
+    {318, 410, 541},  // 3.18 m, 41.0%, 541 us
+    {353, 410, 500},  // 3.53 m, 41.0%, 500 us
+    {402, 390, 500},  // 4.02 m, 39.0%, 500 us
+    {449, 390, 500},  // 4.49 m, 39.0%, 500 us
+    {500, 400, 600},  // 5.00 m, 40.0%, 600 us
+    {545, 390, 656},  // 5.45 m, 39.0%, 656 us
+    {595, 390, 646},  // 5.95 m, 39.0%, 646 us
+};
+constexpr Point C5_HOLE_5[] = {  // orange
+    {277, 500, 636},  // 2.77 m, 50.0%, 636 us
+    {362, 500, 500},  // 3.62 m, 50.0%, 500 us
+    {398, 500, 500},  // 3.98 m, 50.0%, 500 us
+    {447, 490, 500},  // 4.47 m, 49.0%, 500 us
+    {500, 490, 514},  // 5.00 m, 49.0%, 514 us
+    {546, 480, 602},  // 5.46 m, 48.0%, 602 us
+    {597, 510, 500},  // 5.97 m, 51.0%, 500 us
+};
+constexpr Point C5_HOLE_6[] = {  // orange
+    {329, 500, 1791},  // 3.29 m, 50.0%, 1791 us
+    {351, 500, 1791},  // 3.51 m, 50.0%, 1791 us
+    {403, 520, 1085},  // 4.03 m, 52.0%, 1085 us
+    {452, 520, 1213},  // 4.52 m, 52.0%, 1213 us
+    {496, 520, 740},  // 4.96 m, 52.0%, 740 us
+    {539, 530, 711},  // 5.39 m, 53.0%, 711 us
+    {614, 540, 702},  // 6.14 m, 54.0%, 702 us
+};
+constexpr Point C5_HOLE_11[] = {  // orange
+    {406, 550, 1938},  // 4.06 m, 55.0%, 1938 us
+    {451, 560, 1954},  // 4.51 m, 56.0%, 1954 us
+    {493, 570, 2008},  // 4.93 m, 57.0%, 2008 us
+    {557, 580, 1716},  // 5.57 m, 58.0%, 1716 us
+    {603, 590, 1504},  // 6.03 m, 59.0%, 1504 us
+};
+
+// [color][Dashboard hole key] (hole 0 unused).
+constexpr const Point* HOLE_POINTS[COLOR_COUNT][13] = {
+    {nullptr, nullptr, nullptr, nullptr, C0_HOLE_4, C0_HOLE_5, C0_HOLE_6, nullptr, nullptr, nullptr, nullptr, C0_HOLE_11, nullptr},  // yellow
+    {nullptr, nullptr, nullptr, nullptr, C1_HOLE_4, C1_HOLE_5, C1_HOLE_6, nullptr, nullptr, nullptr, nullptr, C1_HOLE_11, nullptr},  // purple
+    {nullptr, nullptr, nullptr, nullptr, C2_HOLE_4, C2_HOLE_5, C2_HOLE_6, nullptr, nullptr, nullptr, nullptr, C2_HOLE_11, nullptr},  // blue
+    {nullptr, nullptr, nullptr, nullptr, C3_HOLE_4, C3_HOLE_5, C3_HOLE_6, nullptr, nullptr, nullptr, nullptr, C3_HOLE_11, nullptr},  // green
+    {nullptr, nullptr, nullptr, nullptr, C4_HOLE_4, C4_HOLE_5, C4_HOLE_6, nullptr, nullptr, nullptr, nullptr, C4_HOLE_11, nullptr},  // red
+    {nullptr, nullptr, nullptr, nullptr, C5_HOLE_4, C5_HOLE_5, C5_HOLE_6, nullptr, nullptr, nullptr, nullptr, C5_HOLE_11, nullptr},  // orange
+};
+constexpr uint8_t HOLE_COUNTS[COLOR_COUNT][13] = {
+    {0, 0, 0, 0, 8, 7, 7, 0, 0, 0, 0, 5, 0},  // yellow
+    {0, 0, 0, 0, 8, 7, 7, 0, 0, 0, 0, 5, 0},  // purple
+    {0, 0, 0, 0, 8, 7, 7, 0, 0, 0, 0, 5, 0},  // blue
+    {0, 0, 0, 0, 8, 7, 7, 0, 0, 0, 0, 5, 0},  // green
+    {0, 0, 0, 0, 8, 7, 7, 0, 0, 0, 0, 5, 0},  // red
+    {0, 0, 0, 0, 8, 7, 7, 0, 0, 0, 0, 5, 0},  // orange
+};
 
 }  // namespace ShotTableData

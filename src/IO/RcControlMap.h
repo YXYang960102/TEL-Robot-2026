@@ -21,10 +21,15 @@
  *
  *   CH1  forward/back    1000..2000 us = -1..+1 (continuous)
  *   CH2  turn            1000..2000 us = -1..+1 (continuous; +1 = right)
- *   CH3  target hole     1000 + 80*k, k = 0..12 (0 = none, 1..9 = the
- *                        3x3 holes: 1 left-bottom .. 9 right-top,
+ *   CH3  target hole     1000 + 80*k + 10*b, k = 0..12 (0 = none, 1..9 =
+ *        + ball color    the 3x3 holes: 1 left-bottom .. 9 right-top,
  *                        10..12 = the bonus holes left / middle / right,
- *                        keys Q W E; 2026-10-27, was 100*k for 0..9)
+ *                        keys Q W E; 2026-10-27, was 100*k for 0..9),
+ *                        b = 0..5 the ball color (2026-11-15, link
+ *                        version 0): yellow purple blue green red orange,
+ *                        the shot table the Mega uses. Decoded within
+ *                        +-4 us of a level (CH3 is full resolution, ~1 us);
+ *                        anything else is a corrupt frame.
  *   CH4  operator mode + Falcon (2026-10-17):
  *          2000                FULL_MANUAL, flywheel 0
  *          1750                SEMI_AUTO
@@ -105,11 +110,23 @@ extern "C" {
  * would collide with an old ground's 1500 on CH10). 5 = CH8 level 5, trim
  * clear (2026-11-08). 0..5 only (CH10 is a 6-position AUX channel): the
  * last free version. */
-#define RCMAP_LINK_VERSION 5u
+/* 0 = CH3 also carries the ball color (2026-11-15). CH10 1000 us: the 6-
+ * position AUX's lowest level, never sent by any earlier ground (1 -> 1200
+ * ... 5 -> 2000), so an older ground is refused, not misread. That was
+ * the last unused level: a further table change needs another scheme. */
+#define RCMAP_LINK_VERSION 0u
 #define RCMAP_CHANNEL_COUNT 10u
 
 #define RCMAP_TARGET_NONE 0u
 #define RCMAP_TARGET_MAX 12u /* 10..12 = bonus holes (OperatorTarget.h) */
+/* Ball colors (2026-11-15): one shot table each (ShotTableData.h). */
+#define RCMAP_BALL_COLORS 6u
+#define RCMAP_BALL_YELLOW 0u
+#define RCMAP_BALL_PURPLE 1u
+#define RCMAP_BALL_BLUE 2u
+#define RCMAP_BALL_GREEN 3u
+#define RCMAP_BALL_RED 4u
+#define RCMAP_BALL_ORANGE 5u
 
 #define RCMAP_NUDGE_CENTER 0u
 #define RCMAP_NUDGE_UP 1u
@@ -164,6 +181,7 @@ typedef struct {
     float forward;     /* -1..1 */
     float turn;        /* -1..1, +1 = right */
     uint8_t target;    /* 0 = none, 1..9 */
+    uint8_t ball_color; /* CH3 too (2026-11-15): RCMAP_BALL_*, 0..5 */
     int mode_us;       /* CH4 mode; encode uses rcmap_mode_from_us(mode_us),
                           decode returns the mode's exact level */
     float flywheel;    /* CH4 too: 0..1, sent only in full manual; decode
@@ -283,6 +301,12 @@ typedef enum {
     RCMAP_EVENT_AUTO_PATH_DONE,        /* 2026-11-14: the path reached its end */
     RCMAP_EVENT_AUTO_PATH_TAKEOVER,    /* stick during the path: stopped, semi auto */
     RCMAP_EVENT_AUTO_PATH_ABORTED,     /* mode change, or full auto never came */
+    RCMAP_EVENT_BALL_YELLOW,           /* 2026-11-15: the shot table in use, */
+    RCMAP_EVENT_BALL_PURPLE,           /* in RCMAP_BALL_* order */
+    RCMAP_EVENT_BALL_BLUE,
+    RCMAP_EVENT_BALL_GREEN,
+    RCMAP_EVENT_BALL_RED,
+    RCMAP_EVENT_BALL_ORANGE,
     RCMAP_EVENT_COUNT
 } rcmap_event;
 

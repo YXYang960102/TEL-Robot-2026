@@ -5,7 +5,9 @@
 #define RCMAP_SWITCH_ON_US 1750
 #define RCMAP_TARGET_BASE_US 1000
 #define RCMAP_TARGET_STEP_US 80 /* 13 levels, 1000..1960 (CH3 is full resolution) */
-#define RCMAP_TARGET_TOLERANCE_US 35
+#define RCMAP_TARGET_TOLERANCE_US 35 /* (older tables; CH3 now: see decode_target_channel) */
+#define RCMAP_BALL_STEP_US 10 /* CH3: + 10 us per ball color */
+#define RCMAP_BALL_TOLERANCE_US 4
 #define RCMAP_LEVEL_BASE_US 1000
 #define RCMAP_LEVEL_STEP_US 200
 #define RCMAP_LEVEL_TOLERANCE_US 90 /* ELRS 6-pos sends 988/1193/1398/1602/1807 */
@@ -40,6 +42,24 @@ static bool us_to_level(int us, int base, int step, int tolerance, uint8_t level
     const int error = us > nearest ? us - nearest : nearest - us;
     if (error > tolerance) return false;
     *k_out = (uint8_t)k;
+    return true;
+}
+
+/* CH3 (2026-11-15): 1000 + 80*target + 10*color. Example: hole 5, red (4)
+ * = 1000 + 400 + 40 = 1440 us; 1438..1444 decodes to it. 1455..1459 (no
+ * color 6) and a level off by more than 4 us are rejected. */
+static bool decode_target_channel(int us, uint8_t *target, uint8_t *color) {
+    const int offset = us - RCMAP_TARGET_BASE_US;
+    if (offset < -RCMAP_BALL_TOLERANCE_US) return false;
+    const int k = (offset + RCMAP_BALL_TOLERANCE_US) / RCMAP_TARGET_STEP_US;
+    if (k > (int)RCMAP_TARGET_MAX) return false;
+    const int rest = offset - k * RCMAP_TARGET_STEP_US; /* -4 .. 75 */
+    const int b = (rest + RCMAP_BALL_STEP_US / 2 + RCMAP_BALL_STEP_US) / RCMAP_BALL_STEP_US - 1;
+    if (b < 0 || b >= (int)RCMAP_BALL_COLORS) return false;
+    const int error = rest - b * RCMAP_BALL_STEP_US;
+    if (error > RCMAP_BALL_TOLERANCE_US || error < -RCMAP_BALL_TOLERANCE_US) return false;
+    *target = (uint8_t)k;
+    *color = (uint8_t)b;
     return true;
 }
 
@@ -94,7 +114,9 @@ void rcmap_encode(const rcmap_command *c, int ch_us[16]) {
     ch_us[RCMAP_CH_FORWARD] = axis_to_us(c->forward);
     ch_us[RCMAP_CH_TURN] = axis_to_us(c->turn);
     const uint8_t target = c->target <= RCMAP_TARGET_MAX ? c->target : RCMAP_TARGET_NONE;
-    ch_us[RCMAP_CH_TARGET] = RCMAP_TARGET_BASE_US + (int)target * RCMAP_TARGET_STEP_US;
+    const uint8_t color = c->ball_color < RCMAP_BALL_COLORS ? c->ball_color : RCMAP_BALL_YELLOW;
+    ch_us[RCMAP_CH_TARGET] = RCMAP_TARGET_BASE_US + (int)target * RCMAP_TARGET_STEP_US +
+                             (int)color * RCMAP_BALL_STEP_US;
     ch_us[RCMAP_CH_MODE] = mode_channel_us(c);
     ch_us[RCMAP_CH_FIRE] = c->fire ? 2000 : 1000;
     ch_us[RCMAP_CH_ARM] = c->armed ? 2000 : 1000;
@@ -126,13 +148,12 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     for (uint8_t i = 0; i < RCMAP_CHANNEL_COUNT; i++) {
         if (ch_us[i] < RCMAP_MIN_VALID_US || ch_us[i] > RCMAP_MAX_VALID_US) return false;
     }
-    uint8_t target, nudge, path, test_level;
+    uint8_t target, color, nudge, path, test_level;
     int mode_us;
     float flywheel;
     int8_t offset_pct;
     if (!decode_mode_channel(ch_us[RCMAP_CH_MODE], &mode_us, &flywheel, &offset_pct) ||
-        !us_to_level(ch_us[RCMAP_CH_TARGET], RCMAP_TARGET_BASE_US, RCMAP_TARGET_STEP_US,
-                     RCMAP_TARGET_TOLERANCE_US, RCMAP_TARGET_MAX + 1u, &target) ||
+        !decode_target_channel(ch_us[RCMAP_CH_TARGET], &target, &color) ||
         !us_to_level(ch_us[RCMAP_CH_NUDGE], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
                      RCMAP_LEVEL_TOLERANCE_US, RCMAP_FIVE_LEVELS, &nudge) ||
         !us_to_level(ch_us[RCMAP_CH_AUTO], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
@@ -144,6 +165,7 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     out->forward = us_to_axis(ch_us[RCMAP_CH_FORWARD]);
     out->turn = us_to_axis(ch_us[RCMAP_CH_TURN]);
     out->target = target;
+    out->ball_color = color;
     out->mode_us = mode_us;
     out->flywheel = flywheel;
     out->flywheel_offset_pct = offset_pct;
@@ -241,6 +263,12 @@ static const char *const event_names[RCMAP_EVENT_COUNT] = {
     "AUTO_PATH_DONE",
     "AUTO_PATH_TAKEOVER",
     "AUTO_PATH_ABORTED",
+    "BALL_YELLOW",
+    "BALL_PURPLE",
+    "BALL_BLUE",
+    "BALL_GREEN",
+    "BALL_RED",
+    "BALL_ORANGE",
 };
 
 const char *rcmap_event_name(uint16_t code) {

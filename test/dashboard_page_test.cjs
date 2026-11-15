@@ -193,7 +193,7 @@ async function emergencyStopViaEnter() {
   clock.t = 1000;
   await press(XB.Y);
   assert.equal(run('matchStarted'), true);
-  assert.equal(writes.length, 0);                        // manual + None: nothing to send
+  assert.deepEqual([...writes], ['COL,0']);              // manual + None: only the ball color (2026-11-15)
   assert.equal(elements.matchTimer.textContent, '3:00');
   assert.match(elements.matchState.textContent, /比賽中/);
   assert.equal(elements.startMatch.disabled, true);
@@ -205,6 +205,7 @@ async function emergencyStopViaEnter() {
   run('renderMatchTimer()');
   assert.equal(elements.matchTimer.textContent, '0:01');
   // A second Y does nothing.
+  writes.length = 0;
   await press(XB.Y);
   assert.equal(writes.length, 0);
 
@@ -460,9 +461,9 @@ async function emergencyStopViaEnter() {
   line('$WIRELESS,1,1,2,1,0,1,1,60');
   assert.equal(armed(), true);
   await new Promise((r) => setImmediate(r));
-  assert.deepEqual([...writes], ['E']);            // Enabled, but nothing until Y
+  assert.deepEqual([...writes], ['E', 'COL,0']);   // Enabled: only the ball color until Y (2026-11-15)
   await press(XB.Y);
-  assert.deepEqual([...writes], ['E', 'MODE,1', 'AUTO,3']);
+  assert.deepEqual([...writes], ['E', 'COL,0', 'MODE,1', 'COL,0', 'AUTO,3']);
   assert.match(elements.controlOwner.textContent, /wireless/);
   // The robot reports the mode: the menu follows it while enabled.
   line('$WIRELESS,1,1,2,1,0,1,1,60,1');
@@ -996,8 +997,8 @@ async function emergencyStopViaEnter() {
   assert.equal(shots(), 2);
   // The CSV: the Excel's five columns first, exactly apply.py's headers.
   const csv = run('shotLogCsv()').split('\r\n');
-  assert.equal(csv[0], '洞口,距離(m),仰角(us),轉速,轉速單位,模式,紀錄時間,Falcon實際(us),距離樣本數');
-  assert.match(csv[1], /^5,2\.50,2063,48,%,TEST \/ 測試,\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,1740,\d+$/);
+  assert.equal(csv[0], '洞口,距離(m),仰角(us),轉速,轉速單位,球色,模式,紀錄時間,Falcon實際(us),距離樣本數');
+  assert.match(csv[1], /^5,2\.50,2063,48,%,黃,TEST \/ 測試,\d{4}-\d\d-\d\d \d\d:\d\d:\d\d,1740,\d+$/);
   assert.match(csv[2], /^5,3\.00,2063,60,%,/);
   // The autos: the flywheel comes from the Falcon's actual pulse.
   clock.t += 1600;                                     // the 3 m frames age out of the window
@@ -1129,7 +1130,7 @@ async function emergencyStopViaEnter() {
   assert.match(elements.targetHole.textContent, /正在打 11 · 加分中 · 這洞已打 1\/3 · 加分框亮了：優先打/);
   // Turret search (TEL 58, 2026-11-01).
   clock.t += 100; line(telRow(7, 0, 0) + ',0,0,-1');
-  assert.equal(elements.targetBoardState.textContent, '選的洞不在畫面上：轉台往左找洞中');
+  assert.equal(elements.targetBoardState.textContent, '看不到目標洞：轉台往左找洞中');
   clock.t += 100; line(telRow(0, 0, 0));                         // AI pick, nothing pinned
   assert.equal(run('aimHole'), 0);
   assert.doesNotMatch(elements.targetHole.textContent, /正在打|全部打完|加分框亮了/);

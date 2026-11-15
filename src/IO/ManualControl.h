@@ -67,6 +67,10 @@ public:
     static void reportEvent(rcmap_event event);
 
     static uint8_t getTarget();               // 0 = none, 1..12
+    // The ball color whose shot table the autos use (2026-11-15):
+    // RCMAP_BALL_* 0..5, yellow at boot; wired COL,<n> or CH3. Kept across
+    // Enable / Disable. Every change reports BALL_<COLOR>.
+    static uint8_t getBallColor();
     // Bumped on every hole choice: a change (wired or radio) and every
     // wired TGT, even of the same hole -- Auto's row cycle starts over.
     static uint16_t getTargetSelectSeq();
@@ -179,6 +183,8 @@ private:
     static OperatorMode operatorMode;
     static bool fireRequested;
     static uint8_t target;
+    static uint8_t ballColor;
+    static void setBallColor(uint8_t color, bool announceSame);
     static uint8_t autoPathThisEnable;
     static uint8_t autoPathsUsedMask;
     static double aimOffsetPx;

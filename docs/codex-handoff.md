@@ -8293,3 +8293,193 @@ variants, operator_target_test pass. No hardware.
 
 **Next Test:** full auto from 5 with the tower full: watch the order and
 the bottom row's elevation (1 / 7 on hole 4's table).
+
+## 2026-11-14 — Full auto: Q W E only when lit; left / right 1 straight 3.0 s, turn 1.0 s
+
+**User Request (Jeremy):** in full auto, bonus boxes only as the lit-box
+3 balls; take Q W E out of the snake cycle. Left 1 straight -0.5 s, turn
++0.5 s; right 1 the same (asked).
+
+**Changed:**
+- `TuningConstants::Auto::CYCLE_SKIPS_BONUS_ROW` true, `BONUS_ROW_HOLES`
+  10-12. `Auto::startCycle` builds the cycle with those skipped (not via
+  FULL_AUTO_EXCLUDED_HOLES, which would also block the lit-box shots in
+  `holeAllowed`); a bonus start (chosen in full auto) becomes the top hole
+  of its column (Q 3, W 6, E 9). `updateRowCycle`: an unlit bonus box the
+  Orin picks starts the cycle under it, so it is never fired at.
+  From 5: 5, 8 7 9, 6 4, 1 2 3 (27 balls), then holds on 3.
+- `DIAGONAL_DRIVE_MS` 3500 -> 3000, `DIAGONAL_TURN_BACK_MS` 500 -> 1000.
+- test/manual_control_test.cpp: cycle order without Q W E, 27 balls, ends
+  on 3.
+
+**Evidence:** pio megaatmega2560 SUCCESS; manual_control_test three
+variants pass (lit-bonus test unchanged and passing). No hardware.
+
+**Next Test:** full auto from 5: ends on 3, no Q W E; light a bonus box:
+3 balls there, then back. Left / right 1: 3 s straight, 1 s turn.
+
+**Follow-up (same evening):** left 1's turn the other way, 0.5 s:
+`DIAGONAL_TURN_BACK_MS` 1000 -> 500, new `DIAGONAL_LAST_TURN_SIDE` +1 ->
+`buildMoves` turns `DIAGONAL_LAST_TURN_SIDE * side`: left 1 now straight
+3.0 s then turn **right** 0.5 s; right 1 (mirror) turns left. pio
+megaatmega2560 SUCCESS, manual_control_test passes. No hardware.
+
+**Follow-up 2:** right 1 keeps its original turn: the last turn is now set
+per path (`LEFT1_LAST_TURN_DIRECTION` +1 / `LEFT1_LAST_TURN_MS` 500,
+`RIGHT1_LAST_TURN_DIRECTION` +1 / `RIGHT1_LAST_TURN_MS` 1000; +1 = right),
+replacing `DIAGONAL_TURN_BACK_MS` / `DIAGONAL_LAST_TURN_SIDE`. Left 1:
+straight 3.0 s, right 0.5 s. Right 1: straight 3.0 s, right 1.0 s (as
+before today's evening change). pio megaatmega2560 SUCCESS,
+manual_control_test passes.
+
+## 2026-11-14 — Auto path: turret locks while driving; elevation / flywheel only at the end
+
+**User Request (Jeremy):** during an auto path the turret should lock
+horizontally; elevation and flywheel move once the robot is at the spot.
+
+**Changed:**
+- `AutoPath::holdsTurret()` = `turretHold && (isActive() || DONE)`: only a
+  right path holds the turret at 0 deg until the hole is seen once (kept,
+  the +38.5 deg limit reason); otherwise no hold while driving.
+- `aimTurret`: while a path drives and the hole is out of view
+  (`!Vision::isValid()`), the turret is held (no search sweep / lost-turn
+  mid-drive); in view: vision follow as usual.
+- `Auto` elevation slew skipped while `AutoPath::holdsShooter()`: the
+  elevation stays where it is until the path ends. Flywheel 0 and no shot
+  while driving, unchanged.
+
+**Evidence:** pio megaatmega2560 SUCCESS; manual_control_test passes.
+No hardware.
+
+**Next Test:** left 1 / left 2: the turret tracks the hole while driving,
+elevation still, flywheel off; at the end elevation moves, flywheel spins,
+then it fires. Right paths: turret at 0 deg until the hole is seen.
+
+## 2026-11-14 — Turret sweeps left first, then right, when nothing is seen (autos)
+
+**User Request (Jeremy):** with no hole seen and no last-seen side, turn
+left first (negative angle), then right, back and forth to find a target.
+Range picked: -90 to +35 deg.
+
+**Before:** the turret moved only for (1) a chosen hole out of view
+(searchDirection from the holes in view / last column, 3 s per choice)
+and (2) the lost turn (left near an edge <= 1 s ago, 1 s). Otherwise it
+stood still.
+
+**Changed:**
+- `TuningConstants::Rotate::SWEEP_ENABLED` true, `SWEEP_START_MS` 500,
+  `SWEEP_LEFT_DEG` -90, `SWEEP_RIGHT_DEG` +35.
+- `Shooter::updateRotate` (vision follow): nothing seen / predicted and no
+  search / lost turn for 500 ms, AS5600 healthy + absolute, sweep allowed
+  -> searchDir = sweepDir at SEARCH_COMMAND 0.3: starts left (-1), flips to
+  right at <= -90 deg, back to left at >= +35 deg; a seen frame resets it
+  to left-first. The 500 ms restarts whenever the camera follow isn't
+  driving the turret. Left = -1 -> command +0.3 (RIGHT_COMMAND_SIGN -1).
+- `Shooter::setRotateSweepAllowed`; `Auto::aimTurret(visionHealthy, sweep)`
+  sets it each loop: true only in the vision-follow branch of semi / full
+  auto and not while a path drives (test mode, hand-held aim, RB hold, no
+  camera: false).
+- Dashboard: the search text now "看不到目標洞：轉台往左/右找洞中" (also
+  shown for the sweep); dashboard_page_test text updated; host stub
+  `setRotateSweepAllowed`.
+
+**Evidence:** pio megaatmega2560 / mega_vision_rotate_test /
+mega_drive_test SUCCESS; manual_control_test (3), gamepad_motor_test,
+dashboard_page_test pass. No hardware.
+
+**Next Test:** semi auto, camera covered: after ~0.5 s the turret turns
+left to about -90 deg, then right to +35 deg, repeating; uncover on a hole:
+it stops sweeping and locks. Check it never reaches the soft limits.
+
+## 2026-11-15 — One shot table per ball color (yellow purple blue green red orange)
+
+**User Request (Jeremy):** balls differ in softness (some shots float,
+some dive): split the parameters into yellow / purple / blue / green / red
+/ orange tables, adjustable later; pick the color on the Dashboard (with the
+path in Match Setup), wired and wireless; test mode must know it too.
+Choices: A (a full table per color, Excel one sheet each); wireless too.
+
+**Changed / Added:**
+- Radio (RcControlMap): CH3 = 1000 + 80*target + 10*color (color 0..5,
+  RCMAP_BALL_*; +-4 us), `rcmap_command::ball_color`; `RCMAP_LINK_VERSION`
+  5 -> **0** (CH10 1000 us, the last unused 6-position level: Mega, ground
+  and Dashboard must all be on this version). Events BALL_YELLOW ...
+  BALL_ORANGE appended.
+- Mega: `ManualControl::getBallColor()` (yellow at boot, kept across
+  Enable); wired `COL,<0..5>` (answered every time), radio CH3 (event on
+  change). `ShotTable::tableForVisionId(visionId, color)`,
+  `ShotTableLookup::lookupTarget(..., color)`, Auto passes the color (also
+  `hasShotTable`).
+- `ShotTableData.h` (generated): `C<c>_HOLE_<h>`, `HOLE_POINTS[6][13]`,
+  `HOLE_COUNTS[6][13]`, `COLOR_COUNT`; an empty color uses yellow's.
+- Ground: `COL,<n>` accepted any time (also before E), kept through
+  release / E, sent on CH3.
+- `tools/shot_table/apply.py`: sheets 射擊表-黃 ... 射擊表-橘 (each with its
+  three charts; helper sheet per color), read_all / render / parse per
+  color (an old one-table header reads as the same table for every
+  color), `--import` routes rows by the CSV 球色 column (`--color` for an
+  old CSV). shot_table.xlsx migrated: all six = today's 27 rows (backup
+  backup/shot_table_20261115_002259_before_colors.xlsx). README.
+- Dashboard: Match Setup 球色 menu; COL sent on the Enable confirmation,
+  on every change while enabled (any mode, test included) and at Y; shot
+  log records / shows / exports 球色; BALL_* events logged in Chinese.
+- Tests updated (no new files): rc_control_map_test (version 0, CH3
+  color levels), manual_control_test / shot_table_lookup_test ([0]
+  index, corrupt CH3 value), dashboard_page_test (COL writes, CSV header).
+
+**Calculation:** hole 5, red: 1000 + 400 + 40 = 1440 us; 1436..1444 ->
+(5, red); 1445 / 1455..1459 rejected (between colors / no color 6).
+
+**Impact:** Mega RAM 54 % -> 67 % (6 tables x 27 points in RAM). Every
+extra point costs 6 bytes per color; ~60 points per color in all six
+would be ~80 % -- move the tables to PROGMEM before that.
+
+**Evidence:** pio megaatmega2560 / mega_vision_rotate_test /
+mega_drive_test / mega_wired_manual_test / mega_elrs_link_test /
+blackpill_f401cc SUCCESS; rc_control_map_test, ground host test,
+manual_control_test (3 variants), shot_table_lookup_test,
+gamepad_motor_test, dashboard_page_test, dashboard_control_test pass;
+apply.py --check clean, a colored CSV imported into a copy (red row on
+the red sheet only), header round trip. No hardware.
+
+**Next Test:** flash Mega + ground (DFU), reload the Dashboard: Enable ->
+log "球色：Mega 現在用「黃」…"; change the menu to 紅 -> "…「紅」…";
+no LINK_VERSION_MISMATCH. Then a shot per color.
+
+## 2026-11-15 — Shot table: hole 4 +1 % (all colors); blue +1 %, yellow -1 % at 4.3-5 m
+
+**User Request (Jeremy, no time to re-measure):** hole 4 flywheel +1 %;
+from full-auto shots at ~4.3-5 m blue balls land low (just over the lower
+rim), yellow float high. Chosen: hole 4 +1 % in every color; blue +1 %,
+yellow -1 % on the points between 4.30 and 5.00 m of every hole.
+
+**Changed:** shot_table.xlsx (backup backup/shot_table_20261115_004551.xlsx)
+and ShotTableData.h. Every color: hole 4 all 8 points +1 % (2.72-5.95 m;
+holes 1 / 7 borrow it). Blue additionally: hole 4 4.49 / 5.00, hole 5
+4.47 / 5.00, hole 6 4.52 / 4.96, hole 11 4.51 / 4.93 +1 % (hole 4 there:
++2 % in all). Yellow: the same points -1 % (hole 4 there: net 0). Other
+colors: only hole 4 +1 %. Between a changed and an unchanged point the
+table interpolates, so e.g. blue hole 5 at 4.2 m gets about +0.5 %.
+
+**Evidence:** apply.py clean; pio megaatmega2560 SUCCESS;
+manual_control_test, shot_table_lookup_test pass. No hardware.
+
+**Next Test:** blue and yellow at 4.3-5 m in full auto; other distances
+were not observed -- measure per color with S when there is time.
+
+## 2026-11-15 — Nano: MD forward slower while MB is stopped
+
+**User Request (Jeremy):** SD high -> MD forward / reverse as now, but
+when MB isn't moving the forward part goes slower.
+
+**Changed (TEL2026_NANO_v9):** `MD_RUN_SLOW_US` 1700 (PROVISIONAL; 200 us
+forward instead of 300). `updateMdOutput` forward phase: mbOutputUs ==
+MB_STOP_US -> MD_RUN_SLOW_US, else MD_RUN_US 1800. MB stops while firing
+(need_pieces / CLEAR_MS) and when SA or SB has a ball with SC low; it is
+set in the same loop just before MD. Reverse 1200 us 0.3 s and the 50 ms
+stop unchanged. README.
+
+**Evidence:** pio nanoatmega328new SUCCESS. No hardware.
+
+**Next Test:** tower full (MB stopped): MD forward visibly slower, no jam;
+tower refilling (MB running): forward as before.

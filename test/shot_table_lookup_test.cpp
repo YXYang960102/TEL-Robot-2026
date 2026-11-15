@@ -121,8 +121,8 @@ int main() {
         for (int id : {1, 2, 3}) {
             const uint8_t hole = static_cast<uint8_t>(id + 9);
             const ShotTableData::Point* expected =
-                ShotTableData::HOLE_COUNTS[hole] > 0 ? ShotTableData::HOLE_POINTS[hole]
-                                                     : ShotTableData::HOLE_POINTS[11];
+                ShotTableData::HOLE_COUNTS[0][hole] > 0 ? ShotTableData::HOLE_POINTS[0][hole]
+                                                     : ShotTableData::HOLE_POINTS[0][11];
             assert(tableForVisionId(id).entries == expected);
         }
     }
@@ -142,7 +142,7 @@ int main() {
         ShotTableLookup::Result r = {0.0, 0.0};
         assert(!ShotTableLookup::lookupTarget(0, 4.0, r));
         // A bonus id has a table only through its own points or W's.
-        assert(ShotTableLookup::lookupTarget(2, 4.0, r) == (ShotTableData::HOLE_COUNTS[11] > 0));
+        assert(ShotTableLookup::lookupTarget(2, 4.0, r) == (ShotTableData::HOLE_COUNTS[0][11] > 0));
         assert(!ShotTableLookup::lookupTarget(13, 4.0, r));
     }
 

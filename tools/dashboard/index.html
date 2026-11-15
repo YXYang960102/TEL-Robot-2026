@@ -768,7 +768,17 @@
               <option value="4">右二 right 2</option>
             </select>
           </label>
-          <span class="label">Enable 後機器人不動，按手把 Y（或「開始比賽」）才套用：先切到這個模式，再跑一次這條路徑。比賽中改模式（或按 X / A / B）會立刻切換。自動路徑只在全自動跑（選其他模式會中止）；跑的時候推搖桿就中止、改成半自動。</span>
+          <label class="label">球色 / ball color
+            <select id="ballColorSelect" aria-label="Ball color">
+              <option value="0" selected>黃 yellow</option>
+              <option value="1">紫 purple</option>
+              <option value="2">藍 blue</option>
+              <option value="3">綠 green</option>
+              <option value="4">紅 red</option>
+              <option value="5">橘 orange</option>
+            </select>
+          </label>
+          <span class="label">Enable 後機器人不動，按手把 Y（或「開始比賽」）才套用：先切到這個模式，再跑一次這條路徑。比賽中改模式（或按 X / A / B）會立刻切換。自動路徑只在全自動跑（選其他模式會中止）；跑的時候推搖桿就中止、改成半自動。球色選哪一種，自動模式就用 Excel 那一色的射擊表：Enable 後選了就馬上送出（測試模式也是），S 記錄也會記下球色。</span>
         </div>
       </section>
 
@@ -829,11 +839,11 @@
           <button id="shotLogDownload">下載 CSV（給 Excel）</button>
           <button id="shotLogUndo">刪除最後一筆</button>
           <button id="shotLogClear">全部清除</button>
-          <span class="label" id="shotLogHint">鎖定洞口、仰角和轉速都穩定後按 S。記下洞口、相機距離（最近 1.5 秒的中位數）、仰角脈寬、飛輪轉速；同一洞口同一距離再按一次會取代舊的。下載後執行 python3 tools/shot_table/apply.py --import 寫進 shot_table.xlsx。紀錄存在這台電腦的瀏覽器裡，重新整理不會消失。</span>
+          <span class="label" id="shotLogHint">鎖定洞口、仰角和轉速都穩定後按 S。記下洞口、相機距離（最近 1.5 秒的中位數）、仰角脈寬、飛輪轉速；同一洞口同一距離再按一次會取代舊的。按 S 時也記下 Match Setup 選的球色。下載後執行 python3 tools/shot_table/apply.py --import，依球色寫進 shot_table.xlsx 那一色的頁。紀錄存在這台電腦的瀏覽器裡，重新整理不會消失。</span>
         </div>
         <div class="shot-log-scroll">
           <table class="shot-log">
-            <thead><tr><th>#</th><th>洞口</th><th>距離(m)</th><th>仰角(us)</th><th>轉速(%)</th><th>Falcon(us)</th><th>模式</th><th>時間</th></tr></thead>
+            <thead><tr><th>#</th><th>球色</th><th>洞口</th><th>距離(m)</th><th>仰角(us)</th><th>轉速(%)</th><th>Falcon(us)</th><th>模式</th><th>時間</th></tr></thead>
             <tbody id="shotLogBody"></tbody>
           </table>
         </div>
@@ -901,6 +911,11 @@
     // before Enable are applied right after the robot confirms it (the
     // robot itself always enables in full manual).
     const startModeSelect = document.getElementById("startMode");
+    // Ball color (2026-11-15): which shot table the Mega uses (COL,<n>,
+    // RCMAP_BALL_* order); the shot log records it too.
+    const ballColorSelect = document.getElementById("ballColorSelect");
+    const BALL_COLORS = ["黃", "紫", "藍", "綠", "紅", "橘"];
+    const BALL_EVENTS = { BALL_YELLOW: 0, BALL_PURPLE: 1, BALL_BLUE: 2, BALL_GREEN: 3, BALL_RED: 4, BALL_ORANGE: 5 };
     const autoPathSelect = document.getElementById("autoPathSelect");
     const startMatchButton = document.getElementById("startMatch");
     const controlArmedBadge = document.getElementById("controlArmedBadge");
@@ -1082,6 +1097,8 @@
           autoPathThisEnable = 0;
           renderTargetAndAuto();
         }
+        // The ball color right away, in every mode (test mode records with it).
+        void sendControl(`COL,${Number(ballColorSelect.value)}`);
       }
     }
 
@@ -1106,6 +1123,7 @@
       appendControlLog("match started / 比賽開始");
       const mode = Number(startModeSelect.value);
       if (mode in MODE_NAMES && mode !== MODE_FULL_MANUAL) await sendControl(`MODE,${mode}`);
+      await sendControl(`COL,${Number(ballColorSelect.value)}`);
       const path = Number(autoPathSelect.value);
       if (path >= 1 && path <= 4) {
         sentAutoPath = path;
@@ -1407,19 +1425,21 @@
         flywheelPct = Math.round(actualPct * 10) / 10;
         if (flywheelPct <= 0) return refuse("飛輪沒有在轉");
       }
+      const color = Number(ballColorSelect.value);
       const record = {
-        hole, distanceCm, elevationUs, flywheelPct, mode: operatorMode,
+        hole, distanceCm, elevationUs, flywheelPct, mode: operatorMode, color,
         falconUs: falconFresh ? Math.round(shotFalconUs) : null,
         samples: samples.length, time: localTimestamp(),
       };
       // The same hole at the same distance again = a re-measurement: it
       // replaces the old point (apply.py --import does the same in Excel).
-      const same = shotRecords.findIndex((r) => r.hole === hole && r.distanceCm === distanceCm);
+      const same = shotRecords.findIndex((r) => r.hole === hole && r.distanceCm === distanceCm &&
+        (r.color ?? 0) === color);
       if (same >= 0) shotRecords.splice(same, 1);
       shotRecords.push(record);
       saveShotRecords();
       renderShotLog();
-      appendControlLog(`S 已記錄 #${shotRecords.length}：洞口 ${hole} · ${(distanceCm / 100).toFixed(2)} m · ` +
+      appendControlLog(`S 已記錄 #${shotRecords.length}：${BALL_COLORS[color]}球 · 洞口 ${hole} · ${(distanceCm / 100).toFixed(2)} m · ` +
         `仰角 ${elevationUs} us · 轉速 ${flywheelPct}%（${samples.length} 個距離樣本）` +
         (same >= 0 ? " · 取代同洞口同距離的舊紀錄" : ""));
       return record;
@@ -1456,7 +1476,7 @@
       shotLogCount.textContent = `${shotRecords.length} 點`;
       // Newest first.
       shotLogBody.innerHTML = shotRecords.map((r, i) =>
-        `<tr><td>${i + 1}</td><td>${r.hole}</td><td>${(r.distanceCm / 100).toFixed(2)}</td>` +
+        `<tr><td>${i + 1}</td><td>${htmlText(BALL_COLORS[r.color] ?? "--")}</td><td>${r.hole}</td><td>${(r.distanceCm / 100).toFixed(2)}</td>` +
         `<td>${r.elevationUs}</td><td>${htmlText(r.flywheelPct)}</td>` +
         `<td>${Number.isInteger(r.falconUs) ? r.falconUs : "--"}</td>` +
         `<td>${htmlText(MODE_NAMES[r.mode] ?? "--")}</td><td>${htmlText(r.time ?? "")}</td></tr>`).reverse().join("");
@@ -1465,9 +1485,10 @@
     // The Excel's five columns first, exactly as apply.py wants them; the
     // rest are for the operator and ignored by the import.
     function shotLogCsv() {
-      const head = ["洞口", "距離(m)", "仰角(us)", "轉速", "轉速單位", "模式", "紀錄時間", "Falcon實際(us)", "距離樣本數"];
+      // 球色 (2026-11-15): apply.py --import puts each row on that color's sheet.
+      const head = ["洞口", "距離(m)", "仰角(us)", "轉速", "轉速單位", "球色", "模式", "紀錄時間", "Falcon實際(us)", "距離樣本數"];
       const rows = shotRecords.map((r) => [
-        r.hole, (r.distanceCm / 100).toFixed(2), r.elevationUs, r.flywheelPct, "%",
+        r.hole, (r.distanceCm / 100).toFixed(2), r.elevationUs, r.flywheelPct, "%", BALL_COLORS[r.color] ?? "",
         String(MODE_NAMES[r.mode] ?? "").replace(/,/g, " "), String(r.time ?? "").replace(/,/g, " "),
         Number.isInteger(r.falconUs) ? r.falconUs : "", Number.isInteger(r.samples) ? r.samples : "",
       ]);
@@ -2065,7 +2086,7 @@
       // Turret search (TEL 58, 2026-11-01) wins over the aim text.
       if (data.searchDir === -1 || data.searchDir === 1) {
         el.targetBoardState.textContent =
-          `選的洞不在畫面上：轉台往${data.searchDir < 0 ? "左" : "右"}找洞中`;
+          `看不到目標洞：轉台往${data.searchDir < 0 ? "左" : "右"}找洞中`;
       }
       setSeenHole(data.valid && Number.isInteger(data.targetId) ? holeForVisionId(data.targetId) : 0);
       if (Number.isFinite(data.falconPulseUs) && Number.isFinite(data.falconRatioPct)) {
@@ -2438,6 +2459,9 @@
         if (eventName === "CAPTURE_ON" || eventName === "CAPTURE_OFF") {
           el.captureState.textContent = eventName === "CAPTURE_ON" ? "拍照中 ON" : "關閉 OFF";
           el.captureState.style.color = eventName === "CAPTURE_ON" ? "#e25b5b" : "";
+        }
+        if (eventName in BALL_EVENTS) {
+          appendControlLog(`球色：Mega 現在用「${BALL_COLORS[BALL_EVENTS[eventName]]}」球的射擊表`);
         }
         if (eventName === "TURRET_ZERO_SET") {
           appendControlLog("已設定歸位點：轉台現在是 0°，位置已存進 EEPROM");
@@ -2974,6 +2998,13 @@
 
     autoPathSelect.addEventListener("change", () => {
       autoPathSelect.blur(); // takes effect at the next Enable
+    });
+
+    // A ball color change goes out at once while enabled (any mode); before
+    // Enable it is sent with the Enable confirmation.
+    ballColorSelect.addEventListener("change", async () => {
+      ballColorSelect.blur();
+      if (controlArmed) await sendControl(`COL,${Number(ballColorSelect.value)}`);
     });
 
     angleSlider.addEventListener("input", async () => {
