@@ -908,15 +908,16 @@ void testFullAutoRowCycle() {
     hoststub::visionTargetId = 8;                         // the Orin picked hole 5 (center)
     armWired();
     send("M"); send("M"); step();                         // full auto, no hole chosen
-    assert(Auto::getAimTarget() == 0);
+    // Bottom-up (2026-11-15, both halves): no nearest bottom hole reported,
+    // so the cycle starts at once under the Orin's pick: 5 -> 4.
+    assert(Auto::getAimTarget() == 4);
     runArmed(6000);                                       // elevation to the table first
     hoststub::shooterReady = true;
     assert(runUntilShots(1, 3000) == 1);
-    assert(Auto::getAimTarget() == 5 && Auto::getRowShots() == 1);   // pinned to it
-    // Never two columns in one move (2026-11-01), all three rows (bottom row
-    // back 2026-11-14): 5, the right column 8 7 9, back to the middle 6 4,
-    // the left 1 2 3. No bonus row (only when lit, 2026-11-14).
-    const uint8_t order[] = {5, 8, 7, 9, 6, 4, 1, 2, 3};
+    assert(Auto::getAimTarget() == 4 && Auto::getRowShots() == 1);
+    // Column by column, each bottom -> top (2026-11-15): 4 5 6, then the
+    // right 7 8 9, then the left 1 2 3. No bonus row (only when lit).
+    const uint8_t order[] = {4, 5, 6, 7, 8, 9, 1, 2, 3};
     for (unsigned i = 0; i < sizeof order; i++) {
         const unsigned long done = 3 * i;
         if (i > 0) { assert(runUntilShots(done, 10000) == done); waitHoleSwitch(); }
@@ -934,7 +935,7 @@ void testFullAutoRowCycle() {
     const unsigned long before = Dribbler::getTriggerCount() - Auto::getRowShots();
     assert(runUntilShots(before + 3, 8000) == before + 3);
     waitHoleSwitch();
-    assert(Auto::getAimTarget() == 7);                    // from the right edge: 8 7 9, 6 5 4, 1 2 3
+    assert(Auto::getAimTarget() == 9);                    // from 8: 8 9 7, 4 5 6, 1 2 3
     // Semi-auto: no cycle, the operator's hole.
     send("MODE,1"); step();
     assert(Auto::getAimTarget() == 8 && !Auto::isRowDone() && Auto::getRowShots() == 0);
@@ -949,7 +950,7 @@ void testFullAutoLitBonusFirst() {
     send("M"); send("M"); step();                         // full auto
     runArmed(6000);
     hoststub::shooterReady = true;
-    assert(runUntilShots(1, 3000) == 1 && Auto::getAimTarget() == 5);
+    assert(runUntilShots(1, 3000) == 1 && Auto::getAimTarget() == 4);  // under the pick (5)
     hoststub::litBonusId = 2;                             // W lights up
     step();
     assert(Auto::getLitPriorityHole() == 11 && Auto::getAimTarget() == 11);
@@ -959,8 +960,8 @@ void testFullAutoLitBonusFirst() {
     const unsigned long before = Dribbler::getTriggerCount();
     assert(runUntilShots(before + 3, 8000) == before + 3);
     waitHoleSwitch();
-    assert(Auto::getLitPriorityHole() == 0 && Auto::getAimTarget() == 5);  // back where it was
-    assert(Auto::getRowShots() == 1);                     // 1 of 3 already at 5
+    assert(Auto::getLitPriorityHole() == 0 && Auto::getAimTarget() == 4);  // back where it was
+    assert(Auto::getRowShots() == 1);                     // 1 of 3 already at 4
     // Still lit: not again. Dark > LIT_DARK_MS, then lit again: again.
     runArmed(500);
     assert(Auto::getLitPriorityHole() == 0);
