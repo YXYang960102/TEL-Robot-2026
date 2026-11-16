@@ -318,13 +318,17 @@ constexpr uint8_t SHOTS_PER_HOLE = 3;
 // The second half (2026-11-15, Dashboard 半場 menu / HALF,2 / CH9 level 0):
 // this many balls a hole (the lit box too); the first half SHOTS_PER_HOLE.
 constexpr uint8_t SECOND_HALF_SHOTS_PER_HOLE = 2;
+// A lit bonus box (Q W E) takes this many balls each time it lights up,
+// in both halves (Jeremy, 2026-11-16: a bonus box only takes one ball;
+// 3 / 2 like the grid holes before).
+constexpr uint8_t BONUS_SHOTS_PER_HOLE = 1;
 // Both halves (2026-11-15, Jeremy: the same algorithm, only the ball count
 // differs): the cycle runs bottom-up (OperatorTarget::buildBottomUpCycle)
 // from the nearest bottom-row hole the Orin sees (Vision::getNearBottomId);
 // none seen -> the bottom hole under the Orin's pick. false = the column
 // order of buildCycle, starting at the first hole shot (before 2026-11-15).
 constexpr bool CYCLE_BOTTOM_UP = true;
-// After the last of the SHOTS_PER_HOLE balls (also at a lit bonus hole)
+// After the last ball at a hole (also the lit bonus hole's one ball)
 // the aim stays on that hole this long, with no shot, before the next one
 // (Jeremy, 2026-11-14: moving on right at the third fire signal turned the
 // turret while that ball was still on its way). A mode change, a hole
@@ -346,14 +350,14 @@ constexpr unsigned long HOLE_NOT_FOUND_SKIP_MS = 7000;
 constexpr uint16_t FULL_AUTO_EXCLUDED_HOLES = 0;
 // The bonus boxes Q W E (holes 10-12) are not part of the cycle (Jeremy,
 // 2026-11-14): full auto shoots a bonus box only while it is lit
-// (LIT_BONUS_PRIORITY, SHOTS_PER_HOLE balls). A cycle that would start on a
+// (LIT_BONUS_PRIORITY, BONUS_SHOTS_PER_HOLE balls). A cycle that would start on a
 // bonus box (the Orin's own pick, or one chosen in full auto) starts on
 // the top hole under it instead (Q -> 3, W -> 6, E -> 9). false = the
 // bonus row after the grid, as before.
 constexpr bool CYCLE_SKIPS_BONUS_ROW = true;
 constexpr uint16_t BONUS_ROW_HOLES = (1u << 10) | (1u << 11) | (1u << 12);
 // A lit bonus hole (the Orin's red-ring detection, frame field 9) comes
-// first in full auto: SHOTS_PER_HOLE balls at it, then the cycle carries
+// first in full auto: BONUS_SHOTS_PER_HOLE balls at it, then the cycle carries
 // on where it stopped. The same box fires again only after it has been
 // dark for LIT_DARK_MS and lights up again.
 constexpr bool LIT_BONUS_PRIORITY = true;

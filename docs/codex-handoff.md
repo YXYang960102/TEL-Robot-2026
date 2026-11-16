@@ -8714,3 +8714,20 @@ new row. Mutually exclusive with --export. README + the Excel help text.
 untouched; --replace (blue CSV) -> blue = the 2 CSV points, red kept;
 --check prints both plans; the real shot_table.xlsx / ShotTableData.h
 untouched (apply.py --check: no change).
+
+## 2026-11-16 — Full auto: a lit bonus box gets one ball, both halves
+
+**User Request (Jeremy):** in full auto the bonus boxes are shot only once,
+first and second half the same. Chosen: one ball each time a box lights
+up (a box dark > LIT_DARK_MS that lights again still gets another ball,
+as before).
+
+**Changed:** `TuningConstants::Auto::BONUS_SHOTS_PER_HOLE = 1`;
+`Auto::countRowShot` ends the lit box after that many balls (was
+`shotsPerHole()`, 3 first half / 2 second half). The HOLE_SWITCH_DELAY_MS
+(2 s) wait after it and the return to the cycle are unchanged. Grid
+holes unchanged (3 / 2). Comments updated; the existing lit-bonus test
+expectation 3 -> 1 ball.
+
+**Evidence:** manual_control host test (both pin-table variants) passes;
+megaatmega2560 builds. No hardware. Flash: Mega only (ground unchanged).
