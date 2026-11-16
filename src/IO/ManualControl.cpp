@@ -35,6 +35,8 @@ uint8_t ManualControl::wirelessAutoPrev = RCMAP_AUTO_NONE;
 bool ManualControl::wirelessHomePrev = true;
 bool ManualControl::wirelessTrimClearPrev = true;
 bool ManualControl::wirelessCapturePrev = true;
+bool ManualControl::wirelessStartPrev = true;
+bool ManualControl::matchStartRequested = false;
 bool ManualControl::captureOn = false;
 uint8_t ManualControl::ballColor = RCMAP_BALL_YELLOW;
 uint8_t ManualControl::half = RCMAP_HALF_FIRST;
@@ -260,10 +262,12 @@ void ManualControl::processCommand(char* command) {
     const bool isBallColor = strncmp(command, "COL,", 4) == 0;
     // HALF,<1|2> (2026-11-15): the first / second half of the match.
     const bool isHalf = strncmp(command, "HALF,", 5) == 0;
+    // START (2026-11-16): the Dashboard's Y -- the match started.
+    const bool isMatchStart = strcmp(command, "START") == 0;
 
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle && !isAngleTarget &&
         !isTarget && !isAutoPath && !isModeSet && !isFlywheelOffset && !isTurretHome &&
-        !isTrimClear && !isCapture && !isBallColor && !isHalf) {
+        !isTrimClear && !isCapture && !isBallColor && !isHalf && !isMatchStart) {
         sendEvent(RCMAP_EVENT_UNKNOWN_COMMAND);
         return;
     }
@@ -291,6 +295,11 @@ void ManualControl::processCommand(char* command) {
     if (isCapture) {
         refreshWiredWatchdog();
         toggleCapture();
+        return;
+    }
+    if (isMatchStart) {
+        refreshWiredWatchdog();
+        matchStart();
         return;
     }
     if (isTank) {
@@ -419,6 +428,7 @@ void ManualControl::resetWirelessTracking() {
     wirelessHomePrev = true;
     wirelessTrimClearPrev = true;
     wirelessCapturePrev = true;
+    wirelessStartPrev = true;
 }
 
 void ManualControl::processWirelessFrame() {
@@ -472,6 +482,8 @@ void ManualControl::processWirelessFrame() {
     wirelessTrimClearPrev = c.trim_clear;
     const bool captureEdge = c.capture_toggle && !wirelessCapturePrev;
     wirelessCapturePrev = c.capture_toggle;
+    const bool startEdge = c.match_start && !wirelessStartPrev;
+    wirelessStartPrev = c.match_start;
 
     if (owner == Owner::WIRELESS) {
         // Arcade -> tank with the same polarity as the Dashboard: turn +1
@@ -506,6 +518,7 @@ void ManualControl::processWirelessFrame() {
         if (homeEdge) requestTurretHome(); // RB (CH9): back to 0 deg
         if (trimClearEdge) clearTrim();    // C (CH8 level 5)
         if (captureEdge) toggleCapture();  // P (CH9 level 3)
+        if (startEdge) matchStart();       // Y (CH7 level 5)
     } else if (fireEdge || autoEdge || homeEdge || trimClearEdge || captureEdge) {
         sendEvent(owner == Owner::NONE ? RCMAP_EVENT_REJECTED_DISARMED
                                        : RCMAP_EVENT_REJECTED_NOT_OWNER);
@@ -795,6 +808,18 @@ void ManualControl::handleFire() {
         // otherwise). Full-auto fires by itself, so the request is harmless.
         fireRequested = true;
     }
+}
+
+// Y (2026-11-16): Art plays 春日部防衛隊出動 (takeMatchStart).
+void ManualControl::matchStart() {
+    matchStartRequested = true;
+    sendEvent(RCMAP_EVENT_MATCH_STARTED);
+}
+
+bool ManualControl::takeMatchStart() {
+    const bool was = matchStartRequested;
+    matchStartRequested = false;
+    return was;
 }
 
 bool ManualControl::isSecondHalf() {

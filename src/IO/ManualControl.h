@@ -74,6 +74,9 @@ public:
     // The match half (2026-11-15): RCMAP_HALF_FIRST at boot, wired
     // HALF,<1|2> or CH9; kept across Enable. Reports HALF_FIRST / _SECOND.
     static bool isSecondHalf();
+    // The match started (wired START / CH7 level 5, 2026-11-16): true once
+    // per start, for Art's 春日部防衛隊出動.
+    static bool takeMatchStart();
     // Bumped on every hole choice: a change (wired or radio) and every
     // wired TGT, even of the same hole -- Auto's row cycle starts over.
     static uint16_t getTargetSelectSeq();
@@ -176,6 +179,9 @@ private:
     static bool wirelessHomePrev;
     static bool wirelessTrimClearPrev;
     static bool wirelessCapturePrev;
+    static bool wirelessStartPrev;
+    static bool matchStartRequested;
+    static void matchStart();
     static unsigned long lastVersionEventMs; // LINK_VERSION_MISMATCH rate limit
 
     static double tankLeftCommand;

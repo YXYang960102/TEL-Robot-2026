@@ -63,6 +63,8 @@ public:
     static constexpr uint32_t AUTO_PULSE_MS = 200;
     static constexpr uint32_t HOME_PULSE_MS = 200;
     static constexpr uint32_t TRIM_CLEAR_PULSE_MS = 200;
+    // START (2026-11-16, the Dashboard's Y): CH7's level 5 this long.
+    static constexpr uint32_t MATCH_START_PULSE_MS = 200;
     static constexpr uint32_t CAPTURE_PULSE_MS = 200;
 
     void reset(uint32_t nowMs);
@@ -99,6 +101,7 @@ private:
     uint32_t autoStartMs = 0;
     uint32_t homeStartMs = 0;
     uint32_t trimClearStartMs = 0;
+    uint32_t matchStartMs = 0;
     uint32_t captureStartMs = 0;
     char line[MAX_LINE_LENGTH]{};
     size_t length = 0;

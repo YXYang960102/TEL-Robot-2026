@@ -1141,6 +1141,8 @@
       updateControlUi();
       renderMatchTimer();
       appendControlLog("match started / 比賽開始");
+      // 春日部防衛隊出動 on the robot (2026-11-16, D43; CH7 level 5 by radio).
+      await sendControl("START");
       const mode = Number(startModeSelect.value);
       if (mode in MODE_NAMES && mode !== MODE_FULL_MANUAL) await sendControl(`MODE,${mode}`);
       await sendControl(`COL,${Number(ballColorSelect.value)}`);
@@ -2513,6 +2515,7 @@
         if (eventName === "FIRE_NOT_READY" && Number.isFinite(fireBlockers) && fireBlockers) {
           appendControlLog(`不發射原因：${blockerText(fireBlockers)}`);
         }
+        if (eventName === "MATCH_STARTED") appendControlLog("Mega 收到比賽開始：春日部防衛隊出動");
         if (eventName in HALF_EVENTS) {
           appendControlLog(`半場：Mega 現在是${HALF_EVENTS[eventName]}`);
         }

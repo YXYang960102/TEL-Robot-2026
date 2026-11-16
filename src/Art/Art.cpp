@@ -6,6 +6,7 @@
 #include "../Constants/ArtConstants.h"
 #include "../Constants/BuildProfile.h"
 #include "../Dribbler/Dribbler.h"
+#include "../IO/ManualControl.h"
 #include "../Vision/OperatorTarget.h"
 #include "../Vision/Vision.h"
 
@@ -30,6 +31,7 @@ unsigned long Art::readyLastStartMs = 0;
 Art::SoundLine Art::wave = {Sound::WAVE_PIN, false, 0, false, 0, Sound::PULSE_MS};
 Art::SoundLine Art::laugh = {Sound::LAUGH_PIN, false, 0, false, 0, Sound::PULSE_MS};
 Art::SoundLine Art::ready = {Sound::READY_PIN, false, 0, false, 0, Sound::PULSE_MS};
+Art::SoundLine Art::start = {Sound::START_PIN, false, 0, false, 0, Sound::PULSE_MS};
 uint8_t Art::readyPlays = 0;
 uint8_t Art::readyStutterLeft = 0;
 
@@ -39,6 +41,7 @@ void Art::init() {
     wave.active = wave.pending = false;
     laugh.active = laugh.pending = false;
     ready.active = ready.pending = false;
+    start.active = start.pending = false;
     readyPlays = readyStutterLeft = 0;
     lastAimedHole = OperatorTarget::NONE;
     laughWanted = waveEverPlayed = false;
@@ -47,7 +50,7 @@ void Art::init() {
         return;
     }
     // Sound lines at their idle level: preload, then drive.
-    const uint8_t soundPins[] = {Sound::WAVE_PIN, Sound::LAUGH_PIN, Sound::READY_PIN};
+    const uint8_t soundPins[] = {Sound::WAVE_PIN, Sound::LAUGH_PIN, Sound::READY_PIN, Sound::START_PIN};
     for (uint8_t pin : soundPins) {
         digitalWrite(pin, soundLevel(false));
         pinMode(pin, OUTPUT);
@@ -59,6 +62,7 @@ void Art::init() {
 
 void Art::update() {
     const unsigned long now = millis();
+    if (ManualControl::takeMatchStart()) playMatchStart(); // Y: 春日部防衛隊出動
     const unsigned long shots = Dribbler::getTriggerCount();
     if (shots != lastTriggerCount) {
         lastTriggerCount = shots;
@@ -101,10 +105,15 @@ void Art::update() {
     updateSound(wave, now);
     updateSound(laugh, now);
     updateSound(ready, now);
+    updateSound(start, now);
 
     if (BuildProfile::DRIVES_ART) {
         linkMotor.writeMicroseconds(linkPulseUs);
     }
+}
+
+void Art::playMatchStart() {
+    triggerSound(start, millis(), 0, Sound::PULSE_MS);
 }
 
 void Art::onShot(unsigned long now) {
