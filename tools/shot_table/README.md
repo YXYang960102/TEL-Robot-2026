@@ -5,8 +5,26 @@
 **2026-11-15 起每種球色一頁**：「射擊表-黃」「射擊表-紫」「射擊表-藍」「射擊表-綠」
 「射擊表-紅」「射擊表-橘」，格式都跟下面說的一樣，每頁有自己的三張曲線圖。Dashboard 的
 Match Setup 選球色，Mega 就用那一頁的表；某一頁一筆資料都沒有時，用黃色那頁。Dashboard
-按 S 記錄時會記下球色，`--import` 依 CSV 的「球色」欄放進那一色的頁；舊的 CSV 沒有球色欄，
+按 S 記錄時會記下球色，匯入時依 CSV 的「球色」欄放進那一色的頁；舊的 CSV 沒有球色欄，
 要加 `--color 黃`（或紫藍綠紅橘）。下文說的「射擊表」工作表，指的是各色的那一頁。
+
+## 兩種匯入 S 紀錄的方式（2026-11-16）
+
+| 什麼時候用 | 指令 | 做什麼 |
+|---|---|---|
+| **整份重測**（換場地、重新量一輪） | `--replace` | CSV 那個球色的頁**整頁換成 CSV**，舊的點全部刪掉，新舊不會混在一起。加 `--all-colors` 則 6 個顏色都換成這份 |
+| **局部修正**（某個洞在某個距離怪怪的，在那附近重測幾點） | `--adjust` | 每個 CSV 點蓋掉同球色、同洞口、**距離最接近且相差 0.3 m 以內**的舊點（距離也換成新的，例如 4.47 m 被 4.56 m 取代）；0.3 m 內沒有舊點就當新點加進去；其他點都不動。`--near 0.2` 可以改範圍 |
+
+```bash
+python3 tools/shot_table/apply.py --replace --check    # 先看整份換新會怎樣
+python3 tools/shot_table/apply.py --replace --upload   # 整份換新 + 燒 Mega
+python3 tools/shot_table/apply.py --adjust --check     # 先看局部修正會蓋掉哪些點
+python3 tools/shot_table/apply.py --adjust --upload    # 局部修正 + 燒 Mega
+```
+
+沒給檔名時用「下載項目」裡最新的 `shot_log_*.csv`，也可以寫在後面，例如
+`--adjust ~/Downloads/shot_log_20261116_2037.csv`。舊的 `--import` 等於 `--adjust`。
+Windows 把 `python3` 換成 `py`。改之前都會把 Excel 備份到 `tools/shot_table/backup/`。
 
 Mega 用的 `src/Constants/ShotTableData.h`
 由它自動產生，**不要手改那個 .h**。
@@ -45,8 +63,10 @@ Windows 是你 clone 的位置，例如
 |---|---|---|
 | 裝 PlatformIO（只要一次；已裝 VS Code 擴充功能可跳過） | `python3 -m pip install -U platformio` | `py -m pip install -U platformio` |
 | 只檢查 Excel | `python3 tools/shot_table/apply.py --check` | `py tools/shot_table/apply.py --check` |
-| 看 S 紀錄會改什麼 | `python3 tools/shot_table/apply.py --import --check` | `py tools/shot_table/apply.py --import --check` |
-| S 紀錄寫進 Excel + 燒 Mega | `python3 tools/shot_table/apply.py --import --upload` | `py tools/shot_table/apply.py --import --upload` |
+| 整份換新（先看） | `python3 tools/shot_table/apply.py --replace --check` | `py tools/shot_table/apply.py --replace --check` |
+| 整份換新 + 燒 Mega | `python3 tools/shot_table/apply.py --replace --upload` | `py tools/shot_table/apply.py --replace --upload` |
+| 局部修正（先看） | `python3 tools/shot_table/apply.py --adjust --check` | `py tools/shot_table/apply.py --adjust --check` |
+| 局部修正 + 燒 Mega | `python3 tools/shot_table/apply.py --adjust --upload` | `py tools/shot_table/apply.py --adjust --upload` |
 | 只用 Excel 更新並燒 Mega | `python3 tools/shot_table/apply.py --upload` | `py tools/shot_table/apply.py --upload` |
 
 燒錄前在 Dashboard 按斷線（不然序列埠被佔住），並關掉 Excel。
@@ -70,15 +90,14 @@ Windows 是你 clone 的位置，例如
 4. **先關掉 Excel**，在專案資料夾執行：
 
    ```bash
-   python3 tools/shot_table/apply.py --import --upload
+   python3 tools/shot_table/apply.py --replace --upload   # 整份重測
+   python3 tools/shot_table/apply.py --adjust --upload    # 局部修正
    ```
 
-   - `--import` 沒給檔名時，用「下載項目」裡最新的 `shot_log_*.csv`；也可以指定：
-     `--import ~/Downloads/shot_log_20261026_2103.csv`。
-   - 先只看會改什麼：`python3 tools/shot_table/apply.py --import --check`。
-   - 新的點加在表的最後面；Excel 裡已經有同一個洞口、同一個距離的，改成新的
-     仰角和轉速（單位換成 %），一樣的就略過。CSV 和 Excel 都照下面的規則嚴格
-     檢查，有任何錯就什麼都不改。
+   - 兩種的差別見上面「兩種匯入 S 紀錄的方式」。
+   - 沒給檔名時，用「下載項目」裡最新的 `shot_log_*.csv`；也可以指定檔名。
+   - 先只看會改什麼：把 `--upload` 換成 `--check`。
+   - CSV 和 Excel 都照下面的規則嚴格檢查，有任何錯就什麼都不改。
    - 改之前會把原本的 Excel 複製一份到 `tools/shot_table/backup/`（不進 git）。
    - 只改「射擊表」那一頁的儲存格；曲線圖、說明、下拉選單、你自己加的欄位都不動。
    - Excel 開著時（有 `~$shot_table.xlsx`）會拒絕，請先存檔關閉。
