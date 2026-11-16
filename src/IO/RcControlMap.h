@@ -48,7 +48,12 @@
  *                        it 100 ms per press; the robot acts on low->high)
  *   CH6  arm             1000 = disarmed, 2000 = enable requested
  *   CH7  nudge           1000 + 200*k, k = 0..4: center / up / down /
- *                        left / right (elevation up/down, turret left/right)
+ *                        left / right (elevation up/down, turret left/right);
+ *                        k = 5 (2026-11-16): match start (Dashboard Y; the
+ *                        ground holds it 200 ms, the robot acts on its
+ *                        rising edge -- the 春日部防衛隊出動 clip). An older
+ *                        robot rejects that frame as corrupt (200 ms, below
+ *                        its 250 ms watchdog): reflash both.
  *   CH8  auto path       1000 + 200*k, k = 0..4: none / 1 / 2 / 3 / 4
  *                        (keys Q W E R = left 1, left 2, right 1, right 2);
  *                        k = 5 (2026-11-08, link version 5): clear the
@@ -209,6 +214,9 @@ typedef struct {
     uint8_t half;      /* CH9 (2026-11-15): RCMAP_HALF_*; encode sends level
                           0 for the second half where it would send 2;
                           decode gives KEEP on the other levels */
+    bool match_start;  /* CH7 level 5 (2026-11-16): Y, the match started;
+                          encode sends it instead of a nudge, decode gives
+                          nudge center with it */
     bool trim_clear;   /* CH8 level 5 (2026-11-08): C, clear the saved
                           aim / elevation trim; encode sends it only with
                           no auto path, decode gives auto_path 0 with it */
@@ -320,6 +328,7 @@ typedef enum {
     RCMAP_EVENT_BALL_ORANGE,
     RCMAP_EVENT_HALF_FIRST,            /* 2026-11-15: the match half in use */
     RCMAP_EVENT_HALF_SECOND,
+    RCMAP_EVENT_MATCH_STARTED,         /* 2026-11-16: Y reached the robot */
     RCMAP_EVENT_COUNT
 } rcmap_event;
 

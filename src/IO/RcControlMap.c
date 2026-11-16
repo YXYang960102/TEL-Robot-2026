@@ -12,6 +12,7 @@
 #define RCMAP_LEVEL_STEP_US 200
 #define RCMAP_LEVEL_TOLERANCE_US 90 /* ELRS 6-pos sends 988/1193/1398/1602/1807 */
 #define RCMAP_FIVE_LEVELS 5u
+#define RCMAP_MATCH_START_LEVEL 5u /* CH7's 6th level (2026-11-16) */
 
 static float clamp_float(float v, float lo, float hi) {
     /* NaN fails both comparisons and would pass through, so test it
@@ -120,7 +121,8 @@ void rcmap_encode(const rcmap_command *c, int ch_us[16]) {
     ch_us[RCMAP_CH_MODE] = mode_channel_us(c);
     ch_us[RCMAP_CH_FIRE] = c->fire ? 2000 : 1000;
     ch_us[RCMAP_CH_ARM] = c->armed ? 2000 : 1000;
-    const uint8_t nudge = c->nudge < RCMAP_FIVE_LEVELS ? c->nudge : RCMAP_NUDGE_CENTER;
+    const uint8_t nudge = c->match_start ? RCMAP_MATCH_START_LEVEL
+                        : c->nudge < RCMAP_FIVE_LEVELS ? c->nudge : RCMAP_NUDGE_CENTER;
     ch_us[RCMAP_CH_NUDGE] = RCMAP_LEVEL_BASE_US + (int)nudge * RCMAP_LEVEL_STEP_US;
     const uint8_t path = c->auto_path <= RCMAP_AUTO_PATHS ? c->auto_path : RCMAP_AUTO_NONE;
     const uint8_t autoLevel = path == RCMAP_AUTO_NONE && c->trim_clear ? RCMAP_AUTO_TRIM_CLEAR_LEVEL : path;
@@ -156,7 +158,7 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     if (!decode_mode_channel(ch_us[RCMAP_CH_MODE], &mode_us, &flywheel, &offset_pct) ||
         !decode_target_channel(ch_us[RCMAP_CH_TARGET], &target, &color) ||
         !us_to_level(ch_us[RCMAP_CH_NUDGE], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
-                     RCMAP_LEVEL_TOLERANCE_US, RCMAP_FIVE_LEVELS, &nudge) ||
+                     RCMAP_LEVEL_TOLERANCE_US, RCMAP_MATCH_START_LEVEL + 1u, &nudge) ||
         !us_to_level(ch_us[RCMAP_CH_AUTO], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
                      RCMAP_LEVEL_TOLERANCE_US, RCMAP_AUTO_TRIM_CLEAR_LEVEL + 1u, &path) ||
         !us_to_level(ch_us[RCMAP_CH_TEST], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
@@ -172,7 +174,8 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     out->flywheel_offset_pct = offset_pct;
     out->fire = ch_us[RCMAP_CH_FIRE] >= RCMAP_SWITCH_ON_US;
     out->armed = ch_us[RCMAP_CH_ARM] >= RCMAP_SWITCH_ON_US;
-    out->nudge = nudge;
+    out->match_start = nudge == RCMAP_MATCH_START_LEVEL;
+    out->nudge = out->match_start ? RCMAP_NUDGE_CENTER : nudge;
     out->trim_clear = path == RCMAP_AUTO_TRIM_CLEAR_LEVEL;
     out->auto_path = out->trim_clear ? RCMAP_AUTO_NONE : path;
     /* Fail-safe like fire / arm: only a clear high counts, and only with
@@ -274,6 +277,7 @@ static const char *const event_names[RCMAP_EVENT_COUNT] = {
     "BALL_ORANGE",
     "HALF_FIRST",
     "HALF_SECOND",
+    "MATCH_STARTED",
 };
 
 const char *rcmap_event_name(uint16_t code) {

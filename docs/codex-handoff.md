@@ -8665,3 +8665,23 @@ first shot 510 ms after the elevation arrived. No hardware.
 
 **Flash:** Mega + ground (the $BALLS reasons need the ground); Dashboard
 reload.
+
+## 2026-11-16 — Y plays 春日部防衛隊出動 on D43 (re-added)
+
+**User Request (Jeremy):** bring back the reverted feature: Y shouts
+春日部防衛隊出動 (D43). (The other reverted piece, the elevation settle,
+is already back as ELEVATION_SETTLE_MS for full auto.)
+
+**Changed (same design as the reverted 2026-11-15 version):**
+`ArtConstants::Sound::START_PIN` 43 (idle LOW, HIGH 1 s); `Art::playMatchStart`
+from `Art::update` on `ManualControl::takeMatchStart()`; wired `START`;
+radio CH7 level 5 (`rcmap_command::match_start`, nudge center with it,
+200 ms ground pulse `MATCH_START_PULSE_MS`, rising edge as the wireless
+owner); event MATCH_STARTED; Dashboard sends START first at Y and logs
+"Mega 收到比賽開始". An older robot rejects the 200 ms of level-5 frames as
+corrupt (under its 250 ms watchdog: no disable, no sound): flash Mega and
+ground together.
+
+**Evidence:** 5 Mega envs + blackpill_f401cc SUCCESS; rc_control_map,
+ground host, manual_control (3), dashboard tests pass. No hardware (D43
+wiring, the clip).

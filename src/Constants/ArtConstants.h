@@ -42,6 +42,9 @@ constexpr uint8_t LAUGH_PIN = 42;  // 哇哈哈哈哈, aimed hole changed
 // set it to the 動感光波 clip's length.
 constexpr unsigned long WAVE_CLIP_MS = 3000;
 constexpr uint8_t READY_PIN = 40;  // 準備好了, repeats while disabled
+// 春日部防衛隊出動 (Jeremy, 2026-11-16): once when the match starts (Y),
+// on its own trigger line D43, same pulse as the others.
+constexpr uint8_t START_PIN = 43;
 constexpr unsigned long PULSE_MS = 1000;
 // While disabled: 準備好了 at once, then every READY_PERIOD_MS (start to
 // start; Jeremy, 2026-11-08, was 1 s LOW between plays). Stops at once on

@@ -16,6 +16,9 @@ public:
     static void init();   // motor at stop, sound lines at their idle level
     static void update(); // after Shooter::update() and Dribbler::update()
 
+    // Y (the match started, 2026-11-16): 春日部防衛隊出動 once.
+    static void playMatchStart();
+
     static bool isLinkRunning();
     static int getLinkPulseUs();
 
@@ -51,6 +54,7 @@ private:
     static SoundLine wave;
     static SoundLine laugh;
     static SoundLine ready;
+    static SoundLine start;
     static uint8_t readyPlays;       // plays started in this disabled period
     static uint8_t readyStutterLeft; // triggers still to come in a stutter
 };

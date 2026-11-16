@@ -57,6 +57,7 @@ void GroundCommandState::release(uint32_t nowMs) {
     cmd.turret_home = false;
     cmd.trim_clear = false;
     cmd.capture_toggle = false;
+    cmd.match_start = false;
     rotate = 0;
     angle = 0;
     updateNudge();
@@ -180,6 +181,8 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
     const bool isSingle = line[1] == '\0' && (line[0] == 'F' || line[0] == 'M');
     const bool isTurretHome = strcmp(line, "THOME") == 0;
     const bool isTrimClear = strcmp(line, "TCLR") == 0;
+    // START (2026-11-16): the match started (Y) -- one CH7 level-5 pulse.
+    const bool isMatchStart = strcmp(line, "START") == 0;
     const bool isCapture = strcmp(line, "CAPT") == 0;
     // COL,<0..5> (2026-11-15): the ball color, carried on CH3 with the
     // target hole in every frame (RcControlMap.h). A setting, not a motion:
@@ -190,7 +193,7 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
     const bool isHalf = strncmp(line, "HALF,", 5) == 0;
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isNoChannel && !isTarget &&
         !isAutoPath && !isModeSet && !isFlywheelOffset && !isSingle && !isTurretHome &&
-        !isTrimClear && !isCapture && !isBallColor && !isHalf) {
+        !isTrimClear && !isCapture && !isBallColor && !isHalf && !isMatchStart) {
         emitLine(emit, ctx, "$GROUND_EVENT,UNKNOWN_COMMAND");
         return;
     }
@@ -329,6 +332,13 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
         }
         return;
     }
+    if (isMatchStart) {
+        if (!cmd.match_start) {
+            cmd.match_start = true;
+            matchStartMs = nowMs;
+        }
+        return;
+    }
     if (isTrimClear) {
         // One C press = one pulse on CH8 (shared with the auto paths: only
         // when none is being sent, so the robot sees "none" in between).
@@ -374,6 +384,9 @@ void GroundCommandState::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
     }
     if (cmd.turret_home && nowMs - homeStartMs >= HOME_PULSE_MS) {
         cmd.turret_home = false;
+    }
+    if (cmd.match_start && nowMs - matchStartMs >= MATCH_START_PULSE_MS) {
+        cmd.match_start = false;
     }
     if (cmd.trim_clear && nowMs - trimClearStartMs >= TRIM_CLEAR_PULSE_MS) {
         cmd.trim_clear = false;
