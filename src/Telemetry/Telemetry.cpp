@@ -212,5 +212,8 @@ void Telemetry::update() {
     Serial.print(",");
     Serial.print(DribblerConstants::Tower::READY_REQUIRED ? 1 : 0);
     Serial.print(",");
-    Serial.println(Dribbler::getLoadedCount());
+    Serial.print(Dribbler::getLoadedCount());
+    Serial.print(",");
+    // Slot 62 (2026-11-16): Auto::FireBlocker bits, why it doesn't fire.
+    Serial.println(Auto::getFireBlockers());
 }

@@ -24,6 +24,11 @@ uint8_t Auto::lastShotSelection = 0;
 unsigned long Auto::lastElevationSlewMs = 0;
 int Auto::lastShotTargetId = 0;
 uint8_t Auto::readyBits = 0;
+uint16_t Auto::fireBlockers = 0;
+bool Auto::semiFirePending = false;
+unsigned long Auto::semiFireUntilMs = 0;
+double Auto::keptFlywheel = -1.0;
+unsigned long Auto::elevationArrivedSinceMs = 0;
 bool Auto::rowActive = false;
 uint8_t Auto::rowStartHole = 0;
 uint8_t Auto::rowStep = 0;
@@ -114,6 +119,10 @@ bool lookUpShot(unsigned long now, ShotTableLookup::Result& shot) {
 
 double Auto::getShotDistanceM() {
     return distanceFilter.latched();
+}
+
+uint16_t Auto::getFireBlockers() {
+    return fireBlockers;
 }
 
 uint8_t Auto::getReadyBits() {
@@ -357,6 +366,9 @@ void Auto::init() {
     haveLastShot = false;
     distanceFilter.reset();
     readyBits = 0;
+    fireBlockers = 0;
+    semiFirePending = false;
+    keptFlywheel = -1.0;
 }
 
 void Auto::enterFireState(FireState next) {
@@ -376,6 +388,9 @@ void Auto::update() {
         haveLastShot = false;
         distanceFilter.reset();
         readyBits = 0;
+        fireBlockers = 0;
+        semiFirePending = false;
+        keptFlywheel = -1.0; // disarm / manual: the next autos start fresh
         return;
     }
 
@@ -390,6 +405,8 @@ void Auto::update() {
         enterFireState(FireState::IDLE);
         haveLastShot = false;
         readyBits = 0;
+        fireBlockers = 0;
+        semiFirePending = false;
         aimTurret(visionHealthy);
         // The table is still looked up (never applied here), so letting go
         // of up / down can save the difference as the elevation trim
@@ -412,6 +429,8 @@ void Auto::update() {
         haveLastShot = false;
         distanceFilter.reset();
         readyBits = 0;
+        fireBlockers = BLOCK_NO_CAMERA;
+        semiFirePending = false;
         if (firePressed) ManualControl::reportEvent(RCMAP_EVENT_FIRE_NOT_READY);
         return;
     }
@@ -441,6 +460,7 @@ void Auto::update() {
     // depth dropped out for a moment (same hole).
     if (hasTarget) {
         haveLastShot = true;
+        keptFlywheel = shot.flywheelCommand; // kept after the target drops (2026-11-16)
         lastShotFlywheel = shot.flywheelCommand;
         lastShotElevationUs = shot.elevationPulseUs;
         lastShotMs = now;
@@ -455,9 +475,12 @@ void Auto::update() {
     }
 
     // Flywheel from that table when there is (or was just) a target
-    // (distance in mm -> m); otherwise the fixed SHOOT_COMMAND so it is
-    // already spinning when a target appears.
-    double flywheelCommand = TuningConstants::Flywheel::SHOOT_COMMAND;
+    // (distance in mm -> m). No target (2026-11-16, Jeremy: don't drop the
+    // speed when the box is lost): the last table speed stays; only before
+    // the first target of this enable / auto mode the fixed SHOOT_COMMAND.
+    double flywheelCommand = keptFlywheel >= 0.0
+        ? constrain(keptFlywheel + ManualControl::getFlywheelOffsetPct() / 100.0, 0.0, 1.0)
+        : TuningConstants::Flywheel::SHOOT_COMMAND;
     // Elevation at its table pulse (2026-10-31): true with no measured
     // table (the operator holds the elevation then).
     bool elevationArrived = !TuningConstants::ShotTable::ELEVATION_MEASURED;
@@ -468,32 +491,33 @@ void Auto::update() {
         // Elevation from the table too (a measured servo pulse) plus the
         // operator's fine-adjust, once the table holds real measured pulses
         // (ShotTable::ELEVATION_MEASURED); until then the operator keeps
-        // the elevation. No target: hold.
-        // Not while an auto path drives (2026-11-14): the elevation stays
-        // where it is until the robot has stopped.
-        if (TuningConstants::ShotTable::ELEVATION_MEASURED && !AutoPath::holdsShooter()) {
-            // Toward the target at ELEVATION_SLEW_US_PER_SECOND, not a jump
-            // (current limiting, 2026-10-18).
-            // Kept inside the servo's range (Angle::MIN/MAX_PULSE_US; MIN
-            // was 765 on 2026-11-07, 500 again since 2026-11-08). Unclamped,
-            // a point outside it would leave the servo at the limit and
-            // "elevation arrived" (10 us) would never come.
-            const double targetUs = constrain(lastShotElevationUs + ManualControl::getElevationOffsetUs(),
-                                              static_cast<double>(ShooterConstants::Angle::MIN_PULSE_US),
-                                              static_cast<double>(ShooterConstants::Angle::MAX_PULSE_US));
-            unsigned long elapsed = now - lastElevationSlewMs;
-            if (elapsed > 100) elapsed = 100;
-            const double maxStep = TuningConstants::Auto::ELEVATION_SLEW_US_PER_SECOND * elapsed / 1000.0;
-            const double currentUs = Shooter::getAnglePulseUs();
-            const double delta = targetUs - currentUs;
-            // Where it is now (before this loop's step): one loop late at
-            // most, never early.
-            elevationArrived = fabs(delta) <= TuningConstants::Auto::ELEVATION_READY_TOLERANCE_US;
-            Shooter::setAnglePulseUs(delta > maxStep ? currentUs + maxStep
-                                     : delta < -maxStep ? currentUs - maxStep : targetUs);
+        // the elevation. No target: hold. Also while an auto path drives
+        // (2026-11-16; held there 11-14 .. 11-16).
+        if (TuningConstants::ShotTable::ELEVATION_MEASURED) {
+            elevationArrived = slewElevation(lastShotElevationUs + ManualControl::getElevationOffsetUs(), now);
+        }
+    } else if (TuningConstants::ShotTable::ELEVATION_MEASURED && AutoPath::isActive()) {
+        // A path driving with no hole in view (2026-11-16): already toward
+        // the bottom row (AUTO_PATH_ELEVATION_HOLE at _DISTANCE_M).
+        ShotTableLookup::Result preset = {0.0, 0.0};
+        if (ShotTableLookup::lookupTarget(
+                OperatorTarget::visionIdForHole(TuningConstants::Auto::AUTO_PATH_ELEVATION_HOLE),
+                TuningConstants::Auto::AUTO_PATH_ELEVATION_DISTANCE_M, preset,
+                ManualControl::getBallColor())) {
+            slewElevation(preset.elevationPulseUs + ManualControl::getElevationOffsetUs(), now);
         }
     }
     lastElevationSlewMs = now;
+    // Full auto: "arrived" has to hold ELEVATION_SETTLE_MS (2026-11-16).
+    // Example: arrived at 12.30 s -> may fire from 12.80 s.
+    if (!elevationArrived) {
+        elevationArrivedSinceMs = 0;
+    } else if (elevationArrivedSinceMs == 0) {
+        elevationArrivedSinceMs = now == 0 ? 1 : now;
+    }
+    const bool elevationSettled = elevationArrived &&
+        (mode != OperatorMode::FULL_AUTO ||
+         now - elevationArrivedSinceMs >= TuningConstants::Auto::ELEVATION_SETTLE_MS);
     // An auto path driving (2026-11-14): flywheel off, elevation held (above),
     // no shot until the end; the turret already follows the hole.
     if (AutoPath::holdsShooter()) flywheelCommand = 0.0;
@@ -524,8 +548,17 @@ void Auto::update() {
     // camera stays out of it until the hole changes).
     const bool turretAimed = Shooter::isRotateReady() || ManualControl::isAimHandHeld();
     const bool ready = !AutoPath::holdsShooter() && !holeSwitchPending && turretAimed && Shooter::isFlywheelReady() && shotAvailable &&
-                       elevationArrived && holeAllowed && settledOnHole && towerReady;
+                       elevationSettled && holeAllowed && settledOnHole && towerReady;
     bool fired = false;
+    // Semi auto F (2026-11-16): held SEMI_FIRE_HOLD_MS, fired the first loop
+    // everything is ready. Example: F at 20.00 s, elevation there at 20.40 s
+    // -> the ball goes at 20.40 s; still not ready at 21.00 s -> FIRE_NOT_READY.
+    if (mode != OperatorMode::SEMI_AUTO) semiFirePending = false;
+    if (firePressed && mode == OperatorMode::SEMI_AUTO) {
+        semiFirePending = true;
+        semiFireUntilMs = now + TuningConstants::Auto::SEMI_FIRE_HOLD_MS;
+    }
+    const bool fireWanted = firePressed || semiFirePending;
 
     if (fireState == FireState::IDLE) {
         enterFireState(FireState::SPINNING_UP);
@@ -540,17 +573,19 @@ void Auto::update() {
     if (fireState == FireState::READY) {
         if (!ready) {
             enterFireState(FireState::SPINNING_UP); // lost lock or spun down
-        } else if ((mode == OperatorMode::FULL_AUTO && (!rowDone || litActive)) || firePressed) {
+        } else if ((mode == OperatorMode::FULL_AUTO && (!rowDone || litActive)) || fireWanted) {
             if (Dribbler::requestFeed()) {
                 ManualControl::reportEvent(RCMAP_EVENT_FEED_TRIGGER_SENT);
                 enterFireState(FireState::COOLDOWN);
                 fired = true;
+                semiFirePending = false;
                 if (mode == OperatorMode::FULL_AUTO) countRowShot();
-            } else if (firePressed) {
+            } else if (fireWanted && mode != OperatorMode::FULL_AUTO) {
                 // Tower still in its own lockout. Full-auto just retries next
                 // loop without reporting every attempt.
                 ManualControl::reportEvent(RCMAP_EVENT_FEED_BUSY);
                 fired = true; // the press was answered
+                semiFirePending = false;
             }
         }
     }
@@ -560,14 +595,48 @@ void Auto::update() {
                                      (Shooter::isFlywheelReady() ? 2u : 0u) |
                                      (shotAvailable ? 4u : 0u) |
                                      (fireState == FireState::READY ? 8u : 0u) |
-                                     (elevationArrived ? 16u : 0u) |
+                                     (elevationSettled ? 16u : 0u) |
                                      (towerReady ? 32u : 0u));
 
-    // Semi-auto F while not ready (still aiming / spinning up / cooling
-    // down) is refused, not queued: the operator presses again.
-    if (firePressed && !fired && mode == OperatorMode::SEMI_AUTO) {
+    // Every reason it can't fire right now (2026-11-16, Dashboard).
+    fireBlockers = static_cast<uint16_t>(
+        (turretAimed ? 0u : BLOCK_TURRET) |
+        (Shooter::isFlywheelReady() ? 0u : BLOCK_FLYWHEEL) |
+        (shotAvailable ? 0u : BLOCK_NO_SHOT) |
+        (elevationSettled ? 0u : BLOCK_ELEVATION) |
+        (towerReady ? 0u : BLOCK_BALL) |
+        (settledOnHole && !holeSwitchPending ? 0u : BLOCK_SWITCHING) |
+        (AutoPath::holdsShooter() ? BLOCK_PATH : 0u) |
+        (holeAllowed ? 0u : BLOCK_HOLE) |
+        (fireState == FireState::COOLDOWN ? BLOCK_COOLDOWN : 0u) |
+        (mode == OperatorMode::FULL_AUTO && rowDone && !litActive ? BLOCK_DONE : 0u));
+    if (fired) fireBlockers = 0;
+
+    // Semi-auto F held SEMI_FIRE_HOLD_MS without everything ready: refused
+    // (the Dashboard shows why from the blockers), not queued any longer.
+    if (semiFirePending && !fired && static_cast<long>(now - semiFireUntilMs) >= 0) {
+        semiFirePending = false;
         ManualControl::reportEvent(RCMAP_EVENT_FIRE_NOT_READY);
     }
+}
+
+// One step of the elevation toward targetUs at ELEVATION_SLEW_US_PER_SECOND
+// (current limiting, 2026-10-18), kept inside the servo's range
+// (Angle::MIN/MAX_PULSE_US: unclamped, a point outside it would leave the
+// servo at the limit and "arrived" would never come). Returns whether it
+// was already there (within ELEVATION_READY_TOLERANCE_US) before this step:
+// one loop late at most, never early.
+bool Auto::slewElevation(double targetUs, unsigned long now) {
+    targetUs = constrain(targetUs, static_cast<double>(ShooterConstants::Angle::MIN_PULSE_US),
+                         static_cast<double>(ShooterConstants::Angle::MAX_PULSE_US));
+    unsigned long elapsed = now - lastElevationSlewMs;
+    if (elapsed > 100) elapsed = 100;
+    const double maxStep = TuningConstants::Auto::ELEVATION_SLEW_US_PER_SECOND * elapsed / 1000.0;
+    const double currentUs = Shooter::getAnglePulseUs();
+    const double delta = targetUs - currentUs;
+    Shooter::setAnglePulseUs(delta > maxStep ? currentUs + maxStep
+                             : delta < -maxStep ? currentUs - maxStep : targetUs);
+    return fabs(delta) <= TuningConstants::Auto::ELEVATION_READY_TOLERANCE_US;
 }
 
 bool Auto::getTableElevationUs(double& us) {

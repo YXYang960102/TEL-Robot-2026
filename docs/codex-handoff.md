@@ -8613,3 +8613,55 @@ first), each bottom -> top; then the bonus row (skipped unless lit). From
 1 2 3. Tests updated (pick 5 -> start 4 -> ... ends on 3; TGT,8 -> 9).
 Sims: first half near 7 -> 7 8 9 4 5 6 1 2 3 (27 balls); second half near
 4 -> 4 5 6 7 8 9 1 2 3 (18). pio megaatmega2560 SUCCESS.
+
+## 2026-11-15 — Reverted before commit: Y sound on D43, 0.5 s elevation settle
+
+Implemented (D43 春日部防衛隊出動 on Y via wired START / CH7 level 5, ground
+START pulse, MATCH_STARTED event; ELEVATION_SETTLE_MS 500 before an auto
+shot), built and tested, then reverted uncommitted at Jeremy's request
+("先改回去"). The tree is back at 9be87de; nothing of it was pushed or
+flashed.
+
+## 2026-11-16 — Fire protection reasons, semi F hold, full-auto elevation settle, kept flywheel, elevation during the path; new table (all colors)
+
+**User Request (Jeremy):** (1) are full and semi auto's fire protections
+the same? semi keeps answering "not ready"; (2) show why it doesn't fire;
+(3) full auto: let the elevation settle before firing; no box -> keep the
+flywheel speed; move the elevation while an auto path drives (the lowest
+box took long); new CSV shot_log_20261116_2037 into the Excel (all six
+colors, chosen) and push.
+
+**Finding (1):** the same `ready` for both. Full auto waits for it; semi F
+was checked in one loop only, so any condition still missing at the press
+(lock 6 px / 100 ms, elevation slewing, tower A14, hole settle) -> refused.
+
+**Changed:**
+- `Auto::FireBlocker` bits (turret, flywheel, no shot, elevation, ball,
+  switching, path, hole, cooldown, done, no camera) -> `fireBlockers`,
+  `getFireBlockers()`: TEL slot 62; radio: the balls frame code bits 0-12
+  (`rcmap_balls::blockers`; an older ground ignores them) -> ground
+  `$BALLS` field 8 -> Dashboard 發射條件 line lists the reasons in Chinese
+  (all fine: 可以發射); FIRE_NOT_READY logs them.
+- Semi F held `SEMI_FIRE_HOLD_MS` 1000: fires the first loop all is ready,
+  FIRE_NOT_READY only after the hold (FEED_BUSY as before).
+- `ELEVATION_SETTLE_MS` 500, full auto only: arrived must hold 500 ms.
+- Flywheel: `keptFlywheel` = the last table speed, used when the box is
+  lost (any time, not only TARGET_HOLD_MS); SHOOT_COMMAND only before the
+  first target since full manual / disarm.
+- Elevation slews while a path drives (`slewElevation` helper): to the
+  table for the hole in view, else hole `AUTO_PATH_ELEVATION_HOLE` 4 at
+  `AUTO_PATH_ELEVATION_DISTANCE_M` 4.5 m. Flywheel 0 / no shot during the
+  path, unchanged.
+- shot_table.xlsx: all six colors = the 22 rows of
+  shot_log_20261116_2037.csv (holes 4: 7, 5: 7, 6: 6, 11: 2); backup
+  backup/shot_table_20261116_215412.xlsx; ShotTableData.h regenerated.
+- Tests updated: semi tests wait the hold; kept flywheel; blockers checked.
+
+**Evidence:** pio megaatmega2560 + 4 Mega envs + blackpill_f401cc SUCCESS;
+rc_control_map, ground host, manual_control (3), shot_table_lookup,
+gamepad, dashboard tests pass; sims: path with no box -> elevation 1500 ->
+709 us (hole 4 @ 4.5 m) within 2 s while driving, flywheel 0; full auto
+first shot 510 ms after the elevation arrived. No hardware.
+
+**Flash:** Mega + ground (the $BALLS reasons need the ground); Dashboard
+reload.

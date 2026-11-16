@@ -795,13 +795,13 @@ void testSemiAutoFiresOnlyWhenReady() {
     assert(saw("BAD_COMMAND") && ManualControl::getFlywheelOffsetPct() == 5);
     send("FLYO,0"); step();
     assert(nearly(rec.flywheelCommand, shot.flywheelCommand));
-    // Target hold: a short dropout keeps the shot; a long one falls back
-    // to the pre-spin.
+    // Target lost: the flywheel keeps the last table speed, short or long
+    // (2026-11-16; before, a long dropout fell back to the pre-spin).
     hoststub::visionValid = false;
     runWithHeartbeat(TuningConstants::Auto::TARGET_HOLD_MS - 100);
     assert(nearly(rec.flywheelCommand, shot.flywheelCommand));
-    runWithHeartbeat(200);
-    assert(nearly(rec.flywheelCommand, TuningConstants::Flywheel::SHOOT_COMMAND));
+    runWithHeartbeat(2000);
+    assert(nearly(rec.flywheelCommand, shot.flywheelCommand));
     hoststub::visionValid = true;
     step();
     assert(nearly(rec.flywheelCommand, shot.flywheelCommand));
@@ -809,23 +809,17 @@ void testSemiAutoFiresOnlyWhenReady() {
     send("T,1,1"); step();
     assert(nearly(rec.chassisLeft, 1.0));
 
-    // Not locked yet: F is refused, not queued.
+    // Not locked yet: F is held SEMI_FIRE_HOLD_MS (2026-11-16), then refused.
     Serial.output.clear();
     send("F"); step();
+    assert(!saw("FIRE_NOT_READY") && !triggerHigh());       // still held
+    runArmed(TuningConstants::Auto::SEMI_FIRE_HOLD_MS + 50);
     assert(saw("FIRE_NOT_READY") && !triggerHigh());
+    assert(Auto::getFireBlockers() & Auto::BLOCK_TURRET);   // the reason
     runArmed(200);
     assert(Dribbler::getTriggerCount() == 0);              // no late shot
 
-    // Locked and spun up, but the elevation still slewing to the table's
-    // pulse (400 us/s): refused (2026-10-31).
     hoststub::shooterReady = true;
-    step();
-    if (fabs(hoststub::anglePulseUs - tableUs(shot)) >
-        TuningConstants::Auto::ELEVATION_READY_TOLERANCE_US) {
-        Serial.output.clear();
-        send("F"); step();
-        assert(saw("FIRE_NOT_READY") && !triggerHigh());
-    }
     runArmed(6000);
     assert(fabs(hoststub::anglePulseUs - tableUs(shot)) <=
            TuningConstants::Auto::ELEVATION_READY_TOLERANCE_US);
@@ -834,9 +828,11 @@ void testSemiAutoFiresOnlyWhenReady() {
     send("F"); step();
     assert(saw("FEED_TRIGGER_SENT") && triggerHigh());
     assert(Dribbler::getTriggerCount() == 1);
-    // Right after a shot: refused again (cooldown / tower lockout).
+    // Right after a shot: refused again (cooldown / tower lockout), after
+    // the hold.
     Serial.output.clear();
     send("F"); step();
+    runArmed(TuningConstants::Auto::SEMI_FIRE_HOLD_MS + 50);
     assert(saw("FIRE_NOT_READY") || saw("FEED_BUSY"));
     assert(Dribbler::getTriggerCount() == 1);
     // Without F, semi-auto never fires on its own.
@@ -1098,13 +1094,15 @@ void testWirelessMode() {
     wireless.mode_us = RCMAP_MODE_SEMI_AUTO_US;
     rcStep();
     assert(saw("MODE_SEMI_AUTO") && ManualControl::getOperatorMode() == OperatorMode::SEMI_AUTO);
-    // Fire (CH5 edge) in semi-auto goes through Auto: not ready -> refused.
+    // Fire (CH5 edge) in semi-auto goes through Auto: not ready -> held
+    // SEMI_FIRE_HOLD_MS, then refused (2026-11-16).
     Serial.output.clear();
     wireless.fire = true;
     rcStep();
+    wireless.fire = false;
+    runWireless(TuningConstants::Auto::SEMI_FIRE_HOLD_MS + 50);
     assert(saw("FIRE_NOT_READY") && Dribbler::getTriggerCount() == 0);
     hoststub::shooterReady = true;
-    wireless.fire = false;
     runWireless(6000);                                    // the elevation slews to the table first
     wireless.fire = true;
     rcStep();
@@ -1313,7 +1311,9 @@ void testAutoNeedsDistance() {
     Serial.output.clear();
     runArmed(1500);
     send("F"); step();
+    runArmed(TuningConstants::Auto::SEMI_FIRE_HOLD_MS + 50); // held first (2026-11-16)
     assert(saw("FIRE_NOT_READY"));
+    assert(Auto::getFireBlockers() & Auto::BLOCK_NO_SHOT);   // the reason: no distance
 }
 
 void testShotTableByHeight() {
@@ -1347,7 +1347,8 @@ void testShotTableByHeight() {
     hoststub::shooterReady = true;
     send("M"); step();                                    // full auto
     assert(shotsDuring(2500) == 0);
-    assert(nearly(rec.flywheelCommand, TuningConstants::Flywheel::SHOOT_COMMAND));
+    // No table here: the flywheel keeps the last table speed (2026-11-16).
+    assert(nearly(rec.flywheelCommand, expected.flywheelCommand));
     hoststub::visionTargetId = 13;                        // an unknown id: no table
     assert(shotsDuring(2500) == 0);
     hoststub::visionTargetId = 8;                         // middle row: fired at (the bottom row

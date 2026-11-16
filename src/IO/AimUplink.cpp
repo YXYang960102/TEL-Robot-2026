@@ -2,6 +2,7 @@
 
 #include <math.h>
 
+#include "../Auto/Auto.h"
 #include "../Dribbler/Dribbler.h"
 #include "../Sensors/TurretAngle.h"
 #include "../Shooter/Shooter.h"
@@ -62,6 +63,7 @@ void AimUplink::sendBalls() {
     b.ball_ready = Dribbler::hasBall();
     b.required = DribblerConstants::Tower::READY_REQUIRED;
     b.tower_enabled = Dribbler::isEnabled();
+    b.blockers = Auto::getFireBlockers(); // 2026-11-16: why it doesn't fire
     uint8_t flags = 0;
     uint32_t seq = 0;
     uint16_t code = 0;
