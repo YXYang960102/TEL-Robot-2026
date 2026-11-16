@@ -877,7 +877,7 @@ void testFullAutoFiresByItself() {
 // shot starts the cycle and stays chosen; 3 balls each, OperatorTarget::
 // cycleHole order (that row right / wrapping, the row below, the row above,
 // the bonus row), then stop. A hole key (even the same one) or a mode
-// change starts over. A lit bonus hole comes first: 3 balls, then back.
+// change starts over. A lit bonus hole comes first: 1 ball, then back.
 unsigned long runUntilShots(unsigned long count, unsigned long maxMs) {
     for (unsigned long t = 0; t < maxMs && Dribbler::getTriggerCount() < count; t += 10) {
         if (t % 50 == 0) send("K");
@@ -954,7 +954,7 @@ void testFullAutoLitBonusFirst() {
     runArmed(6000);                                       // turret + elevation over there
     hoststub::shooterReady = true;
     const unsigned long before = Dribbler::getTriggerCount();
-    assert(runUntilShots(before + 3, 8000) == before + 3);
+    assert(runUntilShots(before + 1, 8000) == before + 1);  // one ball at a bonus box
     waitHoleSwitch();
     assert(Auto::getLitPriorityHole() == 0 && Auto::getAimTarget() == 4);  // back where it was
     assert(Auto::getRowShots() == 1);                     // 1 of 3 already at 4

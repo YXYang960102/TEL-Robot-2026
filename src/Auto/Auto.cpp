@@ -286,8 +286,8 @@ void Auto::skipHolesWithoutTable() {
     }
 }
 
-// One ball sent in full auto. A lit bonus hole first: SHOTS_PER_HOLE at
-// it, then back to the cycle as it was. Otherwise SHOTS_PER_HOLE at a
+// One ball sent in full auto. A lit bonus hole first: BONUS_SHOTS_PER_HOLE
+// (1) at it, then back to the cycle as it was. Otherwise SHOTS_PER_HOLE at a
 // hole, then the next one in buildCycle order; after the last, done.
 // Example: the Orin picked vision id 8 (hole 5): 5, 8 7 9, 6 4, 1 2 3 --
 // 27 balls (the bonus boxes only when lit, CYCLE_SKIPS_BONUS_ROW).
@@ -298,7 +298,7 @@ void Auto::countRowShot() {
     using namespace TuningConstants::Auto;
     notFoundSinceMs = millis(); // a shot: the hole is making progress
     if (litActive) {
-        if (++litShots >= shotsPerHole()) {
+        if (++litShots >= BONUS_SHOTS_PER_HOLE) {
             holeSwitchPending = true;
             holeSwitchFromLit = true;
             holeSwitchStartMs = millis();
