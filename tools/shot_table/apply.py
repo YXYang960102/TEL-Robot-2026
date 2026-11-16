@@ -5,10 +5,19 @@
   python3 tools/shot_table/apply.py --upload   ...then build and upload the Mega (pio)
   python3 tools/shot_table/apply.py --check    check only, write nothing
   python3 tools/shot_table/apply.py --export   rebuild shot_table.xlsx from the current header
-  python3 tools/shot_table/apply.py --import [CSV] [--upload]
-        put the Dashboard's shot log (S key -> 下載 CSV) into the Excel,
-        then as above; no CSV given = the newest shot_log_*.csv in
-        ~/Downloads. --import --check only shows what it would change.
+  python3 tools/shot_table/apply.py --replace [CSV] [--all-colors] [--upload]
+        REPLACE (2026-11-16): the color sheet(s) the CSV's 球色 column names
+        become exactly the CSV's points -- every older point of that color
+        is gone (old and new measurements never mix). --all-colors: the
+        same points into all six sheets.
+  python3 tools/shot_table/apply.py --adjust [CSV] [--near 0.3] [--upload]
+        ADJUST (2026-11-16): each CSV point overwrites the point of the same
+        color and hole whose distance is nearest within --near meters (0.3
+        default; e.g. 4.56 m replaces 4.47 m, distance included); none that
+        close -> added as a new point. Everything else stays.
+        --import is the same as --adjust.
+  No CSV given = the newest shot_log_*.csv in ~/Downloads. With --check
+  either only shows what it would change.
 
 The Excel (tools/shot_table/shot_table.xlsx) has one sheet per ball color
 (2026-11-15): "射擊表-黃" "射擊表-紫" "射擊表-藍" "射擊表-綠" "射擊表-紅"
@@ -580,7 +589,7 @@ def write_xlsx(path, by_color):
         "2. 在專案資料夾執行：python3 tools/shot_table/apply.py --upload",
         "   會檢查格式、列出改了哪些值、產生 src/Constants/ShotTableData.h，再燒進 Mega。",
         "   只想檢查：python3 tools/shot_table/apply.py --check",
-        "3. Dashboard 按 S 記錄的點：在 Dashboard 按「下載 CSV」，關掉 Excel，執行 python3 tools/shot_table/apply.py --import --upload（依 CSV 的「球色」欄放進那一色的頁；同洞口同距離會取代，其他加在最後。舊的 CSV 沒有球色欄時要加 --color 黃 之類）。",
+        "3. Dashboard 按 S 記錄的點：在 Dashboard 按「下載 CSV」，關掉 Excel。整份重測：python3 tools/shot_table/apply.py --replace --upload（那個球色的頁整頁換成 CSV）；局部修正：python3 tools/shot_table/apply.py --adjust --upload（每個點蓋掉同洞口距離最接近、0.3 m 以內的舊點，沒有就新增）。依 CSV 的「球色」欄放進那一色的頁；舊的 CSV 沒有球色欄時要加 --color 黃 之類。",
         "",
         "格式（嚴格）",
         "- 第 1 列是欄位名稱。「洞口」「距離(m)」「仰角(us)」「轉速」「轉速單位」五個必須各出現一次、名稱一字不差。",
@@ -815,8 +824,11 @@ def full_calc_on_load(wb_xml):
     return wb_xml[:pos] + '<calcPr fullCalcOnLoad="1"/>' + wb_xml[pos:]
 
 
-def plan_import(cells, csv_cells, csv_name):
-    """What the CSV changes in the sheet: (edits, report lines, counts)."""
+def plan_import(cells, csv_cells, csv_name, near_cm=30):
+    """What the CSV changes in the sheet: (edits, report lines, counts).
+    Adjust (2026-11-16): a CSV point replaces the existing point of the same
+    hole whose distance is nearest within near_cm (its distance too), each
+    existing point at most once; none that close -> a new row."""
     if any(r > 1 for (r, c) in cells):
         try:
             parse_points(cells)  # the Excel itself must be valid before it is touched
@@ -841,21 +853,32 @@ def plan_import(cells, csv_cells, csv_name):
     for row, h, cm, permille, elev in new_rows:
         latest.pop((h, cm), None)
         latest[(h, cm)] = (permille, elev)
-    existing = {(h, cm): (row, permille, elev) for row, h, cm, permille, elev in old_rows}
     next_row = max(r for (r, c) in cells) + 1
     edits, lines = {}, []
     added = replaced = same = 0
+    used = set()
     fmt = lambda permille, elev: f"{elev} us / {permille / 10:.1f}%"
     for (h, cm), (permille, elev) in latest.items():
         values = {found["elev"]: elev, found["fly"]: Decimal(fmt_percent(permille)), found["unit"]: "%"}
-        if (h, cm) in existing:
-            row, old_permille, old_elev = existing[(h, cm)]
-            if (old_permille, old_elev) == (permille, elev):
+        # The nearest existing point of this hole within near_cm (an exact
+        # distance is nearest of all).
+        match = None
+        for row, oh, ocm, operm, oelev in old_rows:
+            if oh != h or row in used or abs(ocm - cm) > near_cm:
+                continue
+            if match is None or abs(ocm - cm) < abs(match[1] - cm):
+                match = (row, ocm, operm, oelev)
+        if match is not None:
+            row, old_cm, old_permille, old_elev = match
+            used.add(row)
+            if (old_cm, old_permille, old_elev) == (cm, permille, elev):
                 same += 1
                 lines.append(f"  = 洞口 {h} {cm / 100:.2f} m：{fmt(permille, elev)}（第 {row} 列，已經一樣）")
                 continue
+            values[found["dist"]] = Decimal(fmt_meters(cm))
             replaced += 1
-            lines.append(f"  * 洞口 {h} {cm / 100:.2f} m：{fmt(old_permille, old_elev)} -> {fmt(permille, elev)}（取代第 {row} 列）")
+            moved = f"{old_cm / 100:.2f} m → {cm / 100:.2f} m，" if old_cm != cm else f"{cm / 100:.2f} m："
+            lines.append(f"  * 洞口 {h} {moved}{fmt(old_permille, old_elev)} -> {fmt(permille, elev)}（取代第 {row} 列）")
         else:
             row = next_row
             next_row += 1
@@ -904,7 +927,7 @@ def csv_by_color(csv_cells, csv_name, default_color):
     return out
 
 
-def import_csv(xlsx, csv_path, dry_run, default_color=None):
+def import_csv(xlsx, csv_path, dry_run, default_color=None, near_cm=30):
     lock = os.path.join(os.path.dirname(xlsx), "~$" + os.path.basename(xlsx))
     if os.path.exists(lock) and not dry_run:
         raise TableError(f"Excel 正開著 {os.path.basename(xlsx)}（有 {os.path.basename(lock)}）。"
@@ -918,7 +941,7 @@ def import_csv(xlsx, csv_path, dry_run, default_color=None):
             # An empty color sheet: plan_import checks the sheet first, and
             # an empty one fails that -- treat it as having no rows yet.
             cells = {k: v for k, v in cells.items() if k[0] == 1}
-        edits, lines, (added, replaced, same) = plan_import(cells, groups[color], csv_name)
+        edits, lines, (added, replaced, same) = plan_import(cells, groups[color], csv_name, near_cm)
         print(f"匯入 {csv_path} -> {SHEETS[color]}：新增 {added}、取代 {replaced}、相同 {same}")
         for line in lines:
             print(line)
@@ -954,6 +977,52 @@ def import_csv(xlsx, csv_path, dry_run, default_color=None):
         if parse_points(read_sheet(tmp, SHEETS[color])) != parse_points(merged):
             os.remove(tmp)
             raise TableError("寫出的 Excel 讀回來不一致，沒有覆蓋原檔")
+    try:
+        os.replace(tmp, xlsx)
+    except PermissionError:
+        os.remove(tmp)
+        raise TableError(f"無法覆蓋 {xlsx}（Excel 是不是還開著？）")
+    print(f"已寫入 {xlsx}（原檔備份：{backup}）")
+    return True
+
+
+def replace_csv(xlsx, csv_path, dry_run, default_color=None, all_colors=False):
+    """REPLACE (2026-11-16): the CSV's color sheet(s) -- or all six with
+    all_colors -- become exactly the CSV's points. The workbook is rebuilt
+    (write_xlsx) with the other colors as they were."""
+    lock = os.path.join(os.path.dirname(xlsx), "~$" + os.path.basename(xlsx))
+    if os.path.exists(lock) and not dry_run:
+        raise TableError(f"Excel 正開著 {os.path.basename(xlsx)}（有 {os.path.basename(lock)}）。"
+                         "請先存檔並關閉 Excel；如果 Excel 已經關了，刪掉那個 ~$ 檔再試")
+    csv_name = os.path.basename(csv_path)
+    groups = csv_by_color(read_csv(csv_path), csv_name, default_color)
+    by_color = read_all(xlsx)
+    new = [dict(p) for p in by_color]
+    for color, cells in groups.items():
+        try:
+            points = parse_points(cells)
+        except TableError as e:
+            raise TableError(f"{csv_name}（{COLORS[color]}）有錯誤（格子位置是 CSV 的欄列）：\n{e}")
+        targets = range(len(COLORS)) if all_colors else [color]
+        for c in targets:
+            new[c] = dict(points)
+            old_n = sum(len(v) for v in by_color[c].values())
+            new_n = sum(len(v) for v in points.values())
+            print(f"整份換新 {SHEETS[c]}：舊的 {old_n} 個點全部刪掉，換成 {csv_name} 的 {new_n} 個點"
+                  f"（" + "、".join(f"洞口 {h} {len(points[h])} 點" for h in sorted(points)) + "）")
+    if all_colors and len(groups) > 1:
+        raise TableError("--all-colors 只能用在一種球色的 CSV（這份有好幾種球色）")
+    if dry_run:
+        return False
+    backup_dir = os.path.join(os.path.dirname(os.path.abspath(xlsx)), "backup")
+    os.makedirs(backup_dir, exist_ok=True)
+    backup = os.path.join(backup_dir, time.strftime("shot_table_%Y%m%d_%H%M%S.xlsx"))
+    shutil.copy2(xlsx, backup)
+    tmp = xlsx + ".tmp"
+    write_xlsx(tmp, new)
+    if read_all(tmp) != new:
+        os.remove(tmp)
+        raise TableError("寫出的 Excel 讀回來不一致，沒有覆蓋原檔")
     try:
         os.replace(tmp, xlsx)
     except PermissionError:
@@ -1021,10 +1090,24 @@ def main():
                     help="put the Dashboard's shot log CSV into the Excel first "
                          "(no CSV = the newest shot_log_*.csv in ~/Downloads)")
     ap.add_argument("--color", choices=COLORS, default=None,
-                    help="with --import: the color sheet for a CSV without a 球色 column")
+                    help="the color sheet for a CSV without a 球色 column")
+    ap.add_argument("--replace", dest="replace_csv", nargs="?", const="", metavar="CSV",
+                    help="REPLACE: the CSV's color sheet(s) become exactly the CSV")
+    ap.add_argument("--adjust", dest="adjust_csv", nargs="?", const="", metavar="CSV",
+                    help="ADJUST: each CSV point overwrites the nearest point within --near m")
+    ap.add_argument("--near", type=float, default=0.3,
+                    help="with --adjust / --import: meters within which a point counts as the same (0.3)")
+    ap.add_argument("--all-colors", action="store_true",
+                    help="with --replace: the same points into all six color sheets")
     args = ap.parse_args()
-    if args.export and args.import_csv is not None:
-        sys.exit("--export 和 --import 不能一起用")
+    # --import is --adjust (2026-11-16).
+    if args.import_csv is not None and args.adjust_csv is None:
+        args.adjust_csv = args.import_csv
+    modes = [m for m in (args.export, args.replace_csv is not None, args.adjust_csv is not None) if m]
+    if len(modes) > 1:
+        sys.exit("--export、--replace、--adjust（--import）一次只能用一個")
+    if args.all_colors and args.replace_csv is None:
+        sys.exit("--all-colors 只能跟 --replace 一起用")
 
     old_text = open(HEADER, encoding="utf-8").read() if os.path.exists(HEADER) else ""
     old = parse_header(old_text)
@@ -1036,11 +1119,17 @@ def main():
         print(f"已從 {os.path.relpath(HEADER, ROOT)} 產生 {os.path.relpath(args.xlsx, ROOT)}")
         return
 
-    if args.import_csv is not None:
+    if args.replace_csv is not None or args.adjust_csv is not None:
+        default_color = COLORS.index(args.color) if args.color else None
         try:
-            csv_path = args.import_csv or newest_shot_log()
-            import_csv(args.xlsx, csv_path, dry_run=args.check,
-                       default_color=COLORS.index(args.color) if args.color else None)
+            if args.replace_csv is not None:
+                csv_path = args.replace_csv or newest_shot_log()
+                replace_csv(args.xlsx, csv_path, dry_run=args.check,
+                            default_color=default_color, all_colors=args.all_colors)
+            else:
+                csv_path = args.adjust_csv or newest_shot_log()
+                import_csv(args.xlsx, csv_path, dry_run=args.check,
+                           default_color=default_color, near_cm=round(args.near * 100))
         except TableError as e:
             print("匯入失敗，Excel 沒有改動、也沒有燒錄：\n" + str(e), file=sys.stderr)
             sys.exit(1)

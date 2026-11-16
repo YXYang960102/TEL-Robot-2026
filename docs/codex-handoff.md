@@ -8685,3 +8685,28 @@ ground together.
 **Evidence:** 5 Mega envs + blackpill_f401cc SUCCESS; rc_control_map,
 ground host, manual_control (3), dashboard tests pass. No hardware (D43
 wiring, the clip).
+
+## 2026-11-16 — Shot table import: --replace (whole sheet) and --adjust (nearest point)
+
+**User Request (Jeremy):** two commands. (1) Replace everything with the
+new measurement (positions differ between sessions; mixing old and new
+points made shots odd). (2) Adjust one box at a distance: overwrite the
+code's point nearest the re-measured distance (4.47 m re-measured at ~4.56
+m replaces 4.47). Chosen: replace only the CSV's ball-color sheet(s)
+(--all-colors for all six); "same point" within 0.3 m.
+
+**Changed (tools/shot_table/apply.py):** `--replace [CSV]` ->
+`replace_csv`: the CSV's color sheet(s) become exactly the CSV's points
+(workbook rebuilt with write_xlsx, the other colors as they were; backup;
+read-back check); `--all-colors` copies them into all six (one-color CSV
+only). `--adjust [CSV]` (and `--import`, now the same): `plan_import`
+matches each CSV point to the existing point of that hole with the
+nearest distance within `--near` (0.3 m), each existing point at most
+once, rewriting its distance / elevation / flywheel; none that close ->
+new row. Mutually exclusive with --export. README + the Excel help text.
+
+**Evidence:** on a copy: --adjust: hole 5 4.44 -> 4.56 m replaced, hole 6
+8.00 m added (nothing within 0.3 m), hole 4 3.29 m values replaced, yellow
+untouched; --replace (blue CSV) -> blue = the 2 CSV points, red kept;
+--check prints both plans; the real shot_table.xlsx / ShotTableData.h
+untouched (apply.py --check: no change).
