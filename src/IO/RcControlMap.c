@@ -362,7 +362,7 @@ bool rcmap_vision_from_status(const rcmap_status *s, rcmap_vision *out) {
 }
 
 void rcmap_balls_to_status(const rcmap_balls *b, uint8_t *flags, uint32_t *seq, uint16_t *code) {
-    *code = (uint16_t)RCMAP_BALLS_FRAME_BITS;
+    *code = (uint16_t)(RCMAP_BALLS_FRAME_BITS | (b->blockers & 0x1FFFu));
     *seq = ((uint32_t)(b->loaded & 0x0FFFu)) | ((uint32_t)(b->fired & 0x0FFFu) << 12);
     *flags = (uint8_t)((b->ball_ready ? 1u : 0u) | (b->required ? 2u : 0u) |
                        (b->tower_enabled ? 4u : 0u));
@@ -375,6 +375,7 @@ bool rcmap_balls_from_status(const rcmap_status *s, rcmap_balls *out) {
     out->ball_ready = (s->flags & 1u) != 0u;
     out->required = (s->flags & 2u) != 0u;
     out->tower_enabled = (s->flags & 4u) != 0u;
+    out->blockers = (uint16_t)(s->event_code & 0x1FFFu);
     return true;
 }
 

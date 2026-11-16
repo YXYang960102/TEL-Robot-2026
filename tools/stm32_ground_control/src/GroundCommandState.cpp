@@ -527,12 +527,13 @@ void RobotStatusTracker::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
 
     const bool ballsFresh = haveBalls && nowMs - lastBallsMs <= STALE_MS;
     const rcmap_balls b = ballsFresh ? lastBalls : rcmap_balls{};
-    snprintf(text, sizeof(text), "$BALLS,%d,%u,%u,%d,%d,%d",
+    snprintf(text, sizeof(text), "$BALLS,%d,%u,%u,%d,%d,%d,%u",
              ballsFresh ? 1 : 0,
              static_cast<unsigned>(b.loaded),
              static_cast<unsigned>(b.fired),
              b.ball_ready ? 1 : 0,
              b.required ? 1 : 0,
-             b.tower_enabled ? 1 : 0);
+             b.tower_enabled ? 1 : 0,
+             static_cast<unsigned>(b.blockers)); // 2026-11-16: Auto::FireBlocker
     emitLine(emit, ctx, text);
 }

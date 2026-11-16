@@ -286,6 +286,23 @@ constexpr double ELEVATION_SLEW_US_PER_SECOND = 400.0;
 // 1.5 s spin-up wait -- e.g. hole 4 (500 us) -> hole 6 at 3.25 m (1913 us)
 // takes 3.5 s -- and the shot used to go out mid-move.
 constexpr double ELEVATION_READY_TOLERANCE_US = 10.0;
+// Full auto (2026-11-16, Jeremy: don't fire too soon after the elevation):
+// "arrived" must hold this long first -- the servo arm trails the pulse. A
+// new table pulse restarts it. Semi auto fires on arrival (the operator
+// presses F). PROVISIONAL; 0 = as before.
+constexpr unsigned long ELEVATION_SETTLE_MS = 500;
+// Semi auto (2026-11-16, Jeremy: F kept answering "not ready"): F is held
+// this long and fires the moment every condition is met; only then
+// FIRE_NOT_READY (with the reasons on the Dashboard). 0 = the old
+// one-loop check.
+constexpr unsigned long SEMI_FIRE_HOLD_MS = 1000;
+// While an auto path drives (2026-11-16, Jeremy: the lowest box took long to
+// reach): the elevation already moves -- to the table for the hole in view,
+// or with none to hole AUTO_PATH_ELEVATION_HOLE's table at
+// AUTO_PATH_ELEVATION_DISTANCE_M (the cycle starts on the bottom row).
+// The flywheel stays off and nothing fires until the path ends.
+constexpr uint8_t AUTO_PATH_ELEVATION_HOLE = 4;
+constexpr double AUTO_PATH_ELEVATION_DISTANCE_M = 4.5;
 
 // Full auto cycle (Jeremy 2026-10-31; full auto = the Orin's own pick):
 // the first hole fired at stays chosen (or the operator's hole); after

@@ -466,7 +466,8 @@ bool rcmap_vision_from_status(const rcmap_status *s, rcmap_vision *out);
 /* Ball frames (2026-11-07): the feed tower's counts for the wireless
  * Dashboard. A sixth 100 ms slot: status, aim, status, vision, seen, balls.
  *   code  bits 15-13 = 011 (a vision frame with bit 13 set, which its
- *         pulse never reaches), bits 0-12 = 0
+ *         pulse never reaches), bits 0-12 (2026-11-16) why the autos don't
+ *         fire right now (Auto::FireBlocker bits; 0 before that date)
  *   seq   bits 0-11 A14 ready pulses since boot, bits 12-23 shots sent
  *         (D22 triggers) since boot, both mod 4096
  *   flags bit 0 a ball is ready (a A14 pulse since the last shot), bit 1
@@ -482,6 +483,7 @@ typedef struct {
     bool ball_ready;
     bool required;
     bool tower_enabled;
+    uint16_t blockers; /* 13 bits: Auto::FireBlocker (2026-11-16) */
 } rcmap_balls;
 
 static inline bool rcmap_status_is_balls(uint16_t code) {

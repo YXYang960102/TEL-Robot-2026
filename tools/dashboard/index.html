@@ -2009,7 +2009,9 @@
         towerReady: p.length > 59 ? Number(p[59]) : NaN,
         towerRequired: p.length > 60 ? Number(p[60]) : NaN,
         // Slot 61 (2026-11-07): A14 ball-ready pulses since boot.
-        loadedCount: p.length > 61 ? Number(p[61]) : NaN
+        loadedCount: p.length > 61 ? Number(p[61]) : NaN,
+        // Slot 62 (2026-11-16): why the autos don't fire (Auto::FireBlocker).
+        fireBlockers: p.length > 62 ? Number(p[62]) : NaN
       };
     }
 
@@ -2129,7 +2131,32 @@
 
     // Why the autos can't fire yet (TEL slots 40-41): each condition Auto
     // waits for, so a test shows which one never comes.
+    // Why the autos don't fire right now (2026-11-16, Auto::FireBlocker bits,
+    // TEL slot 62 by wire, the $BALLS line by radio).
+    const FIRE_BLOCKERS = [
+      [1, "轉台還沒鎖定"], [2, "飛輪還沒轉穩"], [4, "沒有射擊值（沒看到洞或沒距離）"],
+      [8, "仰角還沒到位"], [16, "送球塔沒球"], [32, "剛換洞，等轉台穩定"],
+      [64, "自動路徑行進中"], [128, "這個洞全自動不打"], [256, "剛發射完冷卻中"],
+      [512, "全自動這一輪打完了"], [1024, "沒有連上 Orin"],
+    ];
+    let fireBlockers = NaN;
+    const blockerText = (b) => FIRE_BLOCKERS.filter(([bit]) => b & bit).map(([, t]) => t).join("、");
+    function renderBlockers() {
+      if (!Number.isFinite(fireBlockers)) return;
+      if (operatorMode !== 0 && operatorMode !== 1) {
+        el.boardReady.textContent = "發射條件：只在半自動／全自動時判斷";
+        return;
+      }
+      el.boardReady.textContent = fireBlockers === 0 ? "發射條件：全部到齊，可以發射"
+        : `不發射原因：${blockerText(fireBlockers)}`;
+    }
+
     function renderReady(data) {
+      if (Number.isFinite(data.fireBlockers)) {
+        fireBlockers = data.fireBlockers;
+        renderBlockers();
+        return;
+      }
       if (!Number.isFinite(data.readyBits)) return;
       // The tower's ball latch (A14), shown in every mode so the wiring can
       // be checked.
@@ -2178,8 +2205,9 @@
     function handleBallsStatus(line) {
       const p = line.trim().split(",").map(Number);
       if (p.length < 7 || p.slice(1).some((v) => !Number.isFinite(v))) return;
-      const [, fresh, loaded, fired, ballReady, required, enabled] = p;
+      const [, fresh, loaded, fired, ballReady, required, enabled, blockers] = p;
       if (fresh !== 1) return;
+      if (Number.isFinite(blockers)) { fireBlockers = blockers; renderBlockers(); }
       tower.loaded = loaded;
       tower.fired = fired;
       tower.ballReady = ballReady;
@@ -2481,6 +2509,9 @@
         if (eventName === "CAPTURE_ON" || eventName === "CAPTURE_OFF") {
           el.captureState.textContent = eventName === "CAPTURE_ON" ? "拍照中 ON" : "關閉 OFF";
           el.captureState.style.color = eventName === "CAPTURE_ON" ? "#e25b5b" : "";
+        }
+        if (eventName === "FIRE_NOT_READY" && Number.isFinite(fireBlockers) && fireBlockers) {
+          appendControlLog(`不發射原因：${blockerText(fireBlockers)}`);
         }
         if (eventName in HALF_EVENTS) {
           appendControlLog(`半場：Mega 現在是${HALF_EVENTS[eventName]}`);

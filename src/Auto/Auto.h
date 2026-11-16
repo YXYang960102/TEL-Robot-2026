@@ -49,6 +49,23 @@ public:
     // the autos. For the Dashboard (TEL slots 40-41).
     static double getShotDistanceM();
     static uint8_t getReadyBits();
+    // Why the autos don't fire right now (2026-11-16): FireBlocker bits, 0 =
+    // nothing in the way (or outside the autos). Sent to the Dashboard by
+    // wire (TEL slot 62) and radio (the balls frame).
+    enum FireBlocker : uint16_t {
+        BLOCK_TURRET = 1u << 0,     // turret not locked
+        BLOCK_FLYWHEEL = 1u << 1,   // flywheel not spun up
+        BLOCK_NO_SHOT = 1u << 2,    // no hole / distance / table in this frame
+        BLOCK_ELEVATION = 1u << 3,  // elevation not at (or not settled on) the table
+        BLOCK_BALL = 1u << 4,       // tower: no ball (A14)
+        BLOCK_SWITCHING = 1u << 5,  // new hole settling / after-shot hole switch
+        BLOCK_PATH = 1u << 6,       // auto path driving
+        BLOCK_HOLE = 1u << 7,       // hole excluded in full auto
+        BLOCK_COOLDOWN = 1u << 8,   // right after a shot
+        BLOCK_DONE = 1u << 9,       // full auto cycle finished
+        BLOCK_NO_CAMERA = 1u << 10, // Orin not connected / not ready
+    };
+    static uint16_t getFireBlockers();
 
     // The hole Auto aims at (Dashboard numbering, 0 = the Orin's pick):
     // the operator's, or in full auto the row cycle's current hole
@@ -120,4 +137,10 @@ private:
     static unsigned long lastElevationSlewMs;
     static int lastShotTargetId;
     static uint8_t readyBits;
+    static uint16_t fireBlockers;
+    static bool semiFirePending;          // F held for SEMI_FIRE_HOLD_MS
+    static unsigned long semiFireUntilMs;
+    static double keptFlywheel;           // the last table flywheel, < 0 = none
+    static unsigned long elevationArrivedSinceMs;
+    static bool slewElevation(double targetUs, unsigned long now);
 };
