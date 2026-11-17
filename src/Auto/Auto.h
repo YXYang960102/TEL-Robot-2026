@@ -4,84 +4,32 @@
 
 #include "../IO/OperatorMode.h"
 
-// Semi-auto / full-auto shooting (OperatorMode.h). Runs right after
-// ManualControl::update() each loop, and only while an operator has the
-// robot armed in SEMI_AUTO, FULL_AUTO or TEST (TEST: the turret's camera
-// follow only, see Auto::update()): ManualControl keeps safety
-// (Enable, watchdogs, link loss), the chassis and elevation;
-// this class drives the turret (camera vision-follow), the flywheel (shot
-// table by distance) and decides when to fire the feed tower.
-//
-// Target: the operator's hole (keys 1-9) in both auto modes; Vision only
-// passes on that hole's frames (the Orin is told which via MEGA_TARGET).
-// No hole selected = the Orin's own pick. Full auto cycle (2026-10-31,
-// TuningConstants::Auto::ROW_CYCLE_ENABLED): 3 balls at a hole, then the
-// next in OperatorTarget::buildCycle order (never two columns in one
-// move; from 5: 5, 8 7 9, 6 4, 1 2 3; Q W E only when lit), skipping
-// holes without a shot table, then stop -- starting from the chosen hole,
-// or from the first hole shot at when the Orin picks. A lit bonus hole
-// (Vision::getLitBonusId) is served first, 3 balls (LIT_BONUS_PRIORITY).
-// getAimTarget() is handed to Vision by main.cpp. Either way the frame's
-// id picks
-// the shot table for that hole's height (TuningConstants::ShotTable: bottom,
-// middle, top, bonus) plus the hole's elevation trim. A target needs a
-// depth distance (> 0) and a table to be shot at.
-//
-// Elevation: from the shot table too (measured servo pulses), plus the
-// operator's fine-adjust, once TuningConstants::ShotTable::
-// ELEVATION_MEASURED is set; until then it stays with the operator. The
-// turret aims at the hole plus the operator's aim offset.
-//
-//   SPINNING_UP --(turret locked && flywheel up && distance)--> READY
-//   READY --(FULL_AUTO, or F in SEMI_AUTO)--> fire one ball --> COOLDOWN
-//   COOLDOWN --(Auto::COOLDOWN_MS)--> SPINNING_UP
-//
-// In FULL_MANUAL, or disarmed, it touches nothing.
 class Auto {
 public:
     static void init();
     static void update();
 
-    // The steadied distance the shot table is looked up at, meters (0 =
-    // none), and why Auto can't fire yet: bit 0 turret locked, 1 flywheel
-    // spun up, 2 a shot for the hole in this frame, 3 READY, 4 (2026-10-31)
-    // the elevation at the table's pulse. Both 0 outside
-    // the autos. For the Dashboard (TEL slots 40-41).
     static double getShotDistanceM();
     static uint8_t getReadyBits();
-    // Why the autos don't fire right now (2026-11-16): FireBlocker bits, 0 =
-    // nothing in the way (or outside the autos). Sent to the Dashboard by
-    // wire (TEL slot 62) and radio (the balls frame).
     enum FireBlocker : uint16_t {
-        BLOCK_TURRET = 1u << 0,     // turret not locked
-        BLOCK_FLYWHEEL = 1u << 1,   // flywheel not spun up
-        BLOCK_NO_SHOT = 1u << 2,    // no hole / distance / table in this frame
-        BLOCK_ELEVATION = 1u << 3,  // elevation not at (or not settled on) the table
+        BLOCK_TURRET = 1u << 0,
+        BLOCK_FLYWHEEL = 1u << 1,
+        BLOCK_NO_SHOT = 1u << 2,
+        BLOCK_ELEVATION = 1u << 3,
         BLOCK_BALL = 1u << 4,       // tower: no ball (A14)
-        BLOCK_SWITCHING = 1u << 5,  // new hole settling / after-shot hole switch
-        BLOCK_PATH = 1u << 6,       // auto path driving
-        BLOCK_HOLE = 1u << 7,       // hole excluded in full auto
-        BLOCK_COOLDOWN = 1u << 8,   // right after a shot
-        BLOCK_DONE = 1u << 9,       // full auto cycle finished
-        BLOCK_NO_CAMERA = 1u << 10, // Orin not connected / not ready
+        BLOCK_SWITCHING = 1u << 5,
+        BLOCK_PATH = 1u << 6,
+        BLOCK_HOLE = 1u << 7,
+        BLOCK_COOLDOWN = 1u << 8,
+        BLOCK_DONE = 1u << 9,
+        BLOCK_NO_CAMERA = 1u << 10,
     };
     static uint16_t getFireBlockers();
 
-    // The hole Auto aims at (Dashboard numbering, 0 = the Orin's pick):
-    // the operator's, or in full auto the row cycle's current hole
-    // (TuningConstants::Auto::ROW_CYCLE_ENABLED). main.cpp hands it to
-    // Vision. Shots at that hole in this cycle, and whether the row is
-    // done (full auto holds fire), for the Dashboard (TEL slots 53-55).
     static uint8_t getAimTarget();
     static uint8_t getRowShots();
-    static bool isRowDone();      // the whole cycle (not one row)
-    // A lit bonus hole being served first (Dashboard hole 10-12, 0 = none).
+    static bool isRowDone();
     static uint8_t getLitPriorityHole();
-    // This loop's shot-table elevation pulse (us, before the operator's
-    // trim) for the target in view, in the autos and in test (where it is
-    // looked up but not applied). False = none: full manual, no hole in
-    // view, no depth yet, or no table. ManualControl saves the test-mode
-    // elevation trim against it (2026-11-08).
     static bool getTableElevationUs(double& us);
 
 private:
@@ -102,10 +50,10 @@ private:
 
     static bool rowActive;
     static uint8_t rowStartHole;
-    static uint8_t rowStep;      // index into cycleHoles
+    static uint8_t rowStep;
     static uint8_t cycleHoles[12];
     static uint8_t cycleLength;
-    static uint8_t rowShots;     // at the current hole
+    static uint8_t rowShots;
     static bool rowDone;
     static uint8_t lastCycleHole;
     static uint16_t rowSelectSeq;
@@ -113,11 +61,11 @@ private:
     static uint8_t litHole;
     static uint8_t litShots;
     static uint8_t litServedMask; // bit vision id 1-3: served, waiting to go dark
-    static bool holeSwitchPending;   // last ball at a hole sent: waiting HOLE_SWITCH_DELAY_MS
-    static bool holeSwitchFromLit;   // ... at a lit bonus hole (back to the cycle after)
+    static bool holeSwitchPending;
+    static bool holeSwitchFromLit;
     static unsigned long holeSwitchStartMs;
-    static uint8_t notFoundAim;            // the aim the not-found clock runs for
-    static unsigned long notFoundSinceMs;  // since then, or its last sighting
+    static uint8_t notFoundAim;
+    static unsigned long notFoundSinceMs;
     static unsigned long litLastSeenMs[4];
     static uint8_t lastAimTarget;
     static unsigned long aimChangedMs;
@@ -126,9 +74,6 @@ private:
 
     static FireState fireState;
     static unsigned long fireStateEnteredMs;
-    // The last target's shot, kept for TuningConstants::Auto::TARGET_HOLD_MS
-    // after the target drops (a one-frame vision dropout must not drop the
-    // flywheel to the pre-spin and restart its spin-up wait).
     static bool haveLastShot;
     static double lastShotFlywheel;
     static double lastShotElevationUs;
@@ -138,9 +83,9 @@ private:
     static int lastShotTargetId;
     static uint8_t readyBits;
     static uint16_t fireBlockers;
-    static bool semiFirePending;          // F held for SEMI_FIRE_HOLD_MS
+    static bool semiFirePending;
     static unsigned long semiFireUntilMs;
-    static double keptFlywheel;           // the last table flywheel, < 0 = none
+    static double keptFlywheel;
     static unsigned long elevationArrivedSinceMs;
     static bool slewElevation(double targetUs, unsigned long now);
 };

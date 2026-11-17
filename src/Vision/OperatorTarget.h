@@ -2,29 +2,12 @@
 
 #include <stdint.h>
 
-// The operator's chosen hole (Dashboard keys 1-9 / wireless CH3) in the
-// Orin's numbering, and the rule for which Orin frames may be used.
-// Pure, header-only: host-tested in test/operator_target_test.cpp.
-//
-// Two numberings of the same holes (Jeremy, 2026-10-16):
-//   Dashboard hole / key k (1..9): columns left to right, each bottom-up
-//     (1 left-bottom, 2 left-mid, 3 left-top ... 9 right-top).
-//   Orin vision id (4..12): rows from the top, each left to right
-//     (top 4 5 6, middle 7 8 9, bottom 10 11 12).
-// The bonus small holes above the grid (2026-10-27, keys Q W E): Dashboard
-// hole 10 / 11 / 12 = Orin vision id 1 / 2 / 3, left to right.
-// This is the ONLY place that converts between them; the Orin does no
-// second conversion (YOLO_Detect_single docs/operator-selection-v2.md).
 namespace OperatorTarget {
 
 constexpr uint8_t NONE = 0;
-constexpr uint8_t FIRST_BONUS_HOLE = 10; // Dashboard holes 10..12
+constexpr uint8_t FIRST_BONUS_HOLE = 10;
 constexpr uint8_t LAST_HOLE = 12;
 
-// Grid key k (1..9): col = (k-1)/3 from the left, rowFromBottom = (k-1)%3,
-// vision id = 4 + (2 - rowFromBottom)*3 + col. Example: key 1 -> 10.
-// Bonus hole 10..12 -> vision id 1..3. Anything else -> NONE (the Orin's
-// automatic choice).
 constexpr uint8_t visionIdForHole(uint8_t hole) {
     return (hole >= FIRST_BONUS_HOLE && hole <= LAST_HOLE)
                ? static_cast<uint8_t>(hole - FIRST_BONUS_HOLE + 1)
@@ -33,10 +16,6 @@ constexpr uint8_t visionIdForHole(uint8_t hole) {
                : static_cast<uint8_t>(4 + (2 - (hole - 1) % 3) * 3 + (hole - 1) / 3);
 }
 
-// With a hole selected, only a frame for exactly that hole may be used:
-// a frame for any other id (an old frame from before a switch, or an Orin
-// that missed the selection) is treated as no target -- never aim or fire
-// at a hole the operator didn't choose. NONE accepts the Orin's own pick.
 constexpr bool frameMatchesSelection(uint8_t selectedVisionId, long frameTargetId) {
     return selectedVisionId == NONE || frameTargetId == selectedVisionId;
 }
@@ -51,26 +30,12 @@ static_assert(visionIdForHole(10) == 1 && visionIdForHole(11) == 2 && visionIdFo
               "bonus row, left to right");
 static_assert(visionIdForHole(13) == NONE, "nothing past the bonus row");
 
-// Orin vision id -> Dashboard hole (the inverse; NONE for 0 / unknown).
 constexpr uint8_t holeForVisionId(long visionId, uint8_t hole = 1) {
     return hole > LAST_HOLE ? NONE
          : visionIdForHole(hole) == visionId && visionId != NONE ? hole
          : holeForVisionId(visionId, static_cast<uint8_t>(hole + 1));
 }
 
-// Full auto's shooting order (Auto's cycle; Jeremy 2026-10-31 / 11-01).
-// The turret only turns sideways, so the order never jumps two columns:
-// a column is a move of the turret, a row only of the elevation. Columns
-// from the first hole's: from an edge column straight across (left, middle,
-// right or the reverse); from the middle column the first hole, then the
-// right column, back to the rest of the middle, then the left -- never
-// right -> left in one go. Inside a column, the holes nearest the height
-// it came in at first (lower on a tie). Then the bonus row from the column
-// the grid ended in. Excluded holes (bit n = hole n) are left out.
-// Bottom row out, from 5: 5, 8 9, 6, 3 2, Q W E. From 2: 2 3, 6 5, 8 9,
-// E W Q. All rows, from 5: 5, 8 7 9, 6 4, 1 2 3, Q W E.
-// Starting on a bonus hole: the bonus row only (from W: W E Q).
-// Grid key k: column (k-1)/3 (0 left), row (k-1)%3 (0 bottom); row 3 = bonus.
 constexpr uint8_t rowOf(uint8_t hole) {
     return hole >= FIRST_BONUS_HOLE ? 3 : static_cast<uint8_t>((hole - 1) % 3);
 }
@@ -85,11 +50,9 @@ constexpr uint8_t holeAt(uint8_t row, uint8_t column) {
 
 constexpr uint8_t MAX_CYCLE = 12;
 
-// The cycle from `start` into out[] (returns its length).
 inline uint8_t buildCycle(uint8_t start, uint16_t excludedHoles, uint8_t out[MAX_CYCLE]) {
     if (start < 1 || start > LAST_HOLE) return 0;
     uint8_t count = 0;
-    // A bonus row from column c0: middle -> 1 2 0, left -> 0 1 2, right -> 2 1 0.
     auto bonusRow = [&](uint8_t c0) {
         for (uint8_t j = 0; j < 3; j++) {
             const uint8_t col = c0 == 1 ? static_cast<uint8_t>((1 + j) % 3)
@@ -104,7 +67,6 @@ inline uint8_t buildCycle(uint8_t start, uint16_t excludedHoles, uint8_t out[MAX
     }
     out[count++] = start;
     uint8_t row = rowOf(start);
-    // The grid holes of one column not yet listed, nearest `row` first.
     auto column = [&](uint8_t col) {
         const uint8_t entry = row;
         for (uint8_t d = 0; d <= 2; d++) {
@@ -136,18 +98,9 @@ inline uint8_t buildCycle(uint8_t start, uint16_t excludedHoles, uint8_t out[MAX
     return count;
 }
 
-// The cycle order of both halves (2026-11-15, Jeremy): column by column,
-// each from the bottom up -- the turret turns sideways only between
-// columns, the elevation does the rest. The start hole's column first (the
-// start, then its column's holes above it, then below), then the next
-// column toward the far side (from the middle: right first, then left),
-// each bottom -> top. Then the bonus row from the column the grid ended in.
-// Excluded holes are left out (the start never).
-// From 7: 7 8 9, 4 5 6, 1 2 3. From 1: 1 2 3, 4 5 6, 7 8 9.
-// From 4: 4 5 6, 7 8 9, 1 2 3.
 inline uint8_t buildBottomUpCycle(uint8_t start, uint16_t excludedHoles, uint8_t out[MAX_CYCLE]) {
     if (start < 1 || start > LAST_HOLE) return 0;
-    if (rowOf(start) == 3) return buildCycle(start, excludedHoles, out); // bonus: its row only
+    if (rowOf(start) == 3) return buildCycle(start, excludedHoles, out);
     uint8_t count = 0;
     const uint8_t c0 = columnOf(start);
     out[count++] = start;
@@ -156,10 +109,8 @@ inline uint8_t buildBottomUpCycle(uint8_t start, uint16_t excludedHoles, uint8_t
         if (hole == start || (excludedHoles & (1u << hole))) return;
         out[count++] = hole;
     };
-    // The start's column: above the start, then below it.
     for (uint8_t r = static_cast<uint8_t>(rowOf(start) + 1); r <= 2; r++) add(r, c0);
     for (int8_t r = static_cast<int8_t>(rowOf(start)) - 1; r >= 0; r--) add(static_cast<uint8_t>(r), c0);
-    // The other columns, each bottom -> top.
     const uint8_t next[2] = {
         static_cast<uint8_t>(c0 == 0 ? 1 : (c0 == 2 ? 1 : 2)),
         static_cast<uint8_t>(c0 == 0 ? 2 : 0),
@@ -167,8 +118,6 @@ inline uint8_t buildBottomUpCycle(uint8_t start, uint16_t excludedHoles, uint8_t
     for (uint8_t i = 0; i < 2; i++) {
         for (uint8_t r = 0; r <= 2; r++) add(r, next[i]);
     }
-    // Bonus row from the column the grid ended in (left -> 0 1 2, right ->
-    // 2 1 0, middle -> 1 2 0), like buildCycle.
     const uint8_t last = next[1];
     for (uint8_t j = 0; j < 3; j++) {
         const uint8_t c = last == 1 ? static_cast<uint8_t>((1 + j) % 3)
@@ -179,9 +128,6 @@ inline uint8_t buildBottomUpCycle(uint8_t start, uint16_t excludedHoles, uint8_t
     return count;
 }
 
-// The hole to start from instead of an excluded one the Orin picked: the
-// same column, the nearest allowed grid row (above first); NONE if none.
-// With the bottom row out: 4 -> 5, 1 -> 2, 7 -> 8.
 inline uint8_t nearestAllowedInColumn(uint8_t hole, uint16_t excludedHoles) {
     if (hole < 1 || hole > 9) return NONE;
     const uint8_t row = rowOf(hole);
@@ -200,8 +146,6 @@ static_assert(holeForVisionId(10) == 1 && holeForVisionId(8) == 5 && holeForVisi
               holeForVisionId(0) == NONE && holeForVisionId(13) == NONE,
               "inverse of visionIdForHole");
 
-// The Orin's detected-hole mask (bit vision id - 1) as Dashboard holes
-// (bit n = hole n).
 inline uint16_t holesFromVisionMask(uint16_t visionMask) {
     uint16_t holes = 0;
     for (uint8_t id = 1; id <= 12; id++) {
@@ -210,12 +154,6 @@ inline uint16_t holesFromVisionMask(uint16_t visionMask) {
     return holes;
 }
 
-// Which way the turret should turn to bring a hole that is out of view into
-// it (2026-11-01, Jeremy): -1 left, +1 right, 0 = don't know. The holes
-// the camera does see say where it points: a target column left of all of
-// them -> left. With none seen, the column of the hole last locked on
-// (lastColumn, -1 = none). Example: the camera sees 7 8 9 (right column),
-// the target is 1 (left column) -> -1.
 inline int8_t searchDirection(uint8_t targetHole, uint16_t seenHoles, int8_t lastColumn) {
     if (targetHole < 1 || targetHole > LAST_HOLE) return 0;
     const int8_t target = static_cast<int8_t>(columnOf(targetHole));
@@ -233,4 +171,4 @@ inline int8_t searchDirection(uint8_t targetHole, uint16_t seenHoles, int8_t las
     return target < lastColumn ? -1 : target > lastColumn ? 1 : 0;
 }
 
-}  // namespace OperatorTarget
+}

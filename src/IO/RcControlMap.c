@@ -4,19 +4,17 @@
 #define RCMAP_MAX_VALID_US 2100
 #define RCMAP_SWITCH_ON_US 1750
 #define RCMAP_TARGET_BASE_US 1000
-#define RCMAP_TARGET_STEP_US 80 /* 13 levels, 1000..1960 (CH3 is full resolution) */
-#define RCMAP_TARGET_TOLERANCE_US 35 /* (older tables; CH3 now: see decode_target_channel) */
-#define RCMAP_BALL_STEP_US 10 /* CH3: + 10 us per ball color */
+#define RCMAP_TARGET_STEP_US 80
+#define RCMAP_TARGET_TOLERANCE_US 35
+#define RCMAP_BALL_STEP_US 10
 #define RCMAP_BALL_TOLERANCE_US 4
 #define RCMAP_LEVEL_BASE_US 1000
 #define RCMAP_LEVEL_STEP_US 200
-#define RCMAP_LEVEL_TOLERANCE_US 90 /* ELRS 6-pos sends 988/1193/1398/1602/1807 */
+#define RCMAP_LEVEL_TOLERANCE_US 90
 #define RCMAP_FIVE_LEVELS 5u
-#define RCMAP_MATCH_START_LEVEL 5u /* CH7's 6th level (2026-11-16) */
+#define RCMAP_MATCH_START_LEVEL 5u
 
 static float clamp_float(float v, float lo, float hi) {
-    /* NaN fails both comparisons and would pass through, so test it
-       explicitly (v != v) and treat it as neutral. */
     if (v != v) return 0.0f < lo ? lo : (0.0f > hi ? hi : 0.0f);
     return v < lo ? lo : (v > hi ? hi : v);
 }
@@ -33,7 +31,6 @@ static float us_to_axis(int us) {
     return clamp_float((float)(us - 1500) / 500.0f, -1.0f, 1.0f);
 }
 
-/* Nearest level k (0..levels-1) of base + step*k, within tolerance. */
 static bool us_to_level(int us, int base, int step, int tolerance, uint8_t levels, uint8_t *k_out) {
     const int offset = us - base;
     if (offset < -tolerance) return false;
@@ -46,15 +43,12 @@ static bool us_to_level(int us, int base, int step, int tolerance, uint8_t level
     return true;
 }
 
-/* CH3 (2026-11-15): 1000 + 80*target + 10*color. Example: hole 5, red (4)
- * = 1000 + 400 + 40 = 1440 us; 1438..1444 decodes to it. 1455..1459 (no
- * color 6) and a level off by more than 4 us are rejected. */
 static bool decode_target_channel(int us, uint8_t *target, uint8_t *color) {
     const int offset = us - RCMAP_TARGET_BASE_US;
     if (offset < -RCMAP_BALL_TOLERANCE_US) return false;
     const int k = (offset + RCMAP_BALL_TOLERANCE_US) / RCMAP_TARGET_STEP_US;
     if (k > (int)RCMAP_TARGET_MAX) return false;
-    const int rest = offset - k * RCMAP_TARGET_STEP_US; /* -4 .. 75 */
+    const int rest = offset - k * RCMAP_TARGET_STEP_US;
     const int b = (rest + RCMAP_BALL_STEP_US / 2 + RCMAP_BALL_STEP_US) / RCMAP_BALL_STEP_US - 1;
     if (b < 0 || b >= (int)RCMAP_BALL_COLORS) return false;
     const int error = rest - b * RCMAP_BALL_STEP_US;
@@ -64,7 +58,6 @@ static bool decode_target_channel(int us, uint8_t *target, uint8_t *color) {
     return true;
 }
 
-/* CH4: the mode level, or full manual's flywheel range when it is on. */
 static int clamp_offset_pct(int pct) {
     return pct > RCMAP_AUTO_OFFSET_MAX_PCT ? RCMAP_AUTO_OFFSET_MAX_PCT
          : pct < -RCMAP_AUTO_OFFSET_MAX_PCT ? -RCMAP_AUTO_OFFSET_MAX_PCT : pct;
@@ -81,9 +74,6 @@ static int mode_channel_us(const rcmap_command *c) {
     return RCMAP_FLYWHEEL_BASE_US + (percent * RCMAP_FLYWHEEL_SPAN_US + 50) / 100;
 }
 
-/* CH4 back to mode + flywheel; false for the gap between the flywheel
- * range and full auto. Flywheel is rounded to the nearest 1% (3 us), which
- * absorbs the link's +-1 us quantization. */
 static bool decode_mode_channel(int us, int *mode_us, float *flywheel, int8_t *offset_pct) {
     *flywheel = 0.0f;
     *offset_pct = 0;
@@ -91,7 +81,6 @@ static bool decode_mode_channel(int us, int *mode_us, float *flywheel, int8_t *o
         const uint8_t mode = rcmap_mode_from_us(us);
         *mode_us = rcmap_mode_to_us(mode);
         if (mode != RCMAP_MODE_FULL_MANUAL) {
-            /* Nearest whole percent from the level (+-1 us link noise). */
             const int d = us - *mode_us;
             const int half = RCMAP_AUTO_OFFSET_US_PER_PCT / 2;
             const int pct = d >= 0 ? (d + half) / RCMAP_AUTO_OFFSET_US_PER_PCT
@@ -129,7 +118,7 @@ void rcmap_encode(const rcmap_command *c, int ch_us[16]) {
     ch_us[RCMAP_CH_AUTO] = RCMAP_LEVEL_BASE_US + (int)autoLevel * RCMAP_LEVEL_STEP_US;
     {
         const bool test = rcmap_command_mode(c) == RCMAP_MODE_TEST;
-        const int normal = c->half == RCMAP_HALF_SECOND ? 0 : 2; /* 2026-11-15 */
+        const int normal = c->half == RCMAP_HALF_SECOND ? 0 : 2;
         const int level = test ? (c->turret_home ? 5 : 4)
                                : (c->turret_home ? 1 : (c->capture_toggle ? 3 : normal));
         ch_us[RCMAP_CH_TEST] = RCMAP_LEVEL_BASE_US + level * RCMAP_LEVEL_STEP_US;
@@ -178,11 +167,6 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     out->nudge = out->match_start ? RCMAP_NUDGE_CENTER : nudge;
     out->trim_clear = path == RCMAP_AUTO_TRIM_CLEAR_LEVEL;
     out->auto_path = out->trim_clear ? RCMAP_AUTO_NONE : path;
-    /* Fail-safe like fire / arm: only a clear high counts, and only with
-       CH4 in full manual (any other level is that mode, whatever CH9 says). */
-    /* CH9 (a level, like CH7 / CH8: between levels = corrupt frame): TEST
-       only with CH4 in full manual (any other level is that mode, whatever
-       CH9 says); turret home on levels 1 and 5. */
     out->test_mode = (test_level == 4u || test_level == 5u) &&
                      rcmap_mode_from_us(mode_us) == RCMAP_MODE_FULL_MANUAL;
     out->turret_home = test_level == 1u || test_level == 5u;

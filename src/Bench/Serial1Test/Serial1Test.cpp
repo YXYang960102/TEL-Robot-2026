@@ -1,15 +1,3 @@
-// Serial1 (D18 TX1 / D19 RX1) check for one Mega (env: mega_serial1_test).
-// Nothing else is initialized: no motors, no Serial2, no outputs.
-//
-// D18: sends "MEGA_HEARTBEAT,2" every 100 ms -- the line an Orin in
-//   WAIT_MEGA is waiting for, so wired to the Orin its log should show
-//   "MEGA_READY received" (D18 -> level shifter -> Orin RX works).
-// D19: everything received is counted; once a second USB reports
-//   S1TEST,t=<ms>,sent=<lines>,rx_bytes=<n>,rx_lines=<n>,last=<last line>
-//   Wired to an Orin in WAIT_MEGA, "last" should be VISION_STANDBY,2
-//   (Orin TX -> level shifter -> D19 works).
-// Loopback: jumper D18 -> D19 (level shifter wires off those pins) and
-//   "last" is this Mega's own MEGA_HEARTBEAT,2.
 #include <Arduino.h>
 
 namespace {
@@ -28,7 +16,7 @@ char line[LINE_MAX];
 size_t lineLength = 0;
 char lastLine[LINE_MAX] = "(none)";
 
-}  // namespace
+}
 
 void setup() {
     Serial.begin(BAUD);
@@ -51,7 +39,6 @@ void loop() {
             }
             lineLength = 0;
         } else if (lineLength + 1 < LINE_MAX) {
-            // Non-printable bytes shown as '?', so noise is visible too.
             line[lineLength++] = (c >= 32 && c < 127) ? c : '?';
         }
     }

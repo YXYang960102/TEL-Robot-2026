@@ -35,12 +35,12 @@ void Chassis::update() {
         leftPulseUs = Output::NEUTRAL_US;
         filteredLeftCommand = 0.0;
         filteredRightCommand = 0.0;
-        hasLastUpdateMs = false; // next enable starts the filter fresh, not a huge dt
+        hasLastUpdateMs = false;
     } else {
         const unsigned long now = millis();
         const double dtMs = hasLastUpdateMs
             ? static_cast<double>(now - lastUpdateMs)
-            : 0.0; // first tick after an enable: snap filtered state to target
+            : 0.0;
         lastUpdateMs = now;
         hasLastUpdateMs = true;
 
@@ -103,8 +103,6 @@ void Chassis::stop() {
     turnCommand = 0.0;
     leftCommand = 0.0;
     rightCommand = 0.0;
-    // Immediate, not filtered: an explicit/safety stop must not ease out
-    // over the filter's time constant.
     filteredLeftCommand = 0.0;
     filteredRightCommand = 0.0;
     hasLastUpdateMs = false;
@@ -144,12 +142,6 @@ int Chassis::getLeftPulseUs() {
 }
 
 double Chassis::applyDeadband(double command) {
-    // Rescaled, not a hard cutoff: output is 0 at |command| == DEADBAND and
-    // ramps continuously to +-1 at the stick's full range. A hard cutoff
-    // (0 below the threshold, unchanged above it) jumps straight from 0 to
-    // DEADBAND*RANGE_US the instant the stick crosses the threshold -- a
-    // real step on the PWM pin, not a ramp -- which can sit right in a
-    // brushed ESC's weak low-throttle band and judder (Jeremy, 2026-10-17).
     const double magnitude = abs(command);
     if (magnitude < Manual::COMMAND_DEADBAND) {
         return 0.0;
@@ -159,21 +151,10 @@ double Chassis::applyDeadband(double command) {
 }
 
 double Chassis::filterTowards(double target, double& state, double dtMs) {
-    // Exponential filter: state moves a fraction `alpha` of the way to
-    // `target` each call. alpha = dt / (dt + tau) makes the result
-    // independent of how often update() actually runs (loop jitter,
-    // delay(10) plus whatever else ran that tick), not just a fixed
-    // per-call step. dtMs <= 0 (first tick after an enable) snaps straight
-    // to the target instead of dividing by a non-positive time constant.
     if (dtMs <= 0.0 || Manual::COMMAND_FILTER_TIME_CONSTANT_MS <= 0.0) {
         state = target;
         return state;
     }
-    // Only speeding up is smoothed (2026-11-08, Jeremy: let go from full and
-    // the 80 ms ease-out felt like lag). Slowing down or letting go jumps
-    // straight to the target; reversing drops to stop at once, then eases up
-    // the other way like any start (no full-speed reverse step on the motor).
-    // Example: full forward, stick released -> 1500 us on the next loop.
     if (target * state < 0.0) state = 0.0;
     if (fabs(target) <= fabs(state)) {
         state = target;

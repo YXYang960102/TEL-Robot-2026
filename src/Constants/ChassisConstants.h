@@ -4,9 +4,6 @@
 
 #include "TuningConstants.h"
 
-// Ported from the Chassis branch during the 2026-10-11 dev integration
-// (docs/codex-handoff.md). Two active drive wheels + passive casters, not
-// four mecanum wheels -- replaces the old Pins.h PIN_FR/FL/BR/BL scheme.
 namespace ChassisConstants {
 
 namespace RightDrive {

@@ -1,10 +1,7 @@
 #include "ulink.h"
 
-/* No libc anywhere in here (the STM32 build is -nostdlib): formatting,
- * parsing and zeroing are all done by hand. See ulink.h for the protocol. */
-
 #define ULINK_MAX_FIELDS 20u
-#define ULINK_STATUS_FIELDS 18u /* "S" + 17 values */
+#define ULINK_STATUS_FIELDS 18u
 
 typedef struct {
     char buf[ULINK_LINE_MAX];
@@ -116,8 +113,6 @@ uint8_t ulink_take_events(ulink_endpoint *ep) {
     return e;
 }
 
-/* ---------------------------------------------------------------- send */
-
 static void send_data_like(ulink_endpoint *ep, char type, char from, uint16_t run,
                            uint32_t seq, uint32_t payload) {
     line_builder lb;
@@ -161,8 +156,6 @@ static void send_status(ulink_endpoint *ep) {
     }
     finish_and_send(ep, &lb);
 }
-
-/* --------------------------------------------------------------- parse */
 
 typedef struct {
     const char *p;
@@ -250,14 +243,12 @@ static void handle_data(ulink_endpoint *ep, const field *f, uint8_t nf) {
         return;
     }
 
-    /* Echo it back. The sender decides whether this ACK matches what it
-     * has outstanding; ACKs themselves are never acknowledged. */
     send_data_like(ep, 'A', ep->role, run, seq, payload);
 
     if (!counting_peer_data(ep, run)) return;
     if (!ep->have_peer_seq) {
         ep->have_peer_seq = true;
-        ep->st.rx_gap += seq; /* each run's first seq is 0 */
+        ep->st.rx_gap += seq;
         ep->st.rx_data++;
         ep->peer_expected_seq = seq + 1u;
     } else if (seq == ep->peer_expected_seq) {
@@ -285,7 +276,7 @@ static void handle_ack(ulink_endpoint *ep, const field *f, uint8_t nf, uint32_t 
     if (ep->outstanding && run == ep->run && seq == ep->out_seq) {
         if (payload != ulink_payload(ep->role, run, seq)) {
             ep->st.ack_mismatch++;
-            return; /* still outstanding; will time out unless a good ACK arrives */
+            return;
         }
         const uint32_t rtt = now_ms - ep->out_sent_ms;
         ep->outstanding = false;
@@ -318,10 +309,10 @@ static void handle_control(ulink_endpoint *ep, const field *f, uint8_t nf, uint3
             ep->run = run;
             reset_run_tracking(ep);
             ep->sending = true;
-            ep->last_send_ms = now_ms - ULINK_SEND_PERIOD_MS; /* first D right away */
+            ep->last_send_ms = now_ms - ULINK_SEND_PERIOD_MS;
         }
     } else {
-        ep->sending = false; /* any outstanding D still resolves (ACK or timeout) */
+        ep->sending = false;
     }
     send_status(ep);
     ep->last_status_ms = now_ms;
@@ -365,9 +356,8 @@ static void handle_status(ulink_endpoint *ep, const field *f, uint8_t nf, uint32
 }
 
 static void handle_line(ulink_endpoint *ep, uint32_t now_ms) {
-    if (ep->len == 0u) return; /* stray newline */
+    if (ep->len == 0u) return;
 
-    /* "<body>*<CC>": the checksum separator must be exactly 3 from the end. */
     if (ep->len < 4u || ep->line[ep->len - 3u] != '*') {
         ep->st.bad++;
         return;
@@ -412,7 +402,7 @@ void ulink_rx_byte(ulink_endpoint *ep, char c, uint32_t now_ms) {
     if (c == '\r') return;
     if (c == '\n') {
         if (ep->discarding) {
-            ep->discarding = false; /* end of an oversized line: drop it whole */
+            ep->discarding = false;
         } else {
             handle_line(ep, now_ms);
         }
@@ -428,8 +418,6 @@ void ulink_rx_byte(ulink_endpoint *ep, char c, uint32_t now_ms) {
     }
     ep->line[ep->len++] = c;
 }
-
-/* ---------------------------------------------------------------- poll */
 
 void ulink_poll(ulink_endpoint *ep, uint32_t now_ms) {
     if (ep->outstanding && now_ms - ep->out_sent_ms >= ULINK_ACK_TIMEOUT_MS) {
@@ -490,7 +478,7 @@ void ulink_poll(ulink_endpoint *ep, uint32_t now_ms) {
 void ulink_master_start(ulink_endpoint *ep, uint16_t run, uint32_t now_ms) {
     ep->run = run;
     reset_run_tracking(ep);
-    ep->sending = false; /* data starts once the STM32 confirms the run */
+    ep->sending = false;
     ep->state = ULINK_STARTING;
     ep->state_since_ms = now_ms;
     ep->last_control_ms = now_ms - ULINK_CONTROL_RESEND_MS;

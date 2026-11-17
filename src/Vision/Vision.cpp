@@ -40,7 +40,7 @@ void Vision::init() {
 void Vision::update() {
     sendHeartbeat();
     if (selectionDirty && sentReady) {
-        sendSelection(); // a new choice goes out now, not at the next heartbeat
+        sendSelection();
     }
     if (captureDirty && sentReady) {
         sendCapture();
@@ -101,13 +101,8 @@ void Vision::sendHeartbeat() {
     Serial1.print("MEGA_HEARTBEAT,");
     Serial1.print(Transport::PROTOCOL_VERSION);
     Serial1.print('\n');
-    // Resent with every heartbeat (100 ms): the Orin keeps its last valid
-    // choice, so a restarted Orin has the current one again within 100 ms.
     sendSelection();
     sendCapture();
-    // MEGA_NEAR,<version>,1 (2026-11-15): this Mega reads frame field 10
-    // (the nearest bottom-row hole); an Orin adds it only after hearing
-    // this, so an older Mega never gets a 10-field frame it would reject.
     Serial1.print("MEGA_NEAR,");
     Serial1.print(Transport::PROTOCOL_VERSION);
     Serial1.print(",1\n");
@@ -143,10 +138,7 @@ void Vision::setSelectedTarget(uint8_t visionId) {
     }
     selectedTargetId = visionId;
     selectionDirty = true;
-    predictedSinceMs = 0; // a new choice gets its own prediction budget
-    // The frame in hand is for the old choice (or the Orin's own pick):
-    // never aim at it after a switch. The Orin's next frame for the new
-    // hole arrives within a camera cycle or two.
+    predictedSinceMs = 0;
     invalidateTarget();
 }
 
@@ -196,7 +188,7 @@ const OrinLifecycleToken kOrinLifecycleTokens[] = {
     {"VISION_ERROR,", Vision::OrinState::ERROR},
 };
 
-}  // namespace
+}
 
 bool Vision::parseOrinControl(const String& input) {
     String s = input;
@@ -239,12 +231,6 @@ bool Vision::parse(const String& input) {
             commaCount++;
         }
     }
-    // v3: tx,ty,distance,target_id,valid,seen_mask -- optionally followed
-    // (2026-10-28) by ring_pct,ring_sectors, the depth ring's coverage, and
-    // (2026-10-31) lit_id, the lit bonus hole the Orin sees (vision id
-    // 1-3, 0 = none)
-    // ...and (2026-11-15) near_bottom, the nearest bottom-row hole seen
-    // (vision id 10-12, 0 = none) -- only from an Orin that heard MEGA_NEAR.
     if (commaCount != 5 && commaCount != 7 && commaCount != 8 && commaCount != 9) return false;
 
     String fields[10];
@@ -325,18 +311,13 @@ bool Vision::parse(const String& input) {
         static_cast<int>(nextTargetId),
         static_cast<int>(validValue),
         static_cast<uint16_t>(mask));
-    // The ring is about the frame's own target: only kept for a real
-    // sighting of the hole the Mega aims at (isValid()).
     ringPercent = valid ? static_cast<int8_t>(nextRingPct) : static_cast<int8_t>(-1);
     ringSectors = valid && nextRingPct >= 0 ? static_cast<uint8_t>(nextRingSectors) : 0;
-    // Whatever hole the frame is about (even one not selected): Auto's lit
-    // bonus priority must hear of a lit box while aiming elsewhere.
     litBonusId = static_cast<uint8_t>(nextLitId);
     nearBottomId = static_cast<uint8_t>(nextNearBottom);
     return true;
 }
 
-// Stores one parsed frame (no prediction/extrapolation happens here).
 void Vision::storeTarget(
     double nextTx,
     double nextTy,
@@ -349,14 +330,8 @@ void Vision::storeTarget(
     hasPacket = true;
     frameCount++;
     seenMask = nextSeenMask;
-    // A frame for a hole other than the selected one is "no target" (the
-    // link itself is still alive: isConnected() stays true).
     valid = validCode == 1 && OperatorTarget::frameMatchesSelection(selectedTargetId, nextTargetId);
 
-    // v3 prediction: only for the hole the operator chose, and for at most
-    // PREDICTED_FOLLOW_MAX_MS from the first prediction. Only a real
-    // sighting or a new selection restarts that budget -- "nothing" frames
-    // in between don't, so an on / off stream can't turn the turret forever.
     const bool nextPredicted = validCode == 2 && selectedTargetId != OperatorTarget::NONE &&
                                nextTargetId == selectedTargetId;
     predicted = false;

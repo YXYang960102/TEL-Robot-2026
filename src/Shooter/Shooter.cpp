@@ -12,7 +12,6 @@ using namespace ShooterConstants;
 
 namespace {
 
-// Which shooter outputs this build drives (production: all three).
 constexpr bool DRIVES_AXES = BuildProfile::DRIVES_SHOOTER_AXES;
 constexpr bool DRIVES_FLYWHEEL = BuildProfile::DRIVES_FLYWHEEL;
 
@@ -20,19 +19,15 @@ ServoPositionJog anglePosition(Angle::POSITION_INITIAL_US);
 VisionFollowController rotateVisionFollow(Rotate::VISION_FOLLOW);
 uint32_t angleJogLastMs = 0;
 TurretGuard turretGuard;
-bool turretReturnDone = false; // back at 0 once since power-up
-// Turret search (TuningConstants::Rotate::SEARCH_*): per hole choice.
+bool turretReturnDone = false;
 uint8_t searchSelection = 0;
 unsigned long searchStartMs = 0;
 bool searchFound = false;
 int8_t lastSeenColumn = -1;
 int8_t searchDir = 0;
-// Lost target (Rotate::LOST_*): where the followed hole was last seen.
 bool haveLastSeen = false;
 double lastSeenTx = 0.0;
 unsigned long lastSeenMs = 0;
-// Sweep (Rotate::SWEEP_*): allowed by Auto this loop, the direction (left
-// first), and since when nothing has been seen.
 bool sweepAllowed = false;
 int8_t sweepDir = -1;
 unsigned long blindSinceMs = 0;
@@ -61,8 +56,6 @@ double Shooter::rotateAimOffsetPx = 0.0;
 double Shooter::angleManualCommand = 0.0;
 double Shooter::rotateManualCommand = 0.0;
 double Shooter::flywheelOpenLoopCommand = 0.0;
-// Positional: the boot target (POSITION_INITIAL_US), so the Dashboard and
-// Auto's slew start from the pulse the first Enable will send.
 int Shooter::anglePulseUs = Angle::POSITION_SERVO ? static_cast<int>(Angle::POSITION_INITIAL_US + 0.5)
                                                   : Angle::MOTOR.neutralUs;
 int Shooter::rotatePulseUs = Rotate::MOTOR.neutralUs;
@@ -74,12 +67,7 @@ unsigned long Shooter::flywheelRampLastMs = 0;
 bool Shooter::flywheelReady = false;
 
 void Shooter::init() {
-    // Preload neutral before attaching so the first pulse is never a stray
-    // value. The positional elevation servo is attached lazily on its first
-    // jog (see writeAngleCommand), so it gets no pulse until then.
     if (DRIVES_FLYWHEEL) {
-        // Neutral for the very first pulse; stopAll() below moves it to the
-        // stop-trimmed value right away.
         flywheelOutput.writeMicroseconds(Flywheel::NEUTRAL_US);
         flywheelOutput.attach(Flywheel::SIGNAL_PIN, Flywheel::MIN_PULSE_US, Flywheel::MAX_PULSE_US);
     }
@@ -100,10 +88,6 @@ void Shooter::init() {
 void Shooter::update() {
     if (!outputsEnabled) {
         stopAll();
-        // Disabled: the turret and elevation stop at once, but the flywheel
-        // spins down along the ramp (Jeremy, 2026-10-18: this Falcon is in
-        // Brake mode, so an instant neutral stops it hard). It is still
-        // driven until the ramp reaches 0 -- at most 1 / RAMP_DOWN s.
         rampFlywheel();
         writeFlywheelCommand(flywheelOutputCommand);
         return;
@@ -119,13 +103,12 @@ void Shooter::rampFlywheel() {
     const unsigned long now = millis();
     unsigned long elapsed = now - flywheelRampLastMs;
     flywheelRampLastMs = now;
-    if (elapsed > 100) elapsed = 100; // a stalled loop must not jump
+    if (elapsed > 100) elapsed = 100;
     if (flywheelOpenLoopCommand > flywheelOutputCommand) {
         const double step = Flywheel::RAMP_UP_PER_SECOND * elapsed / 1000.0;
         flywheelOutputCommand = flywheelOpenLoopCommand - flywheelOutputCommand > step
             ? flywheelOutputCommand + step : flywheelOpenLoopCommand;
     } else {
-        // Down too (2026-10-18), including the spin-down after a disable.
         const double step = Flywheel::RAMP_DOWN_PER_SECOND * elapsed / 1000.0;
         flywheelOutputCommand = flywheelOutputCommand - flywheelOpenLoopCommand > step
             ? flywheelOutputCommand - step : flywheelOpenLoopCommand;
@@ -137,7 +120,7 @@ void Shooter::stopAll() {
     rotateMode = RotateControlMode::DISABLED;
     angleManualCommand = 0.0;
     rotateManualCommand = 0.0;
-    flywheelOpenLoopCommand = 0.0; // the output ramps down to it (rampFlywheel)
+    flywheelOpenLoopCommand = 0.0;
     flywheelSpinStartMs = 0;
     flywheelReady = false;
     rotateReady = false;
@@ -145,12 +128,12 @@ void Shooter::stopAll() {
     rotateVisionFollow.reset();
     releaseAngle();
     writeRotateCommand(0.0);
-    writeFlywheelCommand(flywheelOutputCommand); // no jump: update() ramps it down
+    writeFlywheelCommand(flywheelOutputCommand);
 }
 
 void Shooter::setOutputsEnabled(bool enabled) {
     if (!DRIVES_AXES) {
-        enabled = false; // drive-only bench: the shooter never enables
+        enabled = false;
     }
     if (TurretAngleConstants::GUARD_ENABLED && enabled && !outputsEnabled && !turretReturnDone) {
         turretGuard.beginReturn(); // first Enable after power-up: back to 0 deg
@@ -174,12 +157,9 @@ uint8_t Shooter::getTurretState() {
     return TurretAngleConstants::GUARD_ENABLED ? turretGuard.state() : TurretGuard::OFF;
 }
 
-// Every turret command while enabled goes through the guard: soft limits,
-// locked while the angle is unknown, the return to 0 deg (which replaces
-// the command), the direction check.
 void Shooter::driveRotate(double command) {
     if (!TurretAngleConstants::GUARD_ENABLED) {
-        writeRotateCommand(command); // guard off: straight through, as before
+        writeRotateCommand(command);
         return;
     }
     TurretGuard::Inputs in;
@@ -215,7 +195,7 @@ bool Shooter::setAnglePulseUs(double pulseUs) {
     if (!Angle::POSITION_SERVO) return false;
     anglePosition.set(pulseUs, Angle::MIN_PULSE_US, Angle::MAX_PULSE_US);
     anglePulseUs = static_cast<int>(anglePosition.value() + 0.5);
-    angleMode = AngleControlMode::MANUAL_OPEN_LOOP; // updateAngle() writes it
+    angleMode = AngleControlMode::MANUAL_OPEN_LOOP;
     return true;
 }
 
@@ -248,7 +228,6 @@ void Shooter::disableRotate() {
 
 void Shooter::setRotateVisionFollow() {
     if (rotateMode != RotateControlMode::VISION_FOLLOW) {
-        // Entering vision-follow never carries a lock or integral over.
         rotateReady = false;
         rotateVisionFollow.reset();
     }
@@ -300,7 +279,7 @@ int Shooter::getFlywheelPulseUs() {
 }
 
 double Shooter::getFlywheelCommand() {
-    return flywheelOutputCommand; // what goes out now (ramped), like the pulse
+    return flywheelOutputCommand;
 }
 
 void Shooter::updateAngle() {
@@ -312,14 +291,10 @@ void Shooter::updateAngle() {
 }
 
 void Shooter::updateRotate() {
-    // The sweep's 0.5 s wait starts over whenever the camera follow is not
-    // what drives the turret (hand turn, RB, return, test, a path...).
     if (rotateMode != RotateControlMode::VISION_FOLLOW || turretGuard.isReturning() || !sweepAllowed) {
         blindSinceMs = millis();
     }
     if (turretGuard.isReturning()) {
-        // The guard drives the turret back to 0 deg; nothing else does, and
-        // the camera follow starts fresh afterwards.
         rotateReady = false;
         rotateVisionFollow.reset();
         driveRotate(0.0);
@@ -331,25 +306,15 @@ void Shooter::updateRotate() {
         return;
     }
     if (rotateMode == RotateControlMode::VISION_FOLLOW) {
-        // PIDF on image-space tx, same control law and gains as the A5
-        // bench. An invalid/stale target commands 0 and clears the lock.
-        // Aim offset R: the loop drives tx + R to 0, i.e. holds the target
-        // R px left of center, so the turret points R px right of it.
-        // Example: R = +10, target at tx = -10 -> input 0 -> locked.
-        // Protocol v3: a PREDICTED position (the selected hole out of view)
-        // is followed too, so the turret turns toward it, but it is never
-        // a lock -- only the hole really in view can make the turret ready.
         const bool seen = Vision::isValid();
         const bool predicted = Vision::isPredicted();
-        // Search (2026-11-01): a chosen hole neither seen nor predicted ->
-        // turn toward it until it is, for at most SEARCH_MAX_MS per choice.
         const unsigned long now = millis();
         const uint8_t selection = Vision::getSelectedTarget();
         if (selection != searchSelection) {
             searchSelection = selection;
             searchStartMs = now;
             searchFound = false;
-            haveLastSeen = false; // the old hole's side says nothing
+            haveLastSeen = false;
         }
         if (seen) {
             lastSeenColumn = static_cast<int8_t>(
@@ -366,20 +331,13 @@ void Shooter::updateRotate() {
                 OperatorTarget::holeForVisionId(selection),
                 OperatorTarget::holesFromVisionMask(Vision::getSeenMask()), lastSeenColumn);
         }
-        // Lost (2026-11-14): it left near an edge within LOST_TURN_MS ->
-        // keep turning that way (tx > 0 = right of center = turn right).
-        // Example: last frame tx = +320 px, then gone -> right at 0.3 for
-        // up to 1 s, until it is seen or predicted again.
         if (searchDir == 0 && !seen && !predicted && haveLastSeen &&
             now - lastSeenMs <= Rotate::LOST_TURN_MS && fabs(lastSeenTx) >= Rotate::LOST_EDGE_PX) {
             searchDir = lastSeenTx > 0.0 ? 1 : -1;
         }
-        // Sweep (2026-11-14): nothing at all for SWEEP_START_MS -> left
-        // first to SWEEP_LEFT_DEG, then right to SWEEP_RIGHT_DEG, and back.
-        // Example: blind at +10 deg -> left until -90, right until +35, ...
         if (seen || predicted || searchDir != 0) {
             blindSinceMs = now;
-            if (seen) sweepDir = -1; // the next blind spell starts left again
+            if (seen) sweepDir = -1;
         } else if (Rotate::SWEEP_ENABLED && sweepAllowed && TurretAngle::isHealthy() &&
                    TurretAngle::isAbsolute() && now - blindSinceMs >= Rotate::SWEEP_START_MS) {
             const double deg = TurretAngle::angleDegrees();
@@ -390,8 +348,6 @@ void Shooter::updateRotate() {
         if (searchDir != 0) {
             rotateReady = false;
             rotateVisionFollow.reset();
-            // Right = TurretAngleConstants::RIGHT_COMMAND_SIGN (a target
-            // right of center gives a negative follow command).
             driveRotate(searchDir * TurretAngleConstants::RIGHT_COMMAND_SIGN * Rotate::SEARCH_COMMAND);
             return;
         }
@@ -400,7 +356,7 @@ void Shooter::updateRotate() {
             seen || predicted,
             Vision::getTargetId(),
             millis(),
-            Vision::getFrameCount()); // frame-to-frame D (2026-11-01)
+            Vision::getFrameCount());
         rotateReady = seen && rotateVisionFollow.isReady();
         driveRotate(command);
         return;
@@ -410,18 +366,12 @@ void Shooter::updateRotate() {
 }
 
 void Shooter::updateFlywheelReady() {
-    // No RPM feedback: "ready" means the ramped output has been non-zero and
-    // steady long enough that the wheel has probably reached it. A change
-    // of more than FLYWHEEL_READY_BAND (a new distance / table value)
-    // restarts the wait. Never ready while stopped. (2026-10-18: was
-    // "at/above SHOOT_COMMAND", which the measured 42-46% table values
-    // could never reach.)
     constexpr double FLYWHEEL_READY_BAND = 0.02;
     if (flywheelOutputCommand > 0.0) {
         if (flywheelSpinStartMs == 0 ||
             fabs(flywheelOutputCommand - flywheelSpinCommand) > FLYWHEEL_READY_BAND) {
             flywheelSpinStartMs = millis();
-            if (flywheelSpinStartMs == 0) flywheelSpinStartMs = 1; // 0 means "not spinning"
+            if (flywheelSpinStartMs == 0) flywheelSpinStartMs = 1;
             flywheelSpinCommand = flywheelOutputCommand;
         }
         flywheelReady = millis() - flywheelSpinStartMs >= Flywheel::SPIN_UP_MS;
@@ -435,8 +385,6 @@ void Shooter::writeAngleCommand(double command) {
     if (!DRIVES_AXES) return;
     command = constrain(command, -1.0, 1.0);
     if (Angle::POSITION_SERVO) {
-        // Positional servo: the command moves a target pulse; releasing the
-        // key (command 0) holds it.
         const uint32_t now = millis();
         const uint32_t elapsed = now - angleJogLastMs;
         angleJogLastMs = now;
@@ -444,7 +392,6 @@ void Shooter::writeAngleCommand(double command) {
         const double target = anglePosition.step(command, elapsed,
             Angle::POSITION_RATE_US_PER_SECOND, Angle::MIN_PULSE_US, Angle::MAX_PULSE_US);
         anglePulseUs = static_cast<int>(target + 0.5);
-        // Preload before attaching, so the first pulse uses the retained target.
         angleServo.writeMicroseconds(anglePulseUs);
         if (!angleServo.attached()) {
             angleServo.attach(Angle::ANGLE_PIN, Angle::MIN_PULSE_US, Angle::MAX_PULSE_US);
@@ -458,8 +405,6 @@ void Shooter::writeAngleCommand(double command) {
 void Shooter::releaseAngle() {
     if (!DRIVES_AXES) return;
     if (Angle::POSITION_SERVO) {
-        // Disable removes pulses; never command centre as a "stop" (that
-        // would swing the elevation). The software target is kept.
         angleServo.detach();
         angleJogLastMs = millis();
     } else {
@@ -476,8 +421,6 @@ void Shooter::writeRotateCommand(double command) {
 
 void Shooter::writeFlywheelCommand(double command) {
     if (!DRIVES_FLYWHEEL) return;
-    // Stopped = 1500 + STOP_PULSE_OFFSET_US, an absolute pulse that does not
-    // follow INVERTED (this Falcon creeps at plain 1500; -10 -> 1490 us).
     if (command <= 0.0) {
         flywheelPulseUs = Flywheel::NEUTRAL_US + Flywheel::STOP_PULSE_OFFSET_US;
     } else {

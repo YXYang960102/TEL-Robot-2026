@@ -5,11 +5,6 @@
 
 #include "../Constants/ShooterConstants.h"
 
-// Shooter head: three motors, no sensors (see ShooterConstants.h).
-//   turret    -- manual open loop, or vision-follow PIDF on the camera's tx
-//   elevation -- manual position jog (or speed, for a continuous servo)
-//   flywheel  -- open-loop PWM command, 0..1
-
 enum class AngleControlMode {
     DISABLED,
     MANUAL_OPEN_LOOP
@@ -23,21 +18,14 @@ enum class RotateControlMode {
 
 class Shooter {
 public:
-    // Lifecycle and safety
     static void init();
     static void update();
     static void stopAll();
     static void setOutputsEnabled(bool enabled);
     static bool areOutputsEnabled();
 
-    // Manual control (-1..1; flywheel 0..1)
     static void setAngleOpenLoop(double command);
-    // Elevation as an absolute target angle (positional servo only; degrees
-    // per ShooterConstants::Angle::ANGLE_MAP, clamped to its range). Returns
-    // false on a continuous-rotation elevation, which has no position.
     static bool setAngleTargetDegrees(double degrees);
-    // Same, as the raw target pulse (us), clamped to Angle::MIN/MAX_PULSE_US.
-    // Auto uses this with the shot table's measured pulses.
     static bool setAnglePulseUs(double pulseUs);
     static double getAngleTargetDegrees();
     static double getAngleMinDegrees();
@@ -46,47 +34,23 @@ public:
     static void setFlywheelOpenLoop(double command);
     static void disableRotate();
 
-    // Turret driven by the camera: VisionFollowController on Vision::getTx()
-    // every update().
     static void setRotateVisionFollow();
-    // Operator fine-adjust: vision-follow aims this many px right (+) of
-    // the target's center. 0 = straight at it.
     static void setRotateAimOffsetPx(double offsetPx);
-    // Auto, every loop: may the vision follow sweep left / right when it
-    // sees nothing at all (TuningConstants::Rotate::SWEEP_*)?
     static void setRotateSweepAllowed(bool allowed);
 
-    // Status
-    // Turret locked on target: |tx| within VISION_READY_TOLERANCE_PX for
-    // READY_SETTLE_TIME_MS while vision-following.
     static bool isRotateReady();
-    // Time-based proxy only: no RPM/tachometer feedback exists for the
-    // Falcon 500 flywheel (PWM command path is one-way). True once the
-    // commanded output has been non-zero and steady (within
-    // FLYWHEEL_READY_BAND of where it settled) for Flywheel::SPIN_UP_MS.
-    // Re-verify against real shots before trusting it.
     static bool isFlywheelReady();
-    // Ready to fire: turret locked and flywheel spun up (the same two
-    // conditions Auto checks before feeding).
     static bool isReady();
     static AngleControlMode getAngleControlMode();
     static RotateControlMode getRotateControlMode();
 
-    // Turret soft limits / home (2026-10-31, TurretGuard.h): every turret
-    // command passes the guard. The first Enable after power-up drives the
-    // turret back to 0 deg; this asks for that again (wired RB).
     static void requestTurretReturn();
-    static uint8_t getTurretState(); // TurretGuard::State
-    // Turret search toward a chosen hole out of view: -1 left, +1 right,
-    // 0 not searching (TuningConstants::Rotate::SEARCH_*).
+    static uint8_t getTurretState();
     static int8_t getSearchDirection();
 
-    // Telemetry
     static int getAnglePulseUs();
     static int getRotatePulseUs();
     static int getFlywheelPulseUs();
-    // The open-loop command actually driving the flywheel, 0.0-1.0 -- a
-    // command ratio, not an RPM (no speed feedback exists).
     static double getFlywheelCommand();
 
 private:
@@ -96,7 +60,7 @@ private:
     static void writeAngleCommand(double command);
     static void releaseAngle();
     static void writeRotateCommand(double command);
-    static void driveRotate(double command); // through the turret guard
+    static void driveRotate(double command);
     static void writeFlywheelCommand(double command);
 
     static Servo angleServo;
@@ -114,10 +78,7 @@ private:
     static int rotatePulseUs;
     static int flywheelPulseUs;
     static unsigned long flywheelSpinStartMs;
-    static double flywheelSpinCommand; // the command the spin-up timer started at
-    // What actually goes to the Falcon: flywheelOpenLoopCommand, reached
-    // at Flywheel::RAMP_UP_PER_SECOND going up and RAMP_DOWN_PER_SECOND
-    // going down -- also after a disable (spin-down, then neutral).
+    static double flywheelSpinCommand;
     static double flywheelOutputCommand;
     static unsigned long flywheelRampLastMs;
     static void rampFlywheel();

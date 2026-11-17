@@ -1,17 +1,5 @@
 #pragma once
 
-// Which hardware this build drives. The production env defines none of the
-// TEL_* bench flags; the wired bench envs in platformio.ini add them:
-//
-//   env                       flags                                   drives
-//   megaatmega2560            (none)                                  everything
-//   mega_wired_manual_test    WIRED_MANUAL_ONLY                       everything, USB only
-//   mega_drive_test           + DRIVE_ONLY                            chassis only
-//   mega_manual_axes_test     + MANUAL_AXES_TEST + MANUAL_FLYWHEEL_TEST  + turret, elevation, flywheel
-//
-// This is the only place that tests the macros. Everything else reads the
-// constants below, so a bench restriction is one `if`, not an #ifdef.
-
 #if defined(TEL_DRIVE_ONLY) && !defined(TEL_WIRED_MANUAL_ONLY)
 #error "The partial-hardware benches are wired-manual only"
 #endif
@@ -48,12 +36,9 @@ constexpr bool BENCH_HAS_FLYWHEEL = true;
 constexpr bool BENCH_HAS_FLYWHEEL = false;
 #endif
 
-// What actually gets driven.
 constexpr bool DRIVES_SHOOTER_AXES = !PARTIAL_HARDWARE_BENCH || BENCH_HAS_SHOOTER_AXES;
 constexpr bool DRIVES_FLYWHEEL = !PARTIAL_HARDWARE_BENCH || BENCH_HAS_FLYWHEEL;
-// The feed tower is never wired on a partial bench.
 constexpr bool DRIVES_FEED_TOWER = !PARTIAL_HARDWARE_BENCH;
-// The creative-design link motor and sound triggers (src/Art/) neither.
 constexpr bool DRIVES_ART = !PARTIAL_HARDWARE_BENCH;
 
-}  // namespace BuildProfile
+}

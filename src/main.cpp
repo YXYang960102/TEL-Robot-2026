@@ -17,12 +17,6 @@
 #include "Constants/DribblerConstants.h"
 #include "Constants/ShooterConstants.h"
 
-// Pin sanity check. Each pin is defined once, in its subsystem's Constants
-// file; nothing here has to be edited when a pin changes. The build only
-// fails if two outputs are set to the same pin, or an output lands on a
-// serial port in use (0/1 USB, 16/17 Serial2 = ELRS bridge, 18/19 Serial1 =
-// Orin), or an input lands on an output or on such a port. Serial3 (14/15)
-// is never opened, so its pins would be plain GPIO too.
 namespace pincheck {
 constexpr uint8_t OUTPUTS[] = {
     ChassisConstants::LeftDrive::SIGNAL_PIN,
@@ -40,12 +34,11 @@ constexpr uint8_t OUTPUTS[] = {
 constexpr uint8_t INPUTS[] = {
     DribblerConstants::Tower::READY_PIN,
 };
-constexpr uint8_t OPEN_SERIAL_PINS[] = {0, 1, 16, 17, 18, 19}; // Serial3 unused
+constexpr uint8_t OPEN_SERIAL_PINS[] = {0, 1, 16, 17, 18, 19};
 constexpr unsigned OUTPUT_COUNT = sizeof(OUTPUTS) / sizeof(OUTPUTS[0]);
 constexpr unsigned INPUT_COUNT = sizeof(INPUTS) / sizeof(INPUTS[0]);
 constexpr unsigned OPEN_SERIAL_COUNT = sizeof(OPEN_SERIAL_PINS) / sizeof(OPEN_SERIAL_PINS[0]);
 
-// C++11 constexpr (single return, recursion) for the AVR toolchain.
 constexpr bool notIn(uint8_t pin, const uint8_t* list, unsigned count) {
     return count == 0 || (list[0] != pin && notIn(pin, list + 1, count - 1));
 }
@@ -66,17 +59,16 @@ static_assert(noneIn(OUTPUTS, OUTPUT_COUNT, OPEN_SERIAL_PINS, OPEN_SERIAL_COUNT)
 static_assert(noneIn(INPUTS, INPUT_COUNT, OUTPUTS, OUTPUT_COUNT) &&
                   noneIn(INPUTS, INPUT_COUNT, OPEN_SERIAL_PINS, OPEN_SERIAL_COUNT),
               "An input shares a pin with an output or a serial port in use");
-// The tower lines are on the analog header (Jeremy, 2026-11-07).
 static_assert(DribblerConstants::Tower::DISABLE_PIN == A15 && DribblerConstants::Tower::READY_PIN == A14,
               "Feed tower disable / ready lines are wired to A15 / A14");
-}  // namespace pincheck
+}
 
 void setup() {
     Serial.begin(115200);
 
     MechLink::init();
     ManualControl::init();
-    AimTrimStore::init(); // the saved aim / elevation trim (EEPROM)
+    AimTrimStore::init();
     Vision::init();
     Shooter::init();
     Dribbler::init();
@@ -93,29 +85,17 @@ void loop() {
     Vision::update();
     TurretAngle::update();
 
-    // ManualControl handles both operator sources (wired USB Dashboard and
-    // the wireless ELRS channels MechLink just read) and applies its own
-    // Chassis/Dribbler/Shooter calls while armed, before Auto::update(),
-    // which steps aside whenever ManualControl::isActive().
     ManualControl::update();
-    AimTrimStore::update(); // saves a new trim, one byte per loop
+    AimTrimStore::update();
 
-    // The operator's hole (keys 1-9 / CH3) -> the Orin's numbering. Before
-    // Auto, so a switch drops the old hole's frame in this same loop.
-    // Auto's aim target: the operator's hole, or in full auto the row
-    // cycle's current one (2026-10-31; one loop behind Auto, harmless).
     Vision::setSelectedTarget(OperatorTarget::visionIdForHole(Auto::getAimTarget()));
-    // P (2026-11-14): photo capture on the Orin, sent with the heartbeat.
     Vision::setCaptureRequested(ManualControl::isCaptureOn());
 
-    // Rotate mode arbitration and the auto-fire sequence both live in
-    // Auto::update() now (moved out of here 2026-10-06) so "what mode is
-    // each subsystem in" is decided in one place.
     Auto::update();
 
     Shooter::update();
     Dribbler::update();
-    Art::update(); // reacts to this loop's shot
+    Art::update();
 
     Chassis::update();
     Telemetry::update();

@@ -7,11 +7,11 @@
 #include "ManualControl.h"
 
 namespace {
-uint8_t lastSeq = 0;        // seq of the newest record (read or written)
-uint8_t nextSlot = 0;       // the slot the next record goes to
-uint16_t savedTrimSeq = 0;  // ManualControl::getTrimSeq() last saved
+uint8_t lastSeq = 0;
+uint8_t nextSlot = 0;
+uint16_t savedTrimSeq = 0;
 uint8_t writeBytes[AimTrimStore::RECORD_BYTES];
-uint8_t writeIndex = AimTrimStore::RECORD_BYTES; // == RECORD_BYTES: idle
+uint8_t writeIndex = AimTrimStore::RECORD_BYTES;
 int writeAddress = 0;
 
 int slotAddress(uint8_t slot) {
@@ -24,8 +24,6 @@ int16_t toTenths(double v) {
 }
 
 void AimTrimStore::init() {
-    // The newer of the two valid slots (seq compared mod 256); none = no
-    // trim saved yet, 0 / 0.
     bool found = false;
     Record newest = {0, 0, 0};
     for (uint8_t slot = 0; slot < SLOTS; slot++) {
@@ -46,10 +44,6 @@ void AimTrimStore::init() {
 }
 
 void AimTrimStore::update() {
-    // A new trim (a hand turn settled, up / down let go, C) and the writer
-    // idle: encode the trim as it is now. One byte per loop, only when the
-    // EEPROM is idle, so the ~3.3 ms write never blocks the loop (7 bytes,
-    // ~70 ms). A newer trim during the write is picked up right after.
     if (writeIndex >= RECORD_BYTES && ManualControl::getTrimSeq() != savedTrimSeq) {
         savedTrimSeq = ManualControl::getTrimSeq();
         Record r;
@@ -69,6 +63,6 @@ void AimTrimStore::writeStep() {
     if (writeIndex >= RECORD_BYTES || !eeprom_is_ready()) {
         return;
     }
-    EEPROM.update(writeAddress + writeIndex, writeBytes[writeIndex]); // starts it, doesn't wait
+    EEPROM.update(writeAddress + writeIndex, writeBytes[writeIndex]);
     writeIndex++;
 }

@@ -6,45 +6,6 @@
 #include "OperatorMode.h"
 #include "RcControlMap.h"
 
-// Operator control of the robot, from two sources that share one set of
-// rules:
-//   - Wired: line protocol on USB `Serial` from tools/dashboard/index.html
-//     (E/X/K, T,<l>,<r>, ROT,<d>, ANG,<d>, ANGT,<deg>, FLY,<0..1>, FLYO,<-20..20>,
-//     TGT,<0..12>, AUTO,<1..4>, MODE,<0..3>, F, M).
-//   - Wireless: CRSF channels from the ELRS link via MechLink, decoded with
-//     RcControlMap table v2 (forward/turn, target hole, mode, fire, arm,
-//     nudge, auto path; CH9 = test mode).
-//
-// Control authority: exactly one source owns the robot while armed. Enable
-// from the other source is refused (ENABLE_REJECTED_OTHER_SOURCE), and its
-// motion/F/TGT/AUTO commands are refused (REJECTED_NOT_OWNER). An explicit stop
-// (wired X) always disarms whoever owns it; the wireless arm level going
-// low only disarms a wireless session (low is the ground station's idle
-// state, so it can't mean "stop the wired session").
-//
-// Wireless enable is edge-triggered: CH6 has to be seen low and then high.
-// Fire (CH5) and auto path (CH8) act on their rising edge too. After an RF
-// dropout every edge detector re-arms only once it sees the channel
-// released again, so recovering the link never re-enables or fires on its
-// own.
-//
-// Target hole (TGT / CH3): main.cpp passes it to Vision (the Orin locks on
-// that hole) and Auto uses that hole's shot table. The auto path
-// (AUTO / CH8) can start once per Enable, and every path started since
-// boot is remembered for the Dashboard; the paths themselves are not built
-// yet.
-//
-// Fine-adjust in the auto modes: each arrow press (ROT/ANG going from 0 to
-// +-1; wireless: CH7 leaving center) adds a step to the aim offset
-// (left/right) or, once the shot table's elevation is measured, the
-// elevation offset (up/down). A new hole, Enable and disarm clear both.
-//
-// Operator mode (OperatorMode.h): M cycles FULL_MANUAL -> SEMI_AUTO ->
-// FULL_AUTO while armed (wireless: CH4 level). It is FULL_MANUAL whenever
-// disarmed and at every Enable; a wireless Enable whose CH4 isn't manual is
-// refused. In the auto modes this class still owns safety, the chassis
-// and elevation, but leaves the turret and flywheel to Auto, and
-// F becomes a fire request that Auto takes (takeFireRequest()).
 class ManualControl {
 public:
     enum class Owner : uint8_t { NONE = 0, WIRED, WIRELESS };
@@ -59,82 +20,38 @@ public:
     static bool didTimeOut();
     static double getFlywheelCommand();
 
-    // FULL_MANUAL while disarmed.
     static OperatorMode getOperatorMode();
-    // True once per F press made in an auto mode (cleared by reading it).
     static bool takeFireRequest();
-    // Lets Auto report what it did on the same "$EVENT" / status channel.
     static void reportEvent(rcmap_event event);
 
-    static uint8_t getTarget();               // 0 = none, 1..12
-    // The ball color whose shot table the autos use (2026-11-15):
-    // RCMAP_BALL_* 0..5, yellow at boot; wired COL,<n> or CH3. Kept across
-    // Enable / Disable. Every change reports BALL_<COLOR>.
+    static uint8_t getTarget();
     static uint8_t getBallColor();
-    // The match half (2026-11-15): RCMAP_HALF_FIRST at boot, wired
-    // HALF,<1|2> or CH9; kept across Enable. Reports HALF_FIRST / _SECOND.
     static bool isSecondHalf();
-    // The match started (wired START / CH7 level 5, 2026-11-16): true once
-    // per start, for Art's 春日部防衛隊出動.
     static bool takeMatchStart();
-    // Bumped on every hole choice: a change (wired or radio) and every
-    // wired TGT, even of the same hole -- Auto's row cycle starts over.
     static uint16_t getTargetSelectSeq();
-    static uint8_t getAutoPathThisEnable();   // 0 = none, 1..4
-    static uint8_t getAutoPathsUsedMask();    // bit n = path n started since boot
-    // Fine-adjust (TuningConstants::Auto): + = aim right / elevation up.
-    // Since 2026-11-08 a saved trim, the same for every hole: kept across
-    // hole changes, mode changes, Enable / disarm and (AimTrimStore, EEPROM)
-    // power cycles; only C (wired TCLR / CH8 level 5) clears it.
+    static uint8_t getAutoPathThisEnable();
+    static uint8_t getAutoPathsUsedMask();
     static double getAimOffsetPx();
     static double getElevationOffsetUs();
-    // Bumped whenever the operator sets or clears the trim (a left / right
-    // hand turn settles, up / down is let go, C): AimTrimStore saves then.
     static uint16_t getTrimSeq();
-    // Photo capture on the Orin (2026-11-14): P / the pad's View (wired
-    // CAPT, radio CH9 level 3) toggles it; main.cpp hands it to Vision,
-    // which tells the Orin (MEGA_CAPTURE). Kept across Enable / disarm;
-    // off at boot.
     static bool isCaptureOn();
-    // The trim read back from EEPROM at boot (clamped to the limits).
     static void setTrim(double aimOffsetPx, double elevationOffsetUs);
-    // Autos and test (2026-10-30): left / right held = the operator turns
-    // the turret by hand, then it stands still AIM_JOG_SETTLE_MS before the
-    // camera takes over again with the new aim offset. While this is true
-    // Auto drives the turret open loop with getAimJogCommand() (0 during
-    // the wait) instead of the camera follow.
-    // With the aim offset off (TuningConstants::Auto::AIM_OFFSET_ENABLED,
-    // 2026-11-09) there is no wait: the turret stays where the operator let
-    // go (isAimHandHeld()) until the aimed hole changes, a mode change, RB,
-    // Enable / disarm; then the camera takes over again.
     static bool isAimJogActive();
     static double getAimJogCommand();
-    // The operator aimed the turret by hand and it is held there: Auto
-    // counts the turret as aimed (no camera lock needed to fire).
     static bool isAimHandHeld();
-    // RB in the autos / test (2026-10-31): the turret goes back to 0 deg
-    // and stays there (no camera follow) until a hole is chosen (wired:
-    // also the same one again), the mode changes, or left / right is held
-    // (the hand turn). Full manual ignores it.
     static bool isTurretHeldHome();
-    // The autos' flywheel offset in percent (-20..20, LT / RT; 2026-10-18):
-    // added to the shot table's value. Wired FLYO,<n> or CH4 in the autos;
-    // 0 in full manual, after a mode change and on every Enable / disarm.
     static int getFlywheelOffsetPct();
-    static constexpr int NUDGE_NEEDS_RELEASE = 2; // see nudgePressed()
+    static constexpr int NUDGE_NEEDS_RELEASE = 2;
 
 private:
-    // Wired line protocol
     static void readIncomingLines();
     static void processCommand(char* command);
     static bool parseTank(char* args, double& left, double& right);
     static bool parseValue(char* args, double minimum, double maximum, double& value);
 
-    // Wireless
     static void processWirelessFrame();
     static void resetWirelessTracking();
 
-    // Shared
     static void requestEnable(Owner source);
     static void enforceWatchdogs();
     static void disarm(rcmap_event reason);
@@ -146,10 +63,8 @@ private:
     static void clearTrim();
     static void toggleCapture();
     static void reportPathState();
-    // Stick takeover of an auto path (2026-11-14): semi auto, kept against a
-    // radio CH4 that still says full auto until CH4 says anything else.
     static bool pathStickSemi;
-    static uint8_t lastPathState; // AutoPath::State last reported
+    static uint8_t lastPathState;
     static bool captureOn;
     static void requestAutoPath(uint8_t path);
     static void cycleOperatorMode();
@@ -182,7 +97,7 @@ private:
     static bool wirelessStartPrev;
     static bool matchStartRequested;
     static void matchStart();
-    static unsigned long lastVersionEventMs; // LINK_VERSION_MISMATCH rate limit
+    static unsigned long lastVersionEventMs;
 
     static double tankLeftCommand;
     static double tankRightCommand;
@@ -201,22 +116,22 @@ private:
     static double aimOffsetPx;
     static double elevationOffsetUs;
     static int flywheelOffsetPct;
-    static int rotateNudgePrev; // sign of the last ROT/nudge, for press edges
+    static int rotateNudgePrev;
     static bool turretHeldHome;
     static uint16_t targetSelectSeq;
     static void requestTurretHome();
-    static bool aimJogging;          // left / right held in an auto / test
-    static bool aimJogSettling;      // released, waiting before the latch
-    static bool aimHandHeld;         // released, held there (offset off)
-    static uint8_t handHeldAimTarget; // Auto's aimed hole when it was let go
+    static bool aimJogging;
+    static bool aimJogSettling;
+    static bool aimHandHeld;
+    static uint8_t handHeldAimTarget;
     static unsigned long aimJogReleasedMs;
     static int angleNudgePrev;
-    static unsigned long elevationJogLastMs; // last updateFineAdjust(), for the up / down hold
-    static bool elevationJogPrev;            // up / down held last loop (release = save)
+    static unsigned long elevationJogLastMs;
+    static bool elevationJogPrev;
     static uint16_t trimSeq;
 
     static unsigned long eventSeq;
     static uint16_t lastEventCode;
     static unsigned long lastStatusMs;
-    static uint8_t statusSlot; // 0, 2 = status, 1 = aim frame, 3 = vision frame
+    static uint8_t statusSlot;
 };

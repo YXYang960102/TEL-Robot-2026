@@ -6,36 +6,23 @@
 #include "../Constants/TurretAngleConstants.h"
 #include "../Control/PidfController.h"
 
-// The last stop before the turret motor (2026-10-31, Jeremy): every turret
-// command -- manual jog, camera follow, predicted position, the hand turn
-// in the autos -- goes through filter(), which
-//   - locks the turret (command 0) while its absolute angle is unknown, the
-//     AS5600 is unhealthy, or a direction fault was seen;
-//   - drops the part of a command that would go past the soft limits
-//     (TurretAngleConstants::LIMIT_*), and slows it near them;
-//   - after beginReturn() (first Enable after power-up, RB) drives the
-//     turret back to 0 deg itself, ignoring the command;
-//   - locks the turret if a held command turns it the opposite way.
-// Angles: + = right, from the home point. No Arduino calls (time comes in),
-// so it can be checked on a PC.
 class TurretGuard {
 public:
-    // Reported state (TEL slot 49, radio aim frame bits 21-23).
     enum State : uint8_t {
-        UNKNOWN = 0,     // no absolute angle: locked (set the home point)
-        SENSOR = 1,      // AS5600 not healthy: locked
-        DIRECTION = 2,   // a command turned the turret the wrong way: locked until reboot
+        UNKNOWN = 0,
+        SENSOR = 1,
+        DIRECTION = 2,
         RETURNING = 3,   // driving back to 0 deg
         READY = 4,
-        AT_RIGHT = 5,    // ready, at the right limit
-        AT_LEFT = 6,     // ready, at the left limit
-        OFF = 7,         // guard switched off (TurretAngleConstants::GUARD_ENABLED)
+        AT_RIGHT = 5,
+        AT_LEFT = 6,
+        OFF = 7,
     };
 
     struct Inputs {
-        bool absolute;     // TurretAngle::isAbsolute()
-        bool healthy;      // TurretAngle::isHealthy()
-        double angleDeg;   // TurretAngle::angleDegrees()
+        bool absolute;
+        bool healthy;
+        double angleDeg;
         unsigned long nowMs;
     };
 
@@ -49,8 +36,6 @@ public:
         returnStarted = false;
     }
 
-    // Outputs stopped (disarm): a return not finished starts over on the
-    // next Enable; the direction check forgets its window.
     void onDisabled() {
         if (returning) returnStarted = false;
         windowActive = false;
@@ -58,11 +43,8 @@ public:
 
     bool isReturning() const { return returning; }
     State state() const { return current; }
-    // Camera-follow may report "locked on" only while the guard isn't
-    // overriding or holding the command.
     bool allowsLock() const { return current == READY || current == AT_RIGHT || current == AT_LEFT; }
 
-    // command: -1..1 as it would go to the motor. Returns what may go.
     double filter(double command, const Inputs& in) {
         using namespace TurretAngleConstants;
         if (directionFault) {
@@ -101,13 +83,9 @@ public:
         return out;
     }
 
-    // Soft limits, as a pure function: + = right in degrees, command sign
-    // per RIGHT_COMMAND_SIGN. Example: at +33.5 deg (5 deg from +38.5), a
-    // full right command 1.0 becomes 5 / 10 = 0.5; at +38.5 or beyond, 0; any
-    // left command passes unchanged.
     static double limit(double command, double angleDeg) {
         using namespace TurretAngleConstants;
-        const double rightward = command * RIGHT_COMMAND_SIGN; // > 0: turning right
+        const double rightward = command * RIGHT_COMMAND_SIGN;
         if (rightward == 0.0) return command;
         const double room = rightward > 0.0 ? LIMIT_RIGHT_DEG - angleDeg : angleDeg - LIMIT_LEFT_DEG;
         if (room <= 0.0) return 0.0;
@@ -119,7 +97,6 @@ public:
     }
 
 private:
-    // Turret speed, deg/s (+ = right), from successive angles, smoothed.
     void trackSpeed(const Inputs& in) {
         if (haveLast && in.nowMs > lastMs && in.nowMs - lastMs <= 200) {
             const double dt = (in.nowMs - lastMs) / 1000.0;
@@ -134,11 +111,6 @@ private:
         lastAngle = in.angleDeg;
     }
 
-    // Where the turret would stop if the command were dropped now: the
-    // present angle plus LIMIT_STOP_LOOKAHEAD_S of its present speed, only
-    // in the commanded direction. Example: at +28 deg moving right at 60
-    // deg/s -> +37 (limit +38.5): a full right command is cut to 1.5 / 10
-    // = 0.15, raised to LIMIT_SLOW_MIN_COMMAND (0.2).
     double stoppingAngle(double command) const {
         using namespace TurretAngleConstants;
         const double rightward = command * RIGHT_COMMAND_SIGN;
@@ -148,9 +120,6 @@ private:
         return lastAngle;
     }
 
-    // P(IDF) toward 0 deg in the right-positive frame, then to motor sign.
-    // Example: at +36 deg: error -36 -> 0.03 * -36 = -1.08 -> clamped -0.4
-    // (turn left) -> motor command -0.4 * RIGHT_COMMAND_SIGN = +0.4.
     double returnCommand(const Inputs& in) {
         using namespace TurretAngleConstants;
         if (!returnStarted) {
@@ -174,18 +143,12 @@ private:
         const double dt = (in.nowMs - lastPidMs) / 1000.0;
         lastPidMs = in.nowMs;
         double towardRight = returnPid.calculate(0.0, in.angleDeg, dt);
-        // Outside the tolerance, never less than what still turns the
-        // turret. Example: at +5.3 deg, 0.03 x -5.3 = -0.16 -> -0.2.
         if (!within && fabs(towardRight) < RETURN_MIN_COMMAND) {
             towardRight = in.angleDeg > 0.0 ? -RETURN_MIN_COMMAND : RETURN_MIN_COMMAND;
         }
         return towardRight * RIGHT_COMMAND_SIGN;
     }
 
-    // A command held one way (|command| >= MIN) must not move the turret
-    // DIRECTION_CHECK_WRONG_DEG the other way. After the direction changes
-    // there is a grace period (the turret may still coast the old way);
-    // then the reference angle is re-taken every window.
     void checkDirection(double command, const Inputs& in) {
         using namespace TurretAngleConstants;
         const int sign = command * RIGHT_COMMAND_SIGN >= DIRECTION_CHECK_MIN_COMMAND ? 1
@@ -205,7 +168,7 @@ private:
             }
             return;
         }
-        const double moved = (in.angleDeg - windowStartDeg) * windowSign; // + = the commanded way
+        const double moved = (in.angleDeg - windowStartDeg) * windowSign;
         if (moved <= -DIRECTION_CHECK_WRONG_DEG) {
             directionFault = true;
             return;
