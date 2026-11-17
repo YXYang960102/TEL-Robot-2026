@@ -27,8 +27,6 @@ public:
     void setConfig(const PidfConfig& config);
     void setOutputLimits(double minimum, double maximum);
     void setIntegralOutputLimits(double minimum, double maximum);
-    // true = the integral keeps its value instead of accumulating (it is
-    // still cleared outside kIZone). Default false.
     void setIntegralHold(bool hold);
     void reset(double measurement = 0.0);
 

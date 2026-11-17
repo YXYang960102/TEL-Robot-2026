@@ -1,23 +1,3 @@
-// ELRS round-trip bench test (env: mega_elrs_link_test).
-// PC Dashboard -> ground STM32 -> ELRS TX ))) ELRS RX -> robot STM32
-// bridge -> Mega Serial2, and the status uplink back the same way.
-// Uses the production MechLink parser and the shared rcmap codec
-// unchanged, so what this prints is exactly what the robot build would
-// see. No motors or other subsystems are built in -- nothing can move.
-//
-// Downlink: prints a $ELRS line 4x per second with the raw channels and
-// the decoded operator command, and an event whenever MechLink's link
-// state flips (the robot bridge goes silent on RF loss, so turning the
-// ground side off should produce LINK_LOST within ~0.7 s).
-//
-// Uplink: sends the same "ST,..." status the production firmware sends,
-// every 100 ms, with "armed" mirroring the arm channel (so the Dashboard's
-// Enable handshake completes against this sketch even though nothing is
-// actually enabled). Each fire press (CH5 low->high), auto-path press and
-// arm change bumps the event sequence, so the ground station should print
-// "$EVENT,FEED_TRIGGER_SENT" / "$EVENT,AUTO_PATH_STARTED" /
-// "$EVENT,OUTPUTS_ENABLED" / "$EVENT,OUTPUTS_DISABLED" -- that proves the
-// Battery-frame telemetry path end to end before any motor is wired.
 #include <Arduino.h>
 
 #include "../../IO/MechLink.h"
@@ -39,7 +19,7 @@ unsigned long fireEvents = 0;
 rcmap_command cmd{};
 bool cmdValid = false;
 bool armedPrev = false;
-bool firePrev = true;   // a press needs a release first (also after a dropout)
+bool firePrev = true;
 uint8_t autoPrev = 0xFF;
 
 unsigned long eventSeq = 0;
@@ -84,7 +64,7 @@ void printState(unsigned long now) {
     Serial.println(badFrames);
 }
 
-}  // namespace
+}
 
 void setup() {
     Serial.begin(115200);
@@ -106,9 +86,6 @@ void loop() {
         lastLost = MechLink::signalLost;
         stateSinceMs = now;
         if (MechLink::signalLost) {
-            // Same rule as production: after a reconnect fire/auto must be
-            // seen released before they count. (The "armed" reported here
-            // is just the arm channel level -- this sketch enables nothing.)
             firePrev = true;
             autoPrev = 0xFF;
             armedPrev = false;

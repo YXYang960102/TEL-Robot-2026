@@ -1,29 +1,3 @@
-// Single-motor gamepad bench (env: mega_gamepad_motor_test).
-//
-// One continuous-rotation servo / ESC on A5, driven from the normal
-// Dashboard (tools/dashboard/index.html) over USB, keyboard or gamepad:
-// the joystick X axis (or keyboard A/D) is the "turn" part of the tank
-// command, and that turn drives the motor. Nothing else is attached or
-// written -- no chassis, shooter, tower or Serial1/2 traffic.
-//
-// It speaks just enough of the production wired protocol for the
-// Dashboard's Enable handshake, watchdog and readouts to work unchanged:
-//   E / X / K, T,<left>,<right>, ROT,<d>; FLY/ANG/TGT/AUTO/F/M are
-//   accepted (they keep the link alive) but drive nothing here.
-//   $EVENT,OUTPUTS_ENABLED / OUTPUTS_DISABLED / COMMAND_TIMEOUT /
-//   REJECTED_DISARMED / BAD_COMMAND / UNKNOWN_COMMAND, and a TEL line in
-//   the production field layout (armed in slot 18, the A5 pulse in slot 19,
-//   owner = wired in slot 21).
-//
-// Turn = (right - left) / 2: the Dashboard sends A as T,1,-1 and D as
-// T,-1,1, and the joystick as T,(fwd - x),(fwd + x). So D / stick right ->
-// +1 -> 2000 us, A / stick left -> -1 -> 1000 us, centered -> 1500 us
-// (full +-500 us, Jeremy 2026-10-16). Forward/back alone (W/S, stick Y)
-// gives turn 0 and does not move this motor.
-//
-// The keyboard arrows left/right (ROT,-1 / ROT,1, the turret keys on the
-// real robot) drive it too (Jeremy 2026-10-16): while ROT is non-zero it
-// wins over the stick / A-D turn; ROT,0 hands it back.
 #include <Arduino.h>
 #include <Servo.h>
 #include <math.h>
@@ -41,8 +15,8 @@ constexpr size_t MAX_LINE_LENGTH = 32;
 
 Servo motor;
 bool armed = false;
-double turn = 0.0;    // from T (stick X / A-D)
-double rotateKey = 0.0;  // from ROT (arrows left/right)
+double turn = 0.0;
+double rotateKey = 0.0;
 int pulseUs = NEUTRAL_US;
 unsigned long lastCommandMs = 0;
 unsigned long lastTelemetryMs = 0;
@@ -147,7 +121,6 @@ void readUsb() {
         if (lineLength + 1 < MAX_LINE_LENGTH) {
             line[lineLength++] = c;
         } else {
-            // Oversized line: drop it through '\n' and stop, like production.
             lineLength = 0;
             discarding = true;
             if (armed) disarm("DISABLED_CORRUPT_COMMAND");
@@ -156,27 +129,25 @@ void readUsb() {
 }
 
 void printTelemetry(unsigned long now) {
-    // Production TEL field order (src/Telemetry/Telemetry.cpp); vision,
-    // RC and shooter slots are zero/neutral here.
     Serial.print(F("TEL,"));
     Serial.print(now);
-    Serial.print(F(",0,0,0,0,0,"));               // tx,ty,distance,targetId,valid
+    Serial.print(F(",0,0,0,0,0,"));
     Serial.print(F("1500,1500,2000,1000,1000,")); // RC slots 7-11
-    Serial.print(F("0,3,0,"));                    // shooterReady, mode+1 (manual), warn
-    Serial.print(F("NaN,NaN,NaN,"));              // pose
-    Serial.print(armed ? 1 : 0);                  // 18 armed
+    Serial.print(F("0,3,0,"));
+    Serial.print(F("NaN,NaN,NaN,"));
+    Serial.print(armed ? 1 : 0);
     Serial.print(',');
     Serial.print(pulseUs);                        // 19 "left" pulse = the A5 motor
-    Serial.print(F(",1500,"));                    // 20 right pulse (unused)
-    Serial.print(armed ? 1 : 0);                  // 21 owner: 1 = wired
-    Serial.println(F(",0,0,0,0,1500,0.0"));       // tower, triggers, modes, Falcon
+    Serial.print(F(",1500,"));
+    Serial.print(armed ? 1 : 0);
+    Serial.println(F(",0,0,0,0,1500,0.0"));
 }
 
-}  // namespace
+}
 
 void setup() {
     Serial.begin(115200);
-    motor.writeMicroseconds(NEUTRAL_US);  // preload: first pulse is neutral
+    motor.writeMicroseconds(NEUTRAL_US);
     motor.attach(MOTOR_PIN, NEUTRAL_US - SPAN_US, NEUTRAL_US + SPAN_US);
     writeMotor();
     Serial.println(F("$GAMEPAD_MOTOR_TEST_READY,A5,+-500us"));

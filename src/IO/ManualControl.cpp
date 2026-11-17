@@ -92,12 +92,10 @@ void ManualControl::init() {
     eventSeq = 0;
     lastEventCode = RCMAP_EVENT_NONE;
     lastStatusMs = millis();
-    statusSlot = 0; // status first
+    statusSlot = 0;
 }
 
 void ManualControl::update() {
-    // Watchdogs run before new input is read: a heartbeat or frame that
-    // only shows up after the deadline must not rescue an expired session.
     enforceWatchdogs();
     readIncomingLines();
     processWirelessFrame();
@@ -159,8 +157,6 @@ uint8_t ManualControl::getAutoPathsUsedMask() {
     return autoPathsUsedMask;
 }
 
-// ---------------------------------------------------------------- wired
-
 void ManualControl::readIncomingLines() {
     while (Serial.available() > 0) {
         const char next = static_cast<char>(Serial.read());
@@ -169,8 +165,6 @@ void ManualControl::readIncomingLines() {
         }
         if (next == '\n') {
             if (discardingLine) {
-                // End of an oversized line: everything in it was dropped,
-                // resume parsing from the next line.
                 discardingLine = false;
                 commandLength = 0;
                 continue;
@@ -187,9 +181,6 @@ void ManualControl::readIncomingLines() {
         if (commandLength + 1 < ManualControlConstants::COMMAND_BUFFER_SIZE) {
             commandBuffer[commandLength++] = next;
         } else {
-            // Drop the rest of this line too, so its tail (e.g. "...E") is
-            // never parsed as a fresh command. A corrupt wired stream while
-            // the wired side owns the robot is treated like a lost link.
             commandLength = 0;
             discardingLine = true;
             sendEvent(RCMAP_EVENT_COMMAND_TOO_LONG);
@@ -210,7 +201,6 @@ void ManualControl::processCommand(char* command) {
         return;
     }
     if (strcmp(command, "X") == 0) {
-        // An explicit stop always stops, whichever side owns the robot.
         disarm(RCMAP_EVENT_OUTPUTS_DISABLED);
         return;
     }
@@ -221,9 +211,6 @@ void ManualControl::processCommand(char* command) {
         return;
     }
 
-    // TZERO (2026-10-31): the turret is at its home point now -- angle 0,
-    // saved to EEPROM. Only while disarmed: the operator sets the turret
-    // there by hand first (Dashboard 「設為歸位點」, wired).
     if (strcmp(command, "TZERO") == 0) {
         const bool ok = owner == Owner::NONE && TurretAngle::setZeroHere();
         sendEvent(ok ? RCMAP_EVENT_TURRET_ZERO_SET : RCMAP_EVENT_TURRET_ZERO_REJECTED);
@@ -234,35 +221,17 @@ void ManualControl::processCommand(char* command) {
     const bool isRotate = strncmp(command, "ROT,", 4) == 0;
     const bool isAngle = strncmp(command, "ANG,", 4) == 0;
     const bool isFlywheel = strncmp(command, "FLY,", 4) == 0;
-    // Elevation as an absolute angle (Dashboard slider / number box):
-    // ANGT,<deg> = go to. The arrows use the ANG hold-to-move jog.
     const bool isAngleTarget = strncmp(command, "ANGT,", 5) == 0;
-    // TGT,<0..12>: the target hole (keys 1-9 the 3x3 grid, 10-12 the bonus
-    // holes, keys Q W E; 0 = none).
     const bool isTarget = strncmp(command, "TGT,", 4) == 0;
-    // AUTO,<1..4>: start auto path 1-4 (the Dashboard's path menu sends it
-    // right after Enable).
     const bool isAutoPath = strncmp(command, "AUTO,", 5) == 0;
-    // MODE,<0..3>: go straight to an operator mode (0 full auto, 1 semi
-    // auto, 2 full manual, 3 test) -- the Dashboard's mode menu, sent right
-    // after Enable. Enable itself still always starts in full manual.
     const bool isModeSet = strncmp(command, "MODE,", 5) == 0;
-    // FLYO,<-20..20>: the autos' flywheel offset in percent (LT / RT on the
-    // pad), added to the shot table. Absolute, so a resend is harmless.
     const bool isFlywheelOffset = strncmp(command, "FLYO,", 5) == 0;
     const bool isSingle = command[1] == '\0' && (command[0] == 'F' || command[0] == 'M');
-    // THOME (2026-10-31, RB): drive the turret back to 0 deg.
     const bool isTurretHome = strcmp(command, "THOME") == 0;
-    // TCLR (2026-11-08, C): clear the saved aim / elevation trim.
     const bool isTrimClear = strcmp(command, "TCLR") == 0;
-    // CAPT (2026-11-14, P): photo capture on the Orin on / off.
     const bool isCapture = strcmp(command, "CAPT") == 0;
-    // COL,<0..5> (2026-11-15): the ball color, i.e. which shot table
-    // (yellow purple blue green red orange).
     const bool isBallColor = strncmp(command, "COL,", 4) == 0;
-    // HALF,<1|2> (2026-11-15): the first / second half of the match.
     const bool isHalf = strncmp(command, "HALF,", 5) == 0;
-    // START (2026-11-16): the Dashboard's Y -- the match started.
     const bool isMatchStart = strcmp(command, "START") == 0;
 
     if (!isTank && !isRotate && !isAngle && !isFlywheel && !isSingle && !isAngleTarget &&
@@ -272,7 +241,6 @@ void ManualControl::processCommand(char* command) {
         return;
     }
 
-    // Firmware-side refusal, independent of what the page believes.
     if (owner == Owner::NONE) {
         sendEvent(RCMAP_EVENT_REJECTED_DISARMED);
         return;
@@ -326,7 +294,7 @@ void ManualControl::processCommand(char* command) {
             return;
         }
         if (!Shooter::setAngleTargetDegrees(value)) {
-            sendEvent(RCMAP_EVENT_BAD_COMMAND); // continuous elevation: no angle
+            sendEvent(RCMAP_EVENT_BAD_COMMAND);
         }
         return;
     }
@@ -349,21 +317,19 @@ void ManualControl::processCommand(char* command) {
         if (isHalf) {
             setHalf(static_cast<uint8_t>(n), true);
         } else if (isBallColor) {
-            setBallColor(static_cast<uint8_t>(n), true); // answered every time
+            setBallColor(static_cast<uint8_t>(n), true);
         } else if (isFlywheelOffset) {
-            // Only meaningful in the autos (full manual and test have the
-            // slider).
             flywheelOffsetPct = isAutoMode(operatorMode) ? static_cast<int>(n) : 0;
         } else if (isTarget) {
-            turretHeldHome = false; // a hole key, even the same one: follow again
-            targetSelectSeq++;      // ...and the row cycle starts over
+            turretHeldHome = false;
+            targetSelectSeq++;
             selectTarget(static_cast<uint8_t>(n));
         } else if (isAutoPath) {
             requestAutoPath(static_cast<uint8_t>(n));
         } else if (ManualControlConstants::WIRED_MANUAL_ONLY) {
-            sendEvent(RCMAP_EVENT_MODE_FULL_MANUAL); // benches stay manual, like M
+            sendEvent(RCMAP_EVENT_MODE_FULL_MANUAL);
         } else {
-            pathStickSemi = false; // the operator's own choice from here on
+            pathStickSemi = false;
             setOperatorMode(static_cast<OperatorMode>(n));
         }
         return;
@@ -408,8 +374,6 @@ bool ManualControl::parseTank(char* args, double& left, double& right) {
 bool ManualControl::parseValue(char* args, double minimum, double maximum, double& value) {
     char* end = nullptr;
     const double parsed = strtod(args, &end);
-    // strtod also accepts "nan"/"inf" spellings and overflows to inf;
-    // constrain() can't clamp NaN, so non-finite input is rejected outright.
     if (end == args || *end != '\0' || !isfinite(parsed)) {
         return false;
     }
@@ -417,14 +381,10 @@ bool ManualControl::parseValue(char* args, double minimum, double maximum, doubl
     return true;
 }
 
-// ------------------------------------------------------------- wireless
-
 void ManualControl::resetWirelessTracking() {
-    // Require arm, fire and auto to be seen released before they can act
-    // again: nothing held through an outage is ever replayed.
     wirelessArmPrev = true;
     wirelessFirePrev = true;
-    wirelessAutoPrev = 0xFF; // "unknown": needs a NONE first
+    wirelessAutoPrev = 0xFF;
     wirelessHomePrev = true;
     wirelessTrimClearPrev = true;
     wirelessCapturePrev = true;
@@ -440,14 +400,12 @@ void ManualControl::processWirelessFrame() {
 
     rcmap_command c;
     if (!rcmap_decode(MechLink::channels, RCMAP_CHANNEL_COUNT, &c)) {
-        // A ground on another channel table (CH10, RcControlMap.h): say so,
-        // once a second, so "Enable never confirms" has a visible reason.
         if (!rcmap_link_version_ok(MechLink::channels, RCMAP_CHANNEL_COUNT) &&
             millis() - lastVersionEventMs >= 1000) {
             lastVersionEventMs = millis();
             sendEvent(RCMAP_EVENT_LINK_VERSION_MISMATCH);
         }
-        return; // invalid frame: ignored; if it persists the watchdog disarms
+        return;
     }
     lastValidWirelessMs = millis();
 
@@ -457,12 +415,8 @@ void ManualControl::processWirelessFrame() {
     if (falling && owner == Owner::WIRELESS) {
         disarm(RCMAP_EVENT_OUTPUTS_DISABLED);
     }
-    // CH4's mode, or TEST (CH4 full manual + CH9 high).
     const uint8_t frameMode = rcmap_command_mode(&c);
     if (rising) {
-        // An Enable must never start in an auto mode or with the flywheel
-        // on: the ground station resets CH4 to manual, flywheel 0, when it
-        // raises the arm channel, so anything else here is stale or corrupt.
         if (frameMode != RCMAP_MODE_FULL_MANUAL || c.flywheel > 0.0f) {
             sendEvent(RCMAP_EVENT_ENABLE_REJECTED_NOT_MANUAL);
         } else {
@@ -470,8 +424,6 @@ void ManualControl::processWirelessFrame() {
         }
     }
 
-    // Edges are tracked on every frame, so a press made while not owning
-    // the robot can't act later.
     const bool fireEdge = c.fire && !wirelessFirePrev;
     wirelessFirePrev = c.fire;
     const bool autoEdge = c.auto_path != RCMAP_AUTO_NONE && wirelessAutoPrev == RCMAP_AUTO_NONE;
@@ -486,16 +438,10 @@ void ManualControl::processWirelessFrame() {
     wirelessStartPrev = c.match_start;
 
     if (owner == Owner::WIRELESS) {
-        // Arcade -> tank with the same polarity as the Dashboard: turn +1
-        // (stick right) = left wheel back, right wheel forward.
         tankLeftCommand = constrain(c.forward - c.turn, -1.0, 1.0);
         tankRightCommand = constrain(c.forward + c.turn, -1.0, 1.0);
-        // Nudge (arrows): one direction at a time; held = hold-to-move jog.
         angleManualCommand = c.nudge == RCMAP_NUDGE_UP ? 1.0 : (c.nudge == RCMAP_NUDGE_DOWN ? -1.0 : 0.0);
         rotateManualCommand = c.nudge == RCMAP_NUDGE_RIGHT ? 1.0 : (c.nudge == RCMAP_NUDGE_LEFT ? -1.0 : 0.0);
-        // After a stick takeover of an auto path: semi auto while CH4 still
-        // says full auto (the Dashboard then sends MODE,1 to the ground);
-        // any other CH4 mode is the operator's own choice again.
         OperatorMode wantedMode = static_cast<OperatorMode>(frameMode);
         if (pathStickSemi) {
             if (wantedMode == OperatorMode::FULL_AUTO) {
@@ -505,10 +451,7 @@ void ManualControl::processWirelessFrame() {
             }
         }
         setOperatorMode(wantedMode);
-        // The Dashboard's Falcon slider, on CH4 with the mode (decode gives
-        // 0 outside full manual / test; applyOutputs only uses it there).
         flywheelCommand = c.flywheel;
-        // ...and in the autos the LT / RT flywheel offset (0 in manual).
         flywheelOffsetPct = c.flywheel_offset_pct;
         selectTarget(c.target);
         setBallColor(c.ball_color, false); // CH3 carries it in every frame
@@ -524,8 +467,6 @@ void ManualControl::processWirelessFrame() {
                                        : RCMAP_EVENT_REJECTED_NOT_OWNER);
     }
 }
-
-// --------------------------------------------------------------- shared
 
 void ManualControl::requestEnable(Owner source) {
     if (!PIN_TABLE_CONFIRMED) {
@@ -544,11 +485,7 @@ void ManualControl::requestEnable(Owner source) {
     Shooter::setOutputsEnabled(true);
     owner = source;
     timedOut = false;
-    // One auto path per Enable; the since-boot record (mask) is kept.
     autoPathThisEnable = RCMAP_AUTO_NONE;
-    // Every Enable starts on the Orin's own pick (Jeremy, 2026-10-16:
-    // semi-auto first locks whatever the AI picks, digit keys switch, 0 goes
-    // back). Silent: the Enable event already says what happened.
     target = RCMAP_TARGET_NONE;
     refreshWiredWatchdog();
     lastValidWirelessMs = millis();
@@ -591,24 +528,19 @@ void ManualControl::clearCommands() {
     angleManualCommand = 0.0;
     flywheelCommand = 0.0;
     flywheelOffsetPct = 0;
-    // Disarm and every Enable start over in full manual, with no stale F.
     operatorMode = OperatorMode::FULL_MANUAL;
     fireRequested = false;
     clearFineAdjust();
-    // An auto path never outlives its Enable.
     AutoPath::reset();
     pathStickSemi = false;
     lastPathState = static_cast<uint8_t>(AutoPath::State::NONE);
 }
 
 void ManualControl::clearFineAdjust() {
-    // The aim / elevation offsets are a saved trim since 2026-11-08 and stay
-    // (clearTrim() is the only reset); the rest is per-session.
-    turretHeldHome = false; // a new hole, Enable, disarm
+    turretHeldHome = false;
     aimJogging = false;
     aimJogSettling = false;
     aimHandHeld = false;
-    // An arrow still held from before needs a release before it counts.
     rotateNudgePrev = NUDGE_NEEDS_RELEASE;
     angleNudgePrev = NUDGE_NEEDS_RELEASE;
 }
@@ -617,11 +549,6 @@ namespace {
 int signOf(double v) { return v > 0.0 ? 1 : (v < 0.0 ? -1 : 0); }
 double clampAbs(double v, double limit) { return v > limit ? limit : (v < -limit ? -limit : v); }
 
-// One arrow press: the direction changes to a non-zero one (from 0, or
-// straight from the other side). Holding repeats the same value -- the
-// Dashboard resends ROT,1 every heartbeat, the radio repeats CH7 every
-// frame -- and adds nothing. After a clear, a held arrow first has to be
-// released.
 bool nudgePressed(int now, int& prev) {
     const bool pressed = now != 0 && now != prev && prev != ManualControl::NUDGE_NEEDS_RELEASE;
     if (!(prev == ManualControl::NUDGE_NEEDS_RELEASE && now != 0)) prev = now;
@@ -633,30 +560,22 @@ void ManualControl::updateFineAdjust() {
     using namespace TuningConstants::Auto;
     const int rotateNow = signOf(rotateManualCommand);
     const int angleNow = signOf(angleManualCommand);
-    nudgePressed(rotateNow, rotateNudgePrev); // keeps the release-first rule
+    nudgePressed(rotateNow, rotateNudgePrev);
     nudgePressed(angleNow, angleNudgePrev);
     const unsigned long nowMs = millis();
     unsigned long jogElapsedMs = nowMs - elevationJogLastMs;
-    if (jogElapsedMs > 100) jogElapsedMs = 100; // a stalled loop never jumps
+    if (jogElapsedMs > 100) jogElapsedMs = 100;
     elevationJogLastMs = nowMs;
     if (operatorMode == OperatorMode::FULL_MANUAL) {
         aimJogging = false;
         aimJogSettling = false;
         aimHandHeld = false;
         elevationJogPrev = false;
-        return; // manual: the arrows are the hold-to-move jog
+        return;
     }
-    // Autos and test: left / right held = turn the turret by hand (Auto
-    // asks isAimJogActive()); after release and AIM_JOG_SETTLE_MS still,
-    // the hole's place in the image becomes the aim offset. Example: let
-    // go with the hole 120 px left of center (tx = -120) -> offset +120,
-    // the camera keeps the hole 120 px left. Up / down: see below.
-    // Aim offset off (2026-11-09): let go = the turret stays right there
-    // (aimHandHeld) until the aimed hole changes -- the operator's choice or
-    // full auto moving on -- then the camera takes over again.
     const bool jogNow = rotateNow != 0 && rotateNudgePrev != NUDGE_NEEDS_RELEASE;
     if (jogNow) {
-        turretHeldHome = false; // the hand turn takes the turret back
+        turretHeldHome = false;
         aimJogging = true;
         aimJogSettling = false;
         aimHandHeld = false;
@@ -671,51 +590,35 @@ void ManualControl::updateFineAdjust() {
         }
     }
     if (aimHandHeld && Auto::getAimTarget() != handHeldAimTarget) {
-        aimHandHeld = false; // a new hole: the camera aims again
+        aimHandHeld = false;
     }
     if (aimJogSettling && millis() - aimJogReleasedMs >= AIM_JOG_SETTLE_MS) {
         aimJogSettling = false;
         if (AIM_OFFSET_ENABLED && Vision::isValid()) {
             aimOffsetPx = clampAbs(-Vision::getTx(), AIM_OFFSET_MAX_PX);
-            trimSeq++; // the saved trim: kept for every hole from now on
+            trimSeq++;
         }
     }
-    // Up / down held = move the elevation by hand, like left / right
-    // (2026-11-08, Jeremy; was one 10 us step per press):
-    // the offset on the shot table's pulse grows at ELEVATION_JOG_US_PER_SECOND
-    // while held, and what it reached stays when released. Example: up held
-    // 0.5 s = +100 us on the table pulse. Only once Auto owns the elevation;
-    // until the shot table is measured they stay the manual jog
-    // (applyOutputs). Same release-first rule as left / right after a clear.
     const bool elevationJogNow = angleNow != 0 && angleNudgePrev != NUDGE_NEEDS_RELEASE;
     if (elevationJogNow && autoOwnsElevation()) {
-        // Same direction as the jog: "up" moves the pulse the way ANG,1 does.
         const int up = TuningConstants::Angle::INVERTED ? -1 : 1;
         elevationOffsetUs = clampAbs(
             elevationOffsetUs + angleNow * up * ELEVATION_JOG_US_PER_SECOND * jogElapsedMs / 1000.0,
             ELEVATION_OFFSET_MAX_US);
     }
-    // Let go of up / down in the autos: the offset just reached is the saved
-    // elevation trim now (2026-11-08). Test mode records none (Jeremy,
-    // 2026-11-14): it measures the shot table itself (S), and saving
-    // "manual - table" as well added the same correction twice once the
-    // new points were in the table -- a whole day's measuring left +200 us
-    // (the limit) on every auto shot.
     if (elevationJogPrev && !elevationJogNow && autoOwnsElevation()) {
         trimSeq++;
     }
     elevationJogPrev = elevationJogNow;
 }
 
-// C (wired TCLR / CH8 level 5, 2026-11-08): the saved trim back to 0.
 void ManualControl::clearTrim() {
     aimOffsetPx = 0.0;
     elevationOffsetUs = 0.0;
-    aimJogSettling = false; // a hand turn in progress doesn't set it again
+    aimJogSettling = false;
     trimSeq++;
 }
 
-// The auto path's end or abort, once each (the stick takeover reports itself).
 void ManualControl::reportPathState() {
     const uint8_t now = static_cast<uint8_t>(AutoPath::getState());
     if (now == lastPathState) return;
@@ -727,7 +630,6 @@ void ManualControl::reportPathState() {
     }
 }
 
-// P (wired CAPT / CH9 level 3, 2026-11-14): photo capture on the Orin.
 void ManualControl::toggleCapture() {
     captureOn = !captureOn;
     sendEvent(captureOn ? RCMAP_EVENT_CAPTURE_ON : RCMAP_EVENT_CAPTURE_OFF);
@@ -752,17 +654,13 @@ int ManualControl::getFlywheelOffsetPct() {
 }
 
 double ManualControl::getAimOffsetPx() {
-    // Off (TuningConstants::Auto::AIM_OFFSET_ENABLED): always 0, whatever
-    // was saved.
     return TuningConstants::Auto::AIM_OFFSET_ENABLED ? aimOffsetPx : 0.0;
 }
 
-// RB (wired THOME or the radio's CH9): back to 0 deg (the turret guard),
-// then held there in the autos / test.
 void ManualControl::requestTurretHome() {
     Shooter::requestTurretReturn();
     turretHeldHome = true;
-    aimHandHeld = false; // RB wins over a hand-held aim
+    aimHandHeld = false;
 }
 
 uint16_t ManualControl::getTargetSelectSeq() {
@@ -782,7 +680,7 @@ bool ManualControl::isAimHandHeld() {
 }
 
 double ManualControl::getAimJogCommand() {
-    if (!aimJogging) return 0.0; // the wait: stand still
+    if (!aimJogging) return 0.0;
     const double jogSign = TuningConstants::Rotate::MANUAL_JOG_INVERTED ? -1.0 : 1.0;
     return jogSign * rotateManualCommand * TuningConstants::Auto::AIM_JOG_COMMAND;
 }
@@ -792,25 +690,17 @@ double ManualControl::getElevationOffsetUs() {
 }
 
 void ManualControl::triggerFeed() {
-    // No sensor feedback from the tower: "trigger sent" is all the Mega can
-    // honestly report. Busy = still inside the tower's lockout; refused,
-    // never queued.
     sendEvent(Dribbler::requestFeed() ? RCMAP_EVENT_FEED_TRIGGER_SENT : RCMAP_EVENT_FEED_BUSY);
 }
 
 void ManualControl::handleFire() {
     if (!isAutoMode(operatorMode)) {
-        // Full manual and test: the operator decides, the tower fires now.
         triggerFeed();
     } else {
-        // Auto decides whether the shot can go now (semi-auto: only when the
-        // turret is locked and the flywheel is up; it reports FIRE_NOT_READY
-        // otherwise). Full-auto fires by itself, so the request is harmless.
         fireRequested = true;
     }
 }
 
-// Y (2026-11-16): Art plays 春日部防衛隊出動 (takeMatchStart).
 void ManualControl::matchStart() {
     matchStartRequested = true;
     sendEvent(RCMAP_EVENT_MATCH_STARTED);
@@ -837,8 +727,6 @@ uint8_t ManualControl::getBallColor() {
     return ballColor;
 }
 
-// Which shot table (ShotTableData, one per color). Wired COL answers every
-// time; the radio only on a change (CH3 repeats it every frame).
 void ManualControl::setBallColor(uint8_t color, bool announceSame) {
     if (color >= RCMAP_BALL_COLORS) return;
     if (color == ballColor && !announceSame) return;
@@ -850,25 +738,18 @@ void ManualControl::selectTarget(uint8_t hole) {
     if (hole > RCMAP_TARGET_MAX || hole == target) {
         return;
     }
-    // main.cpp hands it to Vision (MEGA_TARGET -> the Orin locks on this
-    // hole) and Auto looks it up in that hole's shot table.
     target = hole;
     targetSelectSeq++;
-    // Offsets belong to the hole they were set for.
     clearFineAdjust();
     sendEvent(RCMAP_EVENT_TARGET_SELECTED);
 }
 
 void ManualControl::requestAutoPath(uint8_t path) {
-    // Once per Enable (any of the four), and only where Auto exists.
     if (ManualControlConstants::WIRED_MANUAL_ONLY || path < 1 || path > RCMAP_AUTO_PATHS ||
         autoPathThisEnable != RCMAP_AUTO_NONE) {
         sendEvent(RCMAP_EVENT_AUTO_PATH_REJECTED);
         return;
     }
-    // Accepted and recorded; AutoPath drives it once the mode is full auto
-    // (2026-11-14; it waits AutoPath::PENDING_MS for MODE,0, which can
-    // arrive after AUTO,n over the radio).
     autoPathThisEnable = path;
     autoPathsUsedMask = static_cast<uint8_t>(autoPathsUsedMask | (1u << path));
     AutoPath::request(path, millis());
@@ -877,13 +758,11 @@ void ManualControl::requestAutoPath(uint8_t path) {
 }
 
 bool ManualControl::autoOwnsElevation() {
-    // Test mode keeps the elevation with the operator (that is the point).
     return isAutoMode(operatorMode) && TuningConstants::ShotTable::ELEVATION_MEASURED;
 }
 
 void ManualControl::cycleOperatorMode() {
     if (ManualControlConstants::WIRED_MANUAL_ONLY) {
-        // Wired benches have no camera/auto path: stay manual.
         sendEvent(RCMAP_EVENT_MODE_FULL_MANUAL);
         return;
     }
@@ -898,10 +777,7 @@ void ManualControl::setOperatorMode(OperatorMode mode) {
     }
     operatorMode = mode;
     turretHeldHome = false;
-    aimHandHeld = false; // a new mode: the camera aims again
-    // Whoever had the turret/flywheel before the switch gives them up from
-    // zero: leaving auto must not jump the flywheel back to an old slider
-    // value, and entering it must not carry a manual jog.
+    aimHandHeld = false;
     rotateManualCommand = 0.0;
     flywheelCommand = 0.0;
     flywheelOffsetPct = 0;
@@ -914,8 +790,6 @@ void ManualControl::setOperatorMode(OperatorMode mode) {
 
 void ManualControl::applyOutputs() {
     using namespace ManualControlConstants;
-    // Auto path (2026-11-14): it drives the chassis while it runs; the stick
-    // past STICK_TAKEOVER stops it and the mode goes to semi auto.
     if (AutoPath::isActive() &&
         (fabs(tankLeftCommand) > TuningConstants::AutoPath::STICK_TAKEOVER ||
          fabs(tankRightCommand) > TuningConstants::AutoPath::STICK_TAKEOVER)) {
@@ -937,18 +811,13 @@ void ManualControl::applyOutputs() {
             tankRightCommand * CHASSIS_MANUAL_SCALE);
     }
 
-    // Elevation: the operator's, unless Auto sets it from the shot table
-    // (auto mode and a measured table). The open-loop call also holds an
-    // absolute ANGT target (zero jog = stay put).
     if (!autoOwnsElevation()) {
         Shooter::setAngleOpenLoop(angleManualCommand * ANGLE_MANUAL_SCALE);
     }
 
     if (isAutoMode(operatorMode)) {
-        return; // turret and flywheel belong to Auto (runs right after this)
+        return;
     }
-    // Full manual and test: the operator's flywheel. In test the turret is
-    // Auto's (camera follow, runs right after this).
     Shooter::setFlywheelOpenLoop(flywheelCommand);
     if (operatorMode == OperatorMode::TEST) {
         return;
@@ -976,15 +845,7 @@ void ManualControl::sendStatusIfDue() {
         return;
     }
     lastStatusMs = now;
-    // Slots: status, aim (distance, elevation pulse, target), status,
-    // vision (tx / ty / distance) -- status every 200 ms, aim and vision
-    // every 400 ms each (2026-10-17, with the ELRS TLM ratio raised to 1:4;
-    // it was status, status, aim at 1:32). One line per 100 ms, so the
-    // robot bridge (which forwards the latest line every 100 ms) passes
-    // them all.
     const uint8_t slot = statusSlot;
-    // 2026-10-27: a fifth slot, the seen frame (Orin v3 detected holes);
-    // 2026-11-07: a sixth, the ball frame (feed tower counts).
     statusSlot = static_cast<uint8_t>((statusSlot + 1) % 6);
     if (slot == 1) {
         AimUplink::send();

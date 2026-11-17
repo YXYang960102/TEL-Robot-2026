@@ -8,52 +8,23 @@
 #include "../Control/VisionFollowController.h"
 #include "TuningConstants.h"
 
-// The shooter head is three motors and no sensors (Jeremy, 2026-10-14):
-// turret (rotate), elevation (angle) and flywheel. There is no encoder,
-// potentiometer or limit switch anywhere on it; the turret is aimed by the
-// camera (vision-follow PIDF on tx), the elevation is a manually jogged
-// position servo, and the flywheel is an open-loop PWM command.
 namespace ShooterConstants {
 
-// Elevation
 namespace Angle {
 
 using namespace TuningConstants::Angle;
 
 constexpr uint8_t ANGLE_PIN = 24; // elevation servo signal
 
-// Single elevation MG996R. true = positional (180 deg) servo: jogging moves
-// a target pulse, releasing the key holds it, disable removes the pulse.
-// Set false only for a continuous-rotation unit: the command is then a
-// speed and disable sends neutral.
-constexpr bool POSITION_SERVO = true;
-// The first pulse after boot (the first Enable attaches the servo there);
-// later Enables keep the last target. 1500 -> 2500 (2026-11-07, Jeremy);
-// 2461 with MAX_PULSE_US (2026-11-08): the top of the travel.
-constexpr double POSITION_INITIAL_US = 2461.0;
+constexpr bool POSITION_SERVO = true; // positional servo (false = continuous)
+constexpr double POSITION_INITIAL_US = 2461.0; // first pulse after boot: top of travel
 constexpr double POSITION_RATE_US_PER_SECOND = 1000.0;
 
-// Pulse travel. Widened 1000..2000 -> 500..2500 us on 2026-10-15 (Jeremy):
-// at 1000..2000 this servo only turned ~90 deg, while a servo tester
-// (500..2500 us) turns it ~270 deg. PROVISIONAL: these are the servo's
-// limits, not the elevation mechanism's. There is no limit switch, so
-// jog slowly the first time, note the pulse (Dashboard "elevation pulse")
-// at each real mechanical end, and narrow MIN/MAX to those values.
-// Both the jog target and Servo::attach() clamp to this range.
-// MIN 500 -> 765 (2026-11-07, Jeremy): the elevation's limit; back to 500
-// on 2026-11-08 (Jeremy). Auto still clamps table points to MIN..MAX.
-// MAX 2500 -> 2461 (2026-11-08, Jeremy): the elevation's top limit.
 constexpr int MIN_PULSE_US = 500;
 constexpr int NEUTRAL_US = 1500;
 constexpr int MAX_PULSE_US = 2461;
 
-// Angle <-> pulse, for the Dashboard's degree readout and its slider /
-// number box (ANGT). The positional servo holds an absolute position, so a
-// pulse IS a position; Auto and the shot table work in pulses directly and
-// don't need this. PROVISIONAL = the servo's own spec, 500 us = 0 deg ..
-// 2500 us = 270 deg (servo angle, not elevation); measure two known
-// elevations and put them here as CAL_A/CAL_B to read real elevation.
-constexpr double CAL_A_PULSE_US = 500.0;
+constexpr double CAL_A_PULSE_US = 500.0; // pulse <-> deg, Dashboard readout only
 constexpr double CAL_A_DEGREES = 0.0;
 constexpr double CAL_B_PULSE_US = 2500.0;
 constexpr double CAL_B_DEGREES = 270.0;
@@ -69,12 +40,11 @@ constexpr ServoMotorConfig MOTOR(
 
 }
 
-// Turret
 namespace Rotate {
 
 using namespace TuningConstants::Rotate;
 
-constexpr uint8_t SIGNAL_PIN = 23;
+constexpr uint8_t SIGNAL_PIN = 23; // turret
 constexpr int MIN_PULSE_US = 1000;
 constexpr int NEUTRAL_US = 1500;
 constexpr int MAX_PULSE_US = 2000;
@@ -84,19 +54,7 @@ constexpr ServoMotorConfig MOTOR(
     NEUTRAL_US,
     MAX_PULSE_US);
 
-// Vision-follow (RotateControlMode::VISION_FOLLOW): PIDF on image-space tx,
-// gains in TuningConstants::Rotate (VISION_*), converted from the bench
-// values Jeremy accepted on 2026-10-13. Sign: VisionFollowController's
-// output is PIDF(setpoint 0, measurement tx), so tx > 0 gives a negative
-// command, which with INVERTED = false is a pulse below 1500 us -- the
-// direction validated on the bench with this same servo and mounting
-// (Jeremy confirmed it is the D23 turret servo). If it is ever backwards,
-// flip Rotate::INVERTED; do not add a second inversion in the
-// vision-follow path.
-// 250 ms (2026-11-01; was 100): a turret swinging through center can sit
-// within 5 px for 100 ms at the turn of an overshoot, and the shot went out
-// before it settled.
-constexpr unsigned long READY_SETTLE_TIME_MS = 250;
+constexpr unsigned long READY_SETTLE_TIME_MS = 250; // |tx| in tolerance this long = locked
 constexpr unsigned long MAX_CONTROL_GAP_MS = 100;
 
 constexpr VisionFollowConfig VISION_FOLLOW(
@@ -115,12 +73,11 @@ constexpr VisionFollowConfig VISION_FOLLOW(
 
 }
 
-// Flywheel (Falcon 500 over PWM, open loop)
 namespace Flywheel {
 
 using namespace TuningConstants::Flywheel;
 
-constexpr uint8_t SIGNAL_PIN = 25;
+constexpr uint8_t SIGNAL_PIN = 25; // Falcon
 constexpr int MIN_PULSE_US = 1000;
 constexpr int NEUTRAL_US = 1500;
 constexpr int MAX_PULSE_US = 2000;

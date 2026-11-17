@@ -4,18 +4,15 @@
 
 class Chassis {
 public:
-    // Lifecycle
     static void init();
     static void update();
     static void setOutputsEnabled(bool enabled);
     static bool areOutputsEnabled();
 
-    // Manual open-loop control
     static void setOpenLoop(double forward, double turn);
     static void setTankOpenLoop(double left, double right);
     static void stop();
 
-    // Telemetry
     static double getForwardCommand();
     static double getTurnCommand();
     static double getLeftCommand();
@@ -38,13 +35,6 @@ private:
     static int rightPulseUs;
     static int leftPulseUs;
 
-    // Smoothed (filterTowards(); speeding up only since 2026-11-08) versions
-    // of leftCommand/rightCommand, fed
-    // to commandToPulseUs() instead of the raw commands. Reset to 0 by
-    // stop(), so a disable/enable always ramps back up from neutral instead
-    // of snapping to a stale value. getLeftCommand()/getRightCommand() keep
-    // reporting the raw (pre-filter) command; getLeftPulseUs()/
-    // getRightPulseUs() reflect the filtered, actually-written pulse.
     static double filteredLeftCommand;
     static double filteredRightCommand;
     static unsigned long lastUpdateMs;

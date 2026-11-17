@@ -4,17 +4,6 @@
 
 #include "../Sensors/TurretStore.h"
 
-// The operator's aim / elevation trim (ManualControl::getAimOffsetPx() /
-// getElevationOffsetUs()), kept in the Mega's EEPROM so it survives a power
-// cycle (2026-11-08, Jeremy: "AI locked on, but the shots go off to one
-// side" -- fine-adjust once, and every hole keeps that correction until C
-// clears it).
-//
-// One record = 7 bytes, in two slots used in turn (a record cut off by a
-// power loss fails its CRC and the other slot is used):
-//   [0] MAGIC  [1] seq  [2..3] aim px x 10  [4..5] elevation us x 10
-//   [6] CRC-8 of [0..5]                              (int16, little endian)
-// EEPROM 400..413: after TurretStore's 0..383.
 class AimTrimStore {
 public:
     static constexpr uint8_t MAGIC = 0xB1;
@@ -23,8 +12,8 @@ public:
     static constexpr int BASE_ADDRESS = 400;
     static constexpr int SLOT_STRIDE = 8;
 
-    static void init();   // after ManualControl::init(): load the saved trim
-    static void update(); // after ManualControl::update(): save a new one
+    static void init();
+    static void update();
 
     struct Record {
         uint8_t seq;

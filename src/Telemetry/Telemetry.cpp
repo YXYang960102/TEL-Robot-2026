@@ -49,8 +49,6 @@ void Telemetry::update() {
     Serial.print(",");
     Serial.print(Vision::isValid() ? 1 : 0);
     Serial.print(",");
-    // Slots 7-11: raw wireless channels (table v2 in src/IO/RcControlMap.h):
-    // forward, turn, operator mode, arm, fire.
     Serial.print(MechLink::channels[RCMAP_CH_FORWARD]);
     Serial.print(",");
     Serial.print(MechLink::channels[RCMAP_CH_TURN]);
@@ -63,20 +61,11 @@ void Telemetry::update() {
     Serial.print(",");
     Serial.print(Shooter::isReady() ? 1 : 0);
     Serial.print(",");
-    // Slot 13 (was the retired shot-queue count, always 0): operator mode
-    // + 1 -- 1 = full auto, 2 = semi auto, 3 = full manual (OperatorMode.h).
-    // The +1 keeps an older firmware's 0 from reading as "full auto".
     Serial.print(static_cast<int>(ManualControl::getOperatorMode()) + 1);
     Serial.print(",");
     Serial.print(warn);
     Serial.print(",");
-    // robotX,robotY,heading: no odometry source exists yet. Printed as
-    // literal NaN (not left empty) so the dashboard's
-    // Number.isFinite(...) pose check reads false, not a false "at 0,0".
     Serial.print("NaN,NaN,NaN,");
-    // Operator-control + Chassis/Dribbler/Shooter fields (docs/codex-handoff.md
-    // 2026-10-11). Slot 18 = armed; slots 21-23 = feed tower trigger state
-    // (it has no ball sensor feedback to report).
     Serial.print(ManualControl::isArmed() ? 1 : 0);
     Serial.print(",");
     Serial.print(Chassis::getLeftPulseUs());
@@ -95,13 +84,8 @@ void Telemetry::update() {
     Serial.print(",");
     Serial.print(Shooter::getFlywheelPulseUs());
     Serial.print(",");
-    // Command ratio, not RPM -- this Falcon 500 has no speed feedback on
-    // this PWM path (see Shooter.h's getFlywheelCommand() comment).
     Serial.print(Shooter::getFlywheelCommand() * 100.0, 1);
     Serial.print(",");
-    // Slot 28 (appended 2026-10-15): elevation servo target pulse, for
-    // finding the mechanism's real end points. Slots 29-31: the same target
-    // as an angle, and the reachable angle range (Dashboard slider limits).
     Serial.print(Shooter::getAnglePulseUs());
     Serial.print(",");
     Serial.print(Shooter::getAngleTargetDegrees(), 1);
@@ -110,110 +94,65 @@ void Telemetry::update() {
     Serial.print(",");
     Serial.print(Shooter::getAngleMaxDegrees(), 1);
     Serial.print(",");
-    // Slots 32-34 (appended 2026-10-16): selected target hole (0 = none,
-    // 1..9), the auto path started this Enable (0 = none, 1..4), and a bit
-    // mask of every auto path started since boot (bit n = path n).
     Serial.print(ManualControl::getTarget());
     Serial.print(",");
     Serial.print(ManualControl::getAutoPathThisEnable());
     Serial.print(",");
     Serial.print(ManualControl::getAutoPathsUsedMask());
     Serial.print(",");
-    // Slots 35-37 (appended 2026-10-16, Orin protocol v2): the hole as sent
-    // to the Orin (vision id 0 / 4..12), and the operator's fine-adjust
-    // (aim px, + = right; elevation us). Slots 5/6 (target id / valid)
-    // already only show the selected hole's frame.
     Serial.print(Vision::getSelectedTarget());
     Serial.print(",");
     Serial.print(ManualControl::getAimOffsetPx(), 0);
     Serial.print(",");
     Serial.print(ManualControl::getElevationOffsetUs(), 0);
     Serial.print(",");
-    // Slot 38 (appended 2026-10-17): ms since the last valid "RC,..." line
-    // from the robot STM32 bridge, so the real ELRS/bridge update rate can
-    // be read live (Dashboard) instead of assumed -- compare against
-    // MechLink's own LINE_TIMEOUT_MS (200) and
-    // ManualControlConstants::COMMAND_TIMEOUT_MS (250). Bench-check this
-    // with the chassis output-disabled or the drive motors unpowered.
     Serial.print(MechLink::lastLineAgeMs());
     Serial.print(",");
-    // Slot 39 (appended 2026-10-27): lines from the bridge dropped since boot
-    // (bad "*HH" check, malformed, oversize). Should stay at or near 0.
     Serial.print(MechLink::rejectedLines);
     Serial.print(",");
-    // Slots 40-41 (2026-10-27): why the autos can't fire yet (Auto::
-    // getReadyBits: 1 turret locked, 2 flywheel spun up, 4 a shot for the
-    // hole in this frame, 8 READY, 16 elevation at the table pulse --
-    // 2026-10-31) and the steadied shot distance, cm.
     Serial.print(Auto::getReadyBits());
     Serial.print(",");
     Serial.print(static_cast<long>(Auto::getShotDistanceM() * 100.0 + 0.5));
     Serial.print(",");
-    // Slots 42-44: the turret AS5600 (read only): raw 0-4095, status bits
-    // (TurretAngle.h), turret degrees x10 from straight ahead.
     Serial.print(TurretAngle::raw());
     Serial.print(",");
     Serial.print(TurretAngle::status());
     Serial.print(",");
     Serial.print(static_cast<long>(lround(TurretAngle::angleDegrees() * 10.0)));
     Serial.print(",");
-    // Slots 45-46 (Orin v3): the detected hole ids (bit id - 1) and the
-    // vision state: 0 nothing, 1 the target in view, 2 predicted position.
     Serial.print(Vision::getSeenMask());
     Serial.print(",");
     Serial.print(Vision::isValid() ? 1 : (Vision::isPredicted() ? 2 : 0));
     Serial.print(",");
-    // Slots 47-48 (2026-10-28): the target's depth sampling ring -- usable
-    // share 0-100 (-1 none) and its 8 sectors with depth (bit k = sector
-    // k, 0 right, clockwise on screen).
     Serial.print(Vision::getRingPercent());
     Serial.print(",");
     Serial.print(Vision::getRingSectors());
     Serial.print(",");
-    // Slot 49 (2026-10-31): the turret guard's state (TurretGuard::State:
-    // 0 angle unknown, 1 sensor, 2 direction fault -- all three locked --,
-    // 3 returning to 0, 4 ready, 5 / 6 at the right / left limit, 7 guard
-    // switched off).
     Serial.print(Shooter::getTurretState());
     Serial.print(",");
-    // Slots 50-51 (2026-10-31): AS5600 magnet strength for setting the
-    // magnet gap -- AGC (0-255 / 0-128, higher = weaker) and MAGNITUDE
-    // (0-4095, higher = stronger); -1 = not read.
     Serial.print(TurretAngle::agc());
     Serial.print(",");
     Serial.print(TurretAngle::magnitude());
     Serial.print(",");
-    // Slot 52 (2026-10-31): 1 = RB holds the turret at 0 deg in the autos /
-    // test (no camera follow until a hole, a mode change or the hand turn).
     Serial.print(ManualControl::isTurretHeldHome() ? 1 : 0);
     Serial.print(",");
-    // Slots 53-55 (2026-10-31): the hole Auto aims at (Dashboard numbering;
-    // the row cycle's in full auto), balls at it in this cycle, row done.
     Serial.print(Auto::getAimTarget());
     Serial.print(",");
     Serial.print(Auto::getRowShots());
     Serial.print(",");
     Serial.print(Auto::isRowDone() ? 1 : 0);
     Serial.print(",");
-    // Slots 56-57 (2026-10-31): the lit bonus hole the Orin sees (Dashboard
-    // 10-12, 0 none) and the one full auto is serving first (0 none).
     Serial.print(OperatorTarget::holeForVisionId(Vision::getLitBonusId()));
     Serial.print(",");
     Serial.print(Auto::getLitPriorityHole());
     Serial.print(",");
-    // Slot 58 (2026-11-01): turret searching for a chosen hole out of
-    // view: -1 left, +1 right, 0 no.
     Serial.print(Shooter::getSearchDirection());
     Serial.print(",");
-    // Slots 59-61 (2026-11-07): a A14 ball-ready pulse since the last shot,
-    // whether the autos wait for it (DribblerConstants READY_REQUIRED), and
-    // A14 pulses since boot (shots sent are slot 22).
     Serial.print(Dribbler::hasBall() ? 1 : 0);
     Serial.print(",");
     Serial.print(DribblerConstants::Tower::READY_REQUIRED ? 1 : 0);
     Serial.print(",");
     Serial.print(Dribbler::getLoadedCount());
     Serial.print(",");
-    // Slot 62 (2026-11-16): Auto::FireBlocker bits, why it doesn't fire.
     Serial.println(Auto::getFireBlockers());
 }

@@ -76,7 +76,6 @@ double PidfController::calculate(
         integralAccumulator = 0.0;
         integralTerm = 0.0;
     } else if (integralHold) {
-        // Held (setIntegralHold): accumulator and term stay as they are.
     } else {
         double candidateAccumulator = integralAccumulator + error * dtSeconds;
         double minimumAccumulator = integralOutputMinimum / config.kI;

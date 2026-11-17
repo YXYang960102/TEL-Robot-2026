@@ -16,23 +16,19 @@ bool Dribbler::readyCounted = false;
 unsigned long Dribbler::readyHighSinceMs = 0;
 
 void Dribbler::init() {
-    // Boot = disabled: A15 HIGH, D22 LOW (DribblerConstants.h). Preload the
-    // levels before switching the pins to output. (Before this runs the
-    // pins float; A15's pull-up and D22's pull-down cover that.)
     enabled = false;
     writeDisable(true);
     writeTrigger(false);
     if (BuildProfile::DRIVES_FEED_TOWER) {
         pinMode(Tower::DISABLE_PIN, OUTPUT);
         pinMode(Tower::TRIGGER_PIN, OUTPUT);
-        pinMode(Tower::READY_PIN, INPUT); // external 10k pull-down
+        pinMode(Tower::READY_PIN, INPUT);
     }
     writeDisable(true);
     writeTrigger(false);
     pulseActive = false;
     everTriggered = false;
     triggerCount = 0;
-    // No ball until the tower's first A14 pulse.
     ballReady = false;
     loadedCount = 0;
     readyHigh = false;
@@ -61,10 +57,6 @@ void Dribbler::pollReady() {
         readyHigh = true;
         readyHighSinceMs = now;
     }
-    // One count per pulse, once it has lasted READY_MIN_HIGH_MS -- and only
-    // for a new ball: the Nano repeats the pulse on every Enable while the
-    // same ball still sits there (the latch survives a disable), which must
-    // not count it twice (Jeremy, 2026-11-07).
     if (!readyCounted && now - readyHighSinceMs >= Tower::READY_MIN_HIGH_MS) {
         readyCounted = true;
         if (!ballReady) loadedCount++;
@@ -89,7 +81,7 @@ void Dribbler::stop() {
 
 bool Dribbler::requestFeed() {
     if (!BuildProfile::DRIVES_FEED_TOWER) {
-        return false; // Tower not wired on this bench.
+        return false;
     }
     if (!enabled || isBusy()) {
         return false;

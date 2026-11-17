@@ -8727,3 +8727,27 @@ expectation 3 -> 1 ball.
 
 **Evidence:** manual_control host test (both pin-table variants) passes;
 megaatmega2560 builds. No hardware. Flash: Mega only (ground unchanged).
+
+## 2026-11-17 — Comments removed from src/ (.cpp .h .c)
+
+**User Request (Jeremy):** remove the prose comments from the TEL code;
+keep short value annotations like the shot table's `// 2.94 m, 60.0%,
+1693 us`; where a removed comment carried a parameter's unit / range,
+keep it as a short trailing comment. Scope chosen: src/ only (test/ and
+tools/ firmware untouched).
+
+**Changed:** all full-line and block comments in src/ (59 files) deleted;
+trailing comments kept only when short and about units / values / pins /
+channels (dates stripped); src/Constants/*.h constants got short trailing
+hints (units, ranges, meaning). tools/shot_table/apply.py no longer
+writes the header prose / "no points" / namespace comments into
+ShotTableData.h (the per-point and color labels stay).
+
+**Why it is safe:** comments only; the explanations stay in git history
+(before this commit) and in this file.
+
+**Evidence:** clean builds of megaatmega2560, mega_wired_manual_test,
+mega_vision_rotate_test, mega_gamepad_motor_test give byte-identical
+firmware.hex to before; all 9 Mega envs + blackpill_f401cc build;
+manual_control host test (both variants) passes; apply.py --check: same
+as the current table. Nothing to flash (identical firmware).

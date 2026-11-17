@@ -34,17 +34,13 @@ void AutoPath::request(uint8_t newPath, unsigned long nowMs) {
     turretHold = RIGHT_PATHS_HOLD_TURRET_UNTIL_SEEN && (newPath == 3 || newPath == 4);
 }
 
-// left 1 / left 2 turn right first; right 1 / right 2 are their mirror.
-// Each move runs its *_MS time (tuned on the floor, 2026-11-14); a move
-// whose time is 0 is left out (left 1 / right 1's first turn, 2026-11-14).
 uint8_t AutoPath::buildMoves(uint8_t p, Move* out) {
-    const int8_t side = (p == 3 || p == 4) ? -1 : 1; // + = right
+    const int8_t side = (p == 3 || p == 4) ? -1 : 1;
     Move all[4];
     uint8_t n = 0;
     if (p == 1 || p == 3) {
         all[n++] = {1, side, DIAGONAL_TURN_MS};
         all[n++] = {0, 1, DIAGONAL_DRIVE_MS};
-        // The last turn is set per path (not mirrored, 2026-11-14).
         if (p == 1) all[n++] = {1, LEFT1_LAST_TURN_DIRECTION, LEFT1_LAST_TURN_MS};
         else        all[n++] = {1, RIGHT1_LAST_TURN_DIRECTION, RIGHT1_LAST_TURN_MS};
     } else if (p == 2 || p == 4) {
@@ -62,13 +58,13 @@ uint8_t AutoPath::buildMoves(uint8_t p, Move* out) {
 
 bool AutoPath::update(OperatorMode mode, unsigned long nowMs, double& left, double& right) {
     left = right = 0.0;
-    if (turretHold && Vision::isValid()) turretHold = false; // seen once: aim
+    if (turretHold && Vision::isValid()) turretHold = false;
     if (state == State::PENDING) {
         if (mode == OperatorMode::FULL_AUTO) {
             state = State::DRIVING;
             moveStartMs = nowMs;
         } else if (nowMs - requestedMs >= PENDING_MS) {
-            state = State::ABORTED; // full auto never came (semi: refused)
+            state = State::ABORTED;
             turretHold = false;
             return false;
         } else {
@@ -77,11 +73,10 @@ bool AutoPath::update(OperatorMode mode, unsigned long nowMs, double& left, doub
     }
     if (state != State::DRIVING) return false;
     if (mode != OperatorMode::FULL_AUTO) {
-        abort(); // the operator switched away: the path stops
+        abort();
         return false;
     }
 
-    // Each move: its time at the command, then PAUSE_MS standing still.
     const Move& move = moves[moveIndex];
     const unsigned long elapsed = nowMs - moveStartMs;
     const unsigned long runMs = move.ms;
@@ -92,14 +87,12 @@ bool AutoPath::update(OperatorMode mode, unsigned long nowMs, double& left, doub
             state = State::DONE;
             return false;
         }
-        return true; // stand still this loop; the next move starts next loop
+        return true;
     }
     if (elapsed < runMs) {
         if (move.kind == 0) {
             left = right = move.direction * DRIVE_COMMAND;
         } else {
-            // +1 = turn right. RIGHT_TURN_LEFT_WHEEL_BACK: left back, right
-            // forward (the stick's polarity since 2026-11-08).
             const double rightTurn = move.direction;
             const double leftSign = RIGHT_TURN_LEFT_WHEEL_BACK ? -rightTurn : rightTurn;
             left = leftSign * TURN_COMMAND;
@@ -132,11 +125,6 @@ bool AutoPath::holdsShooter() {
     return isActive();
 }
 
-// The turret follows the camera while a path drives (2026-11-14 evening,
-// Jeremy: lock horizontally on the way; elevation and flywheel wait for the
-// end -- holdsShooter). Only a right path holds it at 0 deg until the hole
-// has been seen once (turretHold), driving or done. Auto also holds it
-// while a path drives with the hole out of view (no search mid-drive).
 bool AutoPath::holdsTurret() {
     return turretHold && (isActive() || state == State::DONE);
 }

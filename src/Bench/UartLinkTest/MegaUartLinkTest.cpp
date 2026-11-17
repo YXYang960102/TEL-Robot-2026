@@ -1,13 +1,3 @@
-// Standalone Mega <-> STM32 UART link test (env: mega_uart_link_test).
-// Serial2 (TX D16 -> STM32 PA10, RX D17 <- STM32 PA9), 115200 8N1.
-// Serial1 (D18/D19, Orin) is left untouched. No motors, no other
-// subsystems are compiled into this build. Protocol: ulink.h.
-//
-// USB (115200) commands, one per line:
-//   RUN,<seconds>  start a run, stop automatically after <seconds>, report
-//   START          start a run with no time limit (for unplug/replug tests)
-//   STOP           stop the current run, drain, report
-//   STATUS         print the current counters now
 #include <Arduino.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,9 +12,9 @@ constexpr size_t USB_LINE_MAX = 32;
 
 ulink_endpoint link;
 uint16_t lastRun = 0;
-unsigned long runLimitMs = 0;        // 0 = no limit
-unsigned long runStartedMs = 0;      // when RUNNING began
-unsigned long runStoppedMs = 0;      // when STOP was requested
+unsigned long runLimitMs = 0;
+unsigned long runStartedMs = 0;
+unsigned long runStoppedMs = 0;
 ulink_run_state lastState = ULINK_IDLE;
 unsigned long lastProgressMs = 0;
 bool peerAliveReported = false;
@@ -147,7 +137,6 @@ void printReport() {
     Serial.println(pass ? F("PASS (every packet both ways acked, zero errors)")
                         : F("FAIL (see counters above)"));
 
-    // Machine-readable copy of the same numbers.
     const uint32_t fields[] = {
         link.run, runStoppedMs - runStartedMs, peerFinal ? 1u : 0u, pass ? 1u : 0u,
         m.tx, m.ack_ok, m.timeout, m.ack_stale, m.ack_dup, m.ack_mismatch,
@@ -281,7 +270,7 @@ void reportStateChanges() {
     }
 }
 
-}  // namespace
+}
 
 void setup() {
     Serial.begin(115200);

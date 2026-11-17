@@ -23,14 +23,11 @@ int agcValue = -1;
 int magnitudeValue = -1;
 unsigned long lastStrengthMs = 0;
 
-// EEPROM: the newest record found at boot, and the one being written.
-// A record goes out one byte per loop, only when the EEPROM is idle, so
-// the ~3.3 ms write never blocks the loop; 12 bytes take ~120 ms.
 TurretStore::Record stored = {0, 0, 0};
 bool haveStored = false;
 uint8_t nextSlot = 0;
 uint8_t writeBytes[TurretStore::RECORD_BYTES];
-uint8_t writeIndex = TurretStore::RECORD_BYTES; // == RECORD_BYTES: idle
+uint8_t writeIndex = TurretStore::RECORD_BYTES;
 int writeAddress = 0;
 bool saveForced = false;
 uint16_t homeRawToSave = 0;
@@ -40,12 +37,11 @@ double countsToDegrees(long counts) {
     const double deg = counts / COUNTS_PER_TURRET_DEG;
     return INVERTED ? -deg : deg;
 }
-}  // namespace
+}
 
 void TurretAngle::init() {
     Wire.begin();
     Wire.setClock(I2C_CLOCK_HZ);
-    // Give up (and reset the bus) instead of hanging the loop.
     Wire.setWireTimeout(I2C_TIMEOUT_US, true);
     statusBits = NEVER_READ;
     haveReading = false;
@@ -74,14 +70,9 @@ bool TurretAngle::readSensor(uint8_t& statusReg, uint16_t& rawAngle) {
     return true;
 }
 
-// First reading: the turret was turned back near home by hand, so its
-// angle is how far the magnet is from the home raw, folded into half a
-// magnet turn either way. Example: home raw 3918, boot raw 522 -> fold
-// 522 - 3918 = -3396 -> +700 counts -> -700 / 56.11 = -12.5 deg (INVERTED)
-// -> within 20 deg: absolute, the first Enable turns it 12.5 deg right.
 void TurretAngle::bootFromHome(uint16_t rawAngle) {
     if (!haveStored) {
-        accumulated = 0; // no home point yet: limits can't be trusted
+        accumulated = 0;
         absolute = false;
         outsideHome = false;
         return;
@@ -108,7 +99,7 @@ void TurretAngle::update() {
         statusBits = static_cast<uint8_t>(statusBits & ~READ_OK);
         if (haveReading && now - lastGoodMs > LOST_AFTER_MS) {
             lost = true;
-            absolute = false; // turns unknown
+            absolute = false;
         }
         if (lost) statusBits |= LOST;
         return;
@@ -119,7 +110,7 @@ void TurretAngle::update() {
         haveReading = true;
     } else {
         if (now - lastGoodMs > LOST_AFTER_MS) {
-            lost = true; // too long without a read to know the turns
+            lost = true;
             absolute = false;
         }
         accumulated += foldDelta(rawAngle, lastRaw);
@@ -138,8 +129,6 @@ void TurretAngle::update() {
     saveHomeIfDue();
 }
 
-// The home point goes to EEPROM once, after 設為歸位點, as soon as the
-// reading is healthy and the writer idle (the raw taken at the press).
 void TurretAngle::saveHomeIfDue() {
     if (!saveForced || !isHealthy() || writeIndex < TurretStore::RECORD_BYTES) {
         return;
@@ -161,7 +150,7 @@ void TurretAngle::writeStoreStep() {
     if (writeIndex >= TurretStore::RECORD_BYTES || !eeprom_is_ready()) {
         return;
     }
-    EEPROM.update(writeAddress + writeIndex, writeBytes[writeIndex]); // starts it, doesn't wait
+    EEPROM.update(writeAddress + writeIndex, writeBytes[writeIndex]);
     writeIndex++;
 }
 
@@ -176,11 +165,10 @@ bool TurretAngle::setZeroHere() {
     outsideHome = false;
     statusBits = static_cast<uint8_t>((statusBits & ~(LOST | OUTSIDE_HOME)) | ABSOLUTE);
     homeRawToSave = lastRaw;
-    saveForced = true; // goes out as soon as the EEPROM writer is idle
+    saveForced = true;
     return true;
 }
 
-// AGC + MAGNITUDE in one 3-byte read, every AGC_READ_PERIOD_MS.
 void TurretAngle::readStrength(unsigned long now) {
     if (now - lastStrengthMs < AGC_READ_PERIOD_MS) {
         return;

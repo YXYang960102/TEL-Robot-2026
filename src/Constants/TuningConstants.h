@@ -5,24 +5,6 @@
 #include "../Vision/OperatorTarget.h"
 #include "ShotTableData.h"
 
-// Centralizes the parameters that actually get changed at competition --
-// motor direction, flywheel speed, vision-follow tuning -- in one place, organized by mechanism namespace
-// (mirrors ShooterConstants.h's own Angle/Rotate/Flywheel grouping, plus
-// Auto/ShotTable). ShooterConstants.h and AutoConstants.h (now retired
-// into Auto below) pull their tunable values
-// from here via `using namespace` so there is exactly one place to edit
-// each one.
-//
-// What stays OUT of here, in each module's own Constants file: pin
-// numbers, servo PWM endpoints, communication/protocol constants, timing
-// -- these are wiring/hardware-spec facts, not "turn the knob" values, and mixing
-// them in here would make them easier to change by accident.
-//
-// Other branches (e.g. Chassis) have their own TuningConstants.h following
-// this same convention/namespace-per-mechanism pattern, scoped to whatever
-// mechanisms actually exist on that branch. When branches merge, the two
-// files combine by keeping both branches' namespace blocks side by side,
-// the same way ShooterConstants.h/Pins.h conflicts were resolved earlier.
 namespace TuningConstants {
 
 namespace LeftDrive {
@@ -38,26 +20,12 @@ constexpr double COMMAND_DEADBAND = 0.04;
 constexpr double MIN_COMMAND = -1.0;
 constexpr double MAX_COMMAND = 1.0;
 
-// Chassis output smoothing (Chassis::update()). An exponential filter on
-// the final left/right command before it becomes a pulse, time constant in
-// ms: output tracks a step input to ~63% in this many ms, ~95% in 3x this.
-// Smooths frame-to-frame stick/RF noise so it doesn't land directly on the
-// PWM pins; does NOT apply to stop()/disable(), which still snap straight
-// to neutral. 80 ms is a first guess -- fast enough that an intentional
-// stick move still feels immediate, slow enough to average out single-frame
-// jitter at ~10-15 ms/loop. TUNE ON THE ROBOT.
-// Since 2026-11-08 (Jeremy) it smooths only speeding up: slowing down and
-// letting go reach the target at once, a reversal drops to stop first.
-constexpr double COMMAND_FILTER_TIME_CONSTANT_MS = 80.0;
+constexpr double COMMAND_FILTER_TIME_CONSTANT_MS = 80.0; // chassis output filter, ~63% in this time
 }
 
 namespace Angle {
 
-// true since 2026-10-25 (Jeremy, on the robot): flips the D-pad / ANG jog
-// direction (and with it the autos' up/down fine-adjust, which follows the
-// jog). The shot table's elevation pulses are absolute and do not depend
-// on it.
-constexpr bool INVERTED = true;
+constexpr bool INVERTED = true; // flips the D-pad / ANG jog
 
 }
 
@@ -65,103 +33,28 @@ namespace Rotate {
 
 constexpr bool INVERTED = false;
 
-// The operator's turret jog (D-pad / wireless nudge left-right, full
-// manual): on the robot (2026-10-17) "right" turned the turret left. The
-// vision-follow direction (INVERTED, validated on the bench) is right, so
-// only the jog is flipped here -- flipping INVERTED would reverse vision
-// follow too. The auto-mode aim offset (+ = right) is unaffected.
-constexpr bool MANUAL_JOG_INVERTED = true;
+constexpr bool MANUAL_JOG_INVERTED = true; // flips only the operator turret jog
 
-// Vision-follow (RotateControlMode::VISION_FOLLOW), PIDF on image-space tx
-// (src/Control/VisionFollowController.h). These are the gains Jeremy tuned
-// and accepted on the real turret servo on the A5 bench (2026-10-13:
-// "settles at dead center", full speed when far off), converted from the
-// bench's microseconds to this axis's normalized command, where 1.0 = the
-// servo's full 500 us offset (1000..2000 us):
-//   bench kP 5 us/px          -> 5/500  = 0.01 per px
-//   bench kI 5 us/(px*s)      -> 5/500  = 0.01 per (px*s)
-//   bench I cap +-60 us       -> 60/500 = 0.12
-//   bench output cap +-500 us -> 1.0 (full speed)
-//   kIZone 20 px, kD 0 (unchanged units).
-// Example: tx = 40 px -> -0.40 command -> 1300 us (tx > 0 drives below
-// 1500 us: the direction validated on the bench with this same servo and
-// mounting). test/vision_follow_controller_test.cpp pins these to the
-// bench constants, so the two can't drift apart silently.
-constexpr double VISION_kP = 0.01;
-// kI 0.01 -> 0.02 (2026-11-09, Jeremy): stuck just outside the lock
-// (e.g. 5.4 px: P 0.054 of the ~0.16 the turret needs), the I term took
-// ~2 s to make up the rest; 0.02 takes ~1 s. 0.03 swung on 2026-11-01.
-// No longer the A5 bench's 5 us/(px*s) (that would be 0.01).
-constexpr double VISION_kI = 0.02;
+constexpr double VISION_kP = 0.01; // command per px of tx
+constexpr double VISION_kI = 0.02; // inside VISION_kIZONE_PX only
 constexpr double VISION_kD = 0.0;
 constexpr double VISION_kIZONE_PX = 20.0;
 constexpr double VISION_kFF = 0.0;
 constexpr double VISION_MAX_COMMAND = 1.0;
 constexpr double VISION_MAX_INTEGRAL_COMMAND = 0.12;
-// "Locked, OK to fire" for Auto: |tx| within this for READY_SETTLE_TIME_MS
-// (Jeremy, 2026-10-13: 5 px; 6 px since 2026-11-09: the turret kept
-// sitting at 5.x px, shown as "5" on the Dashboard, and could not fire).
-constexpr double VISION_READY_TOLERANCE_PX = 6.0;
-// D on the camera's frame-to-frame tx rate (2026-11-01, Jeremy: the
-// turret swung past and back before settling; VisionFollowController).
-// Command per px/s: kP 0.01 / kd 0.0005 = 50 ms of look-ahead. Example:
-// 40 px off closing at 600 px/s: P -0.40, D +0.30 -> -0.10, it brakes
-// before center. PROVISIONAL: raise it if it still overshoots, lower it if
-// the turret creeps in slowly or jitters on a still target. Separate from
-// VISION_kD (kept 0, pinned to the A5 bench's gains).
-// 0.0008 since 2026-11-01 (Jeremy, was 0.0005): last year's all_robot_017
-// aimed at xPred = x + vx * 0.08 s; with kP 0.01 that is the same as
-// kd = 0.01 * 0.08 = 0.0008 (80 ms of look-ahead instead of 50).
-constexpr double VISION_FRAME_kD = 0.0008;
-// Stall push (2026-11-01, Jeremy: semi auto sometimes waited 3-5 s to fire
-// with the turret a few px outside the 5 px lock; kI 0.03 instead made it
-// swing, so kI is back at 0.01). Outside VISION_READY_TOLERANCE_PX and
-// |tx rate| under VISION_STALL_RATE_PX_PER_S for VISION_STALL_DELAY_MS ->
-// at least VISION_STALL_COMMAND toward the target (VisionFollowController).
-// 0.17: just above the ~0.16 the turret needs, so it creeps in and stops
-// in the tolerance. 30 px/s: a still turret reads +-1-2 px of jitter per
-// frame (~15 fps), up to ~20 px/s after the 50 / 50 smoothing. PROVISIONAL:
-// still stuck -> 0.18-0.20; jumps past center -> 0.16 or a longer delay.
-// 0 = off.
-constexpr double VISION_STALL_COMMAND = 0.17;
+constexpr double VISION_READY_TOLERANCE_PX = 6.0; // |tx| within this = locked
+constexpr double VISION_FRAME_kD = 0.0008; // command per px/s
+constexpr double VISION_STALL_COMMAND = 0.17; // push when stuck just outside the lock
 constexpr double VISION_STALL_RATE_PX_PER_S = 30.0;
 constexpr uint32_t VISION_STALL_DELAY_MS = 200;
-// Pulsed push + integral hold (2026-11-01, Jeremy: with the continuous
-// push the turret swung 2-4 times across center, and a turret kept locked
-// sometimes started swinging). The push lasts VISION_STALL_PULSE_MS, then
-// the PI alone and VISION_STALL_DELAY_MS still before the next pulse, so
-// each pulse is a small step instead of a run past center. Inside the 5 px
-// lock the I term stops growing. PROVISIONAL: a pulse moves nothing ->
-// 100-120 ms; each pulse still jumps past center -> 50-60 ms.
-constexpr uint32_t VISION_STALL_PULSE_MS = 80;
+constexpr uint32_t VISION_STALL_PULSE_MS = 80; // push length
 constexpr bool VISION_HOLD_I_IN_TOLERANCE = true;
-// Turret search (2026-11-01, Jeremy: after choosing 7 then 1 the turret
-// sometimes didn't move -- 1 out of view and not predicted, so nothing to
-// follow). With a hole chosen that is neither seen nor predicted, the
-// turret turns at SEARCH_COMMAND toward it (OperatorTarget::
-// searchDirection) until it shows up, then the PID takes over; at most
-// SEARCH_MAX_MS per choice. 0.3: above the ~0.16 the turret needs to move,
-// slow enough for the camera to pick holes up on the way.
-constexpr double SEARCH_COMMAND = 0.3;
+constexpr double SEARCH_COMMAND = 0.3; // turn speed toward an unseen hole
 constexpr unsigned long SEARCH_MAX_MS = 3000;
-// Lost target (2026-11-14, Jeremy): the hole being followed -- the
-// operator's or the Orin's own pick -- leaves the image (neither seen nor
-// predicted): the turret keeps turning at SEARCH_COMMAND toward the side
-// it was last seen on, for at most LOST_TURN_MS after that last frame.
-// Only when it left near an edge (|tx| >= LOST_EDGE_PX, 0.4 of the 640 px
-// half-width): a frame or two missing in the middle of the image must not
-// swing the turret. PROVISIONAL.
-constexpr unsigned long LOST_TURN_MS = 1000;
+constexpr unsigned long LOST_TURN_MS = 1000; // keep turning toward the last-seen side
 constexpr double LOST_EDGE_PX = 256.0;
-// Sweep (2026-11-14, Jeremy): in semi / full auto, nothing seen or
-// predicted for SWEEP_START_MS and neither the search nor the lost turn
-// above running -> the turret turns at SEARCH_COMMAND left first (negative
-// angle) to SWEEP_LEFT_DEG, then right to SWEEP_RIGHT_DEG, back and forth,
-// until a hole shows up (then the PID). Needs the AS5600 angle (healthy,
-// absolute); never in test mode, while an auto path drives, a hand-held
-// aim or RB's hold. Inside the soft limits (+38.5 / -166 deg).
-constexpr bool SWEEP_ENABLED = true;
-constexpr unsigned long SWEEP_START_MS = 500;
+constexpr bool SWEEP_ENABLED = true; // nothing seen: sweep left first, then right
+constexpr unsigned long SWEEP_START_MS = 500; // nothing seen this long = sweep
 constexpr double SWEEP_LEFT_DEG = -90.0;
 constexpr double SWEEP_RIGHT_DEG = 35.0;
 
@@ -169,266 +62,72 @@ constexpr double SWEEP_RIGHT_DEG = 35.0;
 
 namespace Flywheel {
 
-// Which side of 1500 us is the shooting direction (slider, LT / RT, shot
-// table): false = above (1500-2000), true = below (1000-1500). false since
-// 2026-10-25 (Jeremy, on the robot); it was true from 2026-10-17.
-constexpr bool INVERTED = false;
+constexpr bool INVERTED = false; // false = 1500-2000 us shoots
 
-// Stop pulse offset (Jeremy, 2026-10-17): this Falcon creeps at the plain
-// 1500 us neutral (D25 and GND checked), so "stopped" (command 0: disabled,
-// before Y, slider at 0, end of a spin-down) sends 1500 + this, in absolute
-// microseconds -- NOT relative to INVERTED. It is a property of this
-// Falcon, so flipping INVERTED must not move it (2026-10-25: the old
-// "toward the spin direction" trim would have jumped from 1490 to 1510).
-// -10 = 1490 us, the value used since 2026-10-17. TUNE ON THE ROBOT: if it
-// creeps one way, move 5 us the other way; 0 = plain 1500 (a normally
-// configured Falcon). Limited to +-30 us in ShooterConstants.h so a typo
-// can't spin a disabled flywheel.
-constexpr int STOP_PULSE_OFFSET_US = -10;
+constexpr int STOP_PULSE_OFFSET_US = -10; // stopped = 1490 us (the Falcon creeps at 1500)
 
-// Auto-fire sequence (Auto::update()). No RPM/tachometer feedback exists for
-// this Falcon 500 (PWM command path is one-way), so "ready" is time-based:
-// the flywheel counts as spun up SPIN_UP_MS after its command last changed
-// (Shooter::updateFlywheelReady). PROVISIONAL -- tune against real shots.
-// SHOOT_COMMAND: the autos' pre-spin with no target in view (Jeremy,
-// 2026-10-18: 50%, then 20%); with a target the shot table's flywheel
-// value (+ the LT / RT offset) is used.
-// It no longer sets the "ready" threshold (that made every table value
-// below it -- 42%, 46% -- never ready).
 constexpr double SHOOT_COMMAND = 0.2;
-constexpr uint32_t SPIN_UP_MS = 1500;
+constexpr uint32_t SPIN_UP_MS = 1500; // spun up this long after the command changes
 
-// Ramp-up limit on the Falcon command, in every mode (2026-10-18: an
-// instant 46% -> 80% jump in semi auto, together with the elevation move,
-// drew enough current to reset the Mega). 0.5 = 50% per second, so 0 -> 80%
-// takes 1.6 s. The "ready" wait (SPIN_UP_MS) starts once the ramp has
-// reached the command.
-constexpr double RAMP_UP_PER_SECOND = 0.5;
-// Ramp-down limit, also used after a disable / stop (Jeremy, 2026-10-18:
-// this Falcon brakes hard at neutral, so the flywheel spins down instead,
-// still driven, then neutral). 0.5 = from 80% to stop in 1.6 s.
-constexpr double RAMP_DOWN_PER_SECOND = 0.5;
+constexpr double RAMP_UP_PER_SECOND = 0.5; // 0 -> 80% in 1.6 s
+constexpr double RAMP_DOWN_PER_SECOND = 0.5; // 80% -> stop in 1.6 s
 
 }
 
-// Auto paths (2026-11-07 design, built 2026-11-14; src/Auto/AutoPath.h).
-// Picked in the Dashboard's Match Setup menu, sent with Y ("開始比賽") as
-// AUTO,n right after MODE,0; run once per Enable, in FULL AUTO only (it
-// waits PENDING_MS for the mode to arrive, then gives up). The chassis has
-// no encoder and no IMU, so each move is open loop for a set time (since
-// 2026-11-14 the times themselves, tuned on the floor; before, distance /
-// rate). Every path ends facing the grid again (the turret only
-// reaches +38.5 deg to the right). While driving: turret and elevation
-// work as usual, flywheel 0, no shot; at the end full auto goes on as if
-// the robot had always stood there.
-//   left 1 (path 1): turn right, ahead, turn left (back to the grid).
-//   left 2 (path 2): ahead, turn right ~90, ahead, turn left ~90.
-//   right 1 / right 2 (paths 3 / 4): the same, mirrored.
-// Distances read off the 2026 field drawing (zone A ~400 x 500 cm, start
-// boxes 70 x 120 cm in its back corners), from the start box center to
-// the circle: left 1 ~160 cm across and ~240 cm up = 288 cm at 34 deg;
-// left 2 ~365 cm up, then ~160 cm across. MEASURE ON THE FIELD.
 namespace AutoPath {
-// Straight moves at full stick (2026-11-14, Jeremy: driven by hand the
-// robot pulls right at part stick but goes straight at full stick; was
-// 0.40).
 constexpr double DRIVE_COMMAND = 1.0; // both wheels, straight
-constexpr double TURN_COMMAND = 0.35;  // pivot: one wheel +, the other -
-// Move times, ms (a turn at TURN_COMMAND, a straight move at DRIVE_COMMAND).
-// Left 1 / right 1 (Jeremy, 2026-11-14, on the floor): straight 3.0 s,
-// then one turn, each path its own (no longer mirrors there, 2026-11-14
-// evening): direction +1 = right, -1 = left.
-//   left 1:  right 0.5 s (was left 1.0 s)
-//   right 1: right 1.0 s (unchanged)
-// The first turn (was 0.6 s) is off: 0 = that move is skipped
-// (AutoPath::buildMoves).
-constexpr unsigned long DIAGONAL_TURN_MS = 0;
-constexpr unsigned long DIAGONAL_DRIVE_MS = 3000;
-constexpr int8_t LEFT1_LAST_TURN_DIRECTION = 1;
+constexpr double TURN_COMMAND = 0.35;
+constexpr unsigned long DIAGONAL_TURN_MS = 0; // left 1 / right 1: first turn
+constexpr unsigned long DIAGONAL_DRIVE_MS = 3000; // left 1 / right 1: straight
+constexpr int8_t LEFT1_LAST_TURN_DIRECTION = 1; // +1 right, -1 left
 constexpr unsigned long LEFT1_LAST_TURN_MS = 500;
-constexpr int8_t RIGHT1_LAST_TURN_DIRECTION = 1;
+constexpr int8_t RIGHT1_LAST_TURN_DIRECTION = 1; // +1 right, -1 left
 constexpr unsigned long RIGHT1_LAST_TURN_MS = 1000;
-// Left 2 / right 2 (Jeremy, 2026-11-14): straight 4 s, turn 0.5 s,
-// straight 1 s, turn back 1 s (first try 5 / 2 / 1.5 / 2).
-constexpr unsigned long FORWARD_DRIVE_MS = 4000;
-constexpr unsigned long SIDE_TURN_MS = 500;
-constexpr unsigned long SIDE_DRIVE_MS = 1000;
-constexpr unsigned long SIDE_TURN_BACK_MS = 1000;
-// Standing still between moves, so a turn doesn't start while the robot
-// still rolls.
-constexpr unsigned long PAUSE_MS = 300;
-// AUTO,n can arrive before MODE,0 over the radio (CH8 and CH4 are not in
-// the same packet): the path waits this long for full auto, then gives up.
-constexpr unsigned long PENDING_MS = 1500;
-// The operator's stick past this (either wheel) takes over: the path stops,
-// the mode goes to semi auto (Jeremy 2026-11-07), the stick drives.
-constexpr double STICK_TAKEOVER = 0.20;
-// Right paths: the turret stays at 0 deg until a frame of the target hole
-// comes in (Jeremy 2026-11-07): mid-drive the grid can be past the turret's
-// +38.5 deg limit, and the search would push it there.
-constexpr bool RIGHT_PATHS_HOLD_TURRET_UNTIL_SEEN = true;
-// Pivot direction in the Mega's tank commands: turning right = left wheel
-// back, right wheel forward -- what the stick sends since 2026-11-08 (the
-// Dashboard's flip after the robot turned against the stick). PROVISIONAL:
-// check on blocks first; flip if the robot turns the wrong way.
-constexpr bool RIGHT_TURN_LEFT_WHEEL_BACK = true;
+constexpr unsigned long FORWARD_DRIVE_MS = 4000; // left 2 / right 2: straight
+constexpr unsigned long SIDE_TURN_MS = 500; // left 2 / right 2: turn
+constexpr unsigned long SIDE_DRIVE_MS = 1000; // left 2 / right 2: second straight
+constexpr unsigned long SIDE_TURN_BACK_MS = 1000; // left 2 / right 2: turn back
+constexpr unsigned long PAUSE_MS = 300; // standing still between moves
+constexpr unsigned long PENDING_MS = 1500; // AUTO,n waits this long for full auto
+constexpr double STICK_TAKEOVER = 0.20; // stick past this stops the path
+constexpr bool RIGHT_PATHS_HOLD_TURRET_UNTIL_SEEN = true; // right paths: turret at 0 deg until the hole is seen
+constexpr bool RIGHT_TURN_LEFT_WHEEL_BACK = true; // turn right = left wheel back
 }
 
 namespace Auto {
 
-// Auto moves the elevation toward the shot table's pulse at most this fast
-// instead of jumping (2026-10-18, current limiting with the flywheel ramp):
-// 400 us/s, e.g. 2063 -> 2442 us in ~0.95 s. The D-pad jog in full manual
-// keeps its own Angle::POSITION_RATE_US_PER_SECOND.
 constexpr double ELEVATION_SLEW_US_PER_SECOND = 400.0;
-// The autos fire only once the elevation has reached the table's pulse to
-// within this (2026-10-31, Jeremy): the slew is slower than the flywheel's
-// 1.5 s spin-up wait -- e.g. hole 4 (500 us) -> hole 6 at 3.25 m (1913 us)
-// takes 3.5 s -- and the shot used to go out mid-move.
-constexpr double ELEVATION_READY_TOLERANCE_US = 10.0;
-// Full auto (2026-11-16, Jeremy: don't fire too soon after the elevation):
-// "arrived" must hold this long first -- the servo arm trails the pulse. A
-// new table pulse restarts it. Semi auto fires on arrival (the operator
-// presses F). PROVISIONAL; 0 = as before.
-constexpr unsigned long ELEVATION_SETTLE_MS = 500;
-// Semi auto (2026-11-16, Jeremy: F kept answering "not ready"): F is held
-// this long and fires the moment every condition is met; only then
-// FIRE_NOT_READY (with the reasons on the Dashboard). 0 = the old
-// one-loop check.
-constexpr unsigned long SEMI_FIRE_HOLD_MS = 1000;
-// While an auto path drives (2026-11-16, Jeremy: the lowest box took long to
-// reach): the elevation already moves -- to the table for the hole in view,
-// or with none to hole AUTO_PATH_ELEVATION_HOLE's table at
-// AUTO_PATH_ELEVATION_DISTANCE_M (the cycle starts on the bottom row).
-// The flywheel stays off and nothing fires until the path ends.
-constexpr uint8_t AUTO_PATH_ELEVATION_HOLE = 4;
+constexpr double ELEVATION_READY_TOLERANCE_US = 10.0; // autos fire within this of the table
+constexpr unsigned long ELEVATION_SETTLE_MS = 500; // full auto: arrived this long before firing
+constexpr unsigned long SEMI_FIRE_HOLD_MS = 1000; // semi F waits this long for ready
+constexpr uint8_t AUTO_PATH_ELEVATION_HOLE = 4; // elevation preset while a path drives
 constexpr double AUTO_PATH_ELEVATION_DISTANCE_M = 4.5;
 
-// Full auto cycle (Jeremy 2026-10-31; full auto = the Orin's own pick):
-// the first hole fired at stays chosen (or the operator's hole); after
-// SHOTS_PER_HOLE balls Auto moves on in OperatorTarget::buildCycle order --
-// never two columns in one move (the turret turns sideways only): from 5:
-// 5, 8 7 9, 6 4, 1 2 3 (the bonus row Q W E only with
-// CYCLE_SKIPS_BONUS_ROW false) -- skipping
-// holes with no shot table. After the last one it stops firing (stays
-// aimed there) until a hole is picked (wired: even the same one again) or
-// the mode changes. Counts trigger pulses sent to the tower, one ball each.
-constexpr bool ROW_CYCLE_ENABLED = true;
-constexpr uint8_t SHOTS_PER_HOLE = 3;
-// The second half (2026-11-15, Dashboard 半場 menu / HALF,2 / CH9 level 0):
-// this many balls a hole (the lit box too); the first half SHOTS_PER_HOLE.
-constexpr uint8_t SECOND_HALF_SHOTS_PER_HOLE = 2;
-// A lit bonus box (Q W E) takes this many balls each time it lights up,
-// in both halves (Jeremy, 2026-11-16: a bonus box only takes one ball;
-// 3 / 2 like the grid holes before).
-constexpr uint8_t BONUS_SHOTS_PER_HOLE = 1;
-// Both halves (2026-11-15, Jeremy: the same algorithm, only the ball count
-// differs): the cycle runs bottom-up (OperatorTarget::buildBottomUpCycle)
-// from the nearest bottom-row hole the Orin sees (Vision::getNearBottomId);
-// none seen -> the bottom hole under the Orin's pick. false = the column
-// order of buildCycle, starting at the first hole shot (before 2026-11-15).
-constexpr bool CYCLE_BOTTOM_UP = true;
-// After the last ball at a hole (also the lit bonus hole's one ball)
-// the aim stays on that hole this long, with no shot, before the next one
-// (Jeremy, 2026-11-14: moving on right at the third fire signal turned the
-// turret while that ball was still on its way). A mode change, a hole
-// choice or a disarm drops the wait.
-constexpr unsigned long HOLE_SWITCH_DELAY_MS = 2000;
-// Full auto (2026-11-15, Jeremy): the cycle's hole (or the lit box) with
-// neither a shot nor a turret lock (Shooter::isRotateReady) for this long
-// -- seen or not -- since it became the aim, its last shot or its last
-// lock: skip it, on to the next hole (a lit box counts as served). Not
-// while an auto path drives or during the HOLE_SWITCH_DELAY_MS wait.
-// 0 = never skip. (6 s "not seen" earlier the same day.)
-constexpr unsigned long HOLE_NOT_FOUND_SKIP_MS = 7000;
-// Holes full auto never fires at (bit n = Dashboard hole n). The cycle
-// leaves them out; an excluded hole the Orin picks is swapped for the
-// nearest allowed one in its column. Semi-auto is not affected. 0 = none
-// out: since 2026-11-14 (Jeremy: the bottom row back, hole 4 measured;
-// 1 / 7 borrow 4's table). 2026-10-31 to 11-14 it was 1 / 4 / 7,
-// (1u << 1) | (1u << 4) | (1u << 7): from 5: 5, 8 9, 6, 3 2, Q W E.
-constexpr uint16_t FULL_AUTO_EXCLUDED_HOLES = 0;
-// The bonus boxes Q W E (holes 10-12) are not part of the cycle (Jeremy,
-// 2026-11-14): full auto shoots a bonus box only while it is lit
-// (LIT_BONUS_PRIORITY, BONUS_SHOTS_PER_HOLE balls). A cycle that would start on a
-// bonus box (the Orin's own pick, or one chosen in full auto) starts on
-// the top hole under it instead (Q -> 3, W -> 6, E -> 9). false = the
-// bonus row after the grid, as before.
-constexpr bool CYCLE_SKIPS_BONUS_ROW = true;
-constexpr uint16_t BONUS_ROW_HOLES = (1u << 10) | (1u << 11) | (1u << 12);
-// A lit bonus hole (the Orin's red-ring detection, frame field 9) comes
-// first in full auto: BONUS_SHOTS_PER_HOLE balls at it, then the cycle carries
-// on where it stopped. The same box fires again only after it has been
-// dark for LIT_DARK_MS and lights up again.
-constexpr bool LIT_BONUS_PRIORITY = true;
-// After the aim hole changes (the cycle moving on, a lit box, a hole key)
-// the autos wait this long before they may fire (2026-11-01, Jeremy: the
-// first ball at a new hole went out before the turret had settled).
-constexpr unsigned long AIM_SWITCH_SETTLE_MS = 500;
-constexpr unsigned long LIT_DARK_MS = 1000;
+constexpr bool ROW_CYCLE_ENABLED = true; // full auto hole cycle
+constexpr uint8_t SHOTS_PER_HOLE = 3; // first half
+constexpr uint8_t SECOND_HALF_SHOTS_PER_HOLE = 2; // second half
+constexpr uint8_t BONUS_SHOTS_PER_HOLE = 1; // lit Q W E, both halves
+constexpr bool CYCLE_BOTTOM_UP = true; // columns bottom to top, from the nearest bottom hole
+constexpr unsigned long HOLE_SWITCH_DELAY_MS = 2000; // wait after a hole's last ball
+constexpr unsigned long HOLE_NOT_FOUND_SKIP_MS = 7000; // no shot and no lock this long = next hole; 0 = never
+constexpr uint16_t FULL_AUTO_EXCLUDED_HOLES = 0; // bit n = hole n
+constexpr bool CYCLE_SKIPS_BONUS_ROW = true; // Q W E only when lit
+constexpr uint16_t BONUS_ROW_HOLES = (1u << 10) | (1u << 11) | (1u << 12); // holes 10-12
+constexpr bool LIT_BONUS_PRIORITY = true; // a lit box first
+constexpr unsigned long AIM_SWITCH_SETTLE_MS = 500; // no fire this long after an aim change
+constexpr unsigned long LIT_DARK_MS = 1000; // dark this long before the box may fire again
 
-// After the target drops out of a frame, Auto keeps its last shot (flywheel
-// and elevation) this long before falling back to the pre-spin (2026-10-18:
-// single-frame vision dropouts pulsed the flywheel). Firing still needs a
-// target in the current frame.
-constexpr uint32_t TARGET_HOLD_MS = 500;
+constexpr uint32_t TARGET_HOLD_MS = 500; // keep the last shot after the target drops
 
-// Shot distance steadying (2026-10-27, src/Control/ShotDistanceFilter.h):
-// the table is looked up at the median of the last DISTANCE_MEDIAN_FRAMES
-// depth frames, latched; it only follows a move of more than
-// DISTANCE_LATCH_BAND_M that lasts DISTANCE_LATCH_SETTLE_MS. 5 cm is at most
-// ~1.1% flywheel / ~9 us elevation on the steepest measured segment
-// (hole 5, 2.5 -> 5 m: -21.6 %/m, -175 us/m) -- less than the frame-to-
-// frame depth noise it replaces.
-constexpr uint8_t DISTANCE_MEDIAN_FRAMES = 5;
-constexpr double DISTANCE_LATCH_BAND_M = 0.05;
+constexpr uint8_t DISTANCE_MEDIAN_FRAMES = 5; // median of depth frames
+constexpr double DISTANCE_LATCH_BAND_M = 0.05; // latched distance follows moves past this
 constexpr unsigned long DISTANCE_LATCH_SETTLE_MS = 300;
 
-// Minimum time from one auto shot to the next (src/Auto/Auto.cpp). The
-// feed tower's own lockout (DribblerConstants::Tower::COOLDOWN_MS, 1000 ms)
-// also applies, so the real full-auto rate is whichever is longer.
-constexpr uint32_t COOLDOWN_MS = 300;
+constexpr uint32_t COOLDOWN_MS = 300; // between auto shots
 
-// Operator fine-adjust in the auto modes and test (Jeremy, 2026-10-16).
-// Since 2026-11-08 the aim / elevation offsets are a saved trim, one for
-// every hole: kept across hole / mode changes, Enable, disarm and power
-// cycles (AimTrimStore, EEPROM); only C clears them. Test mode saves the
-// elevation part as (the operator's pulse - the shot table's pulse) when
-// up / down is let go. PROVISIONAL -- tune on the field.
-//   left/right (2026-10-30, Jeremy; was one 20 px step per press, max 100
-//     px, which the camera then pulled back from): held = the operator
-//     turns the turret by hand (the camera lets go, same jog as full
-//     manual); after release the turret stands still AIM_JOG_SETTLE_MS so
-//     the camera frames catch up, then where the hole is in the image
-//     becomes the aim offset: offset = -tx, so the camera holds the turret
-//     right there (vision-follow drives tx + offset to 0). Clamped to
-//     AIM_OFFSET_MAX_PX, below VisionConstants MAX_ABS_TX (400: frames
-//     further out are refused) so the hole stays usable. 300 px is about
-//     16 deg on the 1280 px, ~69 deg D435 image. No hole in view at the
-//     end of the wait: the old offset stays.
-//   up/down (2026-11-08, Jeremy; was one 10 us step per press): held =
-//     the offset on the shot table's elevation pulse moves at
-//     ELEVATION_JOG_US_PER_SECOND, like left / right; it stays where it was
-//     let go, within ELEVATION_OFFSET_MAX_US. Auto still slews the servo at
-//     ELEVATION_SLEW_US_PER_SECOND. Only once the table is measured
-//     (ShotTable::ELEVATION_MEASURED), until then up/down stay the manual
-//     elevation jog.
 constexpr unsigned long AIM_JOG_SETTLE_MS = 300;
-// The hand turn's speed in the autos and test (2026-11-09, Jeremy: at full
-// speed, as in full manual, one tap went past the hole). Just above the
-// ~0.16 the turret needs to move at all. PROVISIONAL: a tap moves nothing
-// -> 0.22; a tap still goes too far -> 0.18. Full manual keeps
-// ManualControlConstants::ROTATE_MANUAL_SCALE.
-constexpr double AIM_JOG_COMMAND = 0.2;
-// OFF since 2026-11-09 (Jeremy, until it is redone): the saved horizontal
-// offset was one value for every hole, so after trimming one hole the
-// others were no longer aimed at their center (and the turret could not
-// lock: FIRE_NOT_READY). false = the aim offset is always 0 -- the camera
-// aims at each hole's center; left / right still turn the turret by hand
-// while held, and the camera takes over again after AIM_JOG_SETTLE_MS. A
-// horizontal offset already in EEPROM is ignored. The elevation trim is
-// unchanged.
-constexpr bool AIM_OFFSET_ENABLED = false;
+constexpr double AIM_JOG_COMMAND = 0.2; // hand turn speed in the autos / test
+constexpr bool AIM_OFFSET_ENABLED = false; // false = horizontal trim off
 constexpr double AIM_OFFSET_MAX_PX = 300.0;
 constexpr double ELEVATION_JOG_US_PER_SECOND = 200.0;
 constexpr double ELEVATION_OFFSET_MAX_US = 200.0;
@@ -437,43 +136,11 @@ constexpr double ELEVATION_OFFSET_MAX_US = 200.0;
 
 namespace ShotTable {
 
-// Camera distance (meters, Vision::getDistance() / 1000) -> flywheel command
-// and elevation servo pulse, the actual actuator values to send:
-//   flywheelCommand   open-loop Falcon command 0..1 (no speed feedback,
-//                     so not an RPM)
-//   elevationPulseUs  the elevation servo's target pulse, as shown on the
-//                     Dashboard "elevation pulse" readout (a positional
-//                     servo: a pulse is a position, no angle calibration).
-//
-// ONE TABLE PER DASHBOARD HOLE (keys 1-9, bonus Q W E = holes 10-12 since
-// 2026-10-27), generated from the Excel tools/shot_table/shot_table.xlsx
-// into ShotTableData.h (2026-10-18): edit the Excel and run
-// `python3 tools/shot_table/apply.py --upload`, never the generated header.
-// A grid hole with no points uses its row's center hole (1/7 -> 4,
-// 2/8 -> 5, 3/9 -> 6); with none there either, the autos never fire at it.
-// A bonus hole with no points of its own is never fired at (no fallback:
-// it is smaller and higher than any grid hole).
-//
-// The key is the CAMERA's distance: read it off the Dashboard while locked
-// on the hole, never a tape measure (the camera's own bias is then
-// calibrated in). Between entries: linear interpolation. Below the first
-// entry: the first entry's values. Beyond the last entry: see
-// EXTRAPOLATE_PAST_LAST_ENTRY. ELEVATION_TRIM_US below adds a per-hole
-// offset on top, if ever needed.
 using Entry = ShotTableData::Point;
-// The elevation column is measured now: the autos set the elevation from
-// it (plus the operator's up/down fine-adjust).
-constexpr bool ELEVATION_MEASURED = true;
+constexpr bool ELEVATION_MEASURED = true; // autos use the table's elevation
 
-// Beyond the last entry: false = hold the last entry's values (Jeremy,
-// 2026-10-18, while the tables stop at 5 m -- two points extrapolate
-// wildly, e.g. the middle row would fall to 24% at 6 m); true = extend the
-// last two entries' trend (his rule for past 8.5 m, once the tables reach
-// it).
-constexpr bool EXTRAPOLATE_PAST_LAST_ENTRY = false;
+constexpr bool EXTRAPOLATE_PAST_LAST_ENTRY = false; // false = hold the last entry
 
-// Per-hole elevation trim (us, added to its row's pulse), indexed by Orin
-// vision id. 0 unless one hole turns out consistently high or low.
 constexpr double ELEVATION_TRIM_US[13] = {
     0.0,            // 0: no target
     0.0, 0.0, 0.0,  // 1-3: bonus holes
@@ -487,13 +154,6 @@ struct Table {
     int count;
 };
 
-// Orin vision id -> its hole's table (Dashboard hole via OperatorTarget),
-// or, for a hole with no points, that row's center hole -- the bonus row
-// too since 2026-10-31 (Jeremy: Q / E borrow W, hole 11, like the other
-// rows); {nullptr, 0} for 0, unknown ids and an empty row center (Auto
-// never fires).
-// color: the ball color's table (2026-11-15, ManualControl::getBallColor,
-// RCMAP_BALL_* 0..5; out of range = yellow's).
 inline Table tableForVisionId(int visionId, uint8_t color = 0) {
     if (color >= ShotTableData::COLOR_COUNT) color = 0;
     const auto& counts = ShotTableData::HOLE_COUNTS[color];
@@ -503,8 +163,6 @@ inline Table tableForVisionId(int visionId, uint8_t color = 0) {
         if (counts[hole] > 0) {
             return {points[hole], counts[hole]};
         }
-        // Same row, middle column: 1 / 7 -> 4, 2 / 8 -> 5, 3 / 9 -> 6; the
-        // bonus row 10 / 12 -> 11 (11 itself: none).
         const uint8_t center = hole >= OperatorTarget::FIRST_BONUS_HOLE
             ? static_cast<uint8_t>(OperatorTarget::FIRST_BONUS_HOLE + 1)
             : static_cast<uint8_t>(4 + (hole - 1) % 3);

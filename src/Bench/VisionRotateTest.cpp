@@ -24,7 +24,6 @@ void applyOutput() {
     rotateServo.writeMicroseconds(state.pulse());
 }
 
-// Expected Orin format: tx,ty,distance,target_id,valid (5 signed ints).
 bool parseVisionLine(const char* s) {
     int values[5];
     const char* p = s;
@@ -52,15 +51,7 @@ void setup() {
 
     Serial.begin(BAUD);
     Serial1.begin(VISION_BAUD);
-    // Distinct signature so the old rotate.html (keyboard bench) can't
-    // mistakenly drive this firmware.
     Serial.println(F("$VISION_ROTATE_READY,3"));
-    // One-time gain banner (2026-10-10, Codex-reviewed PIDF stabilization
-    // pass): not part of the periodic $VROTATE telemetry, so it doesn't add
-    // per-line overhead -- prints once at boot so a captured terminal/Serial
-    // Monitor log proves which gains this specific flash actually ran,
-    // instead of relying on someone's memory of "I set kP=10" matching what
-    // was really compiled in.
     Serial.print(F("$VROTATE_GAINS,kP=")); Serial.print(kP, 4);
     Serial.print(F(",kI=")); Serial.print(kI, 4);
     Serial.print(F(",kIZone=")); Serial.print(kIZone, 1);
@@ -68,9 +59,6 @@ void setup() {
     Serial.print(F(",kD=")); Serial.print(kD, 4);
     Serial.print(F(",kD_TAU_S=")); Serial.print(kD_FILTER_TAU_S, 4);
     Serial.print(F(",OUT_LIMIT_US=")); Serial.println(PIDF_OUTPUT_LIMIT_US);
-    // Handshake is independent of the motion-armed gate: tell Orin we're
-    // here as early as possible so it can start streaming before the
-    // operator even opens the browser page.
     Serial1.print(F("MEGA_READY,"));
     Serial1.println(PROTOCOL_VERSION);
     lastHeartbeat = millis();
@@ -79,7 +67,6 @@ void setup() {
 void loop() {
     state.tick(millis());
 
-    // Bounded USB input so continuous garbage cannot starve the watchdog.
     for (uint8_t budget = 0; budget < 32 && Serial.available(); ++budget) {
         const char ch = Serial.read();
         if (ch == '\n') {
@@ -92,8 +79,6 @@ void loop() {
         applyOutput();
     }
 
-    // Bounded Serial1 input (Orin vision CSV). A malformed line is dropped,
-    // not treated as an operator error — only silence trips VISION_TIMEOUT.
     for (uint8_t budget = 0; budget < 64 && Serial1.available(); ++budget) {
         const char ch = Serial1.read();
         if (ch == '\n') {
@@ -119,9 +104,6 @@ void loop() {
     }
     if (uint32_t(now - lastTelemetry) >= TELEMETRY_MS) {
         lastTelemetry = now;
-        // v6 (2026-10-14): enabled,pulse,stopReason,tx,ty,distance,targetId,
-        // valid,msSinceVision,dtMs,P,D,rawOut,saturated,I. Same as v5 minus
-        // the D43/D42 limit and no-limits fields (no limit switches exist).
         Serial.print(F("$VROTATE,6,"));
         Serial.print(state.enabled ? 1 : 0); Serial.print(',');
         Serial.print(state.pulse()); Serial.print(',');
