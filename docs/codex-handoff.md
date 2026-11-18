@@ -8823,3 +8823,19 @@ expectations updated (2/3, 0/1, lit 1/1, done without "/N").
 (both variants), operator_target, dashboard page / control tests pass; all
 9 PlatformIO envs build. Not on hardware. Flash: Mega only; reload the
 Dashboard page.
+
+## 2026-11-18 — Red hole 6 shot table re-measured
+
+**User Request (Jeremy):** new CSV (`shot_log_20261118_2100.csv`); only red
+hole 6 changed; apply it and push.
+
+**Changed:** red (C4) hole 6 replaced as a whole: the 6 old points (2.94 -
+5.88 m) removed, the CSV's 7 points in: 3.15 m 1596 us, 4.06 / 4.35 / 4.74 /
+4.83 m 1358 us, 5.23 m 1081 us (59%), 5.58 m 1007 us; 60% otherwise. Red
+holes 4 / 5 / 11 and the other five colors unchanged. Done with apply.py's
+own read_all / write_xlsx (Excel backup in tools/shot_table/backup), then
+apply.py regenerated ShotTableData.h. Not --replace (that would wipe red 4 /
+5 / 11) and not --adjust (old and new hole 6 points would mix).
+
+**Evidence:** shot_table_lookup and manual_control host tests pass;
+megaatmega2560 builds. Not on hardware. Flash: Mega only.
