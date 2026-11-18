@@ -54,6 +54,7 @@ constexpr unsigned long SEARCH_MAX_MS = 3000;
 constexpr unsigned long LOST_TURN_MS = 1000; // keep turning toward the last-seen side
 constexpr double LOST_EDGE_PX = 256.0;
 constexpr bool SWEEP_ENABLED = true; // nothing seen: sweep left first, then right
+constexpr unsigned long SEEN_CONFIRM_MS = 200; // a hole counts only after this long in view (no flashes)
 constexpr unsigned long SWEEP_START_MS = 500; // nothing seen this long = sweep
 constexpr double SWEEP_LEFT_DEG = -90.0;
 constexpr double SWEEP_RIGHT_DEG = 35.0;
@@ -90,7 +91,7 @@ constexpr unsigned long SIDE_TURN_BACK_MS = 1000; // left 2 / right 2: turn back
 constexpr unsigned long PAUSE_MS = 300; // standing still between moves
 constexpr unsigned long PENDING_MS = 1500; // AUTO,n waits this long for full auto
 constexpr double STICK_TAKEOVER = 0.20; // stick past this stops the path
-constexpr bool RIGHT_PATHS_HOLD_TURRET_UNTIL_SEEN = true; // right paths: turret at 0 deg while driving, until the hole is seen
+constexpr bool RIGHT_PATHS_HOLD_TURRET_UNTIL_SEEN = false; // true = right paths: turret at 0 deg while driving, until the hole is seen
 constexpr bool RIGHT_TURN_LEFT_WHEEL_BACK = true; // turn right = left wheel back
 }
 
