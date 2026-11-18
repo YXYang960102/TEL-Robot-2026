@@ -8794,3 +8794,28 @@ ramp; watch for brownouts / Mega resets on the first spin-ups.
 
 **Evidence:** manual_control host test passes; megaatmega2560 builds. Not
 on hardware. Flash: Mega only.
+
+## 2026-11-18 — Second half: the cycle's last column gets 1 ball a hole
+
+**User Request (Jeremy):** in full auto, second half, the farthest column
+(left or right start alike) gets only 1 ball per hole; a middle start
+limits the left column (the cycle's last). Fix the Dashboard's fixed "/3".
+
+**Changed:** `TuningConstants::Auto::SECOND_HALF_FAR_COLUMN_SHOTS = 1`
+(0 = off). Auto::startCycle records `farColumn` = column of the last grid
+hole (row < 3) in cycleHoles; Auto::shotsForHole(hole): first half 3;
+second half 1 in farColumn, else 2. Q W E unchanged (lit box 1).
+Order unchanged: left start 1 2 3 / 4 5 6 / 7 8 9 (limit 7 8 9); right
+start 7 8 9 / 4 5 6 / 1 2 3 (limit 1 2 3); middle start 4 5 6 / 7 8 9 /
+1 2 3 (limit 1 2 3). Second half: 6 x 2 + 3 x 1 = 15 balls + a lit box.
+
+**Added:** Auto::getAimShots() (balls the aim hole gets; 0 when none /
+done). Telemetry slot 63 = aimShots. Dashboard: "這洞已打 x/N" with N from
+slot 63; older firmware (no slot 63) shows "這洞已打 x". Dashboard test
+expectations updated (2/3, 0/1, lit 1/1, done without "/N").
+
+**Evidence:** host sim second half: near Q 1-6 x2, 7 8 9 x1; near E 7-9 and
+4-6 x2, 1 2 3 x1; near W 4-9 x2, 1 2 3 x1; total 15 each. manual_control
+(both variants), operator_target, dashboard page / control tests pass; all
+9 PlatformIO envs build. Not on hardware. Flash: Mega only; reload the
+Dashboard page.

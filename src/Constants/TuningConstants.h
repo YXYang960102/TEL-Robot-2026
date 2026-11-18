@@ -107,6 +107,7 @@ constexpr bool ROW_CYCLE_ENABLED = true; // full auto hole cycle
 constexpr uint8_t SHOTS_PER_HOLE = 3; // first half
 constexpr uint8_t SECOND_HALF_SHOTS_PER_HOLE = 2; // second half
 constexpr uint8_t BONUS_SHOTS_PER_HOLE = 1; // lit Q W E, both halves
+constexpr uint8_t SECOND_HALF_FAR_COLUMN_SHOTS = 1; // second half, the cycle's last column; 0 = off
 constexpr bool CYCLE_BOTTOM_UP = true; // columns bottom to top, from the nearest bottom hole
 constexpr unsigned long HOLE_SWITCH_DELAY_MS = 2000; // wait after a hole's last ball
 constexpr unsigned long HOLE_NOT_FOUND_SKIP_MS = 7000; // no shot and no lock this long = next hole; 0 = never

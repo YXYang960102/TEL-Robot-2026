@@ -1121,15 +1121,17 @@ async function emergencyStopViaEnter() {
   // at it, row done.
   const telRow = (aim, shotsAtHole, done) =>
     telFull(0, 0, 159, 3, 0, 0) + `,0,0,-1,0,4,128,1000,0,${aim},${shotsAtHole},${done}`;
-  clock.t += 100; line(telRow(7, 2, 0));
+  clock.t += 100; line(telRow(7, 2, 0) + ',0,0,0,0,0,0,0,3');   // TEL 63: this hole gets 3
   assert.equal(run('aimHole'), 7);
   assert.match(elements.targetHole.textContent, /→ 正在打 7 · 右下 · 這洞已打 2\/3$/);
+  clock.t += 100; line(telRow(7, 0, 0) + ',0,0,0,0,0,0,0,1');   // second half's last column: 1
+  assert.match(elements.targetHole.textContent, /→ 正在打 7 · 右下 · 這洞已打 0\/1$/);
   clock.t += 100; line(telRow(1, 3, 1));
-  assert.match(elements.targetHole.textContent, /正在打 1 · 左下 · 這洞已打 3\/3 · 全部打完/);
+  assert.match(elements.targetHole.textContent, /正在打 1 · 左下 · 這洞已打 3 · 全部打完/);
   // A lit bonus hole served first (TEL 56-57).
-  clock.t += 100; line(telRow(11, 1, 0) + ',11,11');
+  clock.t += 100; line(telRow(11, 1, 0) + ',11,11,0,0,0,0,0,1');   // a lit box gets 1
   assert.equal(run('litHoleShown'), 11);
-  assert.match(elements.targetHole.textContent, /正在打 11 · 加分中 · 這洞已打 1\/3 · 加分框亮了：優先打/);
+  assert.match(elements.targetHole.textContent, /正在打 11 · 加分中 · 這洞已打 1\/1 · 加分框亮了：優先打/);
   // Turret search (TEL 58, 2026-11-01).
   clock.t += 100; line(telRow(7, 0, 0) + ',0,0,-1');
   assert.equal(elements.targetBoardState.textContent, '看不到目標洞：轉台往左找洞中');

@@ -154,5 +154,7 @@ void Telemetry::update() {
     Serial.print(",");
     Serial.print(Dribbler::getLoadedCount());
     Serial.print(",");
-    Serial.println(Auto::getFireBlockers());
+    Serial.print(Auto::getFireBlockers());
+    Serial.print(",");
+    Serial.println(Auto::getAimShots());
 }
