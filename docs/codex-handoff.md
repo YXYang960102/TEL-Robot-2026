@@ -8781,3 +8781,20 @@ default hole's table.
 5 @ 4.0 m 0.510 / 750; lost 3 s: 0.510 / 750 kept; switched to 6 unseen:
 0.600 / 1287 (= hole 6 @ 4.0 m). manual_control (both variants) passes;
 9 Mega envs build. Not on hardware. Flash: Mega only.
+
+## 2026-11-18 — Falcon ramp-up 1.5x faster
+
+**User Request (Jeremy):** the flywheel takes too long to reach the target
+speed; make the acceleration 1.5x.
+
+**Changed:** `TuningConstants::Flywheel::RAMP_UP_PER_SECOND` 0.5 -> 0.75 /s
+(linear ramp in Shooter::rampFlywheel, every mode). 0 -> 80% in 1.07 s (was
+1.6 s); 40% -> 60% in 0.27 s (was 0.4 s). Ramp-down unchanged (0.5 /s).
+SPIN_UP_MS (1.5 s "ready" wait after the output stops changing) unchanged.
+
+**Why the ramp exists:** 2026-10-18 an instant 46% -> 80% jump together with
+the elevation move drew enough current to reset the Mega. 0.75 /s is still a
+ramp; watch for brownouts / Mega resets on the first spin-ups.
+
+**Evidence:** manual_control host test passes; megaatmega2560 builds. Not
+on hardware. Flash: Mega only.
