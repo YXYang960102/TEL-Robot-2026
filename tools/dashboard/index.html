@@ -1050,6 +1050,7 @@
     // the operator's, or full auto's row cycle (2026-10-31). 0 = AI pick.
     let aimHole = 0;
     let rowShotsShown = 0;
+    let aimShotsShown = 0;
     let rowDoneShown = false;
     let litHoleShown = 0;      // TEL 56: the lit bonus hole the Orin sees
     let litPriorityShown = 0;  // TEL 57: the one full auto serves first
@@ -1623,7 +1624,7 @@
       const shown = aimHole || targetHole;
       let text = targetHole ? `${targetHole} · ${HOLE_NAMES[targetHole]}` : "none / 未選（AI 自選）";
       if (aimHole && aimHole !== targetHole) text += ` → 正在打 ${aimHole} · ${HOLE_NAMES[aimHole]}`;
-      if (aimHole && operatorMode === 0) text += ` · 這洞已打 ${rowShotsShown}/3`;
+      if (aimHole && operatorMode === 0) text += aimShotsShown > 0 ? ` · 這洞已打 ${rowShotsShown}/${aimShotsShown}` : ` · 這洞已打 ${rowShotsShown}`;
       if (litPriorityShown) text += " · 加分框亮了：優先打";
       if (rowDoneShown) text += " · 全部打完：選洞或換模式重新開始";
       el.targetHole.textContent = text;
@@ -2013,7 +2014,9 @@
         // Slot 61 (2026-11-07): A14 ball-ready pulses since boot.
         loadedCount: p.length > 61 ? Number(p[61]) : NaN,
         // Slot 62 (2026-11-16): why the autos don't fire (Auto::FireBlocker).
-        fireBlockers: p.length > 62 ? Number(p[62]) : NaN
+        fireBlockers: p.length > 62 ? Number(p[62]) : NaN,
+        // Slot 63 (2026-11-18): balls the aim hole gets (3 / 2, second half's last column 1, lit box 1).
+        aimShots: p.length > 63 ? Number(p[63]) : NaN
       };
     }
 
@@ -2054,6 +2057,7 @@
       if (Number.isFinite(data.aimHole)) {
         aimHole = data.aimHole;
         rowShotsShown = Number.isFinite(data.rowShots) ? data.rowShots : 0;
+        aimShotsShown = Number.isFinite(data.aimShots) ? data.aimShots : 0;
         rowDoneShown = data.rowDone === 1;
         litHoleShown = Number.isFinite(data.litHole) ? data.litHole : 0;
         litPriorityShown = Number.isFinite(data.litPriority) ? data.litPriority : 0;

@@ -34,6 +34,7 @@ uint8_t Auto::keptHole = 0;
 unsigned long Auto::elevationArrivedSinceMs = 0;
 bool Auto::rowActive = false;
 uint8_t Auto::rowStartHole = 0;
+uint8_t Auto::farColumn = 0xFF;
 uint8_t Auto::rowStep = 0;
 uint8_t Auto::rowShots = 0;
 bool Auto::rowDone = false;
@@ -120,11 +121,6 @@ bool hasShotTable(uint8_t hole) {
                                                         ManualControl::getBallColor()).entries != nullptr;
 }
 
-uint8_t shotsPerHole() {
-    return ManualControl::isSecondHalf() ? TuningConstants::Auto::SECOND_HALF_SHOTS_PER_HOLE
-                                         : TuningConstants::Auto::SHOTS_PER_HOLE;
-}
-
 bool excludedInFullAuto(uint8_t hole) {
     return hole <= 15 && (TuningConstants::Auto::FULL_AUTO_EXCLUDED_HOLES & (1u << hole)) != 0;
 }
@@ -138,6 +134,22 @@ uint8_t Auto::getAimTarget() {
 
 uint8_t Auto::getRowShots() {
     return litActive ? litShots : (rowActive ? rowShots : 0);
+}
+
+uint8_t Auto::getAimShots() {
+    if (litActive) return TuningConstants::Auto::BONUS_SHOTS_PER_HOLE;
+    if (rowActive && !rowDone) return shotsForHole(cycleHoles[rowStep]);
+    return 0;
+}
+
+uint8_t Auto::shotsForHole(uint8_t hole) {
+    using namespace TuningConstants::Auto;
+    if (!ManualControl::isSecondHalf()) return SHOTS_PER_HOLE;
+    if (SECOND_HALF_FAR_COLUMN_SHOTS > 0 && OperatorTarget::rowOf(hole) < 3 &&
+        OperatorTarget::columnOf(hole) == farColumn) {
+        return SECOND_HALF_FAR_COLUMN_SHOTS;
+    }
+    return SECOND_HALF_SHOTS_PER_HOLE;
 }
 
 bool Auto::isRowDone() {
@@ -234,6 +246,10 @@ void Auto::startCycle(uint8_t hole) {
     cycleLength = CYCLE_BOTTOM_UP
         ? OperatorTarget::buildBottomUpCycle(hole, skipped, cycleHoles)
         : OperatorTarget::buildCycle(hole, skipped, cycleHoles);
+    farColumn = 0xFF;
+    for (uint8_t i = 0; i < cycleLength; i++) {
+        if (OperatorTarget::rowOf(cycleHoles[i]) < 3) farColumn = OperatorTarget::columnOf(cycleHoles[i]);
+    }
     skipHolesWithoutTable();
 }
 
@@ -266,7 +282,7 @@ void Auto::countRowShot() {
         if (hole == OperatorTarget::NONE) return;
         startCycle(hole);
     }
-    if (++rowShots < shotsPerHole()) return;
+    if (++rowShots < shotsForHole(cycleHoles[rowStep])) return;
     holeSwitchPending = true;
     holeSwitchFromLit = false;
     holeSwitchStartMs = millis();

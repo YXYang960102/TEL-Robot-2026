@@ -29,6 +29,7 @@ public:
 
     static uint8_t getAimTarget();
     static uint8_t getRowShots();
+    static uint8_t getAimShots();
     static bool isRowDone();
     static uint8_t getLitPriorityHole();
     static bool getTableElevationUs(double& us);
@@ -48,9 +49,11 @@ private:
     static void skipHoleNotFound(unsigned long now);
     static void skipHolesWithoutTable();
     static void startCycle(uint8_t hole);
+    static uint8_t shotsForHole(uint8_t hole);
 
     static bool rowActive;
     static uint8_t rowStartHole;
+    static uint8_t farColumn;
     static uint8_t rowStep;
     static uint8_t cycleHoles[12];
     static uint8_t cycleLength;
