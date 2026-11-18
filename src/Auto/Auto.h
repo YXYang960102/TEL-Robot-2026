@@ -75,6 +75,7 @@ private:
     static unsigned long aimChangedMs;
     static OperatorMode rowMode;
     static bool rowSecondHalf;
+    static bool pathStartUsed;
 
     static FireState fireState;
     static unsigned long fireStateEnteredMs;

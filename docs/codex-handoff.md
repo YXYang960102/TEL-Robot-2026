@@ -8839,3 +8839,35 @@ apply.py regenerated ShotTableData.h. Not --replace (that would wipe red 4 /
 
 **Evidence:** shot_table_lookup and manual_control host tests pass;
 megaatmega2560 builds. Not on hardware. Flash: Mega only.
+
+## 2026-11-18 — Elevation trim off; paths pick the start column; right paths release the turret; left 2 / right 2 shorter
+
+**User Request (Jeremy):** turn the elevation trim off; left path -> start at
+1 2 3 (turret searches if unseen), right path -> start at 7 8 9; right paths
+often see no hole and the turret never turns left to look; left 2 / right 2
+first straight 1/3 shorter.
+
+**Changed:**
+- `Auto::ELEVATION_TRIM_ENABLED = false`: D-pad up/down in the autos no
+  longer builds a trim; getElevationOffsetUs() returns 0 (an EEPROM-saved
+  trim is ignored). Horizontal trim was already off. Dashboard help text.
+- `Auto::PATH_SETS_START_COLUMN = true`: once per AUTO,n (until AutoPath
+  resets to NONE), with no operator hole key, the cycle restarts at hole 1
+  (paths 1-2) or 7 (paths 3-4), overriding the nearest-bottom start. Lit box
+  still first; the 7 s not-found skip and the second-half last-column rule
+  (7 8 9 for left, 1 2 3 for right) follow from the cycle.
+- AutoPath::holdsTurret(): only while the path is active. It used to stay on
+  after DONE until a hole was seen, so a right path ending with nothing in
+  view at 0 deg left the turret disabled (no search, no sweep). Now the
+  turret goes to vision follow with sweep (left to -90 deg first, then 35).
+- `AutoPath::FORWARD_DRIVE_MS` 4000 -> 2667 (left 2 / right 2 first straight).
+
+**Evidence:** host sim: path 1/2 aim 1, path 3/4 aim 7 right after AUTO,n
+(nearest bottom = 4 ignored); first straight 3000 ms (paths 1/3, unchanged)
+and 2670 ms (2/4); after DONE with no hole: rotate "vision", sweep allowed.
+manual_control (both variants; the jog test expects trim 0 now), dashboard
+page / control tests pass; all 9 envs build. Not on hardware. Flash: Mega.
+
+**Open:** Jeremy saw 12xx us at 4.2-4.58 m (full auto, red, trim 0). The
+new red table gives 1358 there (top row) -- the Mega was likely still on old
+firmware; re-check after flashing this build.
