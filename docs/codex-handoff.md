@@ -8871,3 +8871,30 @@ page / control tests pass; all 9 envs build. Not on hardware. Flash: Mega.
 **Open:** Jeremy saw 12xx us at 4.2-4.58 m (full auto, red, trim 0). The
 new red table gives 1358 there (top row) -- the Mega was likely still on old
 firmware; re-check after flashing this build.
+
+## 2026-11-18 — Turret ignores flashes (200 ms confirm); right paths lock like left
+
+**User Request (Jeremy):** while searching, a strange target flashes and
+the turret stops searching -- treat a flash as untrusted; right paths
+should lock the turret while driving like left paths.
+
+**Changed:**
+- `Rotate::SEEN_CONFIRM_MS = 200`. Shooter::updateRotate (VISION_FOLLOW):
+  a seen / predicted target counts only after it has been reported
+  continuously for 200 ms with the same target id (any frame without it or
+  a new id restarts the time). Until then it is "not seen": search / sweep
+  / lost-turn keep going, no follow, no lock (rotateReady), so a flash no
+  longer resets the blind timer, ends the search, sets the last-seen side,
+  or resets the 7 s not-found skip. Firing was already gated by the lock.
+- `AutoPath::RIGHT_PATHS_HOLD_TURRET_UNTIL_SEEN` true -> false: right paths
+  now drive like left ones (hole in view: follow; out of view: held).
+  Original reason for the hold (2026-11-14): the +38.5 deg right limit;
+  the turret guard still stops it there.
+
+**Evidence:** confirm-logic timeline replay (snippet from Shooter.cpp): an
+80 ms flash never counts, a target in view from t=400 counts at t=600.
+manual_control (both variants) passes; all 9 envs build. Shooter.cpp is
+not in the host tests. Not on hardware. Flash: Mega only.
+
+**Next Test:** search with a flashing false box: the sweep continues;
+right path: turret follows the hole while driving; watch the right limit.

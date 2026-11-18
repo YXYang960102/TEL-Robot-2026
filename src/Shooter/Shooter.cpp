@@ -31,6 +31,8 @@ unsigned long lastSeenMs = 0;
 bool sweepAllowed = false;
 int8_t sweepDir = -1;
 unsigned long blindSinceMs = 0;
+unsigned long confirmSinceMs = 0;
+int confirmTargetId = 0;
 
 int commandToPulseUs(double command, const ServoMotorConfig& config) {
     command = constrain(command, -1.0, 1.0);
@@ -306,9 +308,16 @@ void Shooter::updateRotate() {
         return;
     }
     if (rotateMode == RotateControlMode::VISION_FOLLOW) {
-        const bool seen = Vision::isValid();
-        const bool predicted = Vision::isPredicted();
         const unsigned long now = millis();
+        const bool rawSeen = Vision::isValid();
+        const bool rawPredicted = Vision::isPredicted();
+        if (!(rawSeen || rawPredicted) || Vision::getTargetId() != confirmTargetId) {
+            confirmSinceMs = rawSeen || rawPredicted ? (now == 0 ? 1 : now) : 0;
+            confirmTargetId = rawSeen || rawPredicted ? Vision::getTargetId() : 0;
+        }
+        const bool confirmed = confirmSinceMs != 0 && now - confirmSinceMs >= Rotate::SEEN_CONFIRM_MS;
+        const bool seen = rawSeen && confirmed;
+        const bool predicted = rawPredicted && confirmed;
         const uint8_t selection = Vision::getSelectedTarget();
         if (selection != searchSelection) {
             searchSelection = selection;
