@@ -69,7 +69,7 @@ constexpr int STOP_PULSE_OFFSET_US = -10; // stopped = 1490 us (the Falcon creep
 constexpr double SHOOT_COMMAND = 0.2; // pre-spin only if the default hole has no table
 constexpr uint32_t SPIN_UP_MS = 1500; // spun up this long after the command changes
 
-constexpr double RAMP_UP_PER_SECOND = 0.5; // 0 -> 80% in 1.6 s
+constexpr double RAMP_UP_PER_SECOND = 0.75; // 0 -> 80% in 1.07 s (was 0.5)
 constexpr double RAMP_DOWN_PER_SECOND = 0.5; // 80% -> stop in 1.6 s
 
 }
