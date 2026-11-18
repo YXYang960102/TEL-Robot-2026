@@ -600,13 +600,13 @@ void ManualControl::updateFineAdjust() {
         }
     }
     const bool elevationJogNow = angleNow != 0 && angleNudgePrev != NUDGE_NEEDS_RELEASE;
-    if (elevationJogNow && autoOwnsElevation()) {
+    if (ELEVATION_TRIM_ENABLED && elevationJogNow && autoOwnsElevation()) {
         const int up = TuningConstants::Angle::INVERTED ? -1 : 1;
         elevationOffsetUs = clampAbs(
             elevationOffsetUs + angleNow * up * ELEVATION_JOG_US_PER_SECOND * jogElapsedMs / 1000.0,
             ELEVATION_OFFSET_MAX_US);
     }
-    if (elevationJogPrev && !elevationJogNow && autoOwnsElevation()) {
+    if (ELEVATION_TRIM_ENABLED && elevationJogPrev && !elevationJogNow && autoOwnsElevation()) {
         trimSeq++;
     }
     elevationJogPrev = elevationJogNow;
@@ -686,7 +686,7 @@ double ManualControl::getAimJogCommand() {
 }
 
 double ManualControl::getElevationOffsetUs() {
-    return elevationOffsetUs;
+    return TuningConstants::Auto::ELEVATION_TRIM_ENABLED ? elevationOffsetUs : 0.0;
 }
 
 void ManualControl::triggerFeed() {

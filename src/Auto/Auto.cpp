@@ -56,6 +56,7 @@ unsigned long Auto::aimChangedMs = 0;
 uint16_t Auto::rowSelectSeq = 0;
 OperatorMode Auto::rowMode = OperatorMode::FULL_MANUAL;
 bool Auto::rowSecondHalf = false;
+bool Auto::pathStartUsed = false;
 
 namespace {
 ShotDistanceFilter<TuningConstants::Auto::DISTANCE_MEDIAN_FRAMES> distanceFilter(
@@ -192,6 +193,16 @@ void Auto::updateRowCycle(OperatorMode mode) {
         litActive = false;
         notFoundAim = 0;
         return;
+    }
+    const AutoPath::State pathState = AutoPath::getState();
+    if (pathState == AutoPath::State::NONE) pathStartUsed = false;
+    const uint8_t path = AutoPath::getPath();
+    if (ROW_CYCLE_ENABLED && PATH_SETS_START_COLUMN && !pathStartUsed && path >= 1 && path <= 4 &&
+        pathState != AutoPath::State::NONE && ManualControl::getTarget() == OperatorTarget::NONE) {
+        pathStartUsed = true;
+        holeSwitchPending = false;
+        rowDone = false;
+        startCycle(OperatorTarget::holeAt(0, path <= 2 ? 0 : 2));
     }
     if (holeSwitchPending && now - holeSwitchStartMs >= HOLE_SWITCH_DELAY_MS) {
         finishHoleSwitch();

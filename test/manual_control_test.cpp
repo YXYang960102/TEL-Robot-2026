@@ -1427,7 +1427,7 @@ void testFineAdjustWired() {
     // and it stays where it was let go.
     static_assert(TuningConstants::ShotTable::ELEVATION_MEASURED,
                   "with placeholder pulses, up/down stay the manual jog: restore the old check");
-    const double up = TuningConstants::Angle::INVERTED ? -1.0 : 1.0;
+    const double up = !ELEVATION_TRIM_ENABLED ? 0.0 : TuningConstants::Angle::INVERTED ? -1.0 : 1.0; // trim off (2026-11-18): stays 0
     const double jogStepUs = ELEVATION_JOG_US_PER_SECOND * 10 / 1000.0; // one 10 ms loop
     for (int i = 0; i < 25; i++) { send("ANG,1"); step(); }             // held 250 ms
     const double held = ELEVATION_JOG_US_PER_SECOND * 0.25;

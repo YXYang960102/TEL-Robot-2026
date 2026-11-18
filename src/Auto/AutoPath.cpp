@@ -126,5 +126,5 @@ bool AutoPath::holdsShooter() {
 }
 
 bool AutoPath::holdsTurret() {
-    return turretHold && (isActive() || state == State::DONE);
+    return turretHold && isActive();
 }

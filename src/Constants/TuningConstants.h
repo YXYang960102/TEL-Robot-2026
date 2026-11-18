@@ -83,14 +83,14 @@ constexpr int8_t LEFT1_LAST_TURN_DIRECTION = 1; // +1 right, -1 left
 constexpr unsigned long LEFT1_LAST_TURN_MS = 500;
 constexpr int8_t RIGHT1_LAST_TURN_DIRECTION = 1; // +1 right, -1 left
 constexpr unsigned long RIGHT1_LAST_TURN_MS = 1000;
-constexpr unsigned long FORWARD_DRIVE_MS = 4000; // left 2 / right 2: straight
+constexpr unsigned long FORWARD_DRIVE_MS = 2667; // left 2 / right 2: straight (was 4000)
 constexpr unsigned long SIDE_TURN_MS = 500; // left 2 / right 2: turn
 constexpr unsigned long SIDE_DRIVE_MS = 1000; // left 2 / right 2: second straight
 constexpr unsigned long SIDE_TURN_BACK_MS = 1000; // left 2 / right 2: turn back
 constexpr unsigned long PAUSE_MS = 300; // standing still between moves
 constexpr unsigned long PENDING_MS = 1500; // AUTO,n waits this long for full auto
 constexpr double STICK_TAKEOVER = 0.20; // stick past this stops the path
-constexpr bool RIGHT_PATHS_HOLD_TURRET_UNTIL_SEEN = true; // right paths: turret at 0 deg until the hole is seen
+constexpr bool RIGHT_PATHS_HOLD_TURRET_UNTIL_SEEN = true; // right paths: turret at 0 deg while driving, until the hole is seen
 constexpr bool RIGHT_TURN_LEFT_WHEEL_BACK = true; // turn right = left wheel back
 }
 
@@ -109,6 +109,7 @@ constexpr uint8_t SECOND_HALF_SHOTS_PER_HOLE = 2; // second half
 constexpr uint8_t BONUS_SHOTS_PER_HOLE = 1; // lit Q W E, both halves
 constexpr uint8_t SECOND_HALF_FAR_COLUMN_SHOTS = 1; // second half, the cycle's last column; 0 = off
 constexpr bool CYCLE_BOTTOM_UP = true; // columns bottom to top, from the nearest bottom hole
+constexpr bool PATH_SETS_START_COLUMN = true; // left paths start at 1, right paths at 7
 constexpr unsigned long HOLE_SWITCH_DELAY_MS = 2000; // wait after a hole's last ball
 constexpr unsigned long HOLE_NOT_FOUND_SKIP_MS = 7000; // no shot and no lock this long = next hole; 0 = never
 constexpr uint16_t FULL_AUTO_EXCLUDED_HOLES = 0; // bit n = hole n
@@ -130,6 +131,7 @@ constexpr unsigned long AIM_JOG_SETTLE_MS = 300;
 constexpr double AIM_JOG_COMMAND = 0.2; // hand turn speed in the autos / test
 constexpr bool AIM_OFFSET_ENABLED = false; // false = horizontal trim off
 constexpr double AIM_OFFSET_MAX_PX = 300.0;
+constexpr bool ELEVATION_TRIM_ENABLED = false; // false = elevation follows the table only (D-pad up/down ignored, saved trim = 0)
 constexpr double ELEVATION_JOG_US_PER_SECOND = 200.0;
 constexpr double ELEVATION_OFFSET_MAX_US = 200.0;
 
