@@ -66,7 +66,7 @@ constexpr bool INVERTED = false; // false = 1500-2000 us shoots
 
 constexpr int STOP_PULSE_OFFSET_US = -10; // stopped = 1490 us (the Falcon creeps at 1500)
 
-constexpr double SHOOT_COMMAND = 0.2;
+constexpr double SHOOT_COMMAND = 0.2; // pre-spin only if the default hole has no table
 constexpr uint32_t SPIN_UP_MS = 1500; // spun up this long after the command changes
 
 constexpr double RAMP_UP_PER_SECOND = 0.5; // 0 -> 80% in 1.6 s

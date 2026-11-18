@@ -28,6 +28,9 @@ uint16_t Auto::fireBlockers = 0;
 bool Auto::semiFirePending = false;
 unsigned long Auto::semiFireUntilMs = 0;
 double Auto::keptFlywheel = -1.0;
+double Auto::keptElevationUs = -1.0;
+double Auto::keptDistanceM = 0.0;
+uint8_t Auto::keptHole = 0;
 unsigned long Auto::elevationArrivedSinceMs = 0;
 bool Auto::rowActive = false;
 uint8_t Auto::rowStartHole = 0;
@@ -314,6 +317,8 @@ void Auto::init() {
     fireBlockers = 0;
     semiFirePending = false;
     keptFlywheel = -1.0;
+    keptElevationUs = -1.0;
+    keptHole = 0;
 }
 
 void Auto::enterFireState(FireState next) {
@@ -334,6 +339,8 @@ void Auto::update() {
         fireBlockers = 0;
         semiFirePending = false;
         keptFlywheel = -1.0;
+    keptElevationUs = -1.0;
+    keptHole = 0;
         return;
     }
 
@@ -380,6 +387,9 @@ void Auto::update() {
     if (hasTarget) {
         haveLastShot = true;
         keptFlywheel = shot.flywheelCommand;
+        keptElevationUs = shot.elevationPulseUs;
+        keptDistanceM = distanceFilter.latched();
+        keptHole = OperatorTarget::holeForVisionId(Vision::getTargetId());
         lastShotFlywheel = shot.flywheelCommand;
         lastShotElevationUs = shot.elevationPulseUs;
         lastShotMs = now;
@@ -393,9 +403,7 @@ void Auto::update() {
         distanceFilter.reset();
     }
 
-    double flywheelCommand = keptFlywheel >= 0.0
-        ? constrain(keptFlywheel + ManualControl::getFlywheelOffsetPct() / 100.0, 0.0, 1.0)
-        : TuningConstants::Flywheel::SHOOT_COMMAND;
+    double flywheelCommand = TuningConstants::Flywheel::SHOOT_COMMAND;
     bool elevationArrived = !TuningConstants::ShotTable::ELEVATION_MEASURED;
     if (hasTarget || holding) {
         flywheelCommand = constrain(
@@ -410,6 +418,18 @@ void Auto::update() {
                 TuningConstants::Auto::AUTO_PATH_ELEVATION_DISTANCE_M, preset,
                 ManualControl::getBallColor())) {
             slewElevation(preset.elevationPulseUs + ManualControl::getElevationOffsetUs(), now);
+        }
+        ShotTableLookup::Result kept = {0.0, 0.0};
+        if (noTargetShot(kept)) {
+            flywheelCommand = constrain(kept.flywheelCommand + ManualControl::getFlywheelOffsetPct() / 100.0, 0.0, 1.0);
+        }
+    } else {
+        ShotTableLookup::Result kept = {0.0, 0.0};
+        if (noTargetShot(kept)) {
+            flywheelCommand = constrain(kept.flywheelCommand + ManualControl::getFlywheelOffsetPct() / 100.0, 0.0, 1.0);
+            if (TuningConstants::ShotTable::ELEVATION_MEASURED) {
+                slewElevation(kept.elevationPulseUs + ManualControl::getElevationOffsetUs(), now);
+            }
         }
     }
     lastElevationSlewMs = now;
@@ -498,6 +518,23 @@ void Auto::update() {
         semiFirePending = false;
         ManualControl::reportEvent(RCMAP_EVENT_FIRE_NOT_READY);
     }
+}
+
+bool Auto::noTargetShot(ShotTableLookup::Result& out) {
+    const uint8_t color = ManualControl::getBallColor();
+    const uint8_t aim = getAimTarget();
+    if (keptFlywheel >= 0.0) {
+        if (aim != 0 && aim != keptHole && keptDistanceM > 0.0 &&
+            ShotTableLookup::lookupTarget(OperatorTarget::visionIdForHole(aim), keptDistanceM, out, color)) {
+            return true;
+        }
+        out.flywheelCommand = keptFlywheel;
+        out.elevationPulseUs = keptElevationUs;
+        return keptElevationUs >= 0.0;
+    }
+    return ShotTableLookup::lookupTarget(
+        OperatorTarget::visionIdForHole(TuningConstants::Auto::AUTO_PATH_ELEVATION_HOLE),
+        TuningConstants::Auto::AUTO_PATH_ELEVATION_DISTANCE_M, out, color);
 }
 
 bool Auto::slewElevation(double targetUs, unsigned long now) {

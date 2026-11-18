@@ -8751,3 +8751,29 @@ mega_vision_rotate_test, mega_gamepad_motor_test give byte-identical
 firmware.hex to before; all 9 Mega envs + blackpill_f401cc build;
 manual_control host test (both variants) passes; apply.py --check: same
 as the current table. Nothing to flash (identical firmware).
+
+## 2026-11-18 — No hole in view: keep the last target's speed and elevation; new hole = its table
+
+**User Request (Jeremy):** in the autos, with no target in view keep the
+previous target's flywheel and elevation until the target changes, instead
+of the low pre-spin. Chosen: never seen yet -> hole 4's table at 4.5 m
+(AUTO_PATH_ELEVATION_HOLE / _DISTANCE_M, current ball color); aim moved to
+another hole that is not in view yet -> that hole's table at the last
+target's distance.
+
+**Changed (src/Auto):** `keptElevationUs`, `keptDistanceM`, `keptHole` saved
+with `keptFlywheel` on every looked-up shot (reset in init / full manual).
+`Auto::noTargetShot()` (no target, past TARGET_HOLD_MS): aim (getAimTarget:
+the full-auto cycle / lit box, or the semi-auto hole key) != keptHole ->
+lookupTarget(aim, keptDistanceM); else the kept flywheel + elevation; never
+seen -> the default hole's table. Flywheel and elevation (slew, + trims)
+both follow it; during an auto path only the flywheel value (still 0 while
+the path holds the shooter; elevation keeps the path preset). SHOOT_COMMAND
+(20%) only if the default hole has no table. Firing still needs the hole in
+the current frame. Test expectation in testAutoNeedsDistance: 20% -> the
+default hole's table.
+
+**Evidence:** host sim: never seen 0.400 / 709 us (= hole 4 @ 4.5 m); seeing
+5 @ 4.0 m 0.510 / 750; lost 3 s: 0.510 / 750 kept; switched to 6 unseen:
+0.600 / 1287 (= hole 6 @ 4.0 m). manual_control (both variants) passes;
+9 Mega envs build. Not on hardware. Flash: Mega only.
