@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 
+#include "../Control/ShotTableLookup.h"
 #include "../IO/OperatorMode.h"
 
 class Auto {
@@ -86,6 +87,10 @@ private:
     static bool semiFirePending;
     static unsigned long semiFireUntilMs;
     static double keptFlywheel;
+    static double keptElevationUs;
+    static double keptDistanceM;
+    static uint8_t keptHole;
+    static bool noTargetShot(ShotTableLookup::Result& out);
     static unsigned long elevationArrivedSinceMs;
     static bool slewElevation(double targetUs, unsigned long now);
 };

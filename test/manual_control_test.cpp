@@ -1301,7 +1301,11 @@ void testAutoNeedsDistance() {
     armWired();
     send("M"); send("M"); step();                         // full auto
     assert(shotsDuring(2500) == 0);
-    assert(nearly(rec.flywheelCommand, TuningConstants::Flywheel::SHOOT_COMMAND));
+    ShotTableLookup::Result preset = {0.0, 0.0};
+    assert(ShotTableLookup::lookupTarget(
+        OperatorTarget::visionIdForHole(TuningConstants::Auto::AUTO_PATH_ELEVATION_HOLE),
+        TuningConstants::Auto::AUTO_PATH_ELEVATION_DISTANCE_M, preset));
+    assert(nearly(rec.flywheelCommand, preset.flywheelCommand));  // never seen: the default hole's table
     hoststub::visionDistanceMm = 4000.0;
     assert(shotsDuring(5000) >= 2);                       // after the elevation slew (2026-10-31)
     // Semi-auto F without a distance: refused.
