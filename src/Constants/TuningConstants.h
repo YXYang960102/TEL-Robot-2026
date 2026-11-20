@@ -79,7 +79,7 @@ namespace AutoPath {
 constexpr double DRIVE_COMMAND = 1.0; // both wheels, straight
 constexpr double TURN_COMMAND = 0.35;
 constexpr unsigned long DIAGONAL_TURN_MS = 0; // left 1 / right 1: first turn
-constexpr unsigned long DIAGONAL_DRIVE_MS = 3000; // left 1 / right 1: straight
+constexpr unsigned long DIAGONAL_DRIVE_MS = 2600; // left 1 / right 1: straight (was 3000)
 constexpr int8_t LEFT1_LAST_TURN_DIRECTION = 1; // +1 right, -1 left
 constexpr unsigned long LEFT1_LAST_TURN_MS = 500;
 constexpr int8_t RIGHT1_LAST_TURN_DIRECTION = 1; // +1 right, -1 left
