@@ -482,8 +482,8 @@ async function emergencyStopViaEnter() {
   event('TARGET_SELECTED');
   assert.equal(elements.targetHole.textContent, '7 · 右下');
   event('AUTO_PATH_STARTED');                                 // the menu's path, sent at Y
-  assert.match(elements.autoPath.textContent, /^已啟動 右一/);
-  assert.match(elements.autoPathsUsed.textContent, /本頁送出紀錄：右一/);
+  assert.match(elements.autoPath.textContent, /^已啟動 右：斜前方 2\.6 秒/);
+  assert.match(elements.autoPathsUsed.textContent, /本頁送出紀錄：右：斜前方 2\.6 秒/);
   // During the match the mode menu and X / A / B switch right away.
   writes.length = 0;
   elements.startMode.value = '0';
@@ -620,7 +620,7 @@ async function emergencyStopViaEnter() {
   // A new Enable allows one more auto path and starts on the AI's own
   // target pick; the record stays.
   assert.match(elements.autoPath.textContent, /not started/);
-  assert.match(elements.autoPathsUsed.textContent, /右一/);
+  assert.match(elements.autoPathsUsed.textContent, /右：斜前方 2\.6 秒/);
   assert.match(elements.targetHole.textContent, /none/);
 
   // Ground link: a rejected or unconfirmed enable sends X so the ground
@@ -720,12 +720,12 @@ async function emergencyStopViaEnter() {
     'NaN', 'NaN', 'NaN', 0, 1500, 1500, 0, 0, 0, 0, 0, 1500, 0.0, 2310, 243.5, 0.0, 270.0, hole, path, mask].join(',');
   line(telTarget(5, 1, (1 << 1) | (1 << 4)));
   assert.equal(elements.targetHole.textContent, '5 · 中');
-  assert.match(elements.autoPath.textContent, /^已啟動 左一/);
-  assert.equal(elements.autoPathsUsed.textContent, '開機後已用：左一、右二');
+  assert.match(elements.autoPath.textContent, /^已啟動 左：斜前方 2\.6 秒/);
+  assert.equal(elements.autoPathsUsed.textContent, '開機後已用：左：斜前方 2.6 秒、右：直角');
   line(telTarget(0, 0, 1 << 4));
   assert.match(elements.targetHole.textContent, /none/);
   assert.match(elements.autoPath.textContent, /not started/);
-  assert.equal(elements.autoPathsUsed.textContent, '開機後已用：右二');
+  assert.equal(elements.autoPathsUsed.textContent, '開機後已用：右：直角');
   // Slots 35-37: vision id sent to the Orin + fine-adjust; slots 5/6 say
   // whether that hole is in view.
   const telAim = (frameId, valid, visionId, aim, elev) => ['TEL', 1, 0, 0, 3500, frameId, valid, 1500, 1500, 1500, 1500, 1500, 0, 2, 1,

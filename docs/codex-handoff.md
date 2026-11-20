@@ -9056,3 +9056,15 @@ semi auto: not sent, nothing starts. 9 envs + ground + robot bridge
 build (bridge dist/ restored, unchanged); rc_control_map, ground state,
 manual_control (both) and Dashboard tests pass. Not on hardware.
 Flash: Mega AND ground together.
+
+## 2026-11-21 — Dashboard path names
+
+**User Request (Jeremy):** name the paths by shape: diagonal-forward with
+its seconds, right angle; right side the same.
+
+**Changed:** Dashboard menu and AUTO_PATH_NAMES: 1 左：斜前方 2.6 秒,
+2 左：直角, 5 左：斜前方 2.0 秒, 3 右：斜前方 2.6 秒, 4 右：直角,
+6 右：斜前方 2.0 秒. Path numbers unchanged (no flash). The seconds are
+written in the names: change them with AutoPath::PATHS.
+
+**Evidence:** the three Dashboard tests pass (expectations renamed).
