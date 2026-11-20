@@ -9106,3 +9106,15 @@ tests pass. Not on hardware. Flash: Mega only.
 
 **Next Test:** jog the elevation slowly to 2500 us and check it does not
 press against the mechanism's low stop (2461 was set on 2026-11-08).
+
+## 2026-11-21 — Elevation pulse max back to 2461 us
+
+**User Request (Jeremy):** do not use 2500; change it back.
+
+**Changed:** revert of d3591a0 (code, apply.py, Excel validation, Dashboard,
+test expectations): `Angle::MAX_PULSE_US` 2461 again. Table points
+unchanged.
+
+**Evidence:** 9 envs build; servo_angle_map, servo_position_jog,
+shot_table_lookup and Dashboard tests pass; apply.py --check: no change.
+Flash: Mega only.
