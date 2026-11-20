@@ -257,7 +257,7 @@ void testWiredScalingAndParsing() {
     assert(rec.rotateMode == "manual" && nearly(rec.rotateCommand, JOG * ROTATE_MANUAL_SCALE));
     assert(nearly(rec.angleCommand, -ANGLE_MANUAL_SCALE) && nearly(rec.flywheelCommand, 1.0));
     for (const char* bad : {"FLY,nan", "FLY,inf", "ROT,-1e999", "T,2", "T,1,1,1", "FLY,abc",
-                            "TGT,13", "TGT,-1", "TGT,", "TGT,5x", "AUTO,0", "AUTO,5", "AUTO,"}) {
+                            "TGT,13", "TGT,-1", "TGT,", "TGT,5x", "AUTO,0", "AUTO,7", "AUTO,"}) {
         Serial.output.clear();
         send(bad);
         ManualControl::update();

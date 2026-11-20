@@ -29,7 +29,7 @@ static void test_round_trip(void) {
     assert(ch[RCMAP_CH_FIRE] == 2000 && ch[RCMAP_CH_ARM] == 2000);
     assert(ch[RCMAP_CH_NUDGE] == 1600 && ch[RCMAP_CH_AUTO] == 1600);
     /* CH9 level 2 = normal; CH10 = link version 5 (2026-11-08). */
-    assert(ch[8] == 1400 && ch[RCMAP_CH_VERSION] == 1000 && ch[15] == 1500); /* version 0 (2026-11-15) */
+    assert(ch[8] == 1400 && ch[RCMAP_CH_VERSION] == 1200 && ch[15] == 1500); /* version 1 (2026-11-21) */
     rcmap_command d;
     assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
     assert(near(d.forward, 1.0f) && near(d.turn, -0.5f));
@@ -64,20 +64,20 @@ static void test_elrs_hybrid_values(void) {
     const int six[6] = {988, 1193, 1398, 1602, 1807, 2012};
     rcmap_command d;
     for (uint8_t k = 0; k < 5; k++) {
-        int ch[16] = {1500, 1500, 1401, 2000, 988, 2012, six[k], six[4 - k], six[2], six[0]};
+        int ch[16] = {1500, 1500, 1401, 2000, 988, 2012, six[k], six[4 - k], six[2], six[1]};
         assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
         assert(d.nudge == k && d.auto_path == 4 - k && d.armed && !d.fire);
         assert(d.target == RCMAP_TARGET_NONE + 5); /* 1401 -> hole 5 (1000 + 80*5) */
     }
-    int ch[16] = {1500, 1500, 1000, 2000, 2012, 988, 988, 988, 1398, 988};
-    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.fire && !d.armed && !d.trim_clear);
-    /* CH8's 6th level (2012) = trim clear (2026-11-08), no auto path. */
+    int ch[16] = {1500, 1500, 1000, 2000, 2012, 988, 988, 988, 1398, 1193};
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.fire && !d.armed && d.auto_path == RCMAP_AUTO_NONE);
+    /* CH8's 6th level (2012) = path 5, left 3 (2026-11-21; was trim clear). */
     ch[RCMAP_CH_AUTO] = 2012;
-    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.trim_clear && d.auto_path == RCMAP_AUTO_NONE);
+    assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.auto_path == 5);
 }
 
 static void test_invalid_frames(void) {
-    int ok[16] = {1500, 1500, 1000, 2000, 1000, 1000, 1000, 1000, 1400, 1000};
+    int ok[16] = {1500, 1500, 1000, 2000, 1000, 1000, 1000, 1000, 1400, 1200};
     rcmap_command d = base();
     assert(rcmap_decode(ok, RCMAP_CHANNEL_COUNT, &d));
     int ch[16];
@@ -93,7 +93,7 @@ static void test_invalid_frames(void) {
     assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
     memcpy(ch, ok, sizeof ch); ch[RCMAP_CH_NUDGE] = 1100;   /* between center and up */
     assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
-    memcpy(ch, ok, sizeof ch); ch[RCMAP_CH_AUTO] = 1900;    /* between path 4 and trim clear */
+    memcpy(ch, ok, sizeof ch); ch[RCMAP_CH_AUTO] = 1900;    /* between path 4 and path 5 */
     assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
     /* Too few channels. */
     assert(!rcmap_decode(ok, RCMAP_CHANNEL_COUNT - 1, &d));
@@ -530,14 +530,14 @@ static void test_link_version(void) {
     rcmap_encode(&c, ch);
     assert(ch[RCMAP_CH_VERSION] == 1000 + 200 * RCMAP_LINK_VERSION);
     assert(rcmap_link_version_ok(ch, RCMAP_CHANNEL_COUNT) && rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
-    /* What ELRS's 6-position AUX actually delivers for level 0. */
-    ch[RCMAP_CH_VERSION] = 988;
+    /* What ELRS's 6-position AUX actually delivers for level 1. */
+    ch[RCMAP_CH_VERSION] = 1193;
     assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.target == 5);
     /* A pre-10-27 ground's 1500 arrives snapped to 1398 or 1602 (hence no
-     * versions 2 / 3); version 1 (1193 / 1200), version 4 (1807 / 1800,
-     * before 2026-11-08), any other level, or no CH10 at all, is rejected
-     * too. */
-    const int others[] = {1500, 1398, 1602, 2012, 2000, 1193, 1200, 1807, 1800, 1300};
+     * versions 2 / 3); version 0 (988 / 1000, 2026-11-15..11-21: CH8 level
+     * 5 was trim clear), version 4 (1807 / 1800), version 5 (2012 / 2000),
+     * any other level, or no CH10 at all, is rejected too. */
+    const int others[] = {1500, 1398, 1602, 2012, 2000, 988, 1000, 1807, 1800, 1300};
     for (unsigned i = 0; i < sizeof others / sizeof others[0]; i++) {
         ch[RCMAP_CH_VERSION] = others[i];
         assert(!rcmap_link_version_ok(ch, RCMAP_CHANNEL_COUNT));

@@ -92,7 +92,6 @@ private:
     static bool wirelessFirePrev;
     static uint8_t wirelessAutoPrev;
     static bool wirelessHomePrev;
-    static bool wirelessTrimClearPrev;
     static bool wirelessCapturePrev;
     static bool wirelessStartPrev;
     static bool matchStartRequested;

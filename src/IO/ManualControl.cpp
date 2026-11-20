@@ -33,7 +33,6 @@ bool ManualControl::wirelessArmPrev = true;
 bool ManualControl::wirelessFirePrev = true;
 uint8_t ManualControl::wirelessAutoPrev = RCMAP_AUTO_NONE;
 bool ManualControl::wirelessHomePrev = true;
-bool ManualControl::wirelessTrimClearPrev = true;
 bool ManualControl::wirelessCapturePrev = true;
 bool ManualControl::wirelessStartPrev = true;
 bool ManualControl::matchStartRequested = false;
@@ -305,7 +304,7 @@ void ManualControl::processCommand(char* command) {
         const long maximum = isTarget ? RCMAP_TARGET_MAX
                            : isBallColor ? RCMAP_BALL_COLORS - 1
                            : isHalf ? RCMAP_HALF_SECOND
-                           : isAutoPath ? RCMAP_AUTO_PATHS
+                           : isAutoPath ? TuningConstants::AutoPath::PATH_COUNT
                            : isFlywheelOffset ? RCMAP_AUTO_OFFSET_MAX_PCT
                                         : static_cast<long>(OperatorMode::TEST);
         const long minimum = isAutoPath || isHalf ? 1 : isFlywheelOffset ? -RCMAP_AUTO_OFFSET_MAX_PCT : 0;
@@ -386,7 +385,6 @@ void ManualControl::resetWirelessTracking() {
     wirelessFirePrev = true;
     wirelessAutoPrev = 0xFF;
     wirelessHomePrev = true;
-    wirelessTrimClearPrev = true;
     wirelessCapturePrev = true;
     wirelessStartPrev = true;
 }
@@ -430,8 +428,6 @@ void ManualControl::processWirelessFrame() {
     wirelessAutoPrev = c.auto_path;
     const bool homeEdge = c.turret_home && !wirelessHomePrev;
     wirelessHomePrev = c.turret_home;
-    const bool trimClearEdge = c.trim_clear && !wirelessTrimClearPrev;
-    wirelessTrimClearPrev = c.trim_clear;
     const bool captureEdge = c.capture_toggle && !wirelessCapturePrev;
     wirelessCapturePrev = c.capture_toggle;
     const bool startEdge = c.match_start && !wirelessStartPrev;
@@ -459,10 +455,9 @@ void ManualControl::processWirelessFrame() {
         if (fireEdge) handleFire();
         if (autoEdge) requestAutoPath(c.auto_path);
         if (homeEdge) requestTurretHome(); // RB (CH9): back to 0 deg
-        if (trimClearEdge) clearTrim();    // C (CH8 level 5)
         if (captureEdge) toggleCapture();  // P (CH9 level 3)
         if (startEdge) matchStart();       // Y (CH7 level 5)
-    } else if (fireEdge || autoEdge || homeEdge || trimClearEdge || captureEdge) {
+    } else if (fireEdge || autoEdge || homeEdge || captureEdge) {
         sendEvent(owner == Owner::NONE ? RCMAP_EVENT_REJECTED_DISARMED
                                        : RCMAP_EVENT_REJECTED_NOT_OWNER);
     }
@@ -745,7 +740,7 @@ void ManualControl::selectTarget(uint8_t hole) {
 }
 
 void ManualControl::requestAutoPath(uint8_t path) {
-    if (ManualControlConstants::WIRED_MANUAL_ONLY || path < 1 || path > RCMAP_AUTO_PATHS ||
+    if (ManualControlConstants::WIRED_MANUAL_ONLY || path < 1 || path > TuningConstants::AutoPath::PATH_COUNT ||
         autoPathThisEnable != RCMAP_AUTO_NONE) {
         sendEvent(RCMAP_EVENT_AUTO_PATH_REJECTED);
         return;
