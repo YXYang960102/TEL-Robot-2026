@@ -107,7 +107,7 @@ constexpr PathConfig LEFT_1 = {
 // 2: left 2
 constexpr PathConfig LEFT_2 = {
     {
-        {DRIVE, 1, 2667, DRIVE_COMMAND},  // straight (was 4000)
+        {DRIVE, 1, 2400, DRIVE_COMMAND},  // straight (was 2667)
         {TURN, 1, 500, TURN_COMMAND},     // turn right
         {DRIVE, 1, 1000, DRIVE_COMMAND},  // second straight
         {TURN, -1, 1000, TURN_COMMAND},   // turn back, left
@@ -126,7 +126,7 @@ constexpr PathConfig RIGHT_1 = {
 // 4: right 2
 constexpr PathConfig RIGHT_2 = {
     {
-        {DRIVE, 1, 2667, DRIVE_COMMAND},  // forward
+        {DRIVE, 1, 2400, DRIVE_COMMAND},  // forward (was 2667)
         {TURN, 1, 875, 0.20f},            // turn right, slow for the turret (0.35 x 500 ms -> 0.20 x 875 ms)
         {DRIVE, -1, 1000, DRIVE_COMMAND}, // back up
     },
@@ -148,9 +148,30 @@ constexpr PathConfig RIGHT_3 = {
     },
     7, 5, false,                          // locks 5 while driving, then starts at 7
 };
+// Off: left 4 / right 4 = left 2 / right 2 with a 1.5 s first straight.
+// To use them in place of left 3 / right 3 (paths 5 / 6): uncomment both
+// blocks, swap the PATHS line below and the Dashboard's names line.
+// constexpr PathConfig LEFT_4 = {
+//     {
+//         {DRIVE, 1, 1500, DRIVE_COMMAND},  // straight
+//         {TURN, 1, 500, TURN_COMMAND},     // turn right
+//         {DRIVE, 1, 1000, DRIVE_COMMAND},  // second straight
+//         {TURN, -1, 1000, TURN_COMMAND},   // turn back, left
+//     },
+//     1, 0, false,
+// };
+// constexpr PathConfig RIGHT_4 = {
+//     {
+//         {DRIVE, 1, 1500, DRIVE_COMMAND},  // forward
+//         {TURN, 1, 875, 0.20f},            // turn right, slow for the turret
+//         {DRIVE, -1, 1000, DRIVE_COMMAND}, // back up
+//     },
+//     7, 5, false,                          // locks 5 while driving, then starts at 7
+// };
 
 constexpr uint8_t PATH_COUNT = 6;
 constexpr PathConfig PATHS[PATH_COUNT] = {LEFT_1, LEFT_2, RIGHT_1, RIGHT_2, LEFT_3, RIGHT_3};
+// constexpr PathConfig PATHS[PATH_COUNT] = {LEFT_1, LEFT_2, RIGHT_1, RIGHT_2, LEFT_4, RIGHT_4};
 
 constexpr unsigned long PAUSE_MS = 300; // standing still between moves
 constexpr unsigned long PENDING_MS = 1500; // AUTO,n waits this long for full auto

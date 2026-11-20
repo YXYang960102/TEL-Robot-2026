@@ -765,9 +765,11 @@
               <option value="1">左：斜前方 2.6 秒</option>
               <option value="2">左：直角</option>
               <option value="5">左：斜前方 2.0 秒</option>
+              <!-- left 4 in path 5: <option value="5">左：短直角 1.5 秒</option> -->
               <option value="3">右：斜前方 2.6 秒</option>
               <option value="4">右：直角</option>
               <option value="6">右：斜前方 2.0 秒</option>
+              <!-- right 4 in path 6: <option value="6">右：短直角 1.5 秒</option> -->
             </select>
           </label>
           <label class="label">半場 / half
@@ -1048,6 +1050,8 @@
     const LAST_HOLE = 12;
     // Straight times follow TuningConstants::AutoPath::PATHS (path 1..6).
     const AUTO_PATH_NAMES = ["", "左：斜前方 2.6 秒", "左：直角", "右：斜前方 2.6 秒", "右：直角", "左：斜前方 2.0 秒", "右：斜前方 2.0 秒"];
+    // With left 4 / right 4 in paths 5 / 6 (TuningConstants.h), use this line and the menu below:
+    // const AUTO_PATH_NAMES = ["", "左：斜前方 2.6 秒", "左：直角", "右：斜前方 2.6 秒", "右：直角", "左：短直角 1.5 秒", "右：短直角 1.5 秒"];
     const AUTO_PATH_COUNT = 6;
     let targetHole = 0;
     // The hole the robot actually aims at (TEL 53 / $AIM's selected id):

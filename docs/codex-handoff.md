@@ -9068,3 +9068,22 @@ its seconds, right angle; right side the same.
 written in the names: change them with AutoPath::PATHS.
 
 **Evidence:** the three Dashboard tests pass (expectations renamed).
+
+## 2026-11-21 — Right-angle paths first straight 2.4 s; left 4 / right 4 (commented out)
+
+**User Request (Jeremy):** right-angle paths' first straight 2.4 s; add a
+fourth left / right path, also right-angle with a 1.5 s first straight,
+commented out, to replace the short diagonal slots when needed.
+
+**Changed:** LEFT_2 / RIGHT_2 first straight 2667 -> 2400 ms. LEFT_4 /
+RIGHT_4 (= LEFT_2 / RIGHT_2 with 1500 ms) as commented blocks after
+RIGHT_3, plus a commented `PATHS` line with LEFT_4 / RIGHT_4 in slots 5 /
+6 and commented Dashboard names / menu options (左／右：短直角 1.5 秒).
+Enabling = uncomment both blocks, swap the PATHS line and the Dashboard
+names line / two options; Mega only (radio slots unchanged).
+
+**Evidence:** paths 1 3 5 6 trace identical; left 2 straight 0-2400 ms,
+done 6100; right 2 done 5180. A scratch copy with LEFT_4 / RIGHT_4
+enabled builds (host + avr-g++ C++11 syntax) and traces: slot 5 done
+5200 ms, slot 6 done 4280 ms (aim 5 -> 7). 9 envs build; manual_control
+(both) and Dashboard tests pass. Not on hardware. Flash: Mega only.
