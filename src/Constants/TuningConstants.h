@@ -76,23 +76,70 @@ constexpr double RAMP_DOWN_PER_SECOND = 0.5; // 80% -> stop in 1.6 s
 }
 
 namespace AutoPath {
+// path n = PATHS[n - 1]; ms 0 = skipped; DRIVE +1 forward, TURN +1 right
+enum MoveKind : uint8_t { DRIVE = 0, TURN = 1 };
+struct Move {
+    uint8_t kind;
+    int8_t direction;
+    uint16_t ms;
+    float command;
+};
+constexpr uint8_t MAX_MOVES = 6;
+struct PathConfig {
+    Move moves[MAX_MOVES];
+    uint8_t startHole;        // full-auto cycle starts here (Auto::PATH_SETS_START_COLUMN)
+    uint8_t driveAimHole;     // turret locks this while driving; 0 = startHole
+    bool holdTurretUntilSeen; // turret at 0 deg while driving until a hole is seen
+};
+
 constexpr double DRIVE_COMMAND = 1.0; // both wheels, straight
 constexpr double TURN_COMMAND = 0.35;
-constexpr unsigned long DIAGONAL_TURN_MS = 0; // left 1 / right 1: first turn
-constexpr unsigned long DIAGONAL_DRIVE_MS = 2600; // left 1 / right 1: straight (was 3000)
-constexpr int8_t LEFT1_LAST_TURN_DIRECTION = 1; // +1 right, -1 left
-constexpr unsigned long LEFT1_LAST_TURN_MS = 500;
-constexpr int8_t RIGHT1_LAST_TURN_DIRECTION = 1; // +1 right, -1 left
-constexpr unsigned long RIGHT1_LAST_TURN_MS = 1000;
-constexpr double RIGHT1_LAST_TURN_COMMAND = 0.20; // right 1 last turn (was TURN_COMMAND 0.35): slower so the turret keeps up
-constexpr unsigned long FORWARD_DRIVE_MS = 2667; // left 2 / right 2: straight (was 4000)
-constexpr unsigned long SIDE_TURN_MS = 500; // left 2 / right 2: turn
-constexpr unsigned long SIDE_DRIVE_MS = 1000; // left 2 / right 2: second straight
-constexpr unsigned long SIDE_TURN_BACK_MS = 1000; // left 2 / right 2: turn back
+
+// 1: left 1
+constexpr PathConfig LEFT_1 = {
+    {
+        {TURN, 1, 0, TURN_COMMAND},       // first turn (off)
+        {DRIVE, 1, 2600, DRIVE_COMMAND},  // straight (was 3000)
+        {TURN, 1, 500, TURN_COMMAND},     // last turn, right
+    },
+    1, 0, false,
+};
+// 2: left 2
+constexpr PathConfig LEFT_2 = {
+    {
+        {DRIVE, 1, 2667, DRIVE_COMMAND},  // straight (was 4000)
+        {TURN, 1, 500, TURN_COMMAND},     // turn right
+        {DRIVE, 1, 1000, DRIVE_COMMAND},  // second straight
+        {TURN, -1, 1000, TURN_COMMAND},   // turn back, left
+    },
+    1, 0, false,
+};
+// 3: right 1
+constexpr PathConfig RIGHT_1 = {
+    {
+        {TURN, -1, 0, TURN_COMMAND},      // first turn (off)
+        {DRIVE, 1, 2600, DRIVE_COMMAND},  // straight (was 3000)
+        {TURN, 1, 1000, 0.20f},           // last turn, right, slow so the turret keeps up (was 0.35)
+    },
+    7, 5, false,                          // locks 5 while driving, then starts at 7
+};
+// 4: right 2
+constexpr PathConfig RIGHT_2 = {
+    {
+        {DRIVE, 1, 2667, DRIVE_COMMAND},  // straight (was 4000)
+        {TURN, -1, 500, TURN_COMMAND},    // turn left
+        {DRIVE, 1, 1000, DRIVE_COMMAND},  // second straight
+        {TURN, 1, 1000, TURN_COMMAND},    // turn back, right
+    },
+    7, 5, false,                          // locks 5 while driving, then starts at 7
+};
+
+constexpr uint8_t PATH_COUNT = 4;
+constexpr PathConfig PATHS[PATH_COUNT] = {LEFT_1, LEFT_2, RIGHT_1, RIGHT_2};
+
 constexpr unsigned long PAUSE_MS = 300; // standing still between moves
 constexpr unsigned long PENDING_MS = 1500; // AUTO,n waits this long for full auto
 constexpr double STICK_TAKEOVER = 0.20; // stick past this stops the path
-constexpr bool RIGHT_PATHS_HOLD_TURRET_UNTIL_SEEN = false; // true = right paths: turret at 0 deg while driving, until the hole is seen
 constexpr bool RIGHT_TURN_LEFT_WHEEL_BACK = true; // turn right = left wheel back
 }
 
@@ -111,8 +158,7 @@ constexpr uint8_t SECOND_HALF_SHOTS_PER_HOLE = 2; // second half
 constexpr uint8_t BONUS_SHOTS_PER_HOLE = 1; // lit Q W E, both halves
 constexpr uint8_t SECOND_HALF_FAR_COLUMN_SHOTS = 1; // second half, the cycle's last column; 0 = off
 constexpr bool CYCLE_BOTTOM_UP = true; // columns bottom to top, from the nearest bottom hole
-constexpr bool PATH_SETS_START_COLUMN = true; // left paths start at 1, right paths at 7
-constexpr uint8_t RIGHT_PATH_DRIVE_AIM_HOLE = 5; // right 1 / right 2: turret locks this hole while driving, then the cycle starts at 7; 0 = off
+constexpr bool PATH_SETS_START_COLUMN = true; // each path's startHole / driveAimHole (AutoPath::PATHS)
 constexpr unsigned long HOLE_SWITCH_DELAY_MS = 2000; // wait after a hole's last ball
 constexpr unsigned long HOLE_NOT_FOUND_SKIP_MS = 7000; // no shot and no lock this long = next hole; 0 = never
 constexpr uint16_t FULL_AUTO_EXCLUDED_HOLES = 0; // bit n = hole n
@@ -202,9 +248,22 @@ static_assert(Rotate::VISION_STALL_COMMAND >= 0.0 && Rotate::VISION_STALL_COMMAN
 static_assert(Rotate::VISION_kIZONE_PX >= 0.0 && Rotate::VISION_READY_TOLERANCE_PX > 0.0,
               "Vision-follow pixel windows must be non-negative");
 static_assert(AutoPath::DRIVE_COMMAND > 0.0 && AutoPath::DRIVE_COMMAND <= 1.0 &&
-                  AutoPath::TURN_COMMAND > 0.0 && AutoPath::TURN_COMMAND <= 1.0 &&
-                  AutoPath::RIGHT1_LAST_TURN_COMMAND > 0.0 && AutoPath::RIGHT1_LAST_TURN_COMMAND <= 1.0,
+                  AutoPath::TURN_COMMAND > 0.0 && AutoPath::TURN_COMMAND <= 1.0,
               "Auto path commands are 0..1 ratios");
+constexpr bool moveValid(const AutoPath::Move& v) {
+    return v.ms == 0 || (v.kind <= AutoPath::TURN && (v.direction == 1 || v.direction == -1) &&
+                         v.command > 0.0f && v.command <= 1.0f);
+}
+constexpr bool movesValid(const AutoPath::PathConfig& c, uint8_t m) {
+    return m >= AutoPath::MAX_MOVES || (moveValid(c.moves[m]) && movesValid(c, m + 1));
+}
+constexpr bool pathsValid(uint8_t p = 0) {
+    return p >= AutoPath::PATH_COUNT ||
+           (AutoPath::PATHS[p].startHole >= 1 && AutoPath::PATHS[p].startHole <= 9 &&
+            AutoPath::PATHS[p].driveAimHole <= 12 && movesValid(AutoPath::PATHS[p], 0) &&
+            pathsValid(p + 1));
+}
+static_assert(pathsValid(), "Auto paths: start hole 1-9, aim hole 0-12, moves +-1 with a 0..1 command");
 static_assert(AutoPath::STICK_TAKEOVER > 0.0 && AutoPath::STICK_TAKEOVER < 1.0,
               "Stick takeover threshold is a 0..1 command");
 static_assert(Auto::AIM_JOG_COMMAND > 0.0 && Auto::AIM_JOG_COMMAND <= 1.0, "Hand-turn speed is a 0..1 command");
