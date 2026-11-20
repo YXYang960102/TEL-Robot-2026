@@ -8989,3 +8989,41 @@ every 10 ms for 9 s (10800 samples: wheel commands, aim hole, path state,
 turret hold, rotate mode) is byte-identical to e9c28d2. 9 envs build;
 Mega RAM 69.3% -> 70.7%; manual_control (both) and shot_table_lookup pass.
 Not on hardware. Flash: Mega only.
+
+## 2026-11-21 — Right 2 new route; left 3 / right 3; radio CH8 level 5 = path 5 (link version 1)
+
+**User Request (Jeremy):** right 2: forward, turn right, back up, stop
+(turn slower, time scaled, for the turret); left 2 unchanged; left 3 =
+left 1 with a shorter straight (2.0 s); right 3 = right 1 with left 3's
+straight; turret locks the whole way; wired and wireless. Radio: option 2
+(left 3 on the old trim-clear level, right 3 wired only).
+
+**Discussion Result:** ELRS hybrid mode sends CH6+ as 6 fixed positions,
+so CH8 cannot carry 8 levels. Trim has been off since 2026-11-18, so
+CH8's level 5 (was TCLR) becomes path 5. Link version 0 -> 1 because a
+v0 ground's C (CH8 level 5) would otherwise start left 3 on a new Mega.
+Versions used before: 1 (10-28..10-31), 4, 5, 0; 2 / 3 are unusable.
+
+**Changed:**
+- `AutoPath::PATHS` (6): RIGHT_2 = forward 2667 ms full, turn right 875 ms
+  at 0.20 (0.35 x 500 -> 0.20 x 875), back 1000 ms full; start 7, aim 5.
+  LEFT_3 = straight 2000, right 500 at 0.35; start 1. RIGHT_3 = straight
+  2000, right 1000 at 0.20; start 7, aim 5. All: no turret hold.
+- Wired `AUTO,1..6` (PATH_COUNT); radio `RCMAP_AUTO_PATHS` 4 -> 5,
+  `RCMAP_AUTO_TRIM_CLEAR_LEVEL` and `rcmap_command::trim_clear` removed;
+  `RCMAP_LINK_VERSION` 1 (CH10 1200 us; ELRS 1193).
+- Mega: wireless trim-clear edge removed (wired TCLR still clears, trim
+  is off). Ground: TCLR accepted and ignored; AUTO,<1..5>.
+- Dashboard: 左三 / 右三 in the menu (paths 5 / 6); on the ground link
+  右三 is not sent (log says wired only).
+
+**Evidence:** paths 1-3 trace identical to the previous version (2700
+samples each); right 2: turn L-0.20/R+0.20 2980-3850 ms, back -1.0
+4160-5150, done 5450 (aim 5 -> 7); left 3 done 3100 (aim 1); right 3 done
+3600 (aim 5 -> 7). Radio round trip: paths 0-5 decode, 6 -> none; a v0
+frame (C on an old ground) is rejected. 9 envs + ground build; rc_control_map,
+ground state, manual_control (both), shot_table_lookup and the three
+Dashboard tests pass. Not on hardware. Flash: Mega AND ground together.
+
+**Next Test:** wireless link comes up after flashing both; right 2 / left 3
+/ right 3 routes and turret lock; left 3 picked over the radio.

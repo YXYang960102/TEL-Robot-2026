@@ -18,7 +18,7 @@ extern "C" {
 #define RCMAP_CH_AUTO 7u
 #define RCMAP_CH_TEST 8u
 #define RCMAP_CH_VERSION 9u
-#define RCMAP_LINK_VERSION 0u
+#define RCMAP_LINK_VERSION 1u
 #define RCMAP_CHANNEL_COUNT 10u
 
 #define RCMAP_TARGET_NONE 0u
@@ -41,8 +41,7 @@ extern "C" {
 #define RCMAP_NUDGE_RIGHT 4u
 
 #define RCMAP_AUTO_NONE 0u
-#define RCMAP_AUTO_PATHS 4u
-#define RCMAP_AUTO_TRIM_CLEAR_LEVEL 5u
+#define RCMAP_AUTO_PATHS 5u
 
 #define RCMAP_MODE_FULL_AUTO 0u
 #define RCMAP_MODE_SEMI_AUTO 1u
@@ -89,7 +88,6 @@ typedef struct {
     bool capture_toggle;
     uint8_t half;
     bool match_start;
-    bool trim_clear;
 } rcmap_command;
 
 static inline uint8_t rcmap_command_mode(const rcmap_command *c) {

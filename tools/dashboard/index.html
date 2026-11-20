@@ -764,8 +764,10 @@
               <option value="0" selected>None 不跑</option>
               <option value="1">左一 left 1</option>
               <option value="2">左二 left 2</option>
+              <option value="5">左三 left 3</option>
               <option value="3">右一 right 1</option>
               <option value="4">右二 right 2</option>
+              <option value="6">右三 right 3（有線 wired）</option>
             </select>
           </label>
           <label class="label">半場 / half
@@ -1044,7 +1046,9 @@
     // 10-12 = the bonus holes above the grid (keys Q W E, 2026-10-27).
     const HOLE_NAMES = ["", "左下", "左中", "左上", "中下", "中", "中上", "右下", "右中", "右上", "加分左", "加分中", "加分右"];
     const LAST_HOLE = 12;
-    const AUTO_PATH_NAMES = ["", "左一", "左二", "右一", "右二"];
+    const AUTO_PATH_NAMES = ["", "左一", "左二", "右一", "右二", "左三", "右三"];
+    const AUTO_PATH_COUNT = 6;
+    const RADIO_AUTO_PATHS = 5; // the radio channel carries paths 1-5 only (right 3: wired)
     let targetHole = 0;
     // The hole the robot actually aims at (TEL 53 / $AIM's selected id):
     // the operator's, or full auto's row cycle (2026-10-31). 0 = AI pick.
@@ -1149,9 +1153,13 @@
       await sendControl(`COL,${Number(ballColorSelect.value)}`);
       await sendControl(`HALF,${halfValue()}`);
       const path = Number(autoPathSelect.value);
-      if (path >= 1 && path <= 4) {
-        sentAutoPath = path;
-        await sendControl(`AUTO,${path}`);
+      if (path >= 1 && path <= AUTO_PATH_COUNT) {
+        if (linkKind === "ground" && path > RADIO_AUTO_PATHS) {
+          appendControlLog(`${AUTO_PATH_NAMES[path]} 只能用有線（USB 接 Mega）；無線沒有右三，這次不跑路徑`);
+        } else {
+          sentAutoPath = path;
+          await sendControl(`AUTO,${path}`);
+        }
       }
     }
 
@@ -1636,7 +1644,7 @@
       el.autoPath.textContent = autoPathThisEnable
         ? `已啟動 ${AUTO_PATH_NAMES[autoPathThisEnable]} · ${autoPathResult || "行駛中 / driving"}`
         : "未啟動 / not started";
-      const used = [1, 2, 3, 4].filter((p) => autoPathsUsedMask & (1 << p)).map((p) => AUTO_PATH_NAMES[p]);
+      const used = [1, 2, 5, 3, 4, 6].filter((p) => autoPathsUsedMask & (1 << p)).map((p) => AUTO_PATH_NAMES[p]);
       el.autoPathsUsed.textContent = `${robotReportsTarget ? "開機後已用" : "本頁送出紀錄"}：${used.length ? used.join("、") : "無"}`;
     }
 

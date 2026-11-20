@@ -55,7 +55,6 @@ void GroundCommandState::release(uint32_t nowMs) {
     cmd.fire = false;
     cmd.auto_path = RCMAP_AUTO_NONE;
     cmd.turret_home = false;
-    cmd.trim_clear = false;
     cmd.capture_toggle = false;
     cmd.match_start = false;
     rotate = 0;
@@ -300,7 +299,7 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
             cmd.test_mode = mode == RCMAP_MODE_TEST;
             cmd.mode_us = rcmap_mode_to_us(cmd.test_mode ? RCMAP_MODE_FULL_MANUAL : mode);
             emitModeEvent(mode, emit, ctx);
-        } else if (cmd.auto_path == RCMAP_AUTO_NONE && !cmd.trim_clear) {
+        } else if (cmd.auto_path == RCMAP_AUTO_NONE) {
             // A new press only after the previous pulse ended (the robot
             // needs to see "none" between presses).
             cmd.auto_path = static_cast<uint8_t>(n);
@@ -340,12 +339,7 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
         return;
     }
     if (isTrimClear) {
-        // One C press = one pulse on CH8 (shared with the auto paths: only
-        // when none is being sent, so the robot sees "none" in between).
-        if (!cmd.trim_clear && cmd.auto_path == RCMAP_AUTO_NONE) {
-            cmd.trim_clear = true;
-            trimClearStartMs = nowMs;
-        }
+        // Trim is off (2026-11-18); CH8 level 5 is path 5 now (2026-11-21).
         return;
     }
     if (line[0] == 'F') {
@@ -387,9 +381,6 @@ void GroundCommandState::tick(uint32_t nowMs, GroundEmitFn emit, void* ctx) {
     }
     if (cmd.match_start && nowMs - matchStartMs >= MATCH_START_PULSE_MS) {
         cmd.match_start = false;
-    }
-    if (cmd.trim_clear && nowMs - trimClearStartMs >= TRIM_CLEAR_PULSE_MS) {
-        cmd.trim_clear = false;
     }
     if (cmd.capture_toggle && nowMs - captureStartMs >= CAPTURE_PULSE_MS) {
         cmd.capture_toggle = false;

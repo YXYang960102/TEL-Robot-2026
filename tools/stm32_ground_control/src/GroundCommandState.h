@@ -7,7 +7,7 @@
 
 // Ground-station side of wireless control: turns the PC Dashboard's line
 // protocol (the same one the Mega speaks over USB: E, X, K, T,<l>,<r>,
-// ROT,<d>, ANG,<d>, TGT,<0..12>, AUTO,<1..4>, MODE,<0..3>, FLY,<0..1>, F, M;
+// ROT,<d>, ANG,<d>, TGT,<0..12>, AUTO,<1..5>, MODE,<0..3>, FLY,<0..1>, F, M;
 // ANGT is accepted but has no radio channel) into the RC channel state
 // (rcmap_command, table v2) that goes out over ELRS, and turns the robot's
 // status coming back (rcmap_status in Battery frames) into lines for the PC.
@@ -30,9 +30,8 @@
 //                  CH9's level 3 for CAPTURE_PULSE_MS, then off; refused
 //                  in TEST (CH9 carries TEST there) and while RB's home
 //                  pulse is on
-//   TCLR        -> clear the robot's saved aim / elevation trim (C,
-//                  2026-11-08): CH8's level 5 for TRIM_CLEAR_PULSE_MS
-//                  (waits for an auto path pulse to end), then none
+//   TCLR        -> accepted, nothing sent (trim off; CH8 level 5 is
+//                  path 5 since 2026-11-21)
 //
 // No Arduino here, so it runs unchanged in the host test.
 using GroundEmitFn = void (*)(void* ctx, const char* line);
@@ -62,7 +61,6 @@ public:
     static constexpr uint32_t FIRE_PULSE_MS = 100;
     static constexpr uint32_t AUTO_PULSE_MS = 200;
     static constexpr uint32_t HOME_PULSE_MS = 200;
-    static constexpr uint32_t TRIM_CLEAR_PULSE_MS = 200;
     // START (2026-11-16, the Dashboard's Y): CH7's level 5 this long.
     static constexpr uint32_t MATCH_START_PULSE_MS = 200;
     static constexpr uint32_t CAPTURE_PULSE_MS = 200;
@@ -100,7 +98,6 @@ private:
     uint32_t fireStartMs = 0;
     uint32_t autoStartMs = 0;
     uint32_t homeStartMs = 0;
-    uint32_t trimClearStartMs = 0;
     uint32_t matchStartMs = 0;
     uint32_t captureStartMs = 0;
     char line[MAX_LINE_LENGTH]{};

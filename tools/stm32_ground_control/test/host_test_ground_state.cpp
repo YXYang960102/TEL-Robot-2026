@@ -137,7 +137,7 @@ static void testTargetAndAutoPath() {
     send(st, "AUTO,4", 300);
     assert(onAir(st).auto_path == 4);
     lines.clear();
-    for (const char* bad : {"TGT,13", "TGT,-1", "TGT,a", "AUTO,0", "AUTO,5", "AUTO,"}) send(st, bad, 301);
+    for (const char* bad : {"TGT,13", "TGT,-1", "TGT,a", "AUTO,0", "AUTO,6", "AUTO,"}) send(st, bad, 301);
     assert(saw("$GROUND_EVENT,BAD_COMMAND") && onAir(st).target == 7 && onAir(st).auto_path == 4);
     // The bonus holes (Q W E -> TGT,10..12, 2026-10-27) reach CH3.
     send(st, "TGT,12", 302);

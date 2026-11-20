@@ -126,16 +126,31 @@ constexpr PathConfig RIGHT_1 = {
 // 4: right 2
 constexpr PathConfig RIGHT_2 = {
     {
-        {DRIVE, 1, 2667, DRIVE_COMMAND},  // straight (was 4000)
-        {TURN, -1, 500, TURN_COMMAND},    // turn left
-        {DRIVE, 1, 1000, DRIVE_COMMAND},  // second straight
-        {TURN, 1, 1000, TURN_COMMAND},    // turn back, right
+        {DRIVE, 1, 2667, DRIVE_COMMAND},  // forward
+        {TURN, 1, 875, 0.20f},            // turn right, slow for the turret (0.35 x 500 ms -> 0.20 x 875 ms)
+        {DRIVE, -1, 1000, DRIVE_COMMAND}, // back up
+    },
+    7, 5, false,                          // locks 5 while driving, then starts at 7
+};
+// 5: left 3 (left 1, shorter straight)
+constexpr PathConfig LEFT_3 = {
+    {
+        {DRIVE, 1, 2000, DRIVE_COMMAND},  // straight
+        {TURN, 1, 500, TURN_COMMAND},     // last turn, right
+    },
+    1, 0, false,
+};
+// 6: right 3 (right 1, left 3's straight)
+constexpr PathConfig RIGHT_3 = {
+    {
+        {DRIVE, 1, 2000, DRIVE_COMMAND},  // straight
+        {TURN, 1, 1000, 0.20f},           // last turn, right, slow for the turret
     },
     7, 5, false,                          // locks 5 while driving, then starts at 7
 };
 
-constexpr uint8_t PATH_COUNT = 4;
-constexpr PathConfig PATHS[PATH_COUNT] = {LEFT_1, LEFT_2, RIGHT_1, RIGHT_2};
+constexpr uint8_t PATH_COUNT = 6;
+constexpr PathConfig PATHS[PATH_COUNT] = {LEFT_1, LEFT_2, RIGHT_1, RIGHT_2, LEFT_3, RIGHT_3};
 
 constexpr unsigned long PAUSE_MS = 300; // standing still between moves
 constexpr unsigned long PENDING_MS = 1500; // AUTO,n waits this long for full auto

@@ -8,7 +8,7 @@
 
 using namespace TuningConstants::AutoPath;
 
-static_assert(PATH_COUNT == RCMAP_AUTO_PATHS, "Dashboard / radio path numbers 1..RCMAP_AUTO_PATHS");
+static_assert(PATH_COUNT >= RCMAP_AUTO_PATHS, "radio paths 1..RCMAP_AUTO_PATHS, wired 1..PATH_COUNT");
 
 AutoPath::State AutoPath::state = AutoPath::State::NONE;
 uint8_t AutoPath::path = 0;

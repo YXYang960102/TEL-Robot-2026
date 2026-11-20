@@ -114,8 +114,7 @@ void rcmap_encode(const rcmap_command *c, int ch_us[16]) {
                         : c->nudge < RCMAP_FIVE_LEVELS ? c->nudge : RCMAP_NUDGE_CENTER;
     ch_us[RCMAP_CH_NUDGE] = RCMAP_LEVEL_BASE_US + (int)nudge * RCMAP_LEVEL_STEP_US;
     const uint8_t path = c->auto_path <= RCMAP_AUTO_PATHS ? c->auto_path : RCMAP_AUTO_NONE;
-    const uint8_t autoLevel = path == RCMAP_AUTO_NONE && c->trim_clear ? RCMAP_AUTO_TRIM_CLEAR_LEVEL : path;
-    ch_us[RCMAP_CH_AUTO] = RCMAP_LEVEL_BASE_US + (int)autoLevel * RCMAP_LEVEL_STEP_US;
+    ch_us[RCMAP_CH_AUTO] = RCMAP_LEVEL_BASE_US + (int)path * RCMAP_LEVEL_STEP_US;
     {
         const bool test = rcmap_command_mode(c) == RCMAP_MODE_TEST;
         const int normal = c->half == RCMAP_HALF_SECOND ? 0 : 2;
@@ -149,7 +148,7 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
         !us_to_level(ch_us[RCMAP_CH_NUDGE], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
                      RCMAP_LEVEL_TOLERANCE_US, RCMAP_MATCH_START_LEVEL + 1u, &nudge) ||
         !us_to_level(ch_us[RCMAP_CH_AUTO], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
-                     RCMAP_LEVEL_TOLERANCE_US, RCMAP_AUTO_TRIM_CLEAR_LEVEL + 1u, &path) ||
+                     RCMAP_LEVEL_TOLERANCE_US, RCMAP_AUTO_PATHS + 1u, &path) ||
         !us_to_level(ch_us[RCMAP_CH_TEST], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
                      RCMAP_LEVEL_TOLERANCE_US, 6u, &test_level)) {
         return false;
@@ -165,8 +164,7 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     out->armed = ch_us[RCMAP_CH_ARM] >= RCMAP_SWITCH_ON_US;
     out->match_start = nudge == RCMAP_MATCH_START_LEVEL;
     out->nudge = out->match_start ? RCMAP_NUDGE_CENTER : nudge;
-    out->trim_clear = path == RCMAP_AUTO_TRIM_CLEAR_LEVEL;
-    out->auto_path = out->trim_clear ? RCMAP_AUTO_NONE : path;
+    out->auto_path = path;
     out->test_mode = (test_level == 4u || test_level == 5u) &&
                      rcmap_mode_from_us(mode_us) == RCMAP_MODE_FULL_MANUAL;
     out->turret_home = test_level == 1u || test_level == 5u;
