@@ -7,7 +7,7 @@
 
 // Ground-station side of wireless control: turns the PC Dashboard's line
 // protocol (the same one the Mega speaks over USB: E, X, K, T,<l>,<r>,
-// ROT,<d>, ANG,<d>, TGT,<0..12>, AUTO,<1..5>, MODE,<0..3>, FLY,<0..1>, F, M;
+// ROT,<d>, ANG,<d>, TGT,<0..12>, AUTO,<1..6>, MODE,<0..3>, FLY,<0..1>, F, M;
 // ANGT is accepted but has no radio channel) into the RC channel state
 // (rcmap_command, table v2) that goes out over ELRS, and turns the robot's
 // status coming back (rcmap_status in Battery frames) into lines for the PC.
@@ -23,7 +23,8 @@
 //                  to 0)
 //   FLYO,<n>    -> the autos' flywheel offset -20..20 %, on CH4 with the
 //                  auto level (same resets; dropped in full manual)
-//   AUTO,<n>    -> auto path (CH8) for AUTO_PULSE_MS, then none
+//   AUTO,<n>    -> auto path for AUTO_PULSE_MS, then none: 1-5 on CH8,
+//                  6 as CH4 1350 us (full auto only)
 //   THOME       -> turret back to 0 deg (RB, 2026-10-31): CH9's home
 //                  level for HOME_PULSE_MS, then off
 //   CAPT        -> photo capture on / off on the Orin (P, 2026-11-14):

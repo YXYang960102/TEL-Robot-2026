@@ -767,7 +767,7 @@
               <option value="5">左三 left 3</option>
               <option value="3">右一 right 1</option>
               <option value="4">右二 right 2</option>
-              <option value="6">右三 right 3（有線 wired）</option>
+              <option value="6">右三 right 3</option>
             </select>
           </label>
           <label class="label">半場 / half
@@ -1048,7 +1048,6 @@
     const LAST_HOLE = 12;
     const AUTO_PATH_NAMES = ["", "左一", "左二", "右一", "右二", "左三", "右三"];
     const AUTO_PATH_COUNT = 6;
-    const RADIO_AUTO_PATHS = 5; // the radio channel carries paths 1-5 only (right 3: wired)
     let targetHole = 0;
     // The hole the robot actually aims at (TEL 53 / $AIM's selected id):
     // the operator's, or full auto's row cycle (2026-10-31). 0 = AI pick.
@@ -1154,12 +1153,8 @@
       await sendControl(`HALF,${halfValue()}`);
       const path = Number(autoPathSelect.value);
       if (path >= 1 && path <= AUTO_PATH_COUNT) {
-        if (linkKind === "ground" && path > RADIO_AUTO_PATHS) {
-          appendControlLog(`${AUTO_PATH_NAMES[path]} 只能用有線（USB 接 Mega）；無線沒有右三，這次不跑路徑`);
-        } else {
-          sentAutoPath = path;
-          await sendControl(`AUTO,${path}`);
-        }
+        sentAutoPath = path;
+        await sendControl(`AUTO,${path}`);
       }
     }
 

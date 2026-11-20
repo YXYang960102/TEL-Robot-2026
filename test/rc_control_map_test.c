@@ -267,6 +267,8 @@ static void test_flywheel_on_mode_channel(void) {
     ch[RCMAP_CH_MODE] = 988;
     assert(rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d) && d.flywheel == 0.0f);
     for (int us = 1304; us < RCMAP_MODE_FULL_AUTO_MIN_US; us++) {
+        if (us >= RCMAP_AUTO_PATH6_US - RCMAP_AUTO_PATH6_TOLERANCE_US &&
+            us <= RCMAP_AUTO_PATH6_US + RCMAP_AUTO_PATH6_TOLERANCE_US) continue; /* path 6 (2026-11-21) */
         ch[RCMAP_CH_MODE] = us;
         assert(!rcmap_decode(ch, RCMAP_CHANNEL_COUNT, &d));
     }

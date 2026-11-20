@@ -41,7 +41,10 @@ extern "C" {
 #define RCMAP_NUDGE_RIGHT 4u
 
 #define RCMAP_AUTO_NONE 0u
-#define RCMAP_AUTO_PATHS 5u
+#define RCMAP_AUTO_PATHS 6u          /* radio paths 1..6 */
+#define RCMAP_AUTO_CH8_PATHS 5u      /* 1..5 on CH8 levels 1..5 */
+#define RCMAP_AUTO_PATH6_US 1350     /* path 6: CH4 pulse in the unused 1304..1399 gap = full auto + path 6 */
+#define RCMAP_AUTO_PATH6_TOLERANCE_US 30
 
 #define RCMAP_MODE_FULL_AUTO 0u
 #define RCMAP_MODE_SEMI_AUTO 1u

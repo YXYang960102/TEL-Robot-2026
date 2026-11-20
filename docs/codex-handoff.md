@@ -9027,3 +9027,32 @@ Dashboard tests pass. Not on hardware. Flash: Mega AND ground together.
 
 **Next Test:** wireless link comes up after flashing both; right 2 / left 3
 / right 3 routes and turret lock; left 3 picked over the radio.
+
+## 2026-11-21 — Right 3 over the radio: CH4 1350 us pulse
+
+**User Request (Jeremy):** run right 3 (path 6) wirelessly too, without
+affecting normal control.
+
+**Discussion Result:** CH8 (6 ELRS positions) is full and its idle level
+must stay "none" (safety: a reboot / reconnect must never look like a path
+press). CH4 is full resolution and in every packet, and 1304..1399 us was
+unused (rejected). Right 3 = CH4 1350 +-30 us for the ground's 200 ms
+AUTO pulse = "full auto + path 6"; CH8 stays none. Still link version 1
+(not flashed anywhere before this).
+
+**Changed:** `RCMAP_AUTO_PATHS` 6 (radio), `RCMAP_AUTO_CH8_PATHS` 5,
+`RCMAP_AUTO_PATH6_US` 1350 / tolerance 30. Encode: path 6 only when the
+command is full auto (not test), else dropped. Decode: 1320..1380 ->
+mode full auto, offset 0, auto_path 6; with a CH8 path at the same time
+the frame is rejected. Ground: AUTO,6 only in full auto (else
+BAD_COMMAND). Dashboard: right 3 no longer wired-only.
+
+**Evidence:** old (4df94a1) vs new codec: every channel swept 880..2120 us
+on 4 base frames + 4158 encoded commands (modes x flywheel x offset x
+paths 0-5 x test x half) = 74588 lines; the only difference is CH4
+1320..1380 (old: reject, new: path 6). Sim over the radio: full auto
+path 6 -> CH4 1350, CH8 none, path 6 runs (turn 0.20), ends aiming 7;
+semi auto: not sent, nothing starts. 9 envs + ground + robot bridge
+build (bridge dist/ restored, unchanged); rc_control_map, ground state,
+manual_control (both) and Dashboard tests pass. Not on hardware.
+Flash: Mega AND ground together.
