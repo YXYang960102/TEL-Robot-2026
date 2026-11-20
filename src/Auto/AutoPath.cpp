@@ -39,15 +39,15 @@ uint8_t AutoPath::buildMoves(uint8_t p, Move* out) {
     Move all[4];
     uint8_t n = 0;
     if (p == 1 || p == 3) {
-        all[n++] = {1, side, DIAGONAL_TURN_MS};
-        all[n++] = {0, 1, DIAGONAL_DRIVE_MS};
-        if (p == 1) all[n++] = {1, LEFT1_LAST_TURN_DIRECTION, LEFT1_LAST_TURN_MS};
-        else        all[n++] = {1, RIGHT1_LAST_TURN_DIRECTION, RIGHT1_LAST_TURN_MS};
+        all[n++] = {1, side, DIAGONAL_TURN_MS, TURN_COMMAND};
+        all[n++] = {0, 1, DIAGONAL_DRIVE_MS, DRIVE_COMMAND};
+        if (p == 1) all[n++] = {1, LEFT1_LAST_TURN_DIRECTION, LEFT1_LAST_TURN_MS, TURN_COMMAND};
+        else        all[n++] = {1, RIGHT1_LAST_TURN_DIRECTION, RIGHT1_LAST_TURN_MS, RIGHT1_LAST_TURN_COMMAND};
     } else if (p == 2 || p == 4) {
-        all[n++] = {0, 1, FORWARD_DRIVE_MS};
-        all[n++] = {1, side, SIDE_TURN_MS};
-        all[n++] = {0, 1, SIDE_DRIVE_MS};
-        all[n++] = {1, static_cast<int8_t>(-side), SIDE_TURN_BACK_MS};
+        all[n++] = {0, 1, FORWARD_DRIVE_MS, DRIVE_COMMAND};
+        all[n++] = {1, side, SIDE_TURN_MS, TURN_COMMAND};
+        all[n++] = {0, 1, SIDE_DRIVE_MS, DRIVE_COMMAND};
+        all[n++] = {1, static_cast<int8_t>(-side), SIDE_TURN_BACK_MS, TURN_COMMAND};
     }
     uint8_t count = 0;
     for (uint8_t i = 0; i < n; i++) {
@@ -91,12 +91,12 @@ bool AutoPath::update(OperatorMode mode, unsigned long nowMs, double& left, doub
     }
     if (elapsed < runMs) {
         if (move.kind == 0) {
-            left = right = move.direction * DRIVE_COMMAND;
+            left = right = move.direction * move.command;
         } else {
             const double rightTurn = move.direction;
             const double leftSign = RIGHT_TURN_LEFT_WHEEL_BACK ? -rightTurn : rightTurn;
-            left = leftSign * TURN_COMMAND;
-            right = -leftSign * TURN_COMMAND;
+            left = leftSign * move.command;
+            right = -leftSign * move.command;
         }
     }
     return true;

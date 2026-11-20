@@ -128,6 +128,11 @@ bool excludedInFullAuto(uint8_t hole) {
 }
 
 uint8_t Auto::getAimTarget() {
+    using TuningConstants::Auto::RIGHT_PATH_DRIVE_AIM_HOLE;
+    if (RIGHT_PATH_DRIVE_AIM_HOLE != 0 && pathStartUsed && AutoPath::isActive() &&
+        (AutoPath::getPath() == 3 || AutoPath::getPath() == 4)) {
+        return RIGHT_PATH_DRIVE_AIM_HOLE;
+    }
     if (litActive) return litHole;
     if (rowActive) return rowDone ? lastCycleHole : cycleHoles[rowStep];
     return ManualControl::getTarget();

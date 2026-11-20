@@ -30,6 +30,7 @@ private:
         int8_t kind;
         int8_t direction;
         unsigned long ms;
+        double command;
     };
     static uint8_t buildMoves(uint8_t path, Move* out);
 
