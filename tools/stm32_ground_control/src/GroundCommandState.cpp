@@ -278,7 +278,10 @@ void GroundCommandState::processLine(uint32_t nowMs, GroundEmitFn emit, void* ct
                            : isAutoPath ? RCMAP_AUTO_PATHS
                            : isFlywheelOffset ? RCMAP_AUTO_OFFSET_MAX_PCT
                                         : RCMAP_MODE_TEST;
-        if (end == digits || *end != '\0' || n < minimum || n > maximum) {
+        if (end == digits || *end != '\0' || n < minimum || n > maximum ||
+            (isAutoPath && n == RCMAP_AUTO_PATHS &&
+             (rcmap_mode_from_us(cmd.mode_us) != RCMAP_MODE_FULL_AUTO || cmd.test_mode))) {
+            // Path 6 rides on CH4 as "full auto + path 6": only from full auto.
             emitLine(emit, ctx, "$GROUND_EVENT,BAD_COMMAND");
             return;
         }

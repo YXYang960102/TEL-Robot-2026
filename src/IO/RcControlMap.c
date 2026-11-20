@@ -74,9 +74,16 @@ static int mode_channel_us(const rcmap_command *c) {
     return RCMAP_FLYWHEEL_BASE_US + (percent * RCMAP_FLYWHEEL_SPAN_US + 50) / 100;
 }
 
-static bool decode_mode_channel(int us, int *mode_us, float *flywheel, int8_t *offset_pct) {
+static bool decode_mode_channel(int us, int *mode_us, float *flywheel, int8_t *offset_pct, bool *path6) {
     *flywheel = 0.0f;
     *offset_pct = 0;
+    *path6 = false;
+    if (us >= RCMAP_AUTO_PATH6_US - RCMAP_AUTO_PATH6_TOLERANCE_US &&
+        us <= RCMAP_AUTO_PATH6_US + RCMAP_AUTO_PATH6_TOLERANCE_US) {
+        *mode_us = RCMAP_MODE_FULL_AUTO_US;
+        *path6 = true;
+        return true;
+    }
     if (us >= RCMAP_MODE_FULL_AUTO_MIN_US) {
         const uint8_t mode = rcmap_mode_from_us(us);
         *mode_us = rcmap_mode_to_us(mode);
@@ -107,13 +114,15 @@ void rcmap_encode(const rcmap_command *c, int ch_us[16]) {
     const uint8_t color = c->ball_color < RCMAP_BALL_COLORS ? c->ball_color : RCMAP_BALL_YELLOW;
     ch_us[RCMAP_CH_TARGET] = RCMAP_TARGET_BASE_US + (int)target * RCMAP_TARGET_STEP_US +
                              (int)color * RCMAP_BALL_STEP_US;
-    ch_us[RCMAP_CH_MODE] = mode_channel_us(c);
+    const bool path6 = c->auto_path == RCMAP_AUTO_PATHS &&
+                       rcmap_mode_from_us(c->mode_us) == RCMAP_MODE_FULL_AUTO && !c->test_mode;
+    ch_us[RCMAP_CH_MODE] = path6 ? RCMAP_AUTO_PATH6_US : mode_channel_us(c);
     ch_us[RCMAP_CH_FIRE] = c->fire ? 2000 : 1000;
     ch_us[RCMAP_CH_ARM] = c->armed ? 2000 : 1000;
     const uint8_t nudge = c->match_start ? RCMAP_MATCH_START_LEVEL
                         : c->nudge < RCMAP_FIVE_LEVELS ? c->nudge : RCMAP_NUDGE_CENTER;
     ch_us[RCMAP_CH_NUDGE] = RCMAP_LEVEL_BASE_US + (int)nudge * RCMAP_LEVEL_STEP_US;
-    const uint8_t path = c->auto_path <= RCMAP_AUTO_PATHS ? c->auto_path : RCMAP_AUTO_NONE;
+    const uint8_t path = c->auto_path <= RCMAP_AUTO_CH8_PATHS ? c->auto_path : RCMAP_AUTO_NONE;
     ch_us[RCMAP_CH_AUTO] = RCMAP_LEVEL_BASE_US + (int)path * RCMAP_LEVEL_STEP_US;
     {
         const bool test = rcmap_command_mode(c) == RCMAP_MODE_TEST;
@@ -143,16 +152,18 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     int mode_us;
     float flywheel;
     int8_t offset_pct;
-    if (!decode_mode_channel(ch_us[RCMAP_CH_MODE], &mode_us, &flywheel, &offset_pct) ||
+    bool path6;
+    if (!decode_mode_channel(ch_us[RCMAP_CH_MODE], &mode_us, &flywheel, &offset_pct, &path6) ||
         !decode_target_channel(ch_us[RCMAP_CH_TARGET], &target, &color) ||
         !us_to_level(ch_us[RCMAP_CH_NUDGE], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
                      RCMAP_LEVEL_TOLERANCE_US, RCMAP_MATCH_START_LEVEL + 1u, &nudge) ||
         !us_to_level(ch_us[RCMAP_CH_AUTO], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
-                     RCMAP_LEVEL_TOLERANCE_US, RCMAP_AUTO_PATHS + 1u, &path) ||
+                     RCMAP_LEVEL_TOLERANCE_US, RCMAP_AUTO_CH8_PATHS + 1u, &path) ||
         !us_to_level(ch_us[RCMAP_CH_TEST], RCMAP_LEVEL_BASE_US, RCMAP_LEVEL_STEP_US,
                      RCMAP_LEVEL_TOLERANCE_US, 6u, &test_level)) {
         return false;
     }
+    if (path6 && path != RCMAP_AUTO_NONE) return false; /* CH4 path 6 and a CH8 path at once */
     out->forward = us_to_axis(ch_us[RCMAP_CH_FORWARD]);
     out->turn = us_to_axis(ch_us[RCMAP_CH_TURN]);
     out->target = target;
@@ -164,7 +175,7 @@ bool rcmap_decode(const int *ch_us, uint8_t count, rcmap_command *out) {
     out->armed = ch_us[RCMAP_CH_ARM] >= RCMAP_SWITCH_ON_US;
     out->match_start = nudge == RCMAP_MATCH_START_LEVEL;
     out->nudge = out->match_start ? RCMAP_NUDGE_CENTER : nudge;
-    out->auto_path = path;
+    out->auto_path = path6 ? RCMAP_AUTO_PATHS : path;
     out->test_mode = (test_level == 4u || test_level == 5u) &&
                      rcmap_mode_from_us(mode_us) == RCMAP_MODE_FULL_MANUAL;
     out->turret_home = test_level == 1u || test_level == 5u;
