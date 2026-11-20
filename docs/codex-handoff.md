@@ -8933,3 +8933,22 @@ shot_table_lookup pass. Not on hardware. Flash: Mega only.
 
 **Next Test:** left 1 / right 1 end position after 2.6 s; 11-15 table at
 the usual distances (top row / hole 11 / Q E borrow hole 11).
+
+## 2026-11-20 — Right 1 last turn slower; right paths lock hole 5 while driving
+
+**User Request (Jeremy):** right 1's last turn is too fast for the turret
+lock; right paths do not lock while driving: lock hole 5 while driving,
+start from 7 when the path stops.
+
+**Changed:**
+- `AutoPath::RIGHT1_LAST_TURN_COMMAND` 0.20 (was TURN_COMMAND 0.35), time
+  kept at 1000 ms (Jeremy's choice; the turn angle gets smaller). Moves
+  now carry their own command.
+- `Auto::RIGHT_PATH_DRIVE_AIM_HOLE` 5: while right 1 / right 2 drive (and
+  the path set the start column), `Auto::getAimTarget()` returns 5; at
+  DONE it is the cycle's 7 again (7 8 9 -> 4 5 6 -> 1 2 3). 0 = off.
+
+**Evidence:** 9 envs build; manual_control (both variants) passes. Sim:
+right 1 aim 5 until 4.2 s then 7; right 2 aim 5 until 6.37 s then 7;
+left 1 aim 1 throughout; right 1 last turn -0.20/+0.20 for 1000 ms.
+Not on hardware. Flash: Mega only.

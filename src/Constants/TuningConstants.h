@@ -84,6 +84,7 @@ constexpr int8_t LEFT1_LAST_TURN_DIRECTION = 1; // +1 right, -1 left
 constexpr unsigned long LEFT1_LAST_TURN_MS = 500;
 constexpr int8_t RIGHT1_LAST_TURN_DIRECTION = 1; // +1 right, -1 left
 constexpr unsigned long RIGHT1_LAST_TURN_MS = 1000;
+constexpr double RIGHT1_LAST_TURN_COMMAND = 0.20; // right 1 last turn (was TURN_COMMAND 0.35): slower so the turret keeps up
 constexpr unsigned long FORWARD_DRIVE_MS = 2667; // left 2 / right 2: straight (was 4000)
 constexpr unsigned long SIDE_TURN_MS = 500; // left 2 / right 2: turn
 constexpr unsigned long SIDE_DRIVE_MS = 1000; // left 2 / right 2: second straight
@@ -111,6 +112,7 @@ constexpr uint8_t BONUS_SHOTS_PER_HOLE = 1; // lit Q W E, both halves
 constexpr uint8_t SECOND_HALF_FAR_COLUMN_SHOTS = 1; // second half, the cycle's last column; 0 = off
 constexpr bool CYCLE_BOTTOM_UP = true; // columns bottom to top, from the nearest bottom hole
 constexpr bool PATH_SETS_START_COLUMN = true; // left paths start at 1, right paths at 7
+constexpr uint8_t RIGHT_PATH_DRIVE_AIM_HOLE = 5; // right 1 / right 2: turret locks this hole while driving, then the cycle starts at 7; 0 = off
 constexpr unsigned long HOLE_SWITCH_DELAY_MS = 2000; // wait after a hole's last ball
 constexpr unsigned long HOLE_NOT_FOUND_SKIP_MS = 7000; // no shot and no lock this long = next hole; 0 = never
 constexpr uint16_t FULL_AUTO_EXCLUDED_HOLES = 0; // bit n = hole n
@@ -200,7 +202,8 @@ static_assert(Rotate::VISION_STALL_COMMAND >= 0.0 && Rotate::VISION_STALL_COMMAN
 static_assert(Rotate::VISION_kIZONE_PX >= 0.0 && Rotate::VISION_READY_TOLERANCE_PX > 0.0,
               "Vision-follow pixel windows must be non-negative");
 static_assert(AutoPath::DRIVE_COMMAND > 0.0 && AutoPath::DRIVE_COMMAND <= 1.0 &&
-                  AutoPath::TURN_COMMAND > 0.0 && AutoPath::TURN_COMMAND <= 1.0,
+                  AutoPath::TURN_COMMAND > 0.0 && AutoPath::TURN_COMMAND <= 1.0 &&
+                  AutoPath::RIGHT1_LAST_TURN_COMMAND > 0.0 && AutoPath::RIGHT1_LAST_TURN_COMMAND <= 1.0,
               "Auto path commands are 0..1 ratios");
 static_assert(AutoPath::STICK_TAKEOVER > 0.0 && AutoPath::STICK_TAKEOVER < 1.0,
               "Stick takeover threshold is a 0..1 command");
