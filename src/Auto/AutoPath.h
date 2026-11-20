@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 
+#include "../Constants/TuningConstants.h"
 #include "../IO/OperatorMode.h"
 
 class AutoPath {
@@ -24,15 +25,10 @@ public:
     static bool isActive();
     static bool holdsShooter();
     static bool holdsTurret();
+    static const TuningConstants::AutoPath::PathConfig* config(uint8_t path);
 
 private:
-    struct Move {
-        int8_t kind;
-        int8_t direction;
-        unsigned long ms;
-        double command;
-    };
-    static uint8_t buildMoves(uint8_t path, Move* out);
+    static const TuningConstants::AutoPath::Move& currentMove();
 
     static State state;
     static uint8_t path;
@@ -41,5 +37,4 @@ private:
     static uint8_t moveCount;
     static unsigned long moveStartMs;
     static bool turretHold;
-    static Move moves[4];
 };

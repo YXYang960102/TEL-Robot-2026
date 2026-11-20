@@ -3,9 +3,12 @@
 #include <Arduino.h>
 
 #include "../Constants/TuningConstants.h"
+#include "../IO/RcControlMap.h"
 #include "../Vision/Vision.h"
 
 using namespace TuningConstants::AutoPath;
+
+static_assert(PATH_COUNT == RCMAP_AUTO_PATHS, "Dashboard / radio path numbers 1..RCMAP_AUTO_PATHS");
 
 AutoPath::State AutoPath::state = AutoPath::State::NONE;
 uint8_t AutoPath::path = 0;
@@ -14,7 +17,6 @@ uint8_t AutoPath::moveIndex = 0;
 uint8_t AutoPath::moveCount = 0;
 unsigned long AutoPath::moveStartMs = 0;
 bool AutoPath::turretHold = false;
-AutoPath::Move AutoPath::moves[4] = {};
 
 void AutoPath::reset() {
     state = State::NONE;
@@ -25,35 +27,32 @@ void AutoPath::reset() {
 }
 
 void AutoPath::request(uint8_t newPath, unsigned long nowMs) {
-    moveCount = buildMoves(newPath, moves);
+    const PathConfig* c = config(newPath);
+    if (c == nullptr) return;
+    moveCount = 0;
+    for (uint8_t i = 0; i < MAX_MOVES; i++) {
+        if (c->moves[i].ms > 0) moveCount++;
+    }
     if (moveCount == 0) return;
     path = newPath;
     state = State::PENDING;
     requestedMs = nowMs;
     moveIndex = 0;
-    turretHold = RIGHT_PATHS_HOLD_TURRET_UNTIL_SEEN && (newPath == 3 || newPath == 4);
+    turretHold = c->holdTurretUntilSeen;
 }
 
-uint8_t AutoPath::buildMoves(uint8_t p, Move* out) {
-    const int8_t side = (p == 3 || p == 4) ? -1 : 1;
-    Move all[4];
-    uint8_t n = 0;
-    if (p == 1 || p == 3) {
-        all[n++] = {1, side, DIAGONAL_TURN_MS, TURN_COMMAND};
-        all[n++] = {0, 1, DIAGONAL_DRIVE_MS, DRIVE_COMMAND};
-        if (p == 1) all[n++] = {1, LEFT1_LAST_TURN_DIRECTION, LEFT1_LAST_TURN_MS, TURN_COMMAND};
-        else        all[n++] = {1, RIGHT1_LAST_TURN_DIRECTION, RIGHT1_LAST_TURN_MS, RIGHT1_LAST_TURN_COMMAND};
-    } else if (p == 2 || p == 4) {
-        all[n++] = {0, 1, FORWARD_DRIVE_MS, DRIVE_COMMAND};
-        all[n++] = {1, side, SIDE_TURN_MS, TURN_COMMAND};
-        all[n++] = {0, 1, SIDE_DRIVE_MS, DRIVE_COMMAND};
-        all[n++] = {1, static_cast<int8_t>(-side), SIDE_TURN_BACK_MS, TURN_COMMAND};
+const PathConfig* AutoPath::config(uint8_t p) {
+    return p >= 1 && p <= PATH_COUNT ? &PATHS[p - 1] : nullptr;
+}
+
+const Move& AutoPath::currentMove() {
+    const PathConfig* c = config(path);
+    uint8_t seen = 0;
+    for (uint8_t i = 0; i < MAX_MOVES; i++) {
+        if (c->moves[i].ms == 0) continue;
+        if (seen++ == moveIndex) return c->moves[i];
     }
-    uint8_t count = 0;
-    for (uint8_t i = 0; i < n; i++) {
-        if (all[i].ms > 0) out[count++] = all[i];
-    }
-    return count;
+    return c->moves[0];
 }
 
 bool AutoPath::update(OperatorMode mode, unsigned long nowMs, double& left, double& right) {
@@ -77,7 +76,7 @@ bool AutoPath::update(OperatorMode mode, unsigned long nowMs, double& left, doub
         return false;
     }
 
-    const Move& move = moves[moveIndex];
+    const Move& move = currentMove();
     const unsigned long elapsed = nowMs - moveStartMs;
     const unsigned long runMs = move.ms;
     if (elapsed >= runMs + PAUSE_MS) {
@@ -90,7 +89,7 @@ bool AutoPath::update(OperatorMode mode, unsigned long nowMs, double& left, doub
         return true;
     }
     if (elapsed < runMs) {
-        if (move.kind == 0) {
+        if (move.kind == DRIVE) {
             left = right = move.direction * move.command;
         } else {
             const double rightTurn = move.direction;

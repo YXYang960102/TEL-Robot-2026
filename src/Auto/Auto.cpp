@@ -128,10 +128,9 @@ bool excludedInFullAuto(uint8_t hole) {
 }
 
 uint8_t Auto::getAimTarget() {
-    using TuningConstants::Auto::RIGHT_PATH_DRIVE_AIM_HOLE;
-    if (RIGHT_PATH_DRIVE_AIM_HOLE != 0 && pathStartUsed && AutoPath::isActive() &&
-        (AutoPath::getPath() == 3 || AutoPath::getPath() == 4)) {
-        return RIGHT_PATH_DRIVE_AIM_HOLE;
+    if (pathStartUsed && AutoPath::isActive()) {
+        const TuningConstants::AutoPath::PathConfig* c = AutoPath::config(AutoPath::getPath());
+        if (c != nullptr && c->driveAimHole != 0) return c->driveAimHole;
     }
     if (litActive) return litHole;
     if (rowActive) return rowDone ? lastCycleHole : cycleHoles[rowStep];
@@ -202,12 +201,13 @@ void Auto::updateRowCycle(OperatorMode mode) {
     const AutoPath::State pathState = AutoPath::getState();
     if (pathState == AutoPath::State::NONE) pathStartUsed = false;
     const uint8_t path = AutoPath::getPath();
-    if (ROW_CYCLE_ENABLED && PATH_SETS_START_COLUMN && !pathStartUsed && path >= 1 && path <= 4 &&
+    const TuningConstants::AutoPath::PathConfig* pathConfig = AutoPath::config(path);
+    if (ROW_CYCLE_ENABLED && PATH_SETS_START_COLUMN && !pathStartUsed && pathConfig != nullptr &&
         pathState != AutoPath::State::NONE && ManualControl::getTarget() == OperatorTarget::NONE) {
         pathStartUsed = true;
         holeSwitchPending = false;
         rowDone = false;
-        startCycle(OperatorTarget::holeAt(0, path <= 2 ? 0 : 2));
+        startCycle(pathConfig->startHole);
     }
     if (holeSwitchPending && now - holeSwitchStartMs >= HOLE_SWITCH_DELAY_MS) {
         finishHoleSwitch();
