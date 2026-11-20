@@ -108,7 +108,7 @@ int main() {
                     assert(t.entries[i].distanceCm < t.entries[i + 1].distanceCm);
                 }
                 assert(t.entries[i].flywheelPermille <= 1000);
-                assert(t.entries[i].elevationUs >= 500 && t.entries[i].elevationUs <= 2500);
+                assert(t.entries[i].elevationUs >= 500 && t.entries[i].elevationUs <= 2461);
             }
             if (t.count < 2) continue;
             const double mid = (ShotTableLookup::meters(t.entries[0]) + ShotTableLookup::meters(t.entries[1])) / 2.0;

@@ -1417,7 +1417,7 @@
 
     // S: the point, or null (and the reason in the log). Same ranges as
     // tools/shot_table/apply.py: hole 1-9, 0.5-15 m in whole cm, elevation
-    // 500-2500 us, flywheel 0-100% with at most one decimal.
+    // 500-2461 us, flywheel 0-100% with at most one decimal.
     function recordShot() {
       const now = performance.now();
       const refuse = (why) => { appendControlLog(`S 沒有記錄 / not recorded：${why}`); return null; };
@@ -1441,7 +1441,7 @@
       }
       if (now - shotElevationAt > SHOT_READING_FRESH_MS) return refuse("收不到仰角脈寬");
       const elevationUs = Math.round(shotElevationUs);
-      if (elevationUs < 500 || elevationUs > 2500) return refuse(`仰角 ${elevationUs} us 不在 500–2500 內`);
+      if (elevationUs < 500 || elevationUs > 2461) return refuse(`仰角 ${elevationUs} us 不在 500–2461 內`);
       const falconFresh = now - shotFalconAt <= SHOT_READING_FRESH_MS;
       const actualPct = falconFresh ? Math.abs(shotFalconUs - 1500) / 5 : NaN;
       let flywheelPct;

@@ -22,7 +22,7 @@ constexpr double POSITION_RATE_US_PER_SECOND = 1000.0;
 
 constexpr int MIN_PULSE_US = 500;
 constexpr int NEUTRAL_US = 1500;
-constexpr int MAX_PULSE_US = 2500; // was 2461 (2026-11-21)
+constexpr int MAX_PULSE_US = 2461;
 
 constexpr double CAL_A_PULSE_US = 500.0; // pulse <-> deg, Dashboard readout only
 constexpr double CAL_A_DEGREES = 0.0;
