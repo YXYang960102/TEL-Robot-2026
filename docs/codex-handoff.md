@@ -9087,3 +9087,22 @@ done 6100; right 2 done 5180. A scratch copy with LEFT_4 / RIGHT_4
 enabled builds (host + avr-g++ C++11 syntax) and traces: slot 5 done
 5200 ms, slot 6 done 4280 ms (aim 5 -> 7). 9 envs build; manual_control
 (both) and Dashboard tests pass. Not on hardware. Flash: Mega only.
+
+## 2026-11-21 — Elevation pulse max 2461 -> 2500 us
+
+**User Request (Jeremy):** elevation range to 2500. Direction (Jeremy):
+500 us = elevation raised highest, 2500 us = lowest.
+
+**Changed:** `Angle::MAX_PULSE_US` 2461 -> 2500 (servo attach, position
+limits, auto clamp). apply.py range check / Excel validation / chart axis
+500-2500 (workbook rewritten with the same points; backup in
+tools/shot_table/backup). Dashboard recordShot range 500-2500. Boot pulse
+`POSITION_INITIAL_US` stays 2461. Table uses 500-1954 us today; holes 4 /
+5 points at 500 us are at the highest raise (no room above).
+
+**Evidence:** 9 envs build; servo_angle_map (max 270 deg now),
+servo_position_jog, shot_table_lookup, manual_control (both) and Dashboard
+tests pass. Not on hardware. Flash: Mega only.
+
+**Next Test:** jog the elevation slowly to 2500 us and check it does not
+press against the mechanism's low stop (2461 was set on 2026-11-08).
