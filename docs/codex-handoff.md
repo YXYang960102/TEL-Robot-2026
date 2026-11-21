@@ -9122,3 +9122,20 @@ unchanged.
 **Evidence:** 9 envs build; servo_angle_map, servo_position_jog,
 shot_table_lookup and Dashboard tests pass; apply.py --check: no change.
 Flash: Mega only.
+
+## 2026-11-21 — Second half 1 ball a hole; Jeremy's right-angle times and red hole 5
+
+**User Request (Jeremy):** second half 2/2/1 -> 1 everywhere; push his own
+edits too.
+
+**Changed:**
+- `Auto::SECOND_HALF_SHOTS_PER_HOLE` 2 -> 1 (far column and lit bonus
+  were already 1; first half stays 3). Dashboard half menu / event text
+  "每洞 1 顆".
+- Jeremy's edits: LEFT_2 / RIGHT_2 first straight 2400 -> 2900 ms,
+  second segment (left 2 straight / right 2 back up) 1000 -> 900 ms.
+- Jeremy's Excel, red hole 5: 2.77 m 49.5%; 3.62 / 3.98 m 500 us 49.5%;
+  4.47 / 5.00 m 500 us 48.5%; 5.46 m 552 us 48.0%. Header regenerated.
+
+**Evidence:** 9 envs build; manual_control (both), shot_table_lookup and
+Dashboard tests pass. Not on hardware. Flash: Mega only.

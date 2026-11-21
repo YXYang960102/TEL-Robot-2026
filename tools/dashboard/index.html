@@ -775,7 +775,7 @@
           <label class="label">半場 / half
             <select id="halfSelect" aria-label="Match half">
               <option value="1" selected>上半場 first half（每洞 3 顆）</option>
-              <option value="2">下半場 second half（每洞 2 顆）</option>
+              <option value="2">下半場 second half（每洞 1 顆）</option>
             </select>
           </label>
           <label class="label">球色 / ball color
@@ -927,7 +927,7 @@
     // Match half (2026-11-15): HALF,<1|2>; sent like the ball color.
     const halfSelect = document.getElementById("halfSelect");
     const halfValue = () => (Number(halfSelect.value) === 2 ? 2 : 1);
-    const HALF_EVENTS = { HALF_FIRST: "上半場（每洞 3 顆）", HALF_SECOND: "下半場（每洞 2 顆）" };
+    const HALF_EVENTS = { HALF_FIRST: "上半場（每洞 3 顆）", HALF_SECOND: "下半場（每洞 1 顆）" };
     const BALL_COLORS = ["黃", "紫", "藍", "綠", "紅", "橘"];
     const BALL_EVENTS = { BALL_YELLOW: 0, BALL_PURPLE: 1, BALL_BLUE: 2, BALL_GREEN: 3, BALL_RED: 4, BALL_ORANGE: 5 };
     const autoPathSelect = document.getElementById("autoPathSelect");
