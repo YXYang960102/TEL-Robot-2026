@@ -107,9 +107,9 @@ constexpr PathConfig LEFT_1 = {
 // 2: left 2
 constexpr PathConfig LEFT_2 = {
     {
-        {DRIVE, 1, 2400, DRIVE_COMMAND},  // straight (was 2667)
+        {DRIVE, 1, 2900, DRIVE_COMMAND},  // straight (was 2667)
         {TURN, 1, 500, TURN_COMMAND},     // turn right
-        {DRIVE, 1, 1000, DRIVE_COMMAND},  // second straight
+        {DRIVE, 1, 900, DRIVE_COMMAND},  // second straight
         {TURN, -1, 1000, TURN_COMMAND},   // turn back, left
     },
     1, 0, false,
@@ -126,9 +126,9 @@ constexpr PathConfig RIGHT_1 = {
 // 4: right 2
 constexpr PathConfig RIGHT_2 = {
     {
-        {DRIVE, 1, 2400, DRIVE_COMMAND},  // forward (was 2667)
+        {DRIVE, 1, 2900, DRIVE_COMMAND},  // forward (was 2667)
         {TURN, 1, 875, 0.20f},            // turn right, slow for the turret (0.35 x 500 ms -> 0.20 x 875 ms)
-        {DRIVE, -1, 1000, DRIVE_COMMAND}, // back up
+        {DRIVE, -1, 900, DRIVE_COMMAND}, // back up
     },
     7, 5, false,                          // locks 5 while driving, then starts at 7
 };
@@ -190,7 +190,7 @@ constexpr double AUTO_PATH_ELEVATION_DISTANCE_M = 4.5;
 
 constexpr bool ROW_CYCLE_ENABLED = true; // full auto hole cycle
 constexpr uint8_t SHOTS_PER_HOLE = 3; // first half
-constexpr uint8_t SECOND_HALF_SHOTS_PER_HOLE = 2; // second half
+constexpr uint8_t SECOND_HALF_SHOTS_PER_HOLE = 1; // second half (was 2)
 constexpr uint8_t BONUS_SHOTS_PER_HOLE = 1; // lit Q W E, both halves
 constexpr uint8_t SECOND_HALF_FAR_COLUMN_SHOTS = 1; // second half, the cycle's last column; 0 = off
 constexpr bool CYCLE_BOTTOM_UP = true; // columns bottom to top, from the nearest bottom hole
