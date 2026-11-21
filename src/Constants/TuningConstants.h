@@ -127,7 +127,7 @@ constexpr PathConfig RIGHT_1 = {
 constexpr PathConfig RIGHT_2 = {
     {
         {DRIVE, 1, 2900, DRIVE_COMMAND},  // forward (was 2667)
-        {TURN, 1, 875, 0.20f},            // turn right, slow for the turret (0.35 x 500 ms -> 0.20 x 875 ms)
+        {TURN, 1, 2000, 0.20f},            // turn right, slow for the turret (0.35 x 500 ms -> 0.20 x 875 ms)
         {DRIVE, -1, 900, DRIVE_COMMAND}, // back up
     },
     7, 5, false,                          // locks 5 while driving, then starts at 7
